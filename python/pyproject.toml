@@ -37,7 +37,7 @@ pq      = ["pyoqs>=0.10"]
 server  = ["fastapi>=0.111", "uvicorn[standard]>=0.29", "httpx>=0.27"]
 cli     = ["click>=8.1"]
 all     = ["pyoqs>=0.10", "fastapi>=0.111", "uvicorn[standard]>=0.29", "httpx>=0.27", "click>=8.1"]
-dev     = ["pytest>=8", "pytest-asyncio>=0.23", "httpx>=0.27", "jcs>=0.3",
+dev     = ["pytest>=8", "pytest-asyncio>=0.23", "httpx>=0.27", "jcs>=0.2",
            "pyoqs>=0.10", "fastapi>=0.111", "uvicorn[standard]>=0.29", "click>=8.1"]
 
 [project.scripts]
