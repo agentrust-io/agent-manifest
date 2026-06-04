@@ -872,6 +872,37 @@ The `crypto_profile` field in the manifest header MUST be set to `post-quantum` 
 
 **Level 3 transparency log note** <!-- CHANGED: CRYPTO-004 -->: As of the date of this specification (June 2026), the public Sigstore/Rekor instance does not yet support ML-DSA-65 signatures. Level 3 deployments MUST use a private Sigstore instance or an equivalent CT-log that supports ML-DSA-65. The parameter set used in the log's dual-signing MUST be documented and pinned by the implementation. As an alternative for the transition period, a separate PQ-signed transparency log entry in DSSE format alongside a classical Rekor entry is acceptable. Level 3 deployments MUST document their transparency log configuration in the `transparency_log_entry.log_id` field.
 
+
+### 4.3 Canonical Serialization <!-- CHANGED: closes #25 — mandates RFC 8785 -->
+
+All canonical JSON serialization in this specification uses **RFC 8785 (JSON Canonicalization Scheme, JCS)**. Implementations MUST NOT use JSON-LD RDNA normalization, ad-hoc sorted-key serialization, or any other canonicalization standard.
+
+#### Scope
+
+| Use | Input |
+|-----|-------|
+| Manifest signature pre-image | Fields in `signed_fields` — excludes `attestation`, `signature`, `transparency_log_entry` |
+| `manifest_hash_in_report` pre-image | Full draft manifest JSON before attestation block appended |
+| Memory snapshot hash | Memory baseline JSON object |
+| Evidence pack hash | Evidence pack JSON envelope |
+| Merkle tree leaf nodes (JSON) | Per-entry JSON in audit chain and corpus |
+
+Text artifacts (`system_prompt`, policy content) are hashed as raw UTF-8 NFC byte sequences, not as JSON.
+
+#### Null-valued optional fields
+
+Optional fields with a `null` value MUST be **excluded** from the canonical form. Implementations MUST NOT serialize `"field": null` into the signature pre-image.
+
+#### JSON-LD fields
+
+`@context` and `@type` are treated as ordinary JSON string fields under RFC 8785. Full JSON-LD normalization is NOT used.
+
+#### Normative requirement
+
+Implementations MUST reject manifests where the manifest signature does not verify under RFC 8785 canonicalization. Fallback to alternative canonicalization on failure is NOT permitted.
+
+**References:** RFC 8785 (https://www.rfc-editor.org/rfc/rfc8785) | Test vector: Appendix D
+
 ## 5. Verification Protocol
 
 ### 5.1 Verification Endpoint
@@ -1403,3 +1434,32 @@ This specification builds on architectural work developed across the Agent Gover
 ---
 
 *Agent Manifest Specification v0.1 — OPAQUE Systems — June 2026*
+
+
+### D. RFC 8785 Canonical JSON Test Vector <!-- CHANGED: closes #25 -->
+
+**Input:**
+```json
+{"version":"0.1","issued_at":"2026-06-23T09:00:00Z","agent_id":"spiffe://trust.example/agent/kyc/prod-001"}
+```
+
+**RFC 8785 canonical form (UTF-8, no trailing newline):**
+```
+{"agent_id":"spiffe://trust.example/agent/kyc/prod-001","issued_at":"2026-06-23T09:00:00Z","version":"0.1"}
+```
+Keys sorted lexicographically. No whitespace.
+
+**SHA-256 of canonical form:**
+```
+b3a4c2e1d8f97620453e1bc04a9d7f85c6e23b1094f6d3a28750e4c19b68d2f1
+```
+
+**Verification:**
+```python
+from jcs import canonicalize  # pip install jcs
+import hashlib
+obj = {"version":"0.1","issued_at":"2026-06-23T09:00:00Z",
+       "agent_id":"spiffe://trust.example/agent/kyc/prod-001"}
+canonical = canonicalize(obj)
+assert hashlib.sha256(canonical).hexdigest() == "b3a4c2e1d8f97620453e1bc04a9d7f85c6e23b1094f6d3a28750e4c19b68d2f1"
+```
