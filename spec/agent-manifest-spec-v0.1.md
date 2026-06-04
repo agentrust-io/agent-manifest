@@ -148,6 +148,27 @@ The `@context` and `@type` JSON-LD fields are treated as ordinary JSON fields fo
 
 **SHAKE-256 output length**: For all artifact hash fields in the post-quantum profile, SHAKE-256 output length MUST be 256 bits (32 bytes), producing a 64-character lowercase hexadecimal string. SHAKE-256 hash values MUST be prefixed with `shake256:` in field values to distinguish them from SHA-256 hashes. <!-- CHANGED: SCHEMA F-05 — fixed SHAKE-256 output length ambiguity -->
 
+
+### 2.3 Version Negotiation <!-- CHANGED: closes #45 -->
+
+Manifest producers and verifiers negotiate spec compatibility using the `version` field in the manifest and the `spec_version` field in VerificationResult.
+
+**Producer requirements:**
+- MUST set `version` to the spec version used for manifest construction (e.g., `"0.1"`).
+- MUST NOT produce fields defined only in later spec versions when targeting an older verifier.
+
+**Verifier requirements:**
+- MUST check `version` before verifying. If the version is unsupported, MUST return `INCOMPATIBLE_VERSION` rather than silently misinterpreting fields.
+- SHOULD support at least the current and one prior minor version.
+
+**Compatibility matrix:**
+
+| Producer version | Verifier supports | Result |
+|-----------------|-------------------|--------|
+| 0.1 | 0.1 | VALID (if artifacts match) |
+| 0.2 | 0.1 | INCOMPATIBLE_VERSION |
+| 0.1 | 0.2 | VALID (0.2 verifiers MUST be backward-compatible with 0.1 manifests) |
+
 ## 3. Data Model
 
 ### 3.1 Top-Level Schema
@@ -822,6 +843,22 @@ Returns: <revocation record> if revoked, 404 if not revoked
 ```
 
 Revocation records MUST be published to the same transparency log as the manifest, using a leaf type of `revocation`. The `transparency_log_entry` in the revocation record confirms non-repudiation of the revocation event.
+
+
+### 3.8 Key Rotation and Manifest Re-signing <!-- CHANGED: closes #42 -->
+
+When the signing key is rotated, the manifest MUST be re-signed and re-published to the transparency log. The old manifest becomes invalid once the new manifest is published and the old key is revoked.
+
+Key rotation procedure:
+1. Generate new key pair
+2. Create a new manifest with the same artifact bindings, a new `issued_at`, and updated `signature.key_id`
+3. Sign the new manifest with the new private key
+4. Publish to transparency log
+5. Update the verification endpoint to serve the new manifest
+6. Revoke the old manifest via the revocation endpoint
+7. Revoke the old signing key in the key management system
+
+Implementations MUST NOT re-use the old `manifest_id` for the rotated manifest — a new UUID v7 MUST be generated. The old manifest_id MAY be referenced in the new manifest's metadata for continuity tracing.
 
 ## 4. Cryptographic Protocols
 
