@@ -455,7 +455,40 @@ For `drift_policy` action definitions:
 - `alert-on-drift`: Emit a `MEMORY_DRIFT_DETECTED` evidence event. Continue operation but surface the alert in every verification result until acknowledged.
 - `log-only`: Record the drift in the audit log. No operational impact.
 
-#### 3.2.7 Supply Chain Binding
+
+#### 3.2.7 Decision Trace Binding <!-- CHANGED: added missing artifact #7 schema block -->
+
+```json
+"decision_trace": {
+  "trace_type": "hash-chained | merkle-log",
+  "audit_chain_root": "sha256:<64-hex-chars>",
+  "audit_chain_uri": "<HTTPS URI to audit log endpoint>",
+  "signing_key_id": "<TEE-sealed key identifier>",
+  "audit_key_sealed": true,
+  "first_entry_at": "<ISO 8601 UTC>",
+  "last_entry_at": "<ISO 8601 UTC>",
+  "entry_count": "<integer>",
+  "bound_at": "<ISO 8601 UTC>"
+}
+```
+
+| Field | Cardinality | Notes |
+|-------|-------------|-------|
+| `trace_type` | REQUIRED | `hash-chained` for sequential ECDSA-P256 chains; `merkle-log` for tree-based logs |
+| `audit_chain_root` | REQUIRED | SHA-256 root of the entire audit chain as of manifest signing time |
+| `audit_chain_uri` | REQUIRED | HTTPS endpoint where the full audit chain can be fetched for verification |
+| `signing_key_id` | REQUIRED | Identifier of the TEE-sealed key that signs each audit entry |
+| `audit_key_sealed` | REQUIRED | MUST be `true` for Level 1+ conformance. A value of `false` indicates a software-signed chain and MUST be treated as software-attested only |
+| `first_entry_at` | REQUIRED | Timestamp of the first entry in the chain; used to detect chain truncation |
+| `last_entry_at` | REQUIRED | Timestamp of the most recent entry at manifest signing time |
+| `entry_count` | OPTIONAL | Total number of entries in the chain; allows verifiers to detect entry deletion |
+| `bound_at` | REQUIRED | When this binding was captured |
+
+The `audit_chain_root` in this binding MUST match the `audit_chain_root` field in the cMCP attestation report (Section 6.2). A mismatch between these two values indicates the manifest was signed against a different audit chain than the one currently running, which MUST cause verification to return MISMATCH.
+
+`audit_key_sealed: false` does not invalidate the manifest but MUST be surfaced in the verification result as a warning. A verifying party that requires hardware-rooted evidence (e.g., Level 1+ conformance, regulatory audit) MUST treat `audit_key_sealed: false` as equivalent to NOT_BOUND for attestation purposes.
+
+#### 3.2.8 Supply Chain Binding
 
 <!-- CHANGED: F-03 — replaced slsa_provenance block with verifiable fields aligned to DSSE/in-toto; SCHEMA F-16/F-07 — added serial_number to sbom block, renamed version to schema_version; SCHEMA F-07 — fixed phase2_attested boolean type -->
 
