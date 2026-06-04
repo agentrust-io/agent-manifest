@@ -1451,7 +1451,7 @@ Keys sorted lexicographically. No whitespace.
 
 **SHA-256 of canonical form:**
 ```
-b3a4c2e1d8f97620453e1bc04a9d7f85c6e23b1094f6d3a28750e4c19b68d2f1
+b83293348255f4427dc030478f354b83f4f82662223be0926ad9f2db946b5319
 ```
 
 **Verification:**
@@ -1461,5 +1461,5 @@ import hashlib
 obj = {"version":"0.1","issued_at":"2026-06-23T09:00:00Z",
        "agent_id":"spiffe://trust.example/agent/kyc/prod-001"}
 canonical = canonicalize(obj)
-assert hashlib.sha256(canonical).hexdigest() == "b3a4c2e1d8f97620453e1bc04a9d7f85c6e23b1094f6d3a28750e4c19b68d2f1"
+assert hashlib.sha256(canonical).hexdigest() == "b83293348255f4427dc030478f354b83f4f82662223be0926ad9f2db946b5319"
 ```
