@@ -197,19 +197,23 @@ def _compute_root_from_proof(
     audit_path: list[bytes],
     h_fn,
 ) -> bytes:
-    """Reconstruct root from an inclusion proof."""
+    """Reconstruct root from an inclusion proof (RFC 9162 §2.2).
+
+    Audit path elements are ordered bottom-to-top (leaf sibling first).
+    Direction at each level is determined by parity: odd index or rightmost
+    node means sibling is on the left.
+    """
     node = leaf_hash
-    i = index
-    n = tree_size
-    for sibling in audit_path:
-        k = _split_point(n)
-        if i < k:
-            node = h_fn(b"\x01" + node + sibling)
-            n = k
+    fn = tree_size
+    fr = index
+    for step in audit_path:
+        if fr == fn - 1 or fr % 2 == 1:
+            node = h_fn(b"\x01" + step + node)
+            fr = (fr - 1) // 2
         else:
-            node = h_fn(b"\x01" + sibling + node)
-            i -= k
-            n -= k
+            node = h_fn(b"\x01" + node + step)
+            fr = fr // 2
+        fn = (fn + 1) // 2
     return node
 
 

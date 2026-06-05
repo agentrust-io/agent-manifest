@@ -4,8 +4,9 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from pydantic import GetCoreSchemaHandler
+from pydantic import GetCoreSchemaHandler, GetJsonSchemaHandler
 from pydantic_core import CoreSchema, core_schema
+from pydantic.json_schema import JsonSchemaValue
 
 
 class ManifestId(str):
@@ -29,6 +30,12 @@ class ManifestId(str):
             cls._validate,
             serialization=core_schema.to_string_ser_schema(),
         )
+
+    @classmethod
+    def __get_pydantic_json_schema__(
+        cls, _core_schema: CoreSchema, handler: GetJsonSchemaHandler
+    ) -> JsonSchemaValue:
+        return {"type": "string", "format": "uuid", "pattern": cls._PATTERN.pattern}
 
     @classmethod
     def _validate(cls, v: Any) -> "ManifestId":
@@ -60,6 +67,12 @@ class HashValue(str):
             cls._validate,
             serialization=core_schema.to_string_ser_schema(),
         )
+
+    @classmethod
+    def __get_pydantic_json_schema__(
+        cls, _core_schema: CoreSchema, handler: GetJsonSchemaHandler
+    ) -> JsonSchemaValue:
+        return {"type": "string", "pattern": cls._PATTERN.pattern}
 
     @classmethod
     def _validate(cls, v: Any) -> "HashValue":

@@ -168,7 +168,7 @@ def test_model_api_no_hash():
     assert b.model_hash is None
 
 def test_model_api_with_hash_rejected():
-    with pytest.raises(ValidationError, match="must be null for.*api"):
+    with pytest.raises(ValidationError, match="MUST be null for"):
         ModelIdentityBinding(
             provider="anthropic", model_id="claude", version="3",
             deployment_type=DeploymentType.api, model_hash=SHA, bound_at=NOW,
