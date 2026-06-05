@@ -230,6 +230,9 @@ class CorpusDocument:
     content_bytes: bytes
 
 
+_MAX_MERKLE_LEAVES = 1_000_000  # DOS-002: cap to prevent CPU/memory exhaustion
+
+
 def build_corpus_tree(
     documents: list[CorpusDocument],
     algorithm: str = "sha256",
@@ -245,7 +248,15 @@ def build_corpus_tree(
 
     Returns:
         Root in HashValue format: ``"sha256:<64-hex>"``
+
+    Raises:
+        ValueError: If the number of documents exceeds MAX_LEAVES.
     """
+    if len(documents) > _MAX_MERKLE_LEAVES:
+        raise ValueError(
+            f"build_corpus_tree: {len(documents)} documents exceeds the "
+            f"{_MAX_MERKLE_LEAVES}-leaf maximum. Split into multiple trees."
+        )
     if not documents:
         return f"{algorithm}:{EMPTY_TREE[algorithm].hex()}"
 
@@ -289,7 +300,15 @@ def build_catalog_tree(
 
     Returns:
         Root in HashValue format: ``"sha256:<64-hex>"``
+
+    Raises:
+        ValueError: If the number of tools exceeds MAX_LEAVES.
     """
+    if len(tools) > _MAX_MERKLE_LEAVES:
+        raise ValueError(
+            f"build_catalog_tree: {len(tools)} tools exceeds the "
+            f"{_MAX_MERKLE_LEAVES}-leaf maximum."
+        )
     if not tools:
         return f"{algorithm}:{EMPTY_TREE[algorithm].hex()}"
 

@@ -54,6 +54,8 @@ except ImportError:
 # Signed fields per spec Section 3.6 — excludes attestation, signature,
 # and transparency_log_entry which are appended post-signing.
 SIGNED_FIELDS: tuple[str, ...] = (
+    "@context",
+    "@type",
     "manifest_id",
     "agent_id",
     "version",
@@ -110,6 +112,12 @@ def signing_pre_image(manifest_dict: dict[str, Any]) -> bytes:
 class Ed25519KeyPair:
     private_key: Ed25519PrivateKey
     public_key: Ed25519PublicKey
+
+    def __repr__(self) -> str:
+        return f"Ed25519KeyPair(key_id={self.key_id!r}, private_key=<REDACTED>)"
+
+    def __str__(self) -> str:
+        return self.__repr__()
 
     @property
     def public_bytes(self) -> bytes:
@@ -206,6 +214,12 @@ class MlDsa65KeyPair:
     private_key_bytes: bytes
     public_key_bytes: bytes
 
+    def __repr__(self) -> str:
+        return f"MlDsa65KeyPair(key_id={self.key_id!r}, private_key_bytes=<REDACTED>)"
+
+    def __str__(self) -> str:
+        return self.__repr__()
+
     @property
     def key_id(self) -> str:
         return _key_id(self.public_key_bytes)
@@ -280,6 +294,12 @@ class HybridKeyPair:
 
     ed25519: Ed25519KeyPair
     ml_dsa65: MlDsa65KeyPair
+
+    def __repr__(self) -> str:
+        return f"HybridKeyPair(key_id={self.key_id!r}, ed25519=<REDACTED>, ml_dsa65=<REDACTED>)"
+
+    def __str__(self) -> str:
+        return self.__repr__()
 
     @property
     def key_id(self) -> str:

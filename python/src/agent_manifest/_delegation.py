@@ -146,15 +146,30 @@ def _check_scope_narrowing(parent: dict[str, Any], child: dict[str, Any], hop_in
     if not parent_tools:
         # Empty parent tools = unrestricted; child may specify any subset
         pass
-    elif child_tools and not child_tools.issubset(parent_tools):
-        extra = child_tools - parent_tools
-        raise ValueError(
-            f"Scope laundering at hop {hop_index}: "
-            f"child claims tools {extra!r} not granted by parent"
-        )
+    else:
+        # DELEG-003/DELEG-004: empty child tools with non-empty parent is scope escalation.
+        # Child claiming no restriction when parent has explicit restrictions is not allowed.
+        if not child_tools:
+            raise ValueError(
+                f"Scope laundering at hop {hop_index}: "
+                f"child claims unrestricted tools (empty list) but parent grants only {parent_tools!r}"
+            )
+        if not child_tools.issubset(parent_tools):
+            extra = child_tools - parent_tools
+            raise ValueError(
+                f"Scope laundering at hop {hop_index}: "
+                f"child claims tools {extra!r} not granted by parent"
+            )
 
     parent_classes = set(parent.get("data_classifications") or [])
     child_classes = set(child.get("data_classifications") or [])
+    # DELEG-003: empty parent data_classifications means "none granted",
+    # so a child claiming any classification is a scope escalation.
+    if not parent_classes and child_classes:
+        raise ValueError(
+            f"Scope laundering at hop {hop_index}: "
+            f"child claims data_classifications {child_classes!r} but parent grants none"
+        )
     if parent_classes and child_classes and not child_classes.issubset(parent_classes):
         extra = child_classes - parent_classes
         raise ValueError(

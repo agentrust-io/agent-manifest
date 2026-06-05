@@ -33,8 +33,11 @@ class SoftwareProvider(AttestationProvider):
         self._manifest_hash = self.manifest_hash_value(manifest_json)
 
     def get_attestation_report(self) -> AttestationReport:
-        h = getattr(self, "_manifest_hash", "")
-        return AttestationReport(platform="software", manifest_hash=h)
+        if not hasattr(self, "_manifest_hash"):
+            raise AttestationUnavailableError(
+                "Call extend_manifest_hash() before get_attestation_report()."
+            )
+        return AttestationReport(platform="software", manifest_hash=self._manifest_hash)
 
     def verify_manifest_in_report(self, report: AttestationReport, manifest_json: dict[str, Any]) -> bool:
         return bool(report.manifest_hash == self.manifest_hash_value(manifest_json))
@@ -52,27 +55,18 @@ def select_provider(level: int = 0) -> AttestationProvider:
     """
     # OPAQUE managed runtime
     if os.environ.get("OPAQUE_ATTESTATION_URL"):
-        try:
-            from ._opaque_provider import OPAQUEProvider
-            return cast(AttestationProvider, OPAQUEProvider())
-        except ImportError:
-            pass
+        from ._hw_providers import OPAQUEProvider
+        return cast(AttestationProvider, OPAQUEProvider())
 
     # AMD SEV-SNP
     if os.path.exists("/dev/sev-guest"):
-        try:
-            from ._sev_provider import SEVSNPProvider
-            return cast(AttestationProvider, SEVSNPProvider())
-        except ImportError:
-            pass
+        from ._hw_providers import SEVSNPProvider
+        return cast(AttestationProvider, SEVSNPProvider())
 
     # Intel TDX
     if os.path.exists("/dev/tdx-guest"):
-        try:
-            from ._tdx_provider import TDXProvider
-            return cast(AttestationProvider, TDXProvider())
-        except ImportError:
-            pass
+        from ._hw_providers import TDXProvider
+        return cast(AttestationProvider, TDXProvider())
 
     # Generic TPM / AWS Nitro
     if shutil.which("tpm2_extend"):

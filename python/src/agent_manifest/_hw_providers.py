@@ -214,13 +214,30 @@ class OPAQUEProvider(AttestationProvider):
         AttestationUnavailableError: If the service is not reachable.
     """
 
+    _MAX_RESPONSE_BYTES = 1 * 1024 * 1024  # 1 MB cap on attestation service responses
+
     def __init__(self) -> None:
-        self._url = os.environ.get("OPAQUE_ATTESTATION_URL", "").rstrip("/")
-        if not self._url:
+        import urllib.parse
+        raw_url = os.environ.get("OPAQUE_ATTESTATION_URL", "").rstrip("/")
+        if not raw_url:
             raise AttestationUnavailableError(
                 "OPAQUE_ATTESTATION_URL environment variable not set. "
                 "Set it to the OPAQUE attestation service endpoint."
             )
+        parsed = urllib.parse.urlparse(raw_url)
+        if parsed.scheme != "https":
+            raise AttestationUnavailableError(
+                f"OPAQUE_ATTESTATION_URL must use https:// (got {parsed.scheme!r}). "
+                "Plaintext HTTP would expose manifest pre-images and API keys."
+            )
+        host = parsed.hostname or ""
+        if host in ("localhost", "127.0.0.1", "::1") or host.startswith("169.254.") or \
+                host.startswith("10.") or host.startswith("192.168.") or \
+                (host.startswith("172.") and 16 <= int(host.split(".")[1] or "0", 10) <= 31):
+            raise AttestationUnavailableError(
+                f"OPAQUE_ATTESTATION_URL must not target loopback or private addresses (got {host!r})."
+            )
+        self._url = raw_url
         self._manifest_hash: Optional[str] = None
         self._trace_claim: Optional[dict[str, Any]] = None
 
@@ -243,18 +260,35 @@ class OPAQUEProvider(AttestationProvider):
             headers["Authorization"] = f"Bearer {api_key}"
 
         import base64
-        response = httpx.post(
-            f"{self._url}/v1/attest",
-            json={"manifest_pre_image": base64.b64encode(pre).decode()},
-            headers=headers,
-            timeout=30.0,
-        )
+        try:
+            response = httpx.post(
+                f"{self._url}/v1/attest",
+                json={"manifest_pre_image": base64.b64encode(pre).decode()},
+                headers=headers,
+                timeout=30.0,
+            )
+        except (httpx.HTTPError, OSError) as e:
+            raise AttestationUnavailableError(
+                f"OPAQUE attestation service unreachable: {type(e).__name__}"
+            ) from e
+
         if response.status_code != 200:
             raise AttestationUnavailableError(
-                f"OPAQUE attestation service returned {response.status_code}: "
-                f"{response.text[:200]}"
+                f"OPAQUE attestation service returned HTTP {response.status_code}. "
+                "Check service logs."
             )
-        self._trace_claim = response.json()
+
+        content_length = int(response.headers.get("content-length", "0"))
+        if content_length > self._MAX_RESPONSE_BYTES:
+            raise AttestationUnavailableError(
+                f"OPAQUE attestation service response too large: {content_length} bytes"
+            )
+        try:
+            self._trace_claim = response.json()
+        except ValueError as e:
+            raise AttestationUnavailableError(
+                f"OPAQUE attestation service returned invalid JSON: {type(e).__name__}"
+            ) from e
 
     def get_attestation_report(self) -> AttestationReport:
         if self._trace_claim is None:
