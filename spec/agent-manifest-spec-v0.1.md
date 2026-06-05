@@ -149,7 +149,7 @@ The `@context` and `@type` JSON-LD fields are treated as ordinary JSON fields fo
 **SHAKE-256 output length**: For all artifact hash fields in the post-quantum profile, SHAKE-256 output length MUST be 256 bits (32 bytes), producing a 64-character lowercase hexadecimal string. SHAKE-256 hash values MUST be prefixed with `shake256:` in field values to distinguish them from SHA-256 hashes. <!-- CHANGED: SCHEMA F-05 — fixed SHAKE-256 output length ambiguity -->
 
 
-### 2.3 Version Negotiation <!-- CHANGED: closes #45 -->
+### 2.4 Version Negotiation <!-- CHANGED: closes #45 -->
 
 Manifest producers and verifiers negotiate spec compatibility using the `version` field in the manifest and the `spec_version` field in VerificationResult.
 
@@ -555,38 +555,6 @@ The `container_image_digest` is the primary supply chain binding for the agent r
 The `slsa_provenance.declared_level` field is non-normative and represents the operator's declared SLSA level summary. The actual SLSA level is determined by the `builder_id` value in the referenced DSSE attestation envelope. Verifiers MUST fetch and validate the DSSE envelope at `provenance_uri` — the manifest binding is a pointer to the attestation, not a substitute for it.
 
 The `sbom.document_id` field MUST be set to the `serialNumber` URN for CycloneDX format documents, or the `documentNamespace` URI for SPDX format documents. The `sbom.schema_version` field refers to the SBOM specification schema version (e.g., `"CycloneDX 1.6"`, `"SPDX 2.3"`), not a document revision number.
-
-#### 3.2.8 Decision Trace Binding <!-- CHANGED: SCHEMA F-01 — new section; decision_trace schema was referenced throughout but absent from the data model -->
-
-```json
-"decision_trace": {
-  "trace_type": "hash-chained | merkle-log  -- REQUIRED",
-  "audit_chain_root": "sha256:<64-hex-chars>  -- REQUIRED",
-  "audit_chain_uri": "<HTTPS URI to the hash-chained audit log>  -- REQUIRED",
-  "signing_key_id": "<TEE-sealed key identifier>  -- REQUIRED",
-  "audit_key_sealed": "<boolean>  -- REQUIRED",
-  "first_entry_at": "<ISO 8601 UTC>  -- OPTIONAL",
-  "last_entry_at": "<ISO 8601 UTC>  -- OPTIONAL",
-  "entry_count": "<integer>  -- OPTIONAL",
-  "bound_at": "<ISO 8601 UTC>  -- REQUIRED"
-}
-```
-
-**Field cardinality**:
-
-| Field | Cardinality | Constraint |
-|---|---|---|
-| `trace_type` | REQUIRED | `"hash-chained"` or `"merkle-log"`. |
-| `audit_chain_root` | REQUIRED | SHA-256 of the first audit log entry, extended through the chain. |
-| `audit_chain_uri` | REQUIRED | HTTPS URI; MUST be reachable by authorized verifiers. |
-| `signing_key_id` | REQUIRED | Identifier of the TEE-sealed key used to sign audit entries. |
-| `audit_key_sealed` | REQUIRED | JSON boolean. MUST be `true` for Level 1+ conformance. |
-| `first_entry_at` | OPTIONAL | ISO 8601 UTC timestamp of the first audit entry. |
-| `last_entry_at` | OPTIONAL | ISO 8601 UTC timestamp of the most recent audit entry. |
-| `entry_count` | OPTIONAL | Integer count of audit entries in the chain. |
-| `bound_at` | REQUIRED | ISO 8601 UTC timestamp when this binding was computed. |
-
-`audit_key_sealed` MUST be `true` for Level 1+ conformance. A manifest with `audit_key_sealed: false` MUST be treated as software-attested and MUST NOT satisfy regulatory requirements that call for hardware-rooted evidence.
 
 ### 3.3 Hardware Attestation Binding
 

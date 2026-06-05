@@ -1,0 +1,11 @@
+# Default owners for everything
+* @agentrust-io/maintainers
+
+# Spec changes require spec-editor review
+/spec/ @agentrust-io/spec-editors
+
+# SDK changes require SDK maintainer review
+/python/ @agentrust-io/sdk-maintainers
+
+# CI changes require maintainer review
+/.github/ @agentrust-io/maintainers

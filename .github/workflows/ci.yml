@@ -5,11 +5,13 @@ on:
     branches: [main]
     paths:
       - "python/**"
+      - "spec/**"
       - ".github/workflows/ci.yml"
   pull_request:
     branches: [main]
     paths:
       - "python/**"
+      - "spec/**"
 
 permissions:
   contents: read
@@ -41,9 +43,13 @@ jobs:
         working-directory: python
         run: pip install -e ".[dev]"
 
-      - name: Run tests
+      - name: Run tests with coverage
         working-directory: python
-        run: pytest -v --tb=short
+        run: |
+          pytest -v --tb=short \
+            --cov=agent_manifest \
+            --cov-report=term-missing \
+            --cov-fail-under=80
 
   lint:
     name: Lint
@@ -58,6 +64,41 @@ jobs:
       - name: Ruff check
         working-directory: python
         run: ruff check src/ tests/ --select E,F,W --ignore E501
+
+  typecheck:
+    name: Type check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install package and dev deps
+        working-directory: python
+        run: pip install -e ".[dev]"
+      - name: mypy
+        working-directory: python
+        run: mypy src/agent_manifest
+
+  security:
+    name: Security scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install package and dev deps
+        working-directory: python
+        run: pip install -e ".[dev]"
+      - name: bandit
+        working-directory: python
+        run: bandit -r src/agent_manifest -c pyproject.toml
+      - name: pip-audit
+        working-directory: python
+        run: pip-audit
 
   build-check:
     name: Build check

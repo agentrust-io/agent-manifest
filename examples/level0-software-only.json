@@ -1,0 +1,50 @@
+{
+  "@context": "https://agentmanifest.agentrust.io/v0.1/context.json",
+  "@type": "AgentManifest",
+  "manifest_id": "019236ab-cdef-7000-8000-000000000001",
+  "agent_id": "spiffe://trust.acme.co/agent/doc-summarizer/prod",
+  "version": "0.1",
+  "issued_at": "2026-06-04T00:00:00Z",
+  "expires_at": "2026-09-02T00:00:00Z",
+  "issuer": "spiffe://trust.acme.co/signing-authority",
+  "crypto_profile": "standard",
+  "artifacts": {
+    "system_prompt": {
+      "hash": "sha256:a1b2c3d4e5f67890a1b2c3d4e5f67890a1b2c3d4e5f67890a1b2c3d4e5f67890",
+      "hash_algorithm": "SHA-256",
+      "version": "1.0.0",
+      "classification": "internal",
+      "bound_at": "2026-06-04T00:00:00Z"
+    },
+    "policy_bundle": {
+      "hash": "sha256:b1b2c3d4e5f67890b1b2c3d4e5f67890b1b2c3d4e5f67890b1b2c3d4e5f67890",
+      "policy_language": "cedar",
+      "version": "1.0.0",
+      "enforcement_mode": "enforce",
+      "scope": ["docs:read:summarize"],
+      "agt_version": "0.9.0",
+      "bound_at": "2026-06-04T00:00:00Z"
+    },
+    "tool_manifest": {
+      "catalog_hash": "sha256:c1b2c3d4e5f67890c1b2c3d4e5f67890c1b2c3d4e5f67890c1b2c3d4e5f67890",
+      "tool_count": 2,
+      "allow_dynamic_registration": false,
+      "rug_pull_policy": "deny-on-change",
+      "egress_destinations": ["https://api.anthropic.com"],
+      "bound_at": "2026-06-04T00:00:00Z"
+    },
+    "model_identity": {
+      "provider": "anthropic",
+      "model_id": "claude-haiku-4-5-20251001",
+      "version": "20251001",
+      "deployment_type": "api",
+      "bound_at": "2026-06-04T00:00:00Z"
+    }
+  },
+  "signature": {
+    "algorithm": "Ed25519",
+    "key_id": "sha256:d1b2c3d4e5f67890d1b2c3d4e5f67890d1b2c3d4e5f67890d1b2c3d4e5f67890",
+    "signed_at": "2026-06-04T00:00:00Z",
+    "value": "BASE64URL_ENCODED_SIGNATURE_PLACEHOLDER"
+  }
+}
