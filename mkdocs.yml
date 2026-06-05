@@ -47,6 +47,22 @@ plugins:
   - search
   - minify:
       minify_html: true
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          paths: [python/src]
+          options:
+            docstring_style: google
+            show_source: false
+            show_root_heading: true
+            show_root_full_path: false
+            show_symbol_type_heading: true
+            show_symbol_type_toc: true
+            members_order: source
+            separate_signature: true
+            show_signature_annotations: true
+            unwrap_annotated: true
 
 markdown_extensions:
   - admonition
@@ -114,6 +130,15 @@ nav:
       - DORA: compliance/dora.md
       - GDPR: compliance/gdpr.md
       - HIPAA: compliance/hipaa.md
+  - API Reference:
+      - Overview: api-reference/index.md
+      - Core models: api-reference/models.md
+      - Signing: api-reference/signing.md
+      - Verification: api-reference/verification.md
+      - Revocation: api-reference/revocation.md
+      - Delegation: api-reference/delegation.md
+      - Attestation: api-reference/attestation.md
+      - CLI: api-reference/cli.md
   - Specification:
       - Overview: spec-overview.md
   - Project:
