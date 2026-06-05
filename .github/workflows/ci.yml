@@ -45,6 +45,7 @@ jobs:
 
       - name: Run tests with coverage
         working-directory: python
+        shell: bash
         run: |
           pytest -v --tb=short \
             --cov=agent_manifest \
