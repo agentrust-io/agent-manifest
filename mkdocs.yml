@@ -91,6 +91,12 @@ nav:
       - Revocation and key rotation: tutorials/revocation.md
       - Hardware attestation: tutorials/hardware-attestation.md
       - Deploying the verifier: tutorials/deploy-verifier.md
+  - Integrations:
+      - Overview: integrations/index.md
+      - LangChain: integrations/langchain.md
+      - OpenAI Agents SDK: integrations/openai-agents.md
+      - AutoGen and CrewAI: integrations/autogen-crewai.md
+      - AGT: integrations/agt.md
   - Architecture:
       - Decision Records: adr/index.md
       - ADR-0001 — RFC 8785 Canonical JSON: adr/0001-rfc8785-canonical-json.md
