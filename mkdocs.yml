@@ -139,6 +139,11 @@ nav:
       - Delegation: api-reference/delegation.md
       - Attestation: api-reference/attestation.md
       - CLI: api-reference/cli.md
+  - Operations:
+      - Overview: operations/index.md
+      - Key rotation: operations/key-rotation.md
+      - Audit log management: operations/audit-log.md
+      - Monitoring: operations/monitoring.md
   - Specification:
       - Overview: spec-overview.md
   - Project:
