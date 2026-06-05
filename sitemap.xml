@@ -52,4 +52,32 @@
          <loc>https://agentrust-io.github.io/agent-manifest/adr/0003-rfc9162-merkle-domain-separation/</loc>
          <lastmod>2026-06-05</lastmod>
     </url>
+    <url>
+         <loc>https://agentrust-io.github.io/agent-manifest/tutorials/</loc>
+         <lastmod>2026-06-05</lastmod>
+    </url>
+    <url>
+         <loc>https://agentrust-io.github.io/agent-manifest/tutorials/delegation-chains/</loc>
+         <lastmod>2026-06-05</lastmod>
+    </url>
+    <url>
+         <loc>https://agentrust-io.github.io/agent-manifest/tutorials/deploy-verifier/</loc>
+         <lastmod>2026-06-05</lastmod>
+    </url>
+    <url>
+         <loc>https://agentrust-io.github.io/agent-manifest/tutorials/hardware-attestation/</loc>
+         <lastmod>2026-06-05</lastmod>
+    </url>
+    <url>
+         <loc>https://agentrust-io.github.io/agent-manifest/tutorials/hitl-approvals/</loc>
+         <lastmod>2026-06-05</lastmod>
+    </url>
+    <url>
+         <loc>https://agentrust-io.github.io/agent-manifest/tutorials/revocation/</loc>
+         <lastmod>2026-06-05</lastmod>
+    </url>
+    <url>
+         <loc>https://agentrust-io.github.io/agent-manifest/tutorials/server-side-verification/</loc>
+         <lastmod>2026-06-05</lastmod>
+    </url>
 </urlset>
