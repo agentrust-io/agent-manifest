@@ -1,0 +1,71 @@
+{
+  "@context": "https://agentmanifest.agentrust.io/v0.1/context.json",
+  "@type": "AgentManifest",
+  "manifest_id": "019236ab-0000-7000-8000-000000000012",
+  "agent_id": "spiffe://trust.acme.co/agent/data-fetcher/prod",
+  "version": "0.1",
+  "issued_at": "2026-06-05T09:00:00Z",
+  "expires_at": "2026-06-05T17:00:00Z",
+  "issuer": "spiffe://trust.acme.co/signing-authority",
+  "crypto_profile": "standard",
+  "artifacts": {
+    "system_prompt": {
+      "hash": "sha256:c1c2c3d4e5f67890c1c2c3d4e5f67890c1c2c3d4e5f67890c1c2c3d4e5f67890",
+      "hash_algorithm": "SHA-256",
+      "version": "1.0.0",
+      "classification": "public",
+      "bound_at": "2026-06-05T09:00:00Z"
+    },
+    "tool_manifest": {
+      "catalog_hash": "sha256:d1c2c3d4e5f67890d1c2c3d4e5f67890d1c2c3d4e5f67890d1c2c3d4e5f67890",
+      "tool_count": 1,
+      "allow_dynamic_registration": false,
+      "rug_pull_policy": "deny-on-change",
+      "tools": [
+        {"name": "fetch_public_data", "version": "1.0.0"}
+      ],
+      "bound_at": "2026-06-05T09:00:00Z"
+    },
+    "model_identity": {
+      "provider": "openai",
+      "model_id": "gpt-4o-mini",
+      "version": "gpt-4o-mini-2024-07-18",
+      "deployment_type": "api",
+      "bound_at": "2026-06-05T09:00:00Z"
+    }
+  },
+  "delegation_chain": [
+    {
+      "hop": 0,
+      "principal_id": "spiffe://trust.acme.co/agent/orchestrator/prod",
+      "principal_type": "agent",
+      "delegated_at": "2026-06-05T09:00:00Z",
+      "scope_grant": {
+        "tools": ["fetch_public_data", "run_analysis"],
+        "data_classifications": ["public", "internal"],
+        "max_delegation_depth": 1,
+        "approval_required": false
+      },
+      "delegation_signature": "BASE64URL_PLACEHOLDER_HOP0_SIGNATURE"
+    },
+    {
+      "hop": 1,
+      "principal_id": "spiffe://trust.acme.co/agent/executor/prod",
+      "principal_type": "agent",
+      "delegated_at": "2026-06-05T09:05:00Z",
+      "scope_grant": {
+        "tools": ["fetch_public_data"],
+        "data_classifications": ["public"],
+        "max_delegation_depth": 0,
+        "approval_required": false
+      },
+      "delegation_signature": "BASE64URL_PLACEHOLDER_HOP1_SIGNATURE"
+    }
+  ],
+  "signature": {
+    "algorithm": "Ed25519",
+    "key_id": "sha256:e1c2c3d4e5f67890e1c2c3d4e5f67890e1c2c3d4e5f67890e1c2c3d4e5f67890",
+    "signed_at": "2026-06-05T09:05:00Z",
+    "value": "BASE64URL_PLACEHOLDER_DATAFETCHER_SIGNATURE"
+  }
+}

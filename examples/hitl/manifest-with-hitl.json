@@ -1,0 +1,60 @@
+{
+  "@context": "https://agentmanifest.agentrust.io/v0.1/context.json",
+  "@type": "AgentManifest",
+  "manifest_id": "019236ab-0000-7000-8000-000000000030",
+  "agent_id": "spiffe://trust.acme.co/agent/payment-processor/prod",
+  "version": "0.1",
+  "issued_at": "2026-06-05T09:00:00Z",
+  "expires_at": "2026-06-05T12:00:00Z",
+  "issuer": "spiffe://trust.acme.co/signing-authority",
+  "crypto_profile": "standard",
+  "artifacts": {
+    "system_prompt": {
+      "hash": "sha256:a3b2c3d4e5f67890a3b2c3d4e5f67890a3b2c3d4e5f67890a3b2c3d4e5f67890",
+      "hash_algorithm": "SHA-256",
+      "version": "1.0.0",
+      "classification": "internal",
+      "bound_at": "2026-06-05T09:00:00Z"
+    },
+    "tool_manifest": {
+      "catalog_hash": "sha256:b3b2c3d4e5f67890b3b2c3d4e5f67890b3b2c3d4e5f67890b3b2c3d4e5f67890",
+      "tool_count": 1,
+      "allow_dynamic_registration": false,
+      "rug_pull_policy": "deny-on-change",
+      "tools": [
+        {"name": "execute_payment", "version": "1.0.0"}
+      ],
+      "bound_at": "2026-06-05T09:00:00Z"
+    },
+    "model_identity": {
+      "provider": "anthropic",
+      "model_id": "claude-sonnet-4-6",
+      "version": "20260101",
+      "deployment_type": "api",
+      "bound_at": "2026-06-05T09:00:00Z"
+    }
+  },
+  "hitl_record": {
+    "required_approvals": 1,
+    "approval_method": "hardware-key",
+    "approvals": [
+      {
+        "approved_at": "2026-06-05T09:00:00Z",
+        "approver_id": "spiffe://trust.acme.co/user/alice",
+        "approved_scope": {
+          "tools": ["execute_payment"],
+          "data_classifications": ["pii"],
+          "max_payment_amount_usd": 10000,
+          "approval_expiry": "2026-06-05T09:30:00Z"
+        },
+        "approval_signature": "BASE64URL_PLACEHOLDER_ALICE_APPROVAL_SIGNATURE"
+      }
+    ]
+  },
+  "signature": {
+    "algorithm": "Ed25519",
+    "key_id": "sha256:c3b2c3d4e5f67890c3b2c3d4e5f67890c3b2c3d4e5f67890c3b2c3d4e5f67890",
+    "signed_at": "2026-06-05T09:00:00Z",
+    "value": "BASE64URL_PLACEHOLDER_MANIFEST_SIGNATURE"
+  }
+}
