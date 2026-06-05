@@ -53,6 +53,50 @@
          <lastmod>2026-06-05</lastmod>
     </url>
     <url>
+         <loc>https://agentrust-io.github.io/agent-manifest/adr/0004-pydantic-v2-schema-modeling/</loc>
+         <lastmod>2026-06-05</lastmod>
+    </url>
+    <url>
+         <loc>https://agentrust-io.github.io/agent-manifest/adr/0005-ml-dsa-hybrid-signatures/</loc>
+         <lastmod>2026-06-05</lastmod>
+    </url>
+    <url>
+         <loc>https://agentrust-io.github.io/agent-manifest/adr/0006-hitl-approval-mechanism/</loc>
+         <lastmod>2026-06-05</lastmod>
+    </url>
+    <url>
+         <loc>https://agentrust-io.github.io/agent-manifest/adr/0007-revocation-crl-format/</loc>
+         <lastmod>2026-06-05</lastmod>
+    </url>
+    <url>
+         <loc>https://agentrust-io.github.io/agent-manifest/adr/0008-conformance-levels/</loc>
+         <lastmod>2026-06-05</lastmod>
+    </url>
+    <url>
+         <loc>https://agentrust-io.github.io/agent-manifest/adr/0009-spiffe-uri-agent-identity/</loc>
+         <lastmod>2026-06-05</lastmod>
+    </url>
+    <url>
+         <loc>https://agentrust-io.github.io/agent-manifest/integrations/</loc>
+         <lastmod>2026-06-05</lastmod>
+    </url>
+    <url>
+         <loc>https://agentrust-io.github.io/agent-manifest/integrations/agt/</loc>
+         <lastmod>2026-06-05</lastmod>
+    </url>
+    <url>
+         <loc>https://agentrust-io.github.io/agent-manifest/integrations/autogen-crewai/</loc>
+         <lastmod>2026-06-05</lastmod>
+    </url>
+    <url>
+         <loc>https://agentrust-io.github.io/agent-manifest/integrations/langchain/</loc>
+         <lastmod>2026-06-05</lastmod>
+    </url>
+    <url>
+         <loc>https://agentrust-io.github.io/agent-manifest/integrations/openai-agents/</loc>
+         <lastmod>2026-06-05</lastmod>
+    </url>
+    <url>
          <loc>https://agentrust-io.github.io/agent-manifest/tutorials/</loc>
          <lastmod>2026-06-05</lastmod>
     </url>
