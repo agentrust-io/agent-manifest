@@ -88,7 +88,7 @@ def _serialize(obj: Any, *, exclude_none: bool) -> str:
     )
 
 
-def _serialize_dict(d: dict, *, exclude_none: bool) -> str:
+def _serialize_dict(d: dict[str, Any], *, exclude_none: bool) -> str:
     # RFC 8785 §3.2.3: sort keys by Unicode code point order.
     # Python's str comparison uses Unicode code point order by default — no
     # special locale or collation needed.

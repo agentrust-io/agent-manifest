@@ -45,7 +45,8 @@ try:
     _OQS_AVAILABLE = True
     _ML_DSA_ALGO = "ML-DSA-65"
 except ImportError:
-    _oqs = None  # type: ignore[assignment]
+    _oqs = None
+
     _OQS_AVAILABLE = False
     _ML_DSA_ALGO = "ML-DSA-65"
 

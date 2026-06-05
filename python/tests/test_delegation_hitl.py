@@ -106,7 +106,6 @@ def test_scope_laundering_detected():
         )
 
 def test_depth_exceeded_raises():
-    kp = generate_ed25519()
     narrow_scope = {**SCOPE, "max_delegation_depth": 1}
     chain = [
         {"hop": i, "principal_id": f"spiffe://x/{i}", "principal_type": "agent",
