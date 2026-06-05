@@ -15,7 +15,7 @@ import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional, cast
 
 try:
     import click
@@ -37,12 +37,12 @@ from ._verify import (
 )
 
 
-def _load_json(path: str) -> dict:
+def _load_json(path: str) -> dict[str, Any]:
     with open(path) as f:
-        return json.load(f)
+        return cast(dict[str, Any], json.load(f))
 
 
-def _write(data: dict, output: Optional[str]) -> None:
+def _write(data: dict[str, Any], output: Optional[str]) -> None:
     text = json.dumps(data, indent=2, default=str)
     if output:
         Path(output).write_text(text)
@@ -53,19 +53,19 @@ def _write(data: dict, output: Optional[str]) -> None:
 
 @click.group()
 @click.version_option(package_name="agent-manifest")
-def cli():
+def cli() -> None:
     """Agent Manifest SDK CLI."""
 
 
 @cli.group()
-def manifest():
+def manifest() -> None:
     """Manage Agent Manifests."""
 
 
 @manifest.command("create")
 @click.argument("config", type=click.Path(exists=True))
 @click.option("--output", "-o", default=None, help="Write output to file (default: stdout)")
-def create(config: str, output: Optional[str]):
+def create(config: str, output: Optional[str]) -> None:
     """Create a draft manifest from a JSON config file.
 
     CONFIG must be a JSON file with at minimum: agent_id, issuer,
@@ -95,7 +95,7 @@ def create(config: str, output: Optional[str]):
 @click.argument("manifest_file", type=click.Path(exists=True))
 @click.option("--key", "-k", required=True, help="Path to raw 32-byte Ed25519 private key (hex file)")
 @click.option("--output", "-o", default=None)
-def sign(manifest_file: str, key: str, output: Optional[str]):
+def sign(manifest_file: str, key: str, output: Optional[str]) -> None:
     """Sign a draft manifest with Ed25519.
 
     KEY must be a file containing the 64-hex-character (32-byte) Ed25519
@@ -118,7 +118,7 @@ def sign(manifest_file: str, key: str, output: Optional[str]):
 
 @manifest.command("keygen")
 @click.option("--output-dir", "-d", default=".", help="Directory to write key files")
-def keygen(output_dir: str):
+def keygen(output_dir: str) -> None:
     """Generate a new Ed25519 key pair for manifest signing.
 
     Writes:
@@ -131,7 +131,6 @@ def keygen(output_dir: str):
     kp = generate_ed25519()
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
-    priv_hex = kp.private_b64url()  # base64url — store as-is
     pub_hex = kp.public_bytes.hex()
     priv_raw = kp.private_key.private_bytes(
         __import__("cryptography.hazmat.primitives.serialization", fromlist=["Encoding"]).Encoding.Raw,
@@ -153,7 +152,7 @@ def keygen(output_dir: str):
               help="Attestation provider (default: auto)")
 @click.option("--level", default=0, type=int, help="Minimum conformance level (0-3)")
 @click.option("--output", "-o", default=None)
-def attest(manifest_file: str, provider: str, level: int, output: Optional[str]):
+def attest(manifest_file: str, provider: str, level: int, output: Optional[str]) -> None:
     """Extend the manifest hash into hardware and append the attestation block.
 
     For TPM: requires tpm2-tools (apt-get install tpm2-tools).
@@ -198,7 +197,7 @@ def attest(manifest_file: str, provider: str, level: int, output: Optional[str])
 @click.option("--enforce-hitl", is_flag=True, default=False)
 @click.option("--enforce-attestation", is_flag=True, default=False)
 @click.option("--output", "-o", default=None)
-def verify(manifest_file: str, enforce_hitl: bool, enforce_attestation: bool, output: Optional[str]):
+def verify(manifest_file: str, enforce_hitl: bool, enforce_attestation: bool, output: Optional[str]) -> None:
     """Verify a manifest against the local verification engine.
 
     Prints the VerificationResult as JSON. Exits with code 0 on VALID,
@@ -222,7 +221,7 @@ def verify(manifest_file: str, enforce_hitl: bool, enforce_attestation: bool, ou
             click.echo(f"  MISMATCH {d.field}: expected {d.expected_hash[:20]}...", err=True)
         sys.exit(1)
     else:
-        click.echo(f"Result: VALID", err=True)
+        click.echo("Result: VALID", err=True)
 
 
 @manifest.command("revoke")
@@ -230,7 +229,7 @@ def verify(manifest_file: str, enforce_hitl: bool, enforce_attestation: bool, ou
 @click.option("--reason", "-r", required=True, help="Reason for revocation")
 @click.option("--revoked-by", required=True, help="Identity of revoking authority (DID or email)")
 @click.option("--output", "-o", default=None)
-def revoke(manifest_id: str, reason: str, revoked_by: str, output: Optional[str]):
+def revoke(manifest_id: str, reason: str, revoked_by: str, output: Optional[str]) -> None:
     """Generate a revocation record for a manifest ID.
 
     The record JSON can be submitted to your revocation registry or passed
@@ -255,7 +254,7 @@ def revoke(manifest_id: str, reason: str, revoked_by: str, output: Optional[str]
     click.echo(f"Revocation record created for {manifest_id}", err=True)
 
 
-def main():
+def main() -> None:
     cli()
 
 

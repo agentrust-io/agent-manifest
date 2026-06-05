@@ -85,7 +85,6 @@ def publish_to_rekor(
     # Build the signed bytes (must match what was signed)
     subset = {k: manifest_dict[k] for k in SIGNED_FIELDS if k in manifest_dict}
     canonical_bytes = canonicalize(subset)
-    canonical_b64 = base64.b64encode(canonical_bytes).decode()
 
     # Decode public key from base64url to PEM for Rekor
     pad = 4 - len(public_key_b64url) % 4
@@ -123,7 +122,6 @@ def publish_to_rekor(
     # Rekor returns a dict keyed by entry UUID
     entry_uuid = next(iter(body))
     entry_data = body[entry_uuid]
-    body_decoded = json.loads(base64.b64decode(entry_data.get("body", "")))
 
     return TransparencyLogEntry(
         log_id=entry_data.get("logID", rekor_url),
@@ -174,12 +172,12 @@ def verify_transparency_log_entry(
         return False
 
     body = response.json()
-    entry_data = next(iter(body.values()), {})
+    entry_data: dict[str, Any] = next(iter(body.values()), {})
     decoded = json.loads(base64.b64decode(entry_data.get("body", "e30=")))
     actual_hash = (
         decoded.get("spec", {}).get("data", {}).get("hash", {}).get("value", "")
     )
-    return actual_hash == expected_hash
+    return bool(actual_hash == expected_hash)
 
 
 def _raw_ed25519_to_pem(raw_public_key: bytes) -> bytes:

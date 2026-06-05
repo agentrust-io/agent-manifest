@@ -167,7 +167,7 @@ def verify_manifest(
     # --- Artifact hash verification
     artifacts = manifest.get("artifacts") or {}
 
-    def _check(field_name: str, manifest_val: Optional[str], runtime_val: Optional[str]):
+    def _check(field_name: str, manifest_val: Optional[str], runtime_val: Optional[str]) -> FieldResult:
         if manifest_val is None:
             return FieldResult.NOT_BOUND
         if runtime_val is None:
@@ -332,9 +332,9 @@ class RevocationStore:
 
 
 def create_router(
-    manifest_store: dict[str, dict],
+    manifest_store: dict[str, dict[str, Any]],
     revocation_store: RevocationStore,
-):
+) -> Any:
     """Return a FastAPI APIRouter with /verify and /revocation-status endpoints.
 
     Args:
@@ -357,7 +357,7 @@ def create_router(
         manifest_id: str = Query(..., description="UUID v7 manifest identifier"),
         enforce_hitl: bool = Query(False),
         enforce_attestation: bool = Query(False),
-    ):
+    ) -> VerificationResult:
         # Validate manifest_id format
         from ._types import ManifestId
         try:
@@ -390,7 +390,7 @@ def create_router(
     @router.get("/revocation-status")
     async def revocation_status(
         manifest_id: str = Query(...),
-    ):
+    ) -> RevocationRecord:
         record = revocation_store.get_record(manifest_id)
         if record is None:
             raise HTTPException(

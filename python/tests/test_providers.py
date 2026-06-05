@@ -14,7 +14,6 @@ from agent_manifest._providers import (
     AttestationUnavailableError,
     TPMProvider,
     _TPM_DEFAULT_PCR,
-    _NITRO_PCR,
 )
 
 NEEDS_TPM = pytest.mark.skipif(
