@@ -160,7 +160,7 @@ class TPMProvider(AttestationProvider):
         self._last_manifest_hash = f"sha256:{digest}"
 
         result = subprocess.run(
-            ["tpm2_extend", f"-i{self._pcr}", f"-g=sha256", f"-d={digest}"],
+            ["tpm2_extend", f"-i{self._pcr}", "-g=sha256", f"-d={digest}"],
             capture_output=True,
             text=True,
         )

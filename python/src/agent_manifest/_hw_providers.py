@@ -222,7 +222,7 @@ class OPAQUEProvider(AttestationProvider):
                 "Set it to the OPAQUE attestation service endpoint."
             )
         self._manifest_hash: Optional[str] = None
-        self._trace_claim: Optional[dict] = None
+        self._trace_claim: Optional[dict[str, Any]] = None
 
     def extend_manifest_hash(self, manifest_json: dict[str, Any]) -> None:
         """Send manifest pre-image to OPAQUE attestation service."""

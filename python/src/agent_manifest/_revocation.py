@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel
 
@@ -148,10 +148,10 @@ class FileCRL:
 # ---------------------------------------------------------------------------
 
 
-def create_crl_router(crl: FileCRL):
+def create_crl_router(crl: FileCRL) -> Any:
     """Return a FastAPI router serving the CRL at /.well-known endpoints."""
     try:
-        from fastapi import APIRouter, HTTPException, Query
+        from fastapi import APIRouter, HTTPException
     except ImportError:
         raise ImportError('CRL endpoint requires FastAPI: pip install "agent-manifest[server]"')
 
@@ -160,12 +160,12 @@ def create_crl_router(crl: FileCRL):
     router = APIRouter()
 
     @router.get("/.well-known/agent-manifest/revocation")
-    async def list_revocations():
+    async def list_revocations() -> list[dict[str, Any]]:
         """Return all revocation records as a JSON array."""
         return [r.model_dump(mode="json") for r in crl.all_records()]
 
     @router.get("/.well-known/agent-manifest/revocation/{manifest_id}")
-    async def get_revocation(manifest_id: str):
+    async def get_revocation(manifest_id: str) -> dict[str, Any]:
         """Return the revocation record for a specific manifest, or 404."""
         record = crl.get_record(manifest_id)
         if record is None:

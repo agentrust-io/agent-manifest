@@ -103,7 +103,7 @@ def verify_delegation_chain(
             f"root max_delegation_depth {root_max_depth}"
         )
 
-    prev_scope: Optional[dict] = None
+    prev_scope: Optional[dict[str, Any]] = None
 
     for i, hop in enumerate(delegation_chain):
         if hop.get("hop") != i:
@@ -139,7 +139,7 @@ def verify_delegation_chain(
         prev_scope = scope
 
 
-def _check_scope_narrowing(parent: dict, child: dict, hop_index: int) -> None:
+def _check_scope_narrowing(parent: dict[str, Any], child: dict[str, Any], hop_index: int) -> None:
     """Raise ValueError if child scope is broader than parent scope."""
     parent_tools = set(parent.get("tools") or [])
     child_tools = set(child.get("tools") or [])

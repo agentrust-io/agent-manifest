@@ -96,6 +96,8 @@ jobs:
       - name: bandit
         working-directory: python
         run: bandit -r src/agent_manifest -c pyproject.toml
+      - name: Upgrade pip before audit
+        run: pip install --upgrade pip
       - name: pip-audit
         working-directory: python
         run: pip-audit

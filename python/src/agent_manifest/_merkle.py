@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
-from typing import NamedTuple
+from typing import Callable, NamedTuple
 
 from .models import ToolEntry
 
@@ -195,7 +195,7 @@ def _compute_root_from_proof(
     index: int,
     tree_size: int,
     audit_path: list[bytes],
-    h_fn,
+    h_fn: Callable[[bytes], bytes],
 ) -> bytes:
     """Reconstruct root from an inclusion proof (RFC 9162 §2.2).
 
@@ -247,7 +247,6 @@ def build_corpus_tree(
         Root in HashValue format: ``"sha256:<64-hex>"``
     """
     if not documents:
-        h = _HASH_FNS[algorithm]
         return f"{algorithm}:{EMPTY_TREE[algorithm].hex()}"
 
     tree = MerkleTree(algorithm=algorithm)
@@ -294,7 +293,6 @@ def build_catalog_tree(
     if not tools:
         return f"{algorithm}:{EMPTY_TREE[algorithm].hex()}"
 
-    h = _HASH_FNS[algorithm]
     sorted_tools = sorted(tools, key=lambda t: t.tool_id)
 
     tree = MerkleTree(algorithm=algorithm)

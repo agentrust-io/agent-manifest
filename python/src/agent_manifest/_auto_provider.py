@@ -14,8 +14,9 @@ from __future__ import annotations
 
 import os
 import shutil
+from typing import Any, cast
 
-from ._providers import AttestationProvider, AttestationUnavailableError, TPMProvider
+from ._providers import AttestationProvider, AttestationReport, AttestationUnavailableError, TPMProvider
 
 
 class SoftwareProvider(AttestationProvider):
@@ -27,17 +28,16 @@ class SoftwareProvider(AttestationProvider):
 
     LEVEL = 0
 
-    def extend_manifest_hash(self, manifest_json):
+    def extend_manifest_hash(self, manifest_json: dict[str, Any]) -> None:
         # No hardware to extend into — record the hash for report generation
         self._manifest_hash = self.manifest_hash_value(manifest_json)
 
-    def get_attestation_report(self):
-        from ._providers import AttestationReport
+    def get_attestation_report(self) -> AttestationReport:
         h = getattr(self, "_manifest_hash", "")
         return AttestationReport(platform="software", manifest_hash=h)
 
-    def verify_manifest_in_report(self, report, manifest_json):
-        return report.manifest_hash == self.manifest_hash_value(manifest_json)
+    def verify_manifest_in_report(self, report: AttestationReport, manifest_json: dict[str, Any]) -> bool:
+        return bool(report.manifest_hash == self.manifest_hash_value(manifest_json))
 
 
 def select_provider(level: int = 0) -> AttestationProvider:
@@ -53,24 +53,24 @@ def select_provider(level: int = 0) -> AttestationProvider:
     # OPAQUE managed runtime
     if os.environ.get("OPAQUE_ATTESTATION_URL"):
         try:
-            from ._opaque_provider import OPAQUEProvider  # type: ignore[import]
-            return OPAQUEProvider()
+            from ._opaque_provider import OPAQUEProvider
+            return cast(AttestationProvider, OPAQUEProvider())
         except ImportError:
             pass
 
     # AMD SEV-SNP
     if os.path.exists("/dev/sev-guest"):
         try:
-            from ._sev_provider import SEVSNPProvider  # type: ignore[import]
-            return SEVSNPProvider()
+            from ._sev_provider import SEVSNPProvider
+            return cast(AttestationProvider, SEVSNPProvider())
         except ImportError:
             pass
 
     # Intel TDX
     if os.path.exists("/dev/tdx-guest"):
         try:
-            from ._tdx_provider import TDXProvider  # type: ignore[import]
-            return TDXProvider()
+            from ._tdx_provider import TDXProvider
+            return cast(AttestationProvider, TDXProvider())
         except ImportError:
             pass
 
