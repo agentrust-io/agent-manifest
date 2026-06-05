@@ -91,11 +91,23 @@ nav:
       - Revocation and key rotation: tutorials/revocation.md
       - Hardware attestation: tutorials/hardware-attestation.md
       - Deploying the verifier: tutorials/deploy-verifier.md
+  - Integrations:
+      - Overview: integrations/index.md
+      - LangChain: integrations/langchain.md
+      - OpenAI Agents SDK: integrations/openai-agents.md
+      - AutoGen and CrewAI: integrations/autogen-crewai.md
+      - AGT: integrations/agt.md
   - Architecture:
       - Decision Records: adr/index.md
       - ADR-0001 — RFC 8785 Canonical JSON: adr/0001-rfc8785-canonical-json.md
       - ADR-0002 — Ed25519 Standard Profile: adr/0002-ed25519-standard-profile.md
       - ADR-0003 — RFC 9162 Merkle Trees: adr/0003-rfc9162-merkle-domain-separation.md
+      - ADR-0004 — Pydantic v2 Schema Modeling: adr/0004-pydantic-v2-schema-modeling.md
+      - ADR-0005 — ML-DSA-65 Hybrid Signatures: adr/0005-ml-dsa-hybrid-signatures.md
+      - ADR-0006 — HITL Approval Mechanism: adr/0006-hitl-approval-mechanism.md
+      - ADR-0007 — JSON-Lines CRL Format: adr/0007-revocation-crl-format.md
+      - ADR-0008 — Conformance Levels 0–3: adr/0008-conformance-levels.md
+      - ADR-0009 — SPIFFE URI Identity: adr/0009-spiffe-uri-agent-identity.md
   - Specification:
       - Overview: spec-overview.md
   - Project:
