@@ -29,7 +29,7 @@ classifiers = [
 ]
 dependencies = [
   "pydantic>=2.7,<3",
-  "cryptography>=42,<44",
+  "cryptography>=42,<49",
 ]
 
 [project.optional-dependencies]
