@@ -301,7 +301,6 @@ def test_crl_router_missing_fastapi(monkeypatch):
             raise ImportError("fastapi not installed")
         return original_import(name, *args, **kwargs)
 
-    kp = generate_ed25519()
     crl = FileCRL(Path("/tmp/unused.jsonl"))
     monkeypatch.setattr(builtins, "__import__", mock_import)
     with pytest.raises(ImportError, match="FastAPI"):
