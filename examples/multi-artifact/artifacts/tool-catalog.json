@@ -1,0 +1,17 @@
+[
+  {
+    "name": "search_public_filings",
+    "version": "1.0.0",
+    "description": "Search SEC EDGAR for public company filings"
+  },
+  {
+    "name": "get_market_data",
+    "version": "1.0.0",
+    "description": "Retrieve public stock price and volume data"
+  },
+  {
+    "name": "search_news",
+    "version": "1.0.0",
+    "description": "Search public news sources for company mentions"
+  }
+]

@@ -1,0 +1,1 @@
+{"manifest_id":"019236ab-0000-7000-8000-000000000020","revoked_at":"2026-06-05T10:00:00Z","reason":"Signing key compromised -- rotate immediately","revoked_by":"spiffe://trust.acme.co/security-team","revocation_signature":"BASE64URL_PLACEHOLDER_REVOCATION_SIGNATURE","signer_key_id":"sha256:c2b2c3d4e5f67890c2b2c3d4e5f67890c2b2c3d4e5f67890c2b2c3d4e5f67890"}

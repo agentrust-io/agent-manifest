@@ -1,0 +1,3 @@
+Merkle root of SEC EDGAR filing corpus — last updated 2026-06-05
+Documents: 12,847 10-K and 10-Q filings from S&P 500 companies (2020-2026)
+Root hash: sha256:d4b2c3d4e5f67890d4b2c3d4e5f67890d4b2c3d4e5f67890d4b2c3d4e5f67890
