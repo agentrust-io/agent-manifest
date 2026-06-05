@@ -4,22 +4,20 @@ Covers AGT integration, MCP protocol extension, cMCP field cross-check,
 SLSA provenance binding, and JSON Schema export for non-Python verifiers.
 Target: 31 tests.
 """
-import hashlib
 import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from agent_manifest._canonicalize import canonicalize, canonical_hash
-from agent_manifest._merkle import MerkleTree, build_catalog_tree, CorpusDocument, build_corpus_tree
-from agent_manifest._providers import AttestationReport, TPMProvider
+from agent_manifest._merkle import build_catalog_tree, build_corpus_tree
+from agent_manifest._providers import TPMProvider
 from agent_manifest._signing import SIGNED_FIELDS, signing_pre_image, generate_ed25519, Ed25519Signer, Ed25519Verifier
 from agent_manifest._types import HashValue, ManifestId
 from agent_manifest._verify import (
     OverallResult, RevocationStore, VerificationContext, verify_manifest
 )
 from agent_manifest.models import (
-    ArtifactBindings, CryptoProfile, DataClassification, DeploymentType,
+    ArtifactBindings, DeploymentType,
     EnforcementMode, Manifest, ModelIdentityBinding, PolicyBundleBinding,
     SlsaLevel, SlsaProvenance, SupplyChainBinding, SystemPromptBinding,
     ToolEntry, ToolManifestBinding,

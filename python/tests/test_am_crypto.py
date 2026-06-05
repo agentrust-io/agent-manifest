@@ -5,7 +5,7 @@ hybrid envelope structure, and SHA-256/SHAKE-256 hash correctness.
 Target: 38 tests.
 """
 import hashlib
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 import pytest
 from cryptography.exceptions import InvalidSignature
@@ -25,10 +25,7 @@ try:
     from agent_manifest._signing import (
         HybridSigner,
         HybridVerifier,
-        MlDsa65Signer,
-        MlDsa65Verifier,
         generate_hybrid,
-        generate_ml_dsa65,
     )
     import oqs  # noqa: F401
     OQS_AVAILABLE = True

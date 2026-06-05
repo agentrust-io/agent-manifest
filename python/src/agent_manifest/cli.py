@@ -26,7 +26,7 @@ except ImportError:
 
 from ._auto_provider import select_provider
 from ._providers import AttestationUnavailableError
-from ._signing import Ed25519Signer, Ed25519Verifier, ed25519_from_private_bytes, generate_ed25519
+from ._signing import Ed25519Signer, ed25519_from_private_bytes, generate_ed25519
 from ._types import ManifestId
 from ._verify import (
     OverallResult,

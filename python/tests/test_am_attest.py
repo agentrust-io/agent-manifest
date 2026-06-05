@@ -6,16 +6,13 @@ Target: 29 tests.
 """
 import hashlib
 
-import pytest
-
-from agent_manifest._canonicalize import canonicalize
 from agent_manifest._providers import (
     AttestationReport,
     AttestationUnavailableError,
     TPMProvider,
 )
 from agent_manifest._auto_provider import SoftwareProvider, select_provider
-from agent_manifest._signing import SIGNED_FIELDS, signing_pre_image
+from agent_manifest._signing import signing_pre_image
 from agent_manifest._transparency import _raw_ed25519_to_pem, TransparencyLogEntry
 import os
 

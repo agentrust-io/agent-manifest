@@ -6,7 +6,7 @@ the spec's allowed value sets.
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Optional
 

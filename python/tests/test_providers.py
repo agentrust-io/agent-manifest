@@ -9,7 +9,6 @@ import os
 
 import pytest
 
-from agent_manifest._canonicalize import canonicalize
 from agent_manifest._providers import (
     AttestationReport,
     AttestationUnavailableError,

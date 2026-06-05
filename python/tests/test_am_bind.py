@@ -16,8 +16,6 @@ from agent_manifest.models import (
     DeploymentType,
     DriftPolicy,
     EnforcementMode,
-    HitlApproval,
-    HitlRecord,
     MemoryBaselineBinding,
     ModelIdentityBinding,
     PolicyBundleBinding,
@@ -25,13 +23,7 @@ from agent_manifest.models import (
     PoisoningResult,
     PoisoningScan,
     RagCorpusBinding,
-    RiskTier,
     RugPullPolicy,
-    Sbom,
-    SbomFormat,
-    SlsaLevel,
-    SlsaProvenance,
-    SupplyChainBinding,
     SystemPromptBinding,
     ToolEntry,
     ToolManifestBinding,
@@ -41,9 +33,6 @@ from agent_manifest.models import (
     DelegationHop,
     ScopeGrant,
     PrincipalType,
-    CryptoProfile,
-    ApprovalMethod,
-    ApprovedScope,
 )
 
 NOW = datetime.now(timezone.utc)

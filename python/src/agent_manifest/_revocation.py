@@ -11,7 +11,6 @@ mechanism. The CRL format follows RFC 5280 conceptually but uses JSON.
 """
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -19,8 +18,7 @@ from typing import Optional
 from pydantic import BaseModel
 
 from ._canonicalize import canonicalize
-from ._signing import Ed25519Signer, Ed25519Verifier, Ed25519KeyPair
-from ._types import ManifestId
+from ._signing import Ed25519KeyPair
 
 
 # ---------------------------------------------------------------------------

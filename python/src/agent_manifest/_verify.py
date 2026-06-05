@@ -343,7 +343,7 @@ def create_router(
     """
     try:
         from fastapi import APIRouter, HTTPException, Query
-        from fastapi.responses import JSONResponse
+        from fastapi.responses import JSONResponse  # noqa: F401
     except ImportError:
         raise ImportError(
             "FastAPI is required for the verification endpoint. "

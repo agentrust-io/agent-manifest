@@ -1,8 +1,6 @@
 """Tests for the verification engine — issue #10."""
 from datetime import datetime, timedelta, timezone
 
-import pytest
-
 from agent_manifest._verify import (
     FieldResult,
     HitlResult,

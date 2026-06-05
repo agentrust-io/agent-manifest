@@ -12,15 +12,11 @@ form of approved_scope + manifest_id + approved_at.
 """
 from __future__ import annotations
 
-import hashlib
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from typing import Any, Optional
 
-from cryptography.exceptions import InvalidSignature
-
 from ._canonicalize import canonicalize
-from ._signing import Ed25519Signer, Ed25519Verifier, Ed25519KeyPair
+from ._signing import Ed25519Verifier, Ed25519KeyPair
 
 
 # ---------------------------------------------------------------------------

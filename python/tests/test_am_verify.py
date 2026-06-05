@@ -17,7 +17,6 @@ from agent_manifest._verify import (
     RevocationRecord,
     RevocationStore,
     VerificationContext,
-    VerificationResult,
     verify_manifest,
 )
 

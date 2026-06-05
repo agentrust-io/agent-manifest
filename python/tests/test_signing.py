@@ -12,8 +12,6 @@ from agent_manifest._signing import (
     generate_ed25519,
     signing_pre_image,
 )
-from agent_manifest._canonicalize import canonicalize
-
 try:
     from agent_manifest._signing import (
         MlDsa65Signer,

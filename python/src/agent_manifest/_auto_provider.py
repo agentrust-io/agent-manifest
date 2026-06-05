@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import os
 import shutil
-from typing import Union
 
 from ._providers import AttestationProvider, AttestationUnavailableError, TPMProvider
 
