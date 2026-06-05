@@ -4,12 +4,11 @@
 |---|---|
 | Version | 0.1 — Draft for Review |
 | Subtitle | A cryptographic identity and provenance standard for AI agents |
-| Authors | Imran Siddique (OPAQUE Systems, CPO) — Creator, Agent Governance Toolkit |
+| Authors | Imran Siddique (OPAQUE Systems, CPO) |
 | Status | Draft v0.1 — Proposed Open Standard |
 | Date | June 2026 |
-| Classification | Confidential — For Design Partners and Standards Review |
-| Relationship | Implements: Anthropic Zero Trust for AI Agents (Advanced Tier) \| Extends: OWASP ASI 2026 \| Aligns: CoSAI WS1, EU AI Act Art. 14/15 |
-| Target Standards Body | Agentic AI Foundation (AAIF) — Linux Foundation \| Proposed donation alongside AGT |
+| Relationship | Extends: OWASP ASI 2026 \| Aligns: CoSAI WS1, EU AI Act Art. 14/15 |
+| Target Standards Body | Agentic AI Foundation (AAIF) — Linux Foundation |
 
 ---
 
