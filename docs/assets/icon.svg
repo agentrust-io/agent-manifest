@@ -1,41 +1,29 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="400" height="400">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#0d0a1f"/>
-      <stop offset="100%" stop-color="#071828"/>
+      <stop offset="0%" stop-color="#f5f3ff"/>
+      <stop offset="100%" stop-color="#e0f2fe"/>
     </linearGradient>
     <linearGradient id="brand" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0%" stop-color="#7c3aed"/>
       <stop offset="100%" stop-color="#0ea5e9"/>
     </linearGradient>
-    <filter id="glow">
-      <feGaussianBlur stdDeviation="3.5" result="blur"/>
-      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
-    </filter>
   </defs>
   <rect width="400" height="400" fill="url(#bg)"/>
   <path d="M200,58 L326,112 L326,224 C326,298 268,340 200,360 C132,340 74,298 74,224 L74,112 Z"
-        fill="url(#brand)" opacity="0.07"/>
-  <path d="M200,58 L326,112 L326,224 C326,298 268,340 200,360 C132,340 74,298 74,224 L74,112 Z"
-        fill="none" stroke="url(#brand)" stroke-width="3.5" opacity="0.55" stroke-linejoin="round"/>
-  <g stroke="url(#brand)" stroke-width="2" opacity="0.45" filter="url(#glow)">
+        fill="url(#brand)" opacity="0.10" stroke="url(#brand)" stroke-width="3.5" stroke-linejoin="round"/>
+  <g stroke="url(#brand)" stroke-width="3" stroke-linecap="round">
     <line x1="200" y1="152" x2="150" y2="242"/>
     <line x1="200" y1="152" x2="250" y2="242"/>
     <line x1="150" y1="242" x2="250" y2="242"/>
   </g>
-  <g opacity="0.35" fill="url(#brand)">
-    <circle cx="200" cy="152" r="24"/>
-    <circle cx="150" cy="242" r="24"/>
-    <circle cx="250" cy="242" r="24"/>
-  </g>
-  <g filter="url(#glow)">
-    <circle cx="200" cy="152" r="16" fill="url(#brand)"/>
-    <circle cx="150" cy="242" r="16" fill="url(#brand)"/>
-    <circle cx="250" cy="242" r="16" fill="url(#brand)"/>
-  </g>
-  <g fill="white" opacity="0.95">
-    <circle cx="200" cy="152" r="6"/>
-    <circle cx="150" cy="242" r="6"/>
-    <circle cx="250" cy="242" r="6"/>
-  </g>
+  <circle cx="200" cy="152" r="22" fill="url(#brand)" opacity="0.18"/>
+  <circle cx="150" cy="242" r="22" fill="url(#brand)" opacity="0.18"/>
+  <circle cx="250" cy="242" r="22" fill="url(#brand)" opacity="0.18"/>
+  <circle cx="200" cy="152" r="14" fill="url(#brand)"/>
+  <circle cx="150" cy="242" r="14" fill="url(#brand)"/>
+  <circle cx="250" cy="242" r="14" fill="url(#brand)"/>
+  <circle cx="200" cy="152" r="5" fill="white"/>
+  <circle cx="150" cy="242" r="5" fill="white"/>
+  <circle cx="250" cy="242" r="5" fill="white"/>
 </svg>
