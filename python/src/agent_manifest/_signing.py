@@ -167,7 +167,13 @@ class Ed25519Verifier:
     """Verifies Ed25519 signatures using OpenSSL's cofactorless equation."""
 
     def __init__(self, public_key_bytes: bytes) -> None:
-        # from_public_bytes raises ValueError for small-order/torsion keys
+        # Cryptography <44 rejected small-order/torsion keys in from_public_bytes.
+        # >=44 moved that check to verify() time, so we enforce it here (CRYPTO-007).
+        if len(public_key_bytes) != 32 or public_key_bytes == bytes(32):
+            raise ValueError(
+                "Invalid Ed25519 public key: all-zero bytes are a small-order "
+                "subgroup element and MUST be rejected."
+            )
         self._pub: Ed25519PublicKey = Ed25519PublicKey.from_public_bytes(
             public_key_bytes
         )

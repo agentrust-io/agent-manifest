@@ -326,7 +326,7 @@ require_fastapi = pytest.mark.skipif(not FASTAPI_AVAILABLE, reason="fastapi not 
 def _client(manifests=None):
     app = FastAPI()
     s = RevocationStore()
-    store_dict = manifests or {MID: manifest()}
+    store_dict = {MID: manifest()} if manifests is None else manifests
     app.include_router(create_router(store_dict, s))
     return TestClient(app), s
 

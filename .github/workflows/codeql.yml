@@ -20,6 +20,9 @@ jobs:
   analyze:
     name: Analyze Python
     runs-on: ubuntu-latest
+    # Dependabot PRs run with read-only token; skip CodeQL to avoid permission errors.
+    # The weekly scheduled run still covers the dependency surface.
+    if: github.actor != 'dependabot[bot]'
 
     steps:
       - uses: actions/checkout@v4
