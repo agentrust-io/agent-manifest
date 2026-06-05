@@ -7,6 +7,7 @@ on:
       - "docs/**"
       - "mkdocs.yml"
       - "requirements-docs.txt"
+      - "python/src/**"
       - "README.md"
       - "CHANGELOG.md"
       - "CONTRIBUTING.md"
@@ -34,7 +35,9 @@ jobs:
           cache: pip
 
       - name: Install docs dependencies
-        run: pip install -r requirements-docs.txt
+        run: |
+          pip install -r requirements-docs.txt
+          pip install -e "python/[server,pq]"
 
       - name: Build and deploy to GitHub Pages
         run: mkdocs gh-deploy --force --clean
