@@ -108,6 +108,12 @@ nav:
       - ADR-0007 — JSON-Lines CRL Format: adr/0007-revocation-crl-format.md
       - ADR-0008 — Conformance Levels 0–3: adr/0008-conformance-levels.md
       - ADR-0009 — SPIFFE URI Identity: adr/0009-spiffe-uri-agent-identity.md
+  - Compliance:
+      - Overview: compliance/index.md
+      - EU AI Act: compliance/eu-ai-act.md
+      - DORA: compliance/dora.md
+      - GDPR: compliance/gdpr.md
+      - HIPAA: compliance/hipaa.md
   - Specification:
       - Overview: spec-overview.md
   - Project:
