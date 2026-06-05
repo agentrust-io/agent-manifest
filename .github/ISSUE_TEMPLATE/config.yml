@@ -1,0 +1,12 @@
+blank_issues_enabled: false
+
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/agentrust-io/agent-manifest/security/advisories/new
+    about: Report a security vulnerability via private disclosure. Do not file a public issue.
+  - name: Question or discussion
+    url: https://github.com/agentrust-io/agent-manifest/discussions
+    about: Ask a question or start a discussion about the spec or SDK.
+  - name: Spec change proposal
+    url: https://github.com/agentrust-io/agent-manifest/issues/new?template=spec_change.md
+    about: Propose a change to the Agent Manifest Specification.

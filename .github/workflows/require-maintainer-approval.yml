@@ -1,0 +1,47 @@
+name: Require maintainer approval
+
+on:
+  pull_request_review:
+    types: [submitted]
+
+permissions:
+  pull-requests: read
+  statuses: write
+
+jobs:
+  check-approver:
+    name: Verify human maintainer approved
+    runs-on: ubuntu-latest
+    if: github.event.review.state == 'approved'
+    steps:
+      - name: Check approver is a human maintainer
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const approver = context.payload.review.user;
+
+            // Block bot and AI approvals
+            if (approver.type !== 'User') {
+              core.setFailed(
+                `PR approval from ${approver.login} (type: ${approver.type}) is not accepted. ` +
+                `A human maintainer listed in MAINTAINERS.md must approve this PR.`
+              );
+              return;
+            }
+
+            // Fetch the maintainers team members
+            const { data: members } = await github.rest.teams.listMembersInOrg({
+              org: context.repo.owner,
+              team_slug: 'maintainers',
+            }).catch(() => ({ data: [] }));
+
+            const maintainerLogins = members.map(m => m.login.toLowerCase());
+
+            if (maintainerLogins.length > 0 && !maintainerLogins.includes(approver.login.toLowerCase())) {
+              core.warning(
+                `Approver ${approver.login} is not in the maintainers team. ` +
+                `A team maintainer approval is still required before merge.`
+              );
+            }
+
+            core.info(`Approval from human user ${approver.login} recorded.`);
