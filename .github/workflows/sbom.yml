@@ -1,0 +1,55 @@
+name: SBOM
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "python/pyproject.toml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  generate:
+    name: Generate CycloneDX SBOM
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install cyclonedx-bom
+        run: pip install cyclonedx-bom
+
+      - name: Install package
+        working-directory: python
+        run: pip install -e ".[all]"
+
+      - name: Generate SBOM
+        working-directory: python
+        run: |
+          cyclonedx-py environment \
+            --output-format json \
+            --output-file ../sbom.cdx.json
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-cdx
+          path: sbom.cdx.json
+          retention-days: 90
+
+      - name: Commit SBOM to repo
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          mv sbom.cdx.json sbom/sbom.cdx.json 2>/dev/null || \
+            (mkdir -p sbom && mv sbom.cdx.json sbom/sbom.cdx.json)
+          git add sbom/sbom.cdx.json
+          git diff --cached --quiet || \
+            git commit -m "chore(sbom): update CycloneDX SBOM [skip ci]"
+          git push
