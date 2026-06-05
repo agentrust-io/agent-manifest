@@ -1,0 +1,98 @@
+site_name: Agent Manifest
+site_description: Cryptographic identity and provenance standard for AI agents
+site_url: https://agentrust-io.github.io/agent-manifest
+repo_url: https://github.com/agentrust-io/agent-manifest
+repo_name: agentrust-io/agent-manifest
+edit_uri: edit/main/docs/
+docs_dir: docs
+
+theme:
+  name: material
+  logo: assets/icon.svg
+  favicon: assets/icon.svg
+  palette:
+    - scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/brightness-7
+        name: Switch to light mode
+    - scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/brightness-4
+        name: Switch to dark mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.top
+    - navigation.path
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.tabs.link
+    - toc.follow
+    - header.autohide
+  icon:
+    repo: fontawesome/brands/github
+  font:
+    text: Inter, system-ui, -apple-system, sans-serif
+    code: JetBrains Mono, Cascadia Code, monospace
+
+plugins:
+  - search
+  - minify:
+      minify_html: true
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/agentrust-io/agent-manifest
+  generator: false
+
+extra_css:
+  - stylesheets/extra.css
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - Architecture:
+      - Decision Records: adr/index.md
+      - ADR-0001 — RFC 8785 Canonical JSON: adr/0001-rfc8785-canonical-json.md
+      - ADR-0002 — Ed25519 Standard Profile: adr/0002-ed25519-standard-profile.md
+      - ADR-0003 — RFC 9162 Merkle Trees: adr/0003-rfc9162-merkle-domain-separation.md
+  - Specification:
+      - Overview: spec-overview.md
+  - Project:
+      - Roadmap: roadmap.md
+      - Limitations: limitations.md
+      - Changelog: changelog.md
+      - Contributing: contributing.md
+      - Governance: governance.md
