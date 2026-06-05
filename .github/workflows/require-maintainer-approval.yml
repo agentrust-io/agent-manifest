@@ -15,7 +15,7 @@ jobs:
     if: github.event.review.state == 'approved'
     steps:
       - name: Check approver is a human maintainer
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const approver = context.payload.review.user;
