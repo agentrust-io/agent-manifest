@@ -80,7 +80,7 @@ class SEVSNPProvider(AttestationProvider):
 
         try:
             with open(_SEV_GUEST_DEV, "rb") as dev:
-                fcntl.ioctl(dev, _SNP_REPORT_IOCTL, buf)
+                fcntl.ioctl(dev, _SNP_REPORT_IOCTL, buf)  # type: ignore[attr-defined]
             self._report_bytes = bytes(buf)
         except OSError as e:
             raise AttestationUnavailableError(
@@ -165,7 +165,7 @@ class TDXProvider(AttestationProvider):
 
         try:
             with open(_TDX_GUEST_DEV, "rb") as dev:
-                fcntl.ioctl(dev, _TDX_CMD_GET_REPORT, buf)
+                fcntl.ioctl(dev, _TDX_CMD_GET_REPORT, buf)  # type: ignore[attr-defined]
             self._report_bytes = bytes(buf)
         except OSError as e:
             raise AttestationUnavailableError(f"TDX RTMR extend failed: {e}")

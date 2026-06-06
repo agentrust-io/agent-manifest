@@ -218,12 +218,12 @@ def create_crl_router(crl: FileCRL) -> Any:
 
     router = APIRouter()
 
-    @router.get("/.well-known/agent-manifest/revocation")
+    @router.get("/.well-known/agent-manifest/revocation")  # type: ignore[untyped-decorator]
     async def list_revocations() -> list[dict[str, Any]]:
         """Return all revocation records as a JSON array."""
         return [r.model_dump(mode="json") for r in crl.all_records()]
 
-    @router.get("/.well-known/agent-manifest/revocation/{manifest_id}")
+    @router.get("/.well-known/agent-manifest/revocation/{manifest_id}")  # type: ignore[untyped-decorator]
     async def get_revocation(manifest_id: str) -> dict[str, Any]:
         """Return the revocation record for a specific manifest, or 404."""
         # Validate path parameter to prevent log injection (INJ-006)
