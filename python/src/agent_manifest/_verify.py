@@ -401,6 +401,25 @@ def verify_manifest(
                 ))
             fields.hitl_record = HitlResult.APPROVED if all_ok else HitlResult.EXPIRED
 
+    # --- Attestation block verification (HW-010)
+    # Check that manifest_hash_in_report matches the computed manifest hash.
+    attestation_block = manifest.get("attestation") or {}
+    if attestation_block:
+        reported_hash = attestation_block.get("manifest_hash_in_report", "")
+        if reported_hash:
+            from ._canonicalize import canonicalize as _canonicalize
+            import hashlib as _hashlib
+            subset = {k: v for k, v in manifest.items() if k != "attestation"}
+            expected_attest_hash = "sha256:" + _hashlib.sha256(_canonicalize(subset)).hexdigest()
+            if hmac.compare_digest(reported_hash, expected_attest_hash):
+                result.attestation_verified = True
+            elif context.enforce_attestation:
+                mismatches.append(MismatchDetail(
+                    field="attestation",
+                    expected_hash=expected_attest_hash,
+                    actual_hash=reported_hash,
+                ))
+
     # --- Final result
     result.mismatch_details = mismatches
     if mismatches:

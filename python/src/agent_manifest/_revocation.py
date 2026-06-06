@@ -88,7 +88,7 @@ def verify_revocation_signature(
     """
     import base64
     from cryptography.exceptions import InvalidSignature
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+    from ._signing import Ed25519Verifier as _Ed25519Verifier
 
     # CRL-001: null/empty signature must raise InvalidSignature, not ValueError
     if not record.revocation_signature:
@@ -114,8 +114,8 @@ def verify_revocation_signature(
         raise InvalidSignature(
             f"Ed25519 signature must be 64 bytes, got {len(sig_bytes)}"
         )
-    pub = Ed25519PublicKey.from_public_bytes(signer_public_key)
-    pub.verify(sig_bytes, pre_image)
+    # CRYPTO-007: use Ed25519Verifier so small-order key check is enforced
+    _Ed25519Verifier(signer_public_key)._pub.verify(sig_bytes, pre_image)
 
 
 # ---------------------------------------------------------------------------

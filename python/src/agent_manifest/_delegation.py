@@ -97,9 +97,11 @@ def verify_delegation_chain(
         return
 
     root_max_depth = delegation_chain[0]["scope_grant"].get("max_delegation_depth", 3)
-    if len(delegation_chain) > root_max_depth:
+    # DELEG-002: max_delegation_depth counts sub-delegation levels below the root,
+    # so a chain of (root + N delegates) has depth N. Allow length <= max_depth + 1.
+    if len(delegation_chain) > root_max_depth + 1:
         raise ValueError(
-            f"Delegation chain depth {len(delegation_chain)} exceeds "
+            f"Delegation chain depth {len(delegation_chain) - 1} exceeds "
             f"root max_delegation_depth {root_max_depth}"
         )
 
@@ -239,9 +241,25 @@ def verify_hitl_approval(
 
     Raises:
         InvalidSignature: If the approval signature is invalid.
-        ValueError: If required fields are missing.
+        ValueError: If required fields are missing or the approval has expired.
     """
     import base64
+    from datetime import datetime, timezone, timedelta
+
+    # HITL-003: enforce approval expiry before verifying signature
+    duration = approval.get("approved_scope", {}).get("approval_duration_seconds", 0)
+    if duration:
+        approved_at_str = approval.get("approved_at", "")
+        try:
+            approved_at = datetime.fromisoformat(approved_at_str.replace("Z", "+00:00"))
+        except (ValueError, AttributeError) as e:
+            raise ValueError(f"HITL approval has invalid approved_at: {e}") from e
+        if datetime.now(timezone.utc) > approved_at + timedelta(seconds=duration):
+            raise ValueError(
+                f"HITL approval expired: approved_at={approved_at_str}, "
+                f"duration={duration}s"
+            )
+
     pre = _approval_pre_image(
         manifest_id=manifest_id,
         approved_at=approval["approved_at"],

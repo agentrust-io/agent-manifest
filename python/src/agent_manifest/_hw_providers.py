@@ -54,11 +54,20 @@ class SEVSNPProvider(AttestationProvider):
         AttestationUnavailableError: If /dev/sev-guest is not accessible.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, require_vcek_verification: bool = False) -> None:
         if not os.path.exists(_SEV_GUEST_DEV):
             raise AttestationUnavailableError(
                 f"AMD SEV-SNP not available: {_SEV_GUEST_DEV} not found. "
                 "Requires an SEV-SNP VM (Azure DCasv5, AWS C6a Nitro, GCP N2D Confidential)."
+            )
+        # HW-008: if VCEK chain verification is required, raise eagerly so callers
+        # cannot silently rely on an unverified attestation report.
+        if require_vcek_verification:
+            raise AttestationUnavailableError(
+                "VCEK certificate chain verification is not yet implemented. "
+                "Fetch the VCEK cert from AMD KDS and verify it against the AMD root CA "
+                "before trusting the SNP attestation report. "
+                "Pass require_vcek_verification=False only in development."
             )
         self._manifest_hash: Optional[str] = None
         self._report_bytes: Optional[bytes] = None
@@ -102,6 +111,10 @@ class SEVSNPProvider(AttestationProvider):
                 "host_data": self._report_bytes[0x140:0x180].hex(),  # HOST_DATA at offset 0x140
                 "measurement": measurement_hex,
                 "vmpl": 0,
+                # HW-008: VCEK chain not verified — the ioctl response does not embed
+                # the cert chain. Callers who need full attestation must fetch the VCEK
+                # from AMD KDS using chip_id + tcb_version and verify independently.
+                "vcek_cert_chain_verified": False,
             },
         )
 

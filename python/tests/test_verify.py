@@ -238,3 +238,45 @@ def test_revocation_store_get_record():
     s.revoke(rec)
     assert s.get_record("test-id") == rec
     assert s.get_record("other") is None
+
+
+# ---------------------------------------------------------------------------
+# Attestation verification (HW-010)
+# ---------------------------------------------------------------------------
+
+
+def _manifest_hash(manifest: dict) -> str:
+    import hashlib
+    from agent_manifest._canonicalize import canonicalize
+    subset = {k: v for k, v in manifest.items() if k != "attestation"}
+    return "sha256:" + hashlib.sha256(canonicalize(subset)).hexdigest()
+
+
+def test_attestation_verified_true_when_hash_matches():
+    m = base_manifest()
+    m["attestation"] = {"platform": "tpm", "manifest_hash_in_report": _manifest_hash(m)}
+    result = verify_manifest(m, base_context(), store())
+    assert result.attestation_verified is True
+
+
+def test_attestation_verified_false_when_no_attestation():
+    result = verify_manifest(base_manifest(), base_context(), store())
+    assert result.attestation_verified is False
+
+
+def test_attestation_hash_mismatch_with_enforce_raises_mismatch():
+    m = base_manifest()
+    m["attestation"] = {"platform": "tpm", "manifest_hash_in_report": "sha256:" + "00" * 32}
+    ctx = base_context(enforce_attestation=True)
+    result = verify_manifest(m, ctx, store())
+    assert result.attestation_verified is False
+    assert result.result == OverallResult.MISMATCH
+    assert any(d.field == "attestation" for d in result.mismatch_details)
+
+
+def test_attestation_hash_mismatch_without_enforce_is_valid():
+    m = base_manifest()
+    m["attestation"] = {"platform": "tpm", "manifest_hash_in_report": "sha256:" + "00" * 32}
+    result = verify_manifest(m, base_context(), store())
+    assert result.attestation_verified is False
+    assert result.result == OverallResult.VALID
