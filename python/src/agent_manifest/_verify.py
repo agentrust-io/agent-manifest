@@ -462,7 +462,7 @@ def create_router(
 
     router = APIRouter()
 
-    @router.get("/verify", response_model=VerificationResult)  # type: ignore[untyped-decorator]
+    @router.get("/verify", response_model=VerificationResult)
     async def verify(
         manifest_id: str = Query(..., description="UUID v7 manifest identifier"),
         enforce_hitl: bool = Query(False),
@@ -497,7 +497,7 @@ def create_router(
         )
         return verify_manifest(manifest, ctx, revocation_store)
 
-    @router.get("/revocation-status")  # type: ignore[untyped-decorator]
+    @router.get("/revocation-status")
     async def revocation_status(
         manifest_id: str = Query(...),
     ) -> RevocationRecord:
