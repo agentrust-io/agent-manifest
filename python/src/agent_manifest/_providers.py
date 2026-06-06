@@ -100,13 +100,21 @@ def _detect_nitro() -> bool:
     return os.path.exists(_NITRO_NSM_DEV)
 
 
-def _require_tpm2_tools() -> None:
-    if shutil.which("tpm2_extend") is None:
+def _require_tpm2_tools() -> tuple[str, str]:
+    """Return absolute paths (tpm2_extend, tpm2_pcrread) or raise.
+
+    HW-007: resolve to absolute paths at call time so PATH changes after
+    import cannot inject a malicious binary.
+    """
+    extend = shutil.which("tpm2_extend")
+    pcrread = shutil.which("tpm2_pcrread")
+    if extend is None or pcrread is None:
         raise AttestationUnavailableError(
             "tpm2-tools not found. Install with: apt-get install tpm2-tools "
             "or yum install tpm2-tools. "
             "For CI, use swtpm: https://github.com/stefanberger/swtpm"
         )
+    return extend, pcrread
 
 
 class TPMProvider(AttestationProvider):
@@ -154,13 +162,13 @@ class TPMProvider(AttestationProvider):
         Raises:
             AttestationUnavailableError: If tpm2_extend fails.
         """
-        _require_tpm2_tools()
+        extend_path, _ = _require_tpm2_tools()
         pre = self.manifest_pre_image(manifest_json)
         digest = hashlib.sha256(pre).hexdigest()
         self._last_manifest_hash = f"sha256:{digest}"
 
         result = subprocess.run(
-            ["tpm2_extend", f"-i{self._pcr}", "-g=sha256", f"-d={digest}"],
+            [extend_path, f"-i{self._pcr}", "-g=sha256", f"-d={digest}"],
             capture_output=True,
             text=True,
         )
@@ -175,11 +183,11 @@ class TPMProvider(AttestationProvider):
         Raises:
             AttestationUnavailableError: If tpm2_pcrread or tpm2_quote fails.
         """
-        _require_tpm2_tools()
+        _, pcrread_path = _require_tpm2_tools()
 
         # Read PCR values
         result = subprocess.run(
-            ["tpm2_pcrread", f"sha256:{self._pcr}"],
+            [pcrread_path, f"sha256:{self._pcr}"],
             capture_output=True,
             text=True,
         )

@@ -1,5 +1,5 @@
 """Tests for A2A delegation chain and HITL approval signing — issues #12 and #13."""
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from cryptography.exceptions import InvalidSignature
@@ -106,11 +106,13 @@ def test_scope_laundering_detected():
         )
 
 def test_depth_exceeded_raises():
+    # max_delegation_depth=1 means root + at most 1 sub-delegate (chain length <= 2).
+    # A chain of 3 hops has depth 2, which exceeds max_delegation_depth=1.
     narrow_scope = {**SCOPE, "max_delegation_depth": 1}
     chain = [
         {"hop": i, "principal_id": f"spiffe://x/{i}", "principal_type": "agent",
          "delegated_at": NOW, "scope_grant": narrow_scope, "delegation_signature": "sig"}
-        for i in range(2)  # depth 2 > max 1
+        for i in range(3)  # length 3, depth 2 > max_delegation_depth 1
     ]
     with pytest.raises(ValueError, match="max_delegation_depth"):
         verify_delegation_chain(chain, {}, MID)
@@ -195,3 +197,38 @@ def test_approval_scope_change_fails():
                 "approval_signature": sig}
     with pytest.raises(InvalidSignature):
         verify_hitl_approval(approval, MID, kp.public_bytes)
+
+
+def test_approval_expired_raises():
+    """Approval past its duration must raise ValueError before signature check."""
+    kp = generate_ed25519()
+    past_time = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat().replace("+00:00", "Z")
+    short_scope = {**APPROVAL_SCOPE, "approval_duration_seconds": 3600}  # 1h ago = expired
+    sig = HitlApprovalSigner(kp).sign_approval(
+        manifest_id=MID, approved_at=past_time,
+        approved_scope=short_scope, approver_id="did:web:ciso",
+    )
+    approval = {
+        "manifest_id": MID, "approved_at": past_time,
+        "approved_scope": short_scope, "approver_id": "did:web:ciso",
+        "approval_signature": sig,
+    }
+    with pytest.raises(ValueError, match="expired"):
+        verify_hitl_approval(approval, MID, kp.public_bytes)
+
+
+def test_approval_no_duration_does_not_expire():
+    """Approval with no duration limit must not raise expiry error."""
+    kp = generate_ed25519()
+    past_time = (datetime.now(timezone.utc) - timedelta(days=365)).isoformat().replace("+00:00", "Z")
+    no_expiry_scope = {**APPROVAL_SCOPE, "approval_duration_seconds": 0}
+    sig = HitlApprovalSigner(kp).sign_approval(
+        manifest_id=MID, approved_at=past_time,
+        approved_scope=no_expiry_scope, approver_id="did:web:ciso",
+    )
+    approval = {
+        "manifest_id": MID, "approved_at": past_time,
+        "approved_scope": no_expiry_scope, "approver_id": "did:web:ciso",
+        "approval_signature": sig,
+    }
+    verify_hitl_approval(approval, MID, kp.public_bytes)  # must not raise

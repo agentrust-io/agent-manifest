@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -78,7 +79,15 @@ def _b64url_encode(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
 
 
+_B64URL_RE = re.compile(r"^[A-Za-z0-9\-_]*$")
+
+
 def _b64url_decode(s: str) -> bytes:
+    # CRYPTO-006: reject standard base64 (+/) — only URL-safe chars allowed
+    if not _B64URL_RE.match(s):
+        raise ValueError(
+            "Invalid base64url: contains non-URL-safe characters (use - and _ not + and /)"
+        )
     pad = 4 - len(s) % 4
     return base64.urlsafe_b64decode(s + ("=" * pad if pad != 4 else ""))
 
@@ -106,6 +115,19 @@ def signing_pre_image(manifest_dict: dict[str, Any]) -> bytes:
 # ---------------------------------------------------------------------------
 # Ed25519
 # ---------------------------------------------------------------------------
+
+# CRYPTO-005: all 8 low-order (torsion) points of the Ed25519 curve — cofactor 8.
+# A key equal to any of these allows signature forgery; reject at load time.
+_SMALL_ORDER_POINTS: frozenset[bytes] = frozenset({
+    bytes.fromhex("0000000000000000000000000000000000000000000000000000000000000000"),
+    bytes.fromhex("0100000000000000000000000000000000000000000000000000000000000000"),
+    bytes.fromhex("26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05"),
+    bytes.fromhex("c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a"),
+    bytes.fromhex("0000000000000000000000000000000000000000000000000000000000000080"),
+    bytes.fromhex("ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f"),
+    bytes.fromhex("26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc85"),
+    bytes.fromhex("c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac03fa"),
+})
 
 
 @dataclass(frozen=True)
@@ -176,12 +198,12 @@ class Ed25519Verifier:
     """Verifies Ed25519 signatures using OpenSSL's cofactorless equation."""
 
     def __init__(self, public_key_bytes: bytes) -> None:
-        # Cryptography <44 rejected small-order/torsion keys in from_public_bytes.
-        # >=44 moved that check to verify() time, so we enforce it here (CRYPTO-007).
-        if len(public_key_bytes) != 32 or public_key_bytes == bytes(32):
+        # CRYPTO-005: reject all 8 torsion (small-order) subgroup elements.
+        # cryptography >=44 moved this check to verify() time — enforce it here.
+        if len(public_key_bytes) != 32 or public_key_bytes in _SMALL_ORDER_POINTS:
             raise ValueError(
-                "Invalid Ed25519 public key: all-zero bytes are a small-order "
-                "subgroup element and MUST be rejected."
+                "Invalid Ed25519 public key: key is a small-order subgroup element "
+                "(torsion point) and MUST be rejected."
             )
         self._pub: Ed25519PublicKey = Ed25519PublicKey.from_public_bytes(
             public_key_bytes
@@ -196,11 +218,16 @@ class Ed25519Verifier:
         """Verify *signature_value* over *manifest_dict*'s signed fields.
 
         Raises:
-            cryptography.exceptions.InvalidSignature: Verification failed.
-            ValueError: Signature bytes are malformed / wrong length.
+            cryptography.exceptions.InvalidSignature: Verification failed or wrong length.
+            ValueError: Signature string contains non-URL-safe base64 characters.
         """
         pre_image = signing_pre_image(manifest_dict)
         sig_bytes = _b64url_decode(signature_value)
+        # SIGN-001: reject before passing to OpenSSL — avoids undefined-length inputs
+        if len(sig_bytes) != 64:
+            raise InvalidSignature(
+                f"Ed25519 signature must be 64 bytes, got {len(sig_bytes)}"
+            )
         self._pub.verify(sig_bytes, pre_image)  # raises InvalidSignature on failure
 
 

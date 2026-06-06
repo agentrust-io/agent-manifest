@@ -9,6 +9,8 @@ from agent_manifest._signing import (
     SIGNED_FIELDS,
     Ed25519Signer,
     Ed25519Verifier,
+    _SMALL_ORDER_POINTS,
+    _b64url_decode,
     generate_ed25519,
     signing_pre_image,
 )
@@ -156,10 +158,37 @@ def test_ed25519_signed_fields_list_correct():
 
 
 def test_ed25519_small_order_key_rejected():
-    """OpenSSL rejects keys on small-order (torsion) subgroup at load time."""
-    # All-zero raw key bytes are rejected by OpenSSL
-    with pytest.raises((ValueError, Exception)):
+    with pytest.raises(ValueError):
         Ed25519Verifier(bytes(32))
+
+
+def test_ed25519_all_small_order_points_rejected():
+    """All 8 torsion subgroup elements must be rejected at key load time."""
+    for point in _SMALL_ORDER_POINTS:
+        with pytest.raises(ValueError):
+            Ed25519Verifier(point)
+
+
+def test_ed25519_truncated_sig_raises_invalid_signature():
+    kp = generate_ed25519()
+    verifier = Ed25519Verifier(kp.public_bytes)
+    with pytest.raises(InvalidSignature):
+        verifier.verify(SAMPLE_MANIFEST, "abc")  # decodes to <64 bytes
+
+
+def test_b64url_decode_rejects_plus():
+    with pytest.raises(ValueError, match="non-URL-safe"):
+        _b64url_decode("abc+def")
+
+
+def test_b64url_decode_rejects_slash():
+    with pytest.raises(ValueError, match="non-URL-safe"):
+        _b64url_decode("abc/def")
+
+
+def test_b64url_decode_accepts_valid():
+    result = _b64url_decode("SGVsbG8")  # "Hello"
+    assert result == b"Hello"
 
 
 def test_ed25519_public_key_roundtrip_b64url():
