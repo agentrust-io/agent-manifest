@@ -172,15 +172,15 @@ class FileCRL:
                     )
                 try:
                     rec = SignedRevocationRecord.model_validate_json(line)
-                except Exception:
-                    continue  # skip malformed lines
+                except Exception:  # nosec B112 — intentional skip of malformed lines
+                    continue
 
                 # REVOC-003: verify signature if trusted key is provided
                 if self._trusted_signer_key is not None:
                     try:
                         verify_revocation_signature(rec, self._trusted_signer_key)
-                    except Exception:
-                        continue  # skip records with invalid/absent signatures
+                    except Exception:  # nosec B112 — intentional skip of unsigned/tampered records
+                        continue
 
                 self._cache[rec.manifest_id] = rec
                 count += 1
@@ -244,7 +244,7 @@ def create_crl_router(crl: FileCRL) -> Any:
                 status_code=404,
                 detail=ErrorResponse(
                     error_code="NOT_REVOKED",
-                    error_message="The requested manifest has no revocation record.",
+                    error_message=f"No revocation record for manifest {manifest_id}",
                 ).model_dump(),
             )
         return record.model_dump(mode="json")
