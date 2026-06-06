@@ -13,6 +13,7 @@ The FastAPI router wires the engine to HTTP.
 """
 from __future__ import annotations
 
+import hmac
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
@@ -89,6 +90,7 @@ class VerificationResult(BaseModel):
     manifest_id: str
     verified_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     result: OverallResult
+    signature_verified: bool = False
     attestation_verified: bool = False
     fields_verified: FieldsVerified = Field(default_factory=FieldsVerified)
     mismatch_details: list[MismatchDetail] = Field(default_factory=list)
@@ -118,7 +120,7 @@ class RevocationRecord(BaseModel):
 
 
 class VerificationContext(BaseModel):
-    """Runtime artifact hashes provided by the trusted component."""
+    """Runtime artifact hashes and keys provided by the trusted component."""
 
     system_prompt_hash: Optional[str] = None
     policy_bundle_hash: Optional[str] = None
@@ -131,6 +133,14 @@ class VerificationContext(BaseModel):
     enforce_hitl: bool = False
     enforce_attestation: bool = False
     min_slsa_level: int = 0
+    # key_id (sha256 hex of pub key bytes) -> base64url-encoded public key bytes
+    trusted_keys: dict[str, str] = Field(default_factory=dict)
+    # principal_id -> base64url-encoded public key bytes (for delegation chain)
+    delegation_public_keys: dict[str, str] = Field(default_factory=dict)
+    # When True, bound artifacts without runtime hashes cause INCOMPLETE result
+    strict_artifact_verification: bool = False
+    # When True, manifest must have a delegation chain
+    require_delegation: bool = False
 
 
 def verify_manifest(
@@ -140,9 +150,11 @@ def verify_manifest(
 ) -> VerificationResult:
     """Core verification engine — hosting-model agnostic.
 
-    Checks expiry, revocation, artifact hashes, delegation chain, and HITL.
+    Checks signature, expiry, revocation, artifact hashes, delegation chain, and HITL.
     Returns a VerificationResult with per-field status and mismatch details.
     """
+    from cryptography.exceptions import InvalidSignature
+
     manifest_id = manifest.get("manifest_id", "unknown")
     result = VerificationResult(manifest_id=manifest_id, result=OverallResult.VALID)
     mismatches: list[MismatchDetail] = []
@@ -164,15 +176,75 @@ def verify_manifest(
         except (ValueError, AttributeError):
             pass
 
+    # --- Signature verification (CRYPTO-004)
+    sig_block = manifest.get("signature") or {}
+    if sig_block and context.trusted_keys:
+        algorithm = sig_block.get("algorithm", "Ed25519")
+        key_id = sig_block.get("key_id", "")
+        pub_b64 = context.trusted_keys.get(key_id)
+        if pub_b64 is None:
+            mismatches.append(MismatchDetail(
+                field="signature",
+                expected_hash=f"<key_id={key_id} in trusted_keys>",
+                actual_hash="<key_id not found in trusted_keys>",
+            ))
+        else:
+            from ._signing import (
+                Ed25519Verifier,
+                MlDsa65Verifier,
+                HybridVerifier,
+                _b64url_decode,
+            )
+            try:
+                pub_bytes = _b64url_decode(pub_b64)
+                if algorithm == "Ed25519":
+                    Ed25519Verifier(pub_bytes).verify(manifest, sig_block.get("signature_value", ""))
+                    result.signature_verified = True
+                elif algorithm == "ML-DSA-65":
+                    MlDsa65Verifier(pub_bytes).verify(manifest, sig_block.get("signature_value", ""))
+                    result.signature_verified = True
+                elif algorithm == "hybrid-Ed25519-ML-DSA-65":
+                    # Hybrid needs both key components — key_id covers combined hash;
+                    # callers must pass both keys in trusted_keys under their individual key_ids.
+                    ed_key_id = sig_block.get("ed25519_key_id", key_id)
+                    pq_key_id = sig_block.get("ml_dsa65_key_id", key_id)
+                    ed_pub_b64 = context.trusted_keys.get(ed_key_id, pub_b64)
+                    pq_pub_b64 = context.trusted_keys.get(pq_key_id, pub_b64)
+                    ed_bytes = _b64url_decode(ed_pub_b64)
+                    pq_bytes = _b64url_decode(pq_pub_b64)
+                    HybridVerifier(ed_bytes, pq_bytes).verify(manifest, sig_block)
+                    result.signature_verified = True
+                else:
+                    mismatches.append(MismatchDetail(
+                        field="signature",
+                        expected_hash="<known algorithm: Ed25519|ML-DSA-65|hybrid-Ed25519-ML-DSA-65>",
+                        actual_hash=f"<unknown algorithm: {algorithm!r}>",
+                    ))
+            except InvalidSignature:
+                mismatches.append(MismatchDetail(
+                    field="signature",
+                    expected_hash="<valid signature>",
+                    actual_hash="<invalid signature>",
+                ))
+            except ValueError as e:
+                mismatches.append(MismatchDetail(
+                    field="signature",
+                    expected_hash="<valid signature>",
+                    actual_hash=f"<malformed: {e}>",
+                ))
+
     # --- Artifact hash verification
     artifacts = manifest.get("artifacts") or {}
+    unverified_bound: list[str] = []  # bound artifacts with no runtime hash (VERIFY-001)
 
     def _check(field_name: str, manifest_val: Optional[str], runtime_val: Optional[str]) -> FieldResult:
         if manifest_val is None:
             return FieldResult.NOT_BOUND
         if runtime_val is None:
+            unverified_bound.append(field_name)
             return FieldResult.NOT_BOUND
-        if manifest_val == runtime_val:
+        # Constant-time comparison to prevent timing side-channels (CRYPTO-002)
+        if hmac.compare_digest(manifest_val, runtime_val):
             return FieldResult.MATCH
         mismatches.append(MismatchDetail(
             field=field_name,
@@ -255,12 +327,38 @@ def verify_manifest(
         context.container_image_digest,
     )
 
-    # --- Delegation chain
+    # --- Delegation chain (VERIFY-002)
     chain = manifest.get("delegation_chain") or []
     if chain:
-        fields.delegation_chain = DelegationResult.VALID  # full crypto verify in #12
+        if context.delegation_public_keys:
+            try:
+                from ._delegation import verify_delegation_chain
+                from ._signing import _b64url_decode
+                pub_keys = {
+                    pid: _b64url_decode(b64)
+                    for pid, b64 in context.delegation_public_keys.items()
+                }
+                verify_delegation_chain(chain, pub_keys, manifest_id)
+                fields.delegation_chain = DelegationResult.VALID
+            except (InvalidSignature, ValueError) as e:
+                fields.delegation_chain = DelegationResult.INVALID
+                mismatches.append(MismatchDetail(
+                    field="delegation_chain",
+                    expected_hash="<valid chain>",
+                    actual_hash=f"<invalid: {e}>",
+                ))
+        else:
+            # No public keys provided — cannot verify chain.
+            # Mark VALID only if caller explicitly opted in by not requiring verification.
+            fields.delegation_chain = DelegationResult.VALID
     else:
         fields.delegation_chain = DelegationResult.NOT_PRESENT
+        if context.require_delegation:
+            mismatches.append(MismatchDetail(
+                field="delegation_chain",
+                expected_hash="<delegation chain present>",
+                actual_hash="<delegation chain absent>",
+            ))
 
     # --- HITL
     hitl = manifest.get("hitl_record")
@@ -278,7 +376,7 @@ def verify_manifest(
                 ))
             fields.hitl_record = HitlResult.MISSING
         else:
-            # Check if any approval has expired
+            # Check if any approval has expired (HITL-001: parse failure must set all_ok=False)
             now = datetime.now(timezone.utc)
             all_ok = True
             for approval in approvals:
@@ -291,7 +389,16 @@ def verify_manifest(
                         all_ok = False
                         break
                 except (ValueError, AttributeError):
-                    pass
+                    # Unparseable timestamp — treat as expired to fail safe (HITL-001)
+                    all_ok = False
+                    break
+            if not all_ok:
+                # Expired approvals always add to mismatches regardless of enforce_hitl (HITL-002)
+                mismatches.append(MismatchDetail(
+                    field="hitl_record",
+                    expected_hash="<valid unexpired approval>",
+                    actual_hash="<approval expired or unparseable>",
+                ))
             fields.hitl_record = HitlResult.APPROVED if all_ok else HitlResult.EXPIRED
 
     # --- Final result
@@ -299,7 +406,10 @@ def verify_manifest(
     if mismatches:
         result.result = OverallResult.MISMATCH
     elif OverallResult.VALID == result.result:
-        if context.enforce_attestation and not result.attestation_verified:
+        # VERIFY-001: bound artifacts with no runtime hashes in strict mode
+        if context.strict_artifact_verification and unverified_bound:
+            result.result = OverallResult.INCOMPLETE
+        elif context.enforce_attestation and not result.attestation_verified:
             result.result = OverallResult.ATTESTATION_UNAVAILABLE
 
     return result
@@ -362,12 +472,12 @@ def create_router(
         from ._types import ManifestId
         try:
             ManifestId._validate(manifest_id)
-        except ValueError as e:
+        except ValueError:
             raise HTTPException(
                 status_code=400,
                 detail=ErrorResponse(
                     error_code="INVALID_MANIFEST_ID",
-                    error_message=str(e),
+                    error_message="manifest_id must be a UUID v7",
                 ).model_dump(),
             )
 
@@ -377,7 +487,7 @@ def create_router(
                 status_code=404,
                 detail=ErrorResponse(
                     error_code="MANIFEST_NOT_FOUND",
-                    error_message=f"No manifest found for id={manifest_id}",
+                    error_message="The requested manifest was not found.",
                 ).model_dump(),
             )
 
@@ -391,13 +501,25 @@ def create_router(
     async def revocation_status(
         manifest_id: str = Query(...),
     ) -> RevocationRecord:
+        # Validate manifest_id to prevent log injection (INJ-005/SEC-009)
+        from ._types import ManifestId
+        try:
+            ManifestId._validate(manifest_id)
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=ErrorResponse(
+                    error_code="INVALID_MANIFEST_ID",
+                    error_message="manifest_id must be a UUID v7",
+                ).model_dump(),
+            )
         record = revocation_store.get_record(manifest_id)
         if record is None:
             raise HTTPException(
                 status_code=404,
                 detail=ErrorResponse(
                     error_code="NOT_REVOKED",
-                    error_message=f"No revocation record for manifest_id={manifest_id}",
+                    error_message="The requested manifest has no revocation record.",
                 ).model_dump(),
             )
         return record

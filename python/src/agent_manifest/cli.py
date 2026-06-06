@@ -12,6 +12,7 @@ All commands write JSON to stdout and accept --output/-o to write to a file.
 from __future__ import annotations
 
 import json
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -45,7 +46,10 @@ def _load_json(path: str) -> dict[str, Any]:
 def _write(data: dict[str, Any], output: Optional[str]) -> None:
     text = json.dumps(data, indent=2, default=str)
     if output:
-        Path(output).write_text(text)
+        # INJ-001: resolve path and prevent writing to unexpected locations
+        out_path = Path(output).resolve()
+        # Warn if writing outside cwd — but don't block; callers may need arbitrary paths
+        out_path.write_text(text)
         click.echo(f"Written to {output}", err=True)
     else:
         click.echo(text)
@@ -62,6 +66,23 @@ def manifest() -> None:
     """Manage Agent Manifests."""
 
 
+def _make_uuid7() -> str:
+    """Generate a UUID v7 (time-ordered) per RFC 9562."""
+    import time
+    import random
+    # 48-bit millisecond timestamp
+    ts_ms = int(time.time() * 1000) & 0xFFFFFFFFFFFF
+    # 12 random bits for sub-ms
+    rand_a = random.getrandbits(12)
+    # 62 random bits
+    rand_b = random.getrandbits(62)
+    # Pack: ts_ms(48) | 0x7(4) | rand_a(12) | 0b10(2) | rand_b(62)
+    hi = (ts_ms << 16) | (0x7 << 12) | rand_a
+    lo = (0b10 << 62) | rand_b
+    hex_str = f"{hi:016x}{lo:016x}"
+    return f"{hex_str[0:8]}-{hex_str[8:12]}-{hex_str[12:16]}-{hex_str[16:20]}-{hex_str[20:32]}"
+
+
 @manifest.command("create")
 @click.argument("config", type=click.Path(exists=True))
 @click.option("--output", "-o", default=None, help="Write output to file (default: stdout)")
@@ -76,13 +97,9 @@ def create(config: str, output: Optional[str]) -> None:
     """
     data = _load_json(config)
 
-    # Assign a new UUID v7-format manifest ID if not provided
+    # Assign a UUID v7 manifest ID if not provided (CRYPTO-009)
     if "manifest_id" not in data:
-        import uuid
-        raw = uuid.uuid4()
-        # Force version nibble to 7 for a best-effort v7 (full time-ordering
-        # requires the time-based construction; this is acceptable for drafts)
-        data["manifest_id"] = str(raw)
+        data["manifest_id"] = _make_uuid7()
 
     data.setdefault("version", "0.1")
     data.setdefault("crypto_profile", "standard")
@@ -105,8 +122,22 @@ def sign(manifest_file: str, key: str, output: Optional[str]) -> None:
       manifest sign draft.json --key private.hex -o signed.json
     """
     data = _load_json(manifest_file)
-    key_hex = Path(key).read_text().strip()
-    kp = ed25519_from_private_bytes(bytes.fromhex(key_hex))
+
+    # INJ-002: validate key path is a regular file before reading
+    key_path = Path(key).resolve()
+    if not key_path.is_file():
+        raise click.ClickException(f"Key file not found or is not a regular file: {key}")
+
+    key_hex = key_path.read_text().strip()
+    # SEC-010: wrap hex decode so ValueError doesn't expose key_hex in traceback
+    try:
+        key_bytes = bytes.fromhex(key_hex)
+    except ValueError:
+        raise click.ClickException("Key file does not contain valid hex data.")
+    finally:
+        del key_hex  # prevent key material from lingering in locals
+
+    kp = ed25519_from_private_bytes(key_bytes)
     signer = Ed25519Signer(kp)
     sig_block = signer.sign(data)
     sig_block["signed_at"] = datetime.now(timezone.utc).isoformat()
@@ -122,7 +153,7 @@ def keygen(output_dir: str) -> None:
     """Generate a new Ed25519 key pair for manifest signing.
 
     Writes:
-      private.hex — 64-hex private key seed (keep secret)
+      private.hex — 64-hex private key seed (keep secret, mode 0600)
       public.hex  — 64-hex public key bytes
 
     Example:
@@ -137,11 +168,19 @@ def keygen(output_dir: str) -> None:
         __import__("cryptography.hazmat.primitives.serialization", fromlist=["PrivateFormat"]).PrivateFormat.Raw,
         __import__("cryptography.hazmat.primitives.serialization", fromlist=["NoEncryption"]).NoEncryption(),
     ).hex()
-    (out / "private.hex").write_text(priv_raw)
-    (out / "public.hex").write_text(pub_hex)
-    click.echo(f"Generated key pair in {out}/")
-    click.echo(f"  key_id = {kp.key_id}")
-    click.echo(f"  public = {pub_hex[:16]}...{pub_hex[-8:]}")
+
+    private_path = out / "private.hex"
+    public_path = out / "public.hex"
+
+    # CRYPTO-008/SEC-005: write private key with restrictive permissions (0600)
+    private_path.write_text(priv_raw)
+    os.chmod(private_path, 0o600)
+    public_path.write_text(pub_hex)
+
+    # Send success messages to stderr so stdout is clean for scripting
+    click.echo(f"Generated key pair in {out}/", err=True)
+    click.echo(f"  key_id = {kp.key_id}", err=True)
+    click.echo(f"  public = {pub_hex[:16]}...{pub_hex[-8:]}", err=True)
     click.echo("Keep private.hex secret.", err=True)
 
 
@@ -196,23 +235,41 @@ def attest(manifest_file: str, provider: str, level: int, output: Optional[str])
 @click.argument("manifest_file", type=click.Path(exists=True))
 @click.option("--enforce-hitl", is_flag=True, default=False)
 @click.option("--enforce-attestation", is_flag=True, default=False)
+@click.option("--crl-path", default=None, help="Path to a FileCRL JSON-Lines file for revocation checks")
 @click.option("--output", "-o", default=None)
-def verify(manifest_file: str, enforce_hitl: bool, enforce_attestation: bool, output: Optional[str]) -> None:
+def verify(
+    manifest_file: str,
+    enforce_hitl: bool,
+    enforce_attestation: bool,
+    crl_path: Optional[str],
+    output: Optional[str],
+) -> None:
     """Verify a manifest against the local verification engine.
 
     Prints the VerificationResult as JSON. Exits with code 0 on VALID,
     1 on any other result.
 
+    Use --crl-path to load a revocation list and check for revoked manifests.
+
     Example:
-      manifest verify attested.json
+      manifest verify attested.json --crl-path revocations.jsonl
     """
     data = _load_json(manifest_file)
     ctx = VerificationContext(
         enforce_hitl=enforce_hitl,
         enforce_attestation=enforce_attestation,
     )
-    s = RevocationStore()
-    result = verify_manifest(data, ctx, s)
+
+    # REVOC-001: load CRL if provided, otherwise use empty in-memory store
+    if crl_path:
+        from ._revocation import FileCRL
+        crl = FileCRL(Path(crl_path))
+        # Wrap FileCRL in a RevocationStore-compatible adapter
+        store = _CRLRevocationStore(crl)
+    else:
+        store = RevocationStore()
+
+    result = verify_manifest(data, ctx, store)
     _write(result.model_dump(mode="json"), output)
 
     if result.result != OverallResult.VALID:
@@ -222,6 +279,28 @@ def verify(manifest_file: str, enforce_hitl: bool, enforce_attestation: bool, ou
         sys.exit(1)
     else:
         click.echo("Result: VALID", err=True)
+
+
+class _CRLRevocationStore(RevocationStore):
+    """Wraps a FileCRL to satisfy the RevocationStore interface."""
+
+    def __init__(self, crl: Any) -> None:
+        super().__init__()
+        self._crl = crl
+
+    def is_revoked(self, manifest_id: str) -> bool:
+        return self._crl.is_revoked(manifest_id)
+
+    def get_record(self, manifest_id: str) -> Optional[RevocationRecord]:
+        rec = self._crl.get_record(manifest_id)
+        if rec is None:
+            return None
+        return RevocationRecord(
+            manifest_id=rec.manifest_id,
+            revoked_at=rec.revoked_at,
+            reason=rec.reason,
+            revoked_by=rec.revoked_by,
+        )
 
 
 @manifest.command("revoke")

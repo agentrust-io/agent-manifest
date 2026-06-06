@@ -25,6 +25,9 @@ import unicodedata
 from typing import Any
 
 
+_MAX_DEPTH = 64  # DOS-006: prevent RecursionError from deeply nested JSON
+
+
 def canonicalize(obj: Any, *, exclude_none: bool = True) -> bytes:
     """Return RFC 8785 canonical JSON bytes for *obj*.
 
@@ -40,9 +43,10 @@ def canonicalize(obj: Any, *, exclude_none: bool = True) -> bytes:
 
     Raises:
         TypeError: If *obj* contains a type that cannot be serialized.
-        ValueError: If a float value is NaN or Infinity.
+        ValueError: If a float value is NaN or Infinity, or nesting exceeds
+            the maximum depth.
     """
-    return _serialize(obj, exclude_none=exclude_none).encode("utf-8")
+    return _serialize(obj, exclude_none=exclude_none, depth=0).encode("utf-8")
 
 
 def canonical_hash(obj: Any, *, algorithm: str = "sha256", exclude_none: bool = True) -> str:
@@ -67,7 +71,12 @@ def canonical_hash(obj: Any, *, algorithm: str = "sha256", exclude_none: bool = 
 # ---------------------------------------------------------------------------
 
 
-def _serialize(obj: Any, *, exclude_none: bool) -> str:
+def _serialize(obj: Any, *, exclude_none: bool, depth: int) -> str:
+    if depth > _MAX_DEPTH:
+        raise ValueError(
+            f"JSON nesting depth exceeds maximum of {_MAX_DEPTH}. "
+            "The manifest contains deeply nested structures."
+        )
     if obj is None:
         return "null"
     if isinstance(obj, bool):
@@ -80,15 +89,15 @@ def _serialize(obj: Any, *, exclude_none: bool) -> str:
     if isinstance(obj, str):
         return _quote(obj)
     if isinstance(obj, (list, tuple)):
-        return "[" + ",".join(_serialize(v, exclude_none=exclude_none) for v in obj) + "]"
+        return "[" + ",".join(_serialize(v, exclude_none=exclude_none, depth=depth + 1) for v in obj) + "]"
     if isinstance(obj, dict):
-        return _serialize_dict(obj, exclude_none=exclude_none)
+        return _serialize_dict(obj, exclude_none=exclude_none, depth=depth + 1)
     raise TypeError(
         f"Object of type {type(obj).__name__!r} is not JSON-serializable under RFC 8785"
     )
 
 
-def _serialize_dict(d: dict[str, Any], *, exclude_none: bool) -> str:
+def _serialize_dict(d: dict[str, Any], *, exclude_none: bool, depth: int) -> str:
     # RFC 8785 §3.2.3: sort keys by Unicode code point order.
     # Python's str comparison uses Unicode code point order by default — no
     # special locale or collation needed.
@@ -97,7 +106,7 @@ def _serialize_dict(d: dict[str, Any], *, exclude_none: bool) -> str:
         v = d[k]
         if exclude_none and v is None:
             continue
-        parts.append(_quote(k) + ":" + _serialize(v, exclude_none=exclude_none))
+        parts.append(_quote(k) + ":" + _serialize(v, exclude_none=exclude_none, depth=depth))
     return "{" + ",".join(parts) + "}"
 
 
