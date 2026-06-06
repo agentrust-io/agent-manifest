@@ -136,16 +136,21 @@ def test_sevsnp_extend_ioctl_oserror_raises(monkeypatch):
 
 @pytest.mark.skipif(not LINUX, reason="fcntl only available on Linux")
 def test_sevsnp_extend_manifest_hash_value_matches(monkeypatch):
-    """manifest_hash in the report must equal manifest_hash_value(manifest)."""
+    """verify_manifest_in_report must compare HOST_DATA from hardware bytes (HW-002)."""
     monkeypatch.setattr(os.path, "exists", lambda p: p == "/dev/sev-guest")
     provider = SEVSNPProvider()
 
     import fcntl
 
-    monkeypatch.setattr(fcntl, "ioctl", lambda fd, op, buf: None)
+    def mock_ioctl_with_host_data(fd, op, buf):
+        # Simulate hardware echoing user_data into HOST_DATA (offset 0x140)
+        # extend_manifest_hash puts user_data = digest||zeros at buf[0:64]
+        buf[0x140:0x140 + 64] = buf[0:64]
+
     mock_dev = MagicMock()
     mock_dev.__enter__ = lambda s: mock_dev
     mock_dev.__exit__ = MagicMock(return_value=False)
+    monkeypatch.setattr(fcntl, "ioctl", mock_ioctl_with_host_data)
     with patch("builtins.open", return_value=mock_dev):
         provider.extend_manifest_hash(SAMPLE_MANIFEST)
 
@@ -204,14 +209,16 @@ def test_tdx_extend_with_mocked_ioctl(monkeypatch):
     monkeypatch.setattr(os.path, "exists", lambda p: p == "/dev/tdx-guest")
     provider = TDXProvider(rtmr_index=1)
 
-    mock_report = bytearray(512)
+    # buf is 1088 bytes (tdx_report_req: reportdata[64] + tdreport[1024])
+    # reportdata in tdreport is at buf offset 104 (64 + 40)
+    mock_response = bytearray(1088)
     for i in range(64):
-        mock_report[i] = i  # recognizable report_data pattern
+        mock_response[104 + i] = i  # recognizable pattern at reportdata offset
 
     import fcntl
 
     def mock_ioctl(fd, op, buf):
-        buf[:512] = mock_report
+        buf[:1088] = mock_response
 
     mock_dev = MagicMock()
     mock_dev.__enter__ = lambda s: mock_dev
@@ -246,15 +253,21 @@ def test_tdx_extend_ioctl_oserror_raises(monkeypatch):
 
 @pytest.mark.skipif(not LINUX, reason="fcntl only available on Linux")
 def test_tdx_extend_manifest_hash_value_matches(monkeypatch):
+    """verify_manifest_in_report must compare reportdata from hardware bytes (HW-002)."""
     monkeypatch.setattr(os.path, "exists", lambda p: p == "/dev/tdx-guest")
     provider = TDXProvider()
 
     import fcntl
 
-    monkeypatch.setattr(fcntl, "ioctl", lambda fd, op, buf: None)
+    def mock_ioctl_with_reportdata(fd, op, buf):
+        # Simulate hardware echoing reportdata (buf[0:64]) into REPORTMACSTRUCT.reportdata
+        # tdreport starts at offset 64; reportdata is at offset 40 within REPORTMACSTRUCT
+        buf[104:168] = buf[0:64]  # 64 + 40 = 104
+
     mock_dev = MagicMock()
     mock_dev.__enter__ = lambda s: mock_dev
     mock_dev.__exit__ = MagicMock(return_value=False)
+    monkeypatch.setattr(fcntl, "ioctl", mock_ioctl_with_reportdata)
     with patch("builtins.open", return_value=mock_dev):
         provider.extend_manifest_hash(SAMPLE_MANIFEST)
 
