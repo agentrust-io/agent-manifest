@@ -108,8 +108,15 @@ class SEVSNPProvider(AttestationProvider):
     def verify_manifest_in_report(
         self, report: AttestationReport, manifest_json: dict[str, Any]
     ) -> bool:
-        expected = self.manifest_hash_value(manifest_json)
-        return report.manifest_hash == expected
+        if self._report_bytes is not None:
+            import hmac as _hmac
+            expected_hex = self.manifest_hash_value(manifest_json).split(":", 1)[-1]
+            # HOST_DATA is at offset 0x140 in snp_attestation_report; first 32 bytes
+            # hold the SHA-256 digest we placed there in extend_manifest_hash()
+            actual = self._report_bytes[0x140:0x140 + 32].hex()
+            return _hmac.compare_digest(actual, expected_hex)
+        # External report: fall back to manifest_hash field comparison
+        return report.manifest_hash == self.manifest_hash_value(manifest_json)
 
 
 # ---------------------------------------------------------------------------
@@ -117,7 +124,9 @@ class SEVSNPProvider(AttestationProvider):
 # ---------------------------------------------------------------------------
 
 _TDX_GUEST_DEV = "/dev/tdx-guest"
-_TDX_CMD_GET_REPORT = 0xC0A00401  # TDX_CMD_GET_REPORT0 ioctl
+# TDX_CMD_GET_REPORT0 = _IOWR('T', 1, struct tdx_report_req)
+# struct tdx_report_req: reportdata[64] + tdreport[1024] = 1088 bytes
+_TDX_CMD_GET_REPORT = 0xC4405401  # HW-001: corrected from 0xC0A00401
 
 
 class TDXProvider(AttestationProvider):
@@ -149,19 +158,17 @@ class TDXProvider(AttestationProvider):
         self._report_bytes: Optional[bytes] = None
 
     def extend_manifest_hash(self, manifest_json: dict[str, Any]) -> None:
-        """Extend SHA-256(pre_image) into RTMR[self._rtmr] via TDG.MR.RTMR.EXTEND."""
+        """Obtain a TD report with reportdata = sha256(pre_image) || 0x00*32."""
         import fcntl
         pre = self.manifest_pre_image(manifest_json)
         digest = hashlib.sha256(pre).digest()
         self._manifest_hash = f"sha256:{digest.hex()}"
 
-        # TDX RTMR extension uses SHA-384: pad SHA-256 digest to 48 bytes
-        extend_data = digest + bytes(16)  # 32 bytes digest + 16 zero bytes = 48 bytes
-
-        # Pack tdx_extend_rtmr_req: rtmr_index (u8) + extend_data (48 bytes)
-        req = struct.pack("<B", self._rtmr) + extend_data + bytes(15)  # pad to 64 bytes
-        buf = bytearray(512)
-        buf[:len(req)] = req
+        # tdx_report_req layout: reportdata[64] at offset 0, tdreport[1024] at offset 64
+        # Total struct size = 1088 bytes = _IOWR('T', 1, 1088) = 0xC4405401
+        reportdata = digest + bytes(32)  # 32-byte digest zero-padded to 64 bytes
+        buf = bytearray(1088)
+        buf[:64] = reportdata  # place reportdata at the start
 
         try:
             with open(_TDX_GUEST_DEV, "rb") as dev:
@@ -175,18 +182,27 @@ class TDXProvider(AttestationProvider):
             raise AttestationUnavailableError(
                 "Call extend_manifest_hash() before get_attestation_report()."
             )
+        # tdreport starts at offset 64; reportdata is at offset 40 within REPORTMACSTRUCT
+        # Full offset in buf: 64 (tdreport start) + 40 (reportdata within REPORTMACSTRUCT) = 104
+        report_data_in_tdreport = self._report_bytes[104:168]
         return AttestationReport(
             platform="intel-tdx",
             manifest_hash=self._manifest_hash or "",
             raw={
                 "rtmr_index": self._rtmr,
-                "report_data": self._report_bytes[:64].hex(),
+                "report_data": report_data_in_tdreport.hex(),
             },
         )
 
     def verify_manifest_in_report(
         self, report: AttestationReport, manifest_json: dict[str, Any]
     ) -> bool:
+        if self._report_bytes is not None:
+            import hmac as _hmac
+            expected_hex = self.manifest_hash_value(manifest_json).split(":", 1)[-1]
+            # reportdata is at offset 104 in buf; first 32 bytes should be sha256 digest
+            actual = self._report_bytes[104:136].hex()
+            return _hmac.compare_digest(actual, expected_hex)
         return report.manifest_hash == self.manifest_hash_value(manifest_json)
 
 
