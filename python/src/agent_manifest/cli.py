@@ -27,6 +27,7 @@ except ImportError:
 
 from ._auto_provider import select_provider
 from ._providers import AttestationUnavailableError
+from ._revocation import FileCRL
 from ._signing import Ed25519Signer, ed25519_from_private_bytes, generate_ed25519
 from ._types import ManifestId
 from ._verify import (
@@ -69,13 +70,12 @@ def manifest() -> None:
 def _make_uuid7() -> str:
     """Generate a UUID v7 (time-ordered) per RFC 9562."""
     import time
-    import random
     # 48-bit millisecond timestamp
     ts_ms = int(time.time() * 1000) & 0xFFFFFFFFFFFF
-    # 12 random bits for sub-ms
-    rand_a = random.getrandbits(12)
-    # 62 random bits
-    rand_b = random.getrandbits(62)
+    # 74 random bits from os.urandom — not cryptographic use, just uniqueness
+    rand_int = int.from_bytes(os.urandom(10), "big")
+    rand_a = (rand_int >> 62) & 0xFFF       # 12 bits for rand_a
+    rand_b = rand_int & 0x3FFFFFFFFFFFFFFF  # 62 bits for rand_b
     # Pack: ts_ms(48) | 0x7(4) | rand_a(12) | 0b10(2) | rand_b(62)
     hi = (ts_ms << 16) | (0x7 << 12) | rand_a
     lo = (0b10 << 62) | rand_b
@@ -261,11 +261,9 @@ def verify(
     )
 
     # REVOC-001: load CRL if provided, otherwise use empty in-memory store
+    store: RevocationStore
     if crl_path:
-        from ._revocation import FileCRL
-        crl = FileCRL(Path(crl_path))
-        # Wrap FileCRL in a RevocationStore-compatible adapter
-        store = _CRLRevocationStore(crl)
+        store = _CRLRevocationStore(FileCRL(Path(crl_path)))
     else:
         store = RevocationStore()
 
@@ -284,12 +282,12 @@ def verify(
 class _CRLRevocationStore(RevocationStore):
     """Wraps a FileCRL to satisfy the RevocationStore interface."""
 
-    def __init__(self, crl: Any) -> None:
+    def __init__(self, crl: FileCRL) -> None:
         super().__init__()
-        self._crl = crl
+        self._crl: FileCRL = crl
 
     def is_revoked(self, manifest_id: str) -> bool:
-        return self._crl.is_revoked(manifest_id)
+        return bool(self._crl.is_revoked(manifest_id))
 
     def get_record(self, manifest_id: str) -> Optional[RevocationRecord]:
         rec = self._crl.get_record(manifest_id)
