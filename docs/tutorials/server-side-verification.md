@@ -1,11 +1,12 @@
-# Server-side manifest verification
+# Server-Side Manifest Verification
 
-This tutorial covers the **relying-party side**: the service that receives requests from agents and needs to decide whether to trust them. After completing it you will be able to:
+This tutorial covers the relying-party side: a service that receives requests from agents and needs to decide whether to trust them. After completing it you will be able to:
 
 - Verify an agent manifest programmatically in any Python service
-- Mount a FastAPI verification router that exposes `/verify` and `/revocation-status` endpoints
+- Mount a FastAPI verification router exposing `/verify` and `/revocation-status` endpoints
 - Gate requests with HTTP middleware using the manifest result
-- Understand every field of `VerificationResult` and what to act on
+- Read every field of `VerificationResult` and know what to act on
+- Configure CRL checking via `RevocationStore` or `FileCRL`
 
 ## Prerequisites
 
@@ -13,29 +14,26 @@ This tutorial covers the **relying-party side**: the service that receives reque
 pip install "agent-manifest[server]"
 ```
 
-This installs the SDK plus FastAPI and its dependencies.
+---
 
-## How verification works
+## What verification checks
 
-The verifier checks six things in order, stopping at the first failure:
+The verifier checks six things in order, stopping at the first hard failure:
 
-1. **Revocation** — is this manifest ID in the revocation list?
+1. **Revocation** — is this manifest ID in the revocation store?
 2. **Expiry** — is `expires_at` in the past?
 3. **Artifact hashes** — do the hashes in the manifest match what is actually running?
-4. **Delegation chain** — is every hop in the chain signed by its parent?
-5. **HITL record** — if human approval was required, is a valid one present?
+4. **Delegation chain** — is every hop signed by its parent?
+5. **HITL record** — if approval was required, is a valid, unexpired one present?
 6. **Attestation** — if `enforce_attestation=True`, was hardware attestation verified?
-
-The result is a `VerificationResult` with an `OverallResult` enum and per-field detail.
 
 ---
 
-## Pattern 1: Programmatic verification
+## Programmatic verification in middleware
 
-Use this when you control the call site and want to act on the result in code.
+Use this pattern when you control the call site and want to act on the result in application code.
 
 ```python
-import json
 from agent_manifest._verify import (
     OverallResult,
     RevocationStore,
@@ -43,34 +41,19 @@ from agent_manifest._verify import (
     verify_manifest,
 )
 
-# Build once at startup — share across requests
+# Build once at startup, share across requests
 revocation_store = RevocationStore()
+ctx = VerificationContext(enforce_attestation=True, enforce_hitl=False)
 
-def check_agent(manifest_path: str) -> None:
-    with open(manifest_path) as f:
-        manifest = json.load(f)
+result = verify_manifest(manifest_dict, ctx, revocation_store)
 
-    ctx = VerificationContext()          # default: no enforcement overrides
-    result = verify_manifest(manifest, ctx, revocation_store)
-
-    if result.result == OverallResult.VALID:
-        print(f"[VALID] {result.manifest_id} verified at {result.verified_at}")
-    elif result.result == OverallResult.REVOKED:
-        raise PermissionError(f"Manifest {result.manifest_id} has been revoked")
-    elif result.result == OverallResult.EXPIRED:
-        raise PermissionError("Manifest has expired — agent must re-issue")
-    elif result.result == OverallResult.MISMATCH:
-        # Show which artifacts have drifted
-        for d in result.mismatch_details:
-            print(f"  [MISMATCH] {d.field}: expected {d.expected_hash}, got {d.actual_hash}")
-        raise PermissionError("Artifact integrity check failed")
-    else:
-        raise PermissionError(f"Verification failed: {result.result}")
+if result.result != OverallResult.VALID:
+    raise PermissionError(f"Agent manifest invalid: {result.result}")
 ```
 
 ### Supplying runtime artifact hashes
 
-If you have access to the agent's running artifacts, pass them in `VerificationContext`. The verifier compares these against the hashes in the manifest.
+Pass hashes for any artifacts you can observe at runtime. Fields left as `None` in the context are skipped and return `FieldResult.NOT_BOUND`, not a mismatch.
 
 ```python
 import hashlib
@@ -80,54 +63,33 @@ with open("system_prompt.txt") as f:
 
 ctx = VerificationContext(
     system_prompt_hash="sha256:" + hashlib.sha256(prompt_text.encode()).hexdigest(),
-    model_version="gpt-4o-2024-08-06",   # or a content hash for local models
+    model_version="claude-sonnet-4-5-20251022",
     tool_catalog_hash="sha256:e3b0c44...",
+    enforce_hitl=True,
+    enforce_attestation=False,
 )
-result = verify_manifest(manifest, ctx, revocation_store)
-```
-
-Fields that are `None` in the context are skipped — `FieldResult.NOT_BOUND` is returned for them, not a mismatch.
-
-### Enforcement flags
-
-```python
-ctx = VerificationContext(
-    enforce_hitl=True,         # MISMATCH if hitl_record is required but missing
-    enforce_attestation=True,  # ATTESTATION_UNAVAILABLE if no hardware attestation
-    min_slsa_level=2,          # reserved for future SLSA gate
-)
+result = verify_manifest(manifest_dict, ctx, revocation_store)
 ```
 
 ---
 
-## Pattern 2: FastAPI router
+## Mounting verification endpoints with FastAPI
 
-Use this when you want to expose verification as an HTTP service — for example, a sidecar that other services can query.
+Use this when you want to expose verification as an HTTP service, for example a sidecar that other services query.
 
 ```python
 from fastapi import FastAPI
-from agent_manifest._verify import RevocationStore, create_router
-
-# Load manifests from your store at startup
-manifest_store: dict[str, dict] = {}
-
-with open("kyc-agent-manifest.json") as f:
-    import json
-    m = json.load(f)
-    manifest_store[m["manifest_id"]] = m
-
-revocation_store = RevocationStore()
+from agent_manifest._verify import create_router, RevocationStore
 
 app = FastAPI()
+manifest_store: dict = {}   # manifest_id -> manifest dict
+revocation_store = RevocationStore()
+
 app.include_router(create_router(manifest_store, revocation_store), prefix="/agent")
+
+# GET /agent/verify?manifest_id=...&enforce_hitl=true
+# GET /agent/revocation-status?manifest_id=...
 ```
-
-This mounts two endpoints:
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/agent/verify?manifest_id=<id>` | Returns a `VerificationResult` |
-| `GET` | `/agent/revocation-status?manifest_id=<id>` | Returns the revocation record or 404 |
 
 **Verify a manifest:**
 
@@ -139,8 +101,9 @@ curl "http://localhost:8000/agent/verify?manifest_id=018f4a3b-2c1d-7e5f-a8b9-0d1
 {
   "verification_id": "a1b2c3d4-...",
   "manifest_id": "018f4a3b-2c1d-7e5f-a8b9-0d1e2f3a4b5c",
-  "verified_at": "2026-06-05T12:00:00Z",
+  "verified_at": "2026-06-07T10:00:00Z",
   "result": "VALID",
+  "signature_verified": false,
   "attestation_verified": false,
   "fields_verified": {
     "system_prompt": "NOT_BOUND",
@@ -154,9 +117,7 @@ curl "http://localhost:8000/agent/verify?manifest_id=018f4a3b-2c1d-7e5f-a8b9-0d1
     "delegation_chain": "NOT_PRESENT",
     "hitl_record": "NOT_REQUIRED"
   },
-  "mismatch_details": [],
-  "evidence_pack": null,
-  "verification_signature": null
+  "mismatch_details": []
 }
 ```
 
@@ -168,12 +129,52 @@ curl "http://localhost:8000/agent/verify?manifest_id=<id>&enforce_hitl=true&enfo
 
 ---
 
-## Pattern 3: HTTP middleware
+## Configuring minimum attestation level
 
-Use this to gate every inbound request — the agent attaches its manifest ID in a header and the middleware verifies it before routing to your handler.
+`VerificationContext.enforce_attestation=True` requires that `attestation_verified` is `True` in the result. Manifests without hardware attestation return `ATTESTATION_UNAVAILABLE`.
+
+In production, reject any result where `attestation_verified` is `False`:
 
 ```python
-import json
+ctx = VerificationContext(enforce_attestation=True)
+result = verify_manifest(manifest_dict, ctx, revocation_store)
+
+if not result.attestation_verified:
+    raise PermissionError(
+        "Production requires hardware attestation (Level 2+). "
+        "Use SEVSNPProvider, TDXProvider, or OPAQUEProvider."
+    )
+```
+
+---
+
+## Reading `VerificationResult` and acting on each outcome
+
+| `result` value | Meaning | Recommended action |
+|---------------|---------|-------------------|
+| `VALID` | All checks passed | Allow the request |
+| `REVOKED` | Manifest is in the revocation list | Block immediately; open an incident |
+| `EXPIRED` | `expires_at` is in the past | Block; agent must re-issue the manifest |
+| `MISMATCH` | One or more artifact hashes differ | Block; agent may have drifted or been tampered with |
+| `ATTESTATION_UNAVAILABLE` | `enforce_attestation` set but no attestation present | Block in prod, warn in dev |
+| `INCOMPLETE` | `strict_artifact_verification` set and bound fields lack runtime hashes | Block |
+| `INCOMPATIBLE_VERSION` | Manifest spec version not supported | Upgrade the SDK |
+
+Inspect `mismatch_details` to identify which artifacts failed:
+
+```python
+if result.result == OverallResult.MISMATCH:
+    for detail in result.mismatch_details:
+        print(f"  [{detail.field}] expected={detail.expected_hash} got={detail.actual_hash}")
+```
+
+---
+
+## FastAPI middleware that gates requests on manifest ID
+
+Use the `X-Agent-Manifest-ID` header to identify the calling agent. The middleware verifies the manifest before routing to your handler.
+
+```python
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from agent_manifest._verify import (
@@ -184,7 +185,7 @@ from agent_manifest._verify import (
 )
 
 app = FastAPI()
-manifest_store: dict[str, dict] = {}
+manifest_store: dict = {}
 revocation_store = RevocationStore()
 
 MANIFEST_ID_HEADER = "x-agent-manifest-id"
@@ -204,63 +205,47 @@ async def verify_agent_manifest(request: Request, call_next):
         if result.result != OverallResult.VALID:
             return JSONResponse(
                 status_code=403,
-                content={"detail": result.result, "mismatch_details": [
-                    d.model_dump() for d in result.mismatch_details
-                ]},
+                content={
+                    "detail": result.result,
+                    "mismatch_details": [d.model_dump() for d in result.mismatch_details],
+                },
             )
     return await call_next(request)
 
 @app.post("/execute")
 async def execute(request: Request):
-    # Reaches here only if the manifest verified — or no manifest was provided
     return {"status": "ok"}
 ```
 
 ---
 
-## Reading the VerificationResult
+## Configuring CRL checking
 
-| Field | Type | Meaning |
-|-------|------|---------|
-| `result` | `OverallResult` | Top-level verdict — see table below |
-| `attestation_verified` | `bool` | `True` if hardware attestation was confirmed |
-| `fields_verified` | `FieldsVerified` | Per-artifact status (MATCH / MISMATCH / NOT_BOUND / EXPIRED) |
-| `mismatch_details` | `list[MismatchDetail]` | One entry per failed artifact, with expected and actual hashes |
-| `evidence_pack` | `EvidencePack` | Signed evidence bundle (populated in future releases) |
-| `verification_id` | `str` | UUID for this specific verification event — use in audit logs |
+Wire `FileCRL` into the `RevocationStore` at startup so every `verify_manifest()` call checks revocation.
 
-**OverallResult values:**
+```python
+from pathlib import Path
+from agent_manifest._revocation import FileCRL
+from agent_manifest._verify import RevocationRecord, RevocationStore
 
-| Value | Meaning | Action |
-|-------|---------|--------|
-| `VALID` | All checks passed | Allow the request |
-| `REVOKED` | Manifest is in the revocation list | Block immediately — possible incident |
-| `EXPIRED` | `expires_at` is in the past | Block — agent must re-issue manifest |
-| `MISMATCH` | One or more artifact hashes differ | Block — agent may have drifted or been tampered |
-| `ATTESTATION_UNAVAILABLE` | `enforce_attestation` was set but no attestation present | Block in prod, warn in dev |
-| `INCOMPLETE` | Required fields are missing from the manifest | Block |
-| `INCOMPATIBLE_VERSION` | Manifest spec version not supported | Upgrade the SDK |
+crl = FileCRL(Path("/data/revocations.jsonl"))
+revocation_store = RevocationStore()
 
----
-
-## Running the complete example
-
-```bash
-# Terminal 1 — start the verification service
-uvicorn myservice:app --reload
-
-# Terminal 2 — verify a manifest
-curl "http://localhost:8000/agent/verify?manifest_id=018f4a3b-2c1d-7e5f-a8b9-0d1e2f3a4b5c"
-
-# Check revocation status
-curl "http://localhost:8000/agent/revocation-status?manifest_id=018f4a3b-2c1d-7e5f-a8b9-0d1e2f3a4b5c"
-# 404 if not revoked
+for rec in crl.all_records():
+    revocation_store.revoke(RevocationRecord(
+        manifest_id=rec.manifest_id,
+        revoked_at=rec.revoked_at,
+        reason=rec.reason,
+        revoked_by=rec.revoked_by,
+    ))
 ```
+
+`RevocationStore` is in-memory. For a long-running service, reload the CRL periodically or replace it with a database-backed store.
 
 ---
 
 ## What's next
 
 - [Tutorial: A2A delegation chains](delegation-chains.md) — verify multi-hop delegation manifests
-- [Tutorial: Revocation and key rotation](revocation.md) — revoke a manifest and update the CRL
-- [Tutorial: Deploying the verification endpoint](deploy-verifier.md) — containerize and run in production
+- [Tutorial: Revocation and key rotation](revocation-and-key-rotation.md) — revoke a manifest and update the CRL
+- [Tutorial: Deploying the verification endpoint](deploying-the-verification-endpoint.md) — containerise and run in production

@@ -107,6 +107,9 @@ nav:
       - Revocation and key rotation: tutorials/revocation.md
       - Hardware attestation: tutorials/hardware-attestation.md
       - Deploying the verifier: tutorials/deploy-verifier.md
+      - HITL approval workflows (how-to): tutorials/hitl-approval-workflows.md
+      - Revocation and key rotation (how-to): tutorials/revocation-and-key-rotation.md
+      - Deploying the verification endpoint: tutorials/deploying-the-verification-endpoint.md
   - Integrations:
       - Overview: integrations/index.md
       - LangChain: integrations/langchain.md
