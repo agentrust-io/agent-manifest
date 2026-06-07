@@ -8,7 +8,7 @@ To add your organization, open a PR editing this file. Include: organization nam
 
 | Organization | Use case |
 |---|---|
-| Opaque Systems | Reference implementation and OPAQUE attestation provider integration |
+| Opaque Systems | Founding contributor — developed the initial specification and reference SDK |
 
 ## Community evaluations
 

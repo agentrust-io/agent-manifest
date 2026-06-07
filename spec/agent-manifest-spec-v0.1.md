@@ -4,7 +4,7 @@
 |---|---|
 | Version | 0.1 — Draft for Review |
 | Subtitle | A cryptographic identity and provenance standard for AI agents |
-| Authors | Imran Siddique (OPAQUE Systems, CPO) |
+| Authors | Imran Siddique (AgentTrust) |
 | Status | Draft v0.1 — Proposed Open Standard |
 | Date | June 2026 |
 | Relationship | Extends: OWASP ASI 2026 \| Aligns: CoSAI WS1, EU AI Act Art. 14/15 |
@@ -1437,7 +1437,7 @@ This specification builds on architectural work developed across the Agent Gover
 
 ---
 
-*Agent Manifest Specification v0.1 — OPAQUE Systems — June 2026*
+*Agent Manifest Specification v0.1 — Opaque Systems — June 2026*
 
 
 ### D. RFC 8785 Canonical JSON Test Vector <!-- CHANGED: closes #25 -->

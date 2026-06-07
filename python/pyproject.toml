@@ -9,7 +9,7 @@ description = "Agent Manifest SDK — cryptographically anchor all 10 artifacts 
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "Apache-2.0"}
-authors = [{name = "Imran Siddique", email = "imran.siddique@opaque.co"}]
+authors = [{name = "Imran Siddique", email = "maintainers@agentrust.io"}]
 keywords = [
   "ai-agents", "attestation", "governance", "tee", "confidential-computing",
   "mcp", "agent-manifest", "trust", "hardware-attestation", "pydantic",
