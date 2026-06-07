@@ -119,11 +119,11 @@ nav:
       - ADR-0002 — Ed25519 Standard Profile: adr/0002-ed25519-standard-profile.md
       - ADR-0003 — RFC 9162 Merkle Trees: adr/0003-rfc9162-merkle-domain-separation.md
       - ADR-0004 — Pydantic v2 Schema Modeling: adr/0004-pydantic-v2-schema-modeling.md
-      - ADR-0005 — ML-DSA-65 Hybrid Signatures: adr/0005-ml-dsa-hybrid-signatures.md
+      - ADR-0005 — ML-DSA-65 Hybrid Signatures: adr/0005-ml-dsa-hybrid-signature.md
       - ADR-0006 — HITL Approval Mechanism: adr/0006-hitl-approval-mechanism.md
-      - ADR-0007 — JSON-Lines CRL Format: adr/0007-revocation-crl-format.md
-      - ADR-0008 — Conformance Levels 0–3: adr/0008-conformance-levels.md
-      - ADR-0009 — SPIFFE URI Identity: adr/0009-spiffe-uri-agent-identity.md
+      - ADR-0007 — JSON-Lines Revocation CRL: adr/0007-revocation-json-lines-crl.md
+      - ADR-0008 — Conformance Level Design: adr/0008-conformance-level-design.md
+      - ADR-0009 — SPIFFE URI for Agent Identity: adr/0009-spiffe-uri-for-agent-identity.md
   - Compliance:
       - Overview: compliance/index.md
       - EU AI Act: compliance/eu-ai-act.md

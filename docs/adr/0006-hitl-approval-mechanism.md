@@ -1,58 +1,68 @@
-# ADR-0006: HITL approval mechanism design
+# ADR-0006: Human-in-the-Loop (HITL) embedded approval record design
 
 **Status**: Accepted  
-**Date**: 2026-05-20  
+**Date**: 2026-06-07  
 **Spec section**: Section 3.5 (Human-in-the-Loop Approvals)
 
 ## Context
 
-EU AI Act Article 14 requires that high-risk AI systems support meaningful human oversight — including the ability for humans to intervene, override, or refuse to deploy the system's outputs. For agentic AI, this translates to: a human must be able to approve or block high-risk actions before they execute.
+EU AI Act Article 14 requires that high-risk AI systems support meaningful human oversight, including the ability for humans to intervene or refuse to allow an agent's outputs before they take effect. For agentic AI, this means a human must be able to approve or block high-risk actions before execution.
 
 The manifest needs a mechanism to record this approval in a tamper-evident, verifiable way that:
 
 1. Proves a specific human approved a specific action for a specific agent
-2. Binds the approval to a time window, so it cannot be reused indefinitely
-3. Is verifiable without an online call to an approval service at verification time
-4. Does not require the original manifest issuer's key to record the approval
+2. Binds the approval to a time window so it cannot be reused indefinitely
+3. Is verifiable at any point without an online call to an approval service
+4. Cannot be forged by the manifest issuer
 
 ## Decision
 
-Embed a **`hitl_record`** field directly in the manifest JSON. Each approval within the record is signed by the **approver's Ed25519 key** over the canonical form of `{manifest_id, approved_at, approved_scope, approver_id}`. The approval record is attached before the agent presents the manifest to a relying party.
+Embed a **`hitl_record`** field directly in the manifest JSON. The record contains one or more approval entries, each with the following fields: `approver_id` (SPIFFE URI or DID of the approver), `approved_at` (ISO 8601 timestamp), `evidence_hash` (SHA-256 of the canonical form of the action being approved), `approval_duration_seconds` (validity window), and `revocation_signature` (Ed25519 signature by the approver over the canonical approval fields).
 
-The `approved_scope` within the approval is distinct from the manifest's `delegation_chain` scope — it captures what the human explicitly authorised (e.g., `max_notional_usd: 500_000`) rather than what the issuer delegated.
+The approval record is **signed by the approver's key**, not the manifest issuer's key.
+
+Verification semantics: a manifest with a HITL requirement is `APPROVED` only when all of the following hold:
+- The `approver_id` appears in the verifier's allowed approver set
+- `approved_at + approval_duration_seconds > now` (approval has not expired)
+- The `evidence_hash` matches the SHA-256 of the action being approved
+- The `revocation_signature` verifies against the approver's published public key
+
+A missing `hitl_record` when one is required produces `INVALID`, not an unattested pass. The HITL gate cannot be bypassed silently.
 
 ## Rationale
 
-**Offline verifiability.** The approval signature can be verified by any party that holds the approver's public key — no call to an approval service is required at verification time. This is critical for air-gapped environments and for audit: the manifest file alone is sufficient evidence of the approval.
+**Offline verifiability.** Approval evidence travels with the manifest. Any verifier holding the approver's public key can check the approval without contacting an external service. This is essential for air-gapped environments and for producing a complete audit pack — the manifest file alone proves the approval happened.
 
-**Approver binding.** The signature covers `approver_id` (a SPIFFE URI or DID), which links the approval to a specific person's key. A compromised agent cannot forge an approval from a different approver — the signature would fail.
+**Approver binding via separate signature.** The approval signature covers `approver_id`, `manifest_id`, `approved_at`, and `evidence_hash`. A compromised agent cannot forge an approval from a different approver. The issuer cannot manufacture approvals — the approver's private key is required.
 
-**Time-bounded approval.** `approval_duration_seconds` inside `approved_scope` limits how long the approval is valid. The verifier checks whether `approved_at + approval_duration_seconds > now`. An approver cannot issue a permanent blank cheque.
+**Separation of duties.** The manifest issuer signs the manifest; the approver signs the approval. These are structurally independent. The issuer may not know the approver's key, and the approver does not need to re-sign the manifest. Agents can collect approvals from multiple approvers and attach them to the `hitl_record` array without triggering a re-sign of the manifest itself.
 
-**Manifest binding.** The signature covers `manifest_id`, preventing approval replay: an approval for agent A cannot be copied into agent B's manifest.
+**Time-bounded approvals.** `approval_duration_seconds` prevents permanent blank cheques. A 3600-second approval window means the agent must re-obtain approval for actions that run beyond one hour.
 
-**Separation from the manifest signature.** The manifest signature (Ed25519 over the full manifest JSON) and the HITL approval signature (Ed25519 over the approval fields) are independent. The agent can collect approvals from multiple approvers and attach them without re-signing the manifest — only the `hitl_record.approvals` array changes, not the signed fields.
+**Evidence hash binding.** The `evidence_hash` field pins the approval to a specific action description. An approval for "transfer $50,000 to account X" cannot be replayed for "transfer $5,000,000 to account Y" because the hashes differ.
+
+The `hitl_record` field is excluded from the manifest signing pre-image (alongside `attestation`) so that approvals can be attached after the manifest is issued, without invalidating the issuer's signature.
 
 ## Alternatives considered
 
-**Webhook-based approval at verification time**: The verifier calls an approval API to check status. Rejected because it creates an online dependency — a down approval service means no verification, which is an availability risk in production and an audit gap (the approval record is not embedded in the evidence pack).
+**Webhook-based approval at verification time**: The verifier calls an external approval API on every verify call to check current status. Rejected because it creates an online dependency — a down approval service means verification fails in production, and the approval evidence is not embedded in the audit pack. Air-gapped deployments cannot use this pattern at all.
 
-**Out-of-band approval token (JWT)**: The approver issues a separate JWT that the agent presents alongside the manifest. Rejected because it requires managing a separate token format, a separate public key registry, and token revocation — all problems the manifest already solves.
+**OAuth 2.0 PKCE for human identity**: Use a browser-based OAuth flow to identify the approver. Rejected because it introduces a browser and redirect URI dependency into a machine-native security path. SPIFFE URIs and DIDs are more appropriate for workload and operator identity in server-side environments.
 
-**Approval via manifest re-signing**: The approver co-signs the entire manifest (multi-signature). Rejected because it requires the approver to hold the manifest issuer's key or participate in a multi-party signing protocol, which is operationally complex and creates key custody issues.
+**Out-of-band approval token (separate JWT)**: The approver issues a JWT presented alongside the manifest. Rejected because it requires managing a separate token format, a separate public key registry, and token revocation — all problems the manifest already solves.
 
-**Separate approval manifest**: A second manifest document that references the first. Rejected because it fragments the evidence — verifiers would need to fetch and verify two documents, and the audit trail requires keeping both in sync.
+**Approval via manifest re-signing (multi-signature)**: The approver co-signs the entire manifest. Rejected because it requires the approver to participate in a multi-party signing protocol or hold the issuer key material, which creates key custody problems and breaks the separation of duties rationale.
 
 ## Consequences
 
-- Agents that require HITL must implement an approval workflow before presenting the manifest. The SDK provides `HitlApprovalSigner` to sign approvals; the workflow UI is out of scope for the spec.
-- In production, approver keypairs should be hardware-backed (FIDO2/passkey, HSM). The spec does not mandate this but the tutorial notes it as strongly recommended.
-- The `required_approvals` count is enforced by the verifier, not the SDK. A manifest with `required_approvals: 2` but only one approval in the record results in `HitlResult.APPROVAL_INSUFFICIENT`.
-- Approval expiry is checked at verification time, not at approval time. An agent that presents an approval 90 minutes after `approval_duration_seconds: 3600` will be rejected. Agents must re-obtain approval for long-running actions.
-- The `hitl_record` field is excluded from the manifest signing pre-image (like `attestation`) — this allows approvals to be attached after the manifest is issued and signed.
+- Agents that require HITL must implement an approval workflow before presenting the manifest. The SDK provides `HitlApprovalSigner` to construct and sign approval records; the approval UI is out of scope for the spec.
+- The `required_approvals` count is enforced by the verifier. A manifest with `required_approvals: 2` but only one valid approval record results in `HitlResult.APPROVAL_INSUFFICIENT`.
+- Approval expiry is checked at verification time, not at approval collection time. An agent that collects an approval and then presents the manifest 90 minutes later with `approval_duration_seconds: 3600` will be rejected. Long-running actions must implement re-approval logic.
+- Approver keypairs should be hardware-backed (FIDO2/passkey or HSM) in production. The spec does not mandate this but the operational guidance notes it as strongly recommended.
 
 ## References
 
-- EU AI Act Article 14: Human oversight
-- Spec Section 3.5: HITL approval record schema
-- [FIDO2 / WebAuthn](https://fidoalliance.org/fido2/) — recommended approver key backing
+- EU AI Act Article 14: Human oversight requirements
+- Spec Section 3.5: HITL approval record schema and verification semantics
+- [FIDO2 / WebAuthn](https://fidoalliance.org/fido2/) — recommended backing for approver keys
+- ADR-0009: SPIFFE URIs as the canonical identity format for `approver_id`
