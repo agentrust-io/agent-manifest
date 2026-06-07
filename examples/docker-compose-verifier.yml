@@ -1,0 +1,14 @@
+version: "3.9"
+services:
+  verifier:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/data
+    environment:
+      CRL_PATH: /data/revocations.jsonl
+
+  agent-service:
+    image: python:3.12-slim
+    command: ["echo", "Replace with your agent service"]

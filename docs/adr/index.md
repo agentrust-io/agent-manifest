@@ -15,3 +15,7 @@ Each major design decision in the Agent Manifest Specification is recorded here 
 | [0009](0009-spiffe-uri-agent-identity.md) | SPIFFE URIs for agent identity | Accepted |
 
 To propose a new ADR, open a GitHub issue using the [spec change template](https://github.com/agentrust-io/agent-manifest/issues/new?template=spec_change.md) and follow the [ADR template](0000-template.md).
+
+---
+
+For practical implementation guidance that corresponds to these decisions, see the [tutorials](../tutorials/index.md): [HITL approval workflows](../tutorials/hitl-approval-workflows.md) (ADR-0006), [revocation and key rotation](../tutorials/revocation-and-key-rotation.md) (ADR-0007), [hardware attestation](../tutorials/hardware-attestation.md) (ADR-0008), and [server-side verification](../tutorials/server-side-verification.md).
