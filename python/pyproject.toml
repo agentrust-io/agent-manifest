@@ -69,6 +69,10 @@ python_version = "3.11"
 strict = true
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+module = "agent_manifest._hw_providers"
+warn_unused_ignores = false
+
 [tool.coverage.run]
 source = ["src/agent_manifest"]
 omit = ["src/agent_manifest/cli.py"]
