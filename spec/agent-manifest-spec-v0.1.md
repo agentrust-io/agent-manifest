@@ -83,7 +83,7 @@ The manifest does not prevent tampering by making changes difficult. It makes ta
 
 **P2 — Independence from operator trust**
 
-A verifying party must be able to confirm manifest integrity without trusting the operator who produced it. This requires hardware-rooted attestation (TEE measurement) for the binding layer, and a trust root that is not controlled by the entity being attested. OPAQUE's attestation service provides this root; the specification defines the protocol for independent verification.
+A verifying party must be able to confirm manifest integrity without trusting the operator who produced it. This requires hardware-rooted attestation (TEE measurement) for the binding layer, and a trust root that is not controlled by the entity being attested. a TEE-anchored attestation service provides this root; the specification defines the protocol for independent verification.
 
 **P3 — Composability with existing standards**
 
@@ -105,9 +105,9 @@ An Agent Manifest is created once per agent deployment, updated when any bound a
 |---|---|---|---|
 | 1. Authoring | Agent deployment configuration complete | Agent developer / platform team | Unsigned draft manifest (JSON-LD) |
 | 2. Signing | Human security reviewer approves configuration | Security officer / CISO delegate | Signed manifest (JWS with Ed25519 or ML-DSA-65) |
-| 3. Attestation | Agent workload launches inside TEE | OPAQUE Confidential Runtime | TEE attestation report binding manifest hash to hardware measurements |
+| 3. Attestation | Agent workload launches inside TEE | the Confidential Runtime | TEE attestation report binding manifest hash to hardware measurements |
 | 4. Verification | Agent crosses a trust boundary (tool call, delegation, audit) | Relying party (MCP server, auditor, regulator) | Verification result: VALID \| MISMATCH \| EXPIRED \| REVOKED \| INCOMPATIBLE_VERSION |
-| 5. Revocation | Any bound artifact changes, compromise detected, or TTL expires | Agent owner or OPAQUE revocation service | Revocation record published to transparency log |
+| 5. Revocation | Any bound artifact changes, compromise detected, or TTL expires | Agent owner or the revocation service | Revocation record published to transparency log |
 
 <!-- CHANGED: SPEC-01/F-14 — added authoring and update protocol rules, immutability rule, version negotiation -->
 
@@ -549,7 +549,7 @@ The `audit_chain_root` in this binding MUST match the `audit_chain_root` field i
 }
 ```
 
-The `container_image_digest` is the primary supply chain binding for the agent runtime. It MUST match the hardware measurement in the TEE attestation report. The `mcp_servers` array binds the supply chain identity of each connected MCP server — `phase2_attested` (JSON boolean) indicates whether the server is running inside an OPAQUE TEE with its own hardware attestation (Phase 2 / cMCP server-side).
+The `container_image_digest` is the primary supply chain binding for the agent runtime. It MUST match the hardware measurement in the TEE attestation report. The `mcp_servers` array binds the supply chain identity of each connected MCP server — `phase2_attested` (JSON boolean) indicates whether the server is running inside a TEE with its own hardware attestation (Phase 2 / cMCP server-side).
 
 The `slsa_provenance.declared_level` field is non-normative and represents the operator's declared SLSA level summary. The actual SLSA level is determined by the `builder_id` value in the referenced DSSE attestation envelope. Verifiers MUST fetch and validate the DSSE envelope at `provenance_uri` — the manifest binding is a pointer to the attestation, not a substitute for it.
 
@@ -557,7 +557,7 @@ The `sbom.document_id` field MUST be set to the `serialNumber` URN for CycloneDX
 
 ### 3.3 Hardware Attestation Binding
 
-The attestation block binds the manifest to a specific TEE hardware measurement. It is produced by the OPAQUE Confidential Runtime at agent launch time and is not part of the draft manifest — it is appended after the TEE measurement is complete.
+The attestation block binds the manifest to a specific TEE hardware measurement. It is produced by the the Confidential Runtime at agent launch time and is not part of the draft manifest — it is appended after the TEE measurement is complete.
 
 <!-- CHANGED: SPEC-08 — added Platform Attestation Profiles subsection; SPEC-09 — clarified manifest_hash_in_report pre-image; SCHEMA F-09 — expanded platform enum to include arm-cca and google-confidential-space; CRYPTO-010 — added RATS reference and verification protocol note -->
 
@@ -574,8 +574,8 @@ The attestation block binds the manifest to a specific TEE hardware measurement.
   "container_image_digest": "sha256:<64-hex-chars>  -- REQUIRED",
   "report_timestamp": "<ISO 8601 UTC>  -- REQUIRED",
   "report_uri": "<URI to full platform attestation report>  -- REQUIRED",
-  "opaque_attestation_service": {
-    "service_id": "<SPIFFE URI of OPAQUE attestation service>  -- REQUIRED",
+  "attestation_service": {
+    "service_id": "<SPIFFE URI of the attestation service>  -- REQUIRED",
     "service_measurement": "<TEE measurement of attestation service itself>  -- REQUIRED",
     "verification_endpoint": "<HTTPS URI>  -- REQUIRED"
   }
@@ -590,7 +590,7 @@ The `audit_key_sealed` field (JSON boolean) MUST be `true` for production deploy
 
 **Attestation verification protocol** <!-- CHANGED: CRYPTO-010 — RATS reference -->
 
-The OPAQUE attestation service acts as a RATS Verifier in the sense of RFC 9334. For deployments where a third party wishes to verify TEE measurements independently (without trusting OPAQUE as intermediary), the service MUST produce a normalized attestation result in the form of an Entity Attestation Token (EAT, per RFC 9528) derived from the raw platform report. The `report_uri` provides the raw platform report for parties wishing to perform independent verification using platform vendor SDKs (AMD `sev-snp-verify`, Intel TDX Attest SDK, etc.).
+The attestation service acts as a RATS Verifier in the sense of RFC 9334. For deployments where a third party wishes to verify TEE measurements independently (without trusting the attestation service as intermediary), the service MUST produce a normalized attestation result in the form of an Entity Attestation Token (EAT, per RFC 9528) derived from the raw platform report. The `report_uri` provides the raw platform report for parties wishing to perform independent verification using platform vendor SDKs (AMD `sev-snp-verify`, Intel TDX Attest SDK, etc.).
 
 ##### 3.3.1 Platform Attestation Profiles <!-- CHANGED: SPEC-08 — new normative subsection per platform -->
 
@@ -599,27 +599,27 @@ The following profiles define, per platform, the measurement field used to carry
 **AMD SEV-SNP**
 - `manifest_hash_in_report` is extended into the `HOST_DATA` field of the SNP attestation report (64 bytes, purpose-built for guest-supplied data). Do NOT use a PCR register for this purpose.
 - `measurement` field: SHA-384 of initial guest memory pages (96 bytes, 192 lowercase hex characters).
-- Extension actor: OPAQUE Confidential Runtime extends `HOST_DATA` before guest launch.
+- Extension actor: the Confidential Runtime extends `HOST_DATA` before guest launch.
 
 **Intel TDX**
 - `manifest_hash_in_report` is extended into `RTMR[1]` using `TDG.MR.RTMR.EXTEND` before any workload code runs.
 - `measurement` field: MRTD value (SHA-384, 96 bytes, 192 lowercase hex characters). For deployments using multiple RTMRs, the `measurement` field MUST be a JSON object: `{"mrtd": "<hex>", "rtmr0": "<hex>", "rtmr1": "<hex>", "rtmr2": "<hex>", "rtmr3": "<hex>"}`.
-- Extension actor: OPAQUE Confidential Runtime performs the RTMR extension.
+- Extension actor: the Confidential Runtime performs the RTMR extension.
 
 **AWS Nitro**
 - `manifest_hash_in_report` is extended into PCR15 using `tpm2_extend` with SHA-256 bank before instance launch. PCR15 is reserved for custom measurements and MUST be used. <!-- CHANGED: instructions — PCR 15 per spec requirement -->
 - `measurement` field: A JSON object of PCR index to SHA-384 hex values: `{"pcr0": "<hex>", "pcr1": "<hex>", "pcr15": "<hex>"}`. At minimum, PCR0, PCR1, and PCR15 MUST be present.
-- Extension actor: Instance bootloader extends PCR15; OPAQUE Confidential Runtime verifies the extension before proceeding.
+- Extension actor: Instance bootloader extends PCR15; the Confidential Runtime verifies the extension before proceeding.
 
 **NVIDIA Blackwell**
-- `manifest_hash_in_report` is embedded in the SPDM measurements report as custom measurement index `0x05` (OPAQUE-reserved, distinct from NVIDIA firmware indices 0x00-0x04).
+- `manifest_hash_in_report` is embedded in the SPDM measurements report as custom measurement index `0x05` (implementation-reserved, distinct from NVIDIA firmware indices 0x00-0x04).
 - `measurement` field: SPDM measurement digest as provided by the NVIDIA attestation SDK (format per NVIDIA Hopper/Blackwell attestation documentation).
-- Extension actor: OPAQUE Confidential Runtime writes the custom measurement index before attestation report generation.
+- Extension actor: the Confidential Runtime writes the custom measurement index before attestation report generation.
 
 **ARM CCA**
 - `manifest_hash_in_report` is extended into the Realm Measurement Register (RMR) at index 1 using `RSI_MEASUREMENT_EXTEND` before workload execution.
 - `measurement` field: Realm measurement register value (SHA-512, 64 bytes, 128 lowercase hex characters).
-- Extension actor: Realm Management Monitor (RMM) applies the extension; OPAQUE Confidential Runtime initiates via RSI call.
+- Extension actor: Realm Management Monitor (RMM) applies the extension; the Confidential Runtime initiates via RSI call.
 
 **Google Confidential Space**
 - Google Confidential Space uses AMD SEV-SNP as the underlying TEE. The AMD SEV-SNP profile applies. Additionally, the `measurement` field MUST include the Confidential Space-specific `sub_mod` claims from the OIDC token issued by the Confidential Space attestation service.
@@ -752,7 +752,7 @@ Each `approval_signature` is produced by the approver's hardware-backed key (FID
 4. Populate the top-level `transparency_log_entry` field.
 5. The manifest is complete and ready for use only after step 4.
 
-In hosted mode, the OPAQUE attestation service is responsible for log submission. In self-hosted mode, the signing CLI is responsible.
+In hosted mode, the attestation service is responsible for log submission. In self-hosted mode, the signing CLI is responsible.
 
 **Transparency log entry format** <!-- CHANGED: F-08 — aligned to Sigstore bundle spec -->:
 
@@ -937,11 +937,11 @@ Two conformant hosting models are defined:
 
 **SDK-hosted mode**: The agent SDK exposes the verification endpoint locally within the agent process. The endpoint returns hashes of running artifacts (not the artifacts themselves) computed by a trusted component inside the agent process. Access is restricted by mTLS using the agent's SPIFFE SVID. The "without prior operator-controlled authentication" requirement means that a regulator or third-party auditor must be able to reach the endpoint using their own SPIFFE SVID — the operator MUST NOT be able to gate this access.
 
-**OPAQUE-hosted mode**: The agent SDK pushes signed hash attestations of running artifacts to the OPAQUE attestation service at startup and on change. The OPAQUE endpoint serves verification results using these pushed hashes. The push protocol uses the agent's SPIFFE SVID for authentication to the OPAQUE service. Third-party verifiers access the OPAQUE endpoint without prior operator involvement.
+**hosted mode**: The agent SDK pushes signed hash attestations of running artifacts to the attestation service at startup and on change. The verification endpoint serves verification results using these pushed hashes. The push protocol uses the agent's SPIFFE SVID for authentication to the attestation service. Third-party verifiers access the verification endpoint without prior operator involvement.
 
 Conformance level requirements:
 - Level 0/1: Either hosting model is acceptable.
-- Level 2+: OPAQUE-hosted mode is REQUIRED, or SDK-hosted mode with TEE-sealed attestation of the running hash state.
+- Level 2+: hosted mode is REQUIRED, or SDK-hosted mode with TEE-sealed attestation of the running hash state.
 
 ### 5.2 Verification Result Schema
 
@@ -980,7 +980,7 @@ Conformance level requirements:
     "pack_hash": "sha256:<64-hex-chars>",
     "pack_uri": "<URI to full evidence pack>"
   },
-  "verification_signature": "<Ed25519 | ML-DSA-65 signature by OPAQUE attestation service>"
+  "verification_signature": "<Ed25519 | ML-DSA-65 signature by the attestation service>"
 }
 ```
 
@@ -1129,7 +1129,7 @@ When an agent's MCP client connects to an MCP server, the client SHOULD signal m
 
 **Future MCP versions**: This specification will file an AAIF Spec Enhancement Proposal (SEP) to add `agentManifestId` and `agentManifestVerificationEndpoint` as optional fields on the MCP `Implementation` type. When that SEP is accepted, those fields MAY be placed directly on `clientInfo`. Until then, the `_meta` approach above is the conformant mechanism.
 
-An MCP server implementing the Agent Manifest extension SHOULD verify the manifest before servicing any tool calls. For cMCP Phase 2 servers running inside an OPAQUE TEE, this verification is performed inside the TEE and the result is included in the per-call evidence pack.
+An MCP server implementing the Agent Manifest extension SHOULD verify the manifest before servicing any tool calls. For cMCP Phase 2 servers running inside a TEE, this verification is performed inside the TEE and the result is included in the per-call evidence pack.
 
 #### 6.3.2 Manifest Binding in Tool Call Evidence
 
@@ -1268,9 +1268,9 @@ Operators in financial services should note that agents performing creditworthin
 | Framework | Requirement | Agent Manifest Satisfaction |
 |---|---|---|
 | DORA Art. 9 | ICT systems must be resilient; evidence of what ran and when | Verification result + `evidence_pack` provides per-invocation evidence of what agent ran, under what policy, at what time. Hardware-signed. |
-| DORA Art. 28 (third-party oversight) | Third-party ICT risk management; independent oversight | OPAQUE as independent attestation authority. Verification endpoint reachable by regulator without operator involvement. |
-| DORA Art. 28(3) (ICT registry) | Financial entities must maintain a registry of all ICT third-party service arrangements | Agent Manifest records, when aggregated, constitute the primary data source for the Art. 28(3) ICT third-party registry. Manifests SHOULD be exported to the financial entity's registry system. The `opaque_attestation_service` field enables documentation of the OPAQUE dependency. |
-| DORA Art. 28(4) (concentration risk) | Financial entities must assess concentration risk for critical ICT dependencies | The OPAQUE attestation service is a critical ICT dependency for Level 2+ deployments and MUST be documented in the Art. 28(4) concentration risk assessment. Financial entities MUST define an exit strategy per Art. 28(8) covering the scenario where the OPAQUE attestation service is unavailable. |
+| DORA Art. 28 (third-party oversight) | Third-party ICT risk management; independent oversight | an independent attestation authority. Verification endpoint reachable by regulator without operator involvement. |
+| DORA Art. 28(3) (ICT registry) | Financial entities must maintain a registry of all ICT third-party service arrangements | Agent Manifest records, when aggregated, constitute the primary data source for the Art. 28(3) ICT third-party registry. Manifests SHOULD be exported to the financial entity's registry system. The `attestation_service` field enables documentation of the attestation service dependency. |
+| DORA Art. 28(4) (concentration risk) | Financial entities must assess concentration risk for critical ICT dependencies | The attestation service is a critical ICT dependency for Level 2+ deployments and MUST be documented in the Art. 28(4) concentration risk assessment. Financial entities MUST define an exit strategy per Art. 28(8) covering the scenario where the attestation service is unavailable. |
 | NIST AI RMF — GOVERN 1.2 | Organizational teams are committed to transparent and accountable AI risk management policies | `policy_bundle.hash` bound to hardware attestation proves policy implementation, not just documentation. |
 | NIST AI RMF — GOVERN 1.7 | Processes and procedures for decommissioning and phasing out AI systems safely | Revocation records (section 3.7) published to the transparency log serve as the decommissioning artifact. The `decision_trace` records for decommissioned agents are retained per `log_retention` policy. `agent_id` continuity in the rotation chain enables post-decommission audit. |
 
@@ -1351,7 +1351,7 @@ The Art. 13 row in section 9.1 cross-references `operational_lifecycle.expected_
 - Verification API specification with error schemas and revocation protocol
 - TEE attestation binding protocol with per-platform profiles
 - Conformance test suite (197 tests)
-- Reference implementation targeting AGT + cMCP on OPAQUE
+- Reference implementation targeting AAIF + cMCP
 
 ### 10.2 Version 0.2 — Design Partner Feedback
 
@@ -1396,7 +1396,7 @@ Target: Q1 2027. Submission to AAIF alongside the AGT donation.
 | CoSAI WS1 | `supply_chain` provenance aligns with CoSAI Working Stream 1 (AI supply chain security). Agent Manifest is a candidate for CoSAI WS1 recommendation. |
 | RFC 8785 (JCS) | All canonical JSON serialization uses RFC 8785. This is a normative dependency. |
 | RFC 9162 (Certificate Transparency v2) | Merkle tree construction and transparency log structures follow RFC 9162. |
-| RFC 9334 (RATS Architecture) | OPAQUE's attestation service plays the RATS Verifier role. Platform-native attestation reports are normalized to EAT (RFC 9528) for third-party verification. |
+| RFC 9334 (RATS Architecture) | The attestation service plays the RATS Verifier role. Platform-native attestation reports are normalized to EAT (RFC 9528) for third-party verification. |
 | RFC 9562 (UUID v7) | All UUID fields in the manifest use UUID v7 per RFC 9562. |
 
 ## 11. Appendix
@@ -1410,7 +1410,7 @@ Target: Q1 2027. Submission to AAIF alongside the AGT donation.
 | A2A | Agent-to-Agent protocol. A wire protocol for inter-agent communication, currently governed by the Linux Foundation. As of the date of this specification, no A2A standard defines a delegation chain or inter-agent trust primitive. |
 | AGT | Agent Governance Toolkit. The open-source agent governance framework created by Imran Siddique; reference implementation of this specification's software layer. |
 | Catalog Hash | Merkle root over per-tool leaf hashes, where each leaf commits to both the tool's schema hash and description hash. |
-| cMCP | Confidential MCP. OPAQUE's hardware-attested MCP gateway; the reference implementation of this specification's attestation layer. |
+| cMCP | Confidential MCP. A hardware-attested MCP gateway; the reference implementation of this specification's attestation layer. |
 | Decision BOM | Decision Bill of Materials. AGT's per-audit-record structure capturing the inputs, policy decision, and outcome for each governance decision. |
 | Delegation Chain | The ordered sequence of principals and scope grants from root human principal to the current agent. An original design of this specification; no published A2A standard defines an equivalent primitive. |
 | HITL | Human-in-the-Loop. A human oversight event that is recorded and bound in the manifest. |
@@ -1419,7 +1419,7 @@ Target: Q1 2027. Submission to AAIF alongside the AGT donation.
 | Merkle Root | The root hash of a Merkle tree over a set of artifact hashes using RFC 9162 domain-separated construction. Changing any artifact changes the root. |
 | ML-DSA-65 | Module Lattice-based Digital Signature Algorithm, parameter set 65. NIST FIPS 204. Post-quantum signature scheme. |
 | PROVIDER_ASSERTED | A verification result status for `model_identity` indicating the model binding is an operator assertion rather than a hardware-rooted hash binding. Returned when `model_attestation_type` is `provider-asserted`. |
-| RATS | Remote ATtestation procedureS. IETF architecture (RFC 9334) for remote attestation. OPAQUE's attestation service acts as a RATS Verifier. |
+| RATS | Remote ATtestation procedureS. IETF architecture (RFC 9334) for remote attestation. The attestation service acts as a RATS Verifier. |
 | Rug Pull | An attack where a previously-approved tool endpoint silently mutates its capability definitions after the security review concluded. |
 | Scope Laundering | An attack where a sub-agent claims broader permissions than its delegating principal granted. |
 | TEE | Trusted Execution Environment. Hardware-isolated memory region (AMD SEV-SNP, Intel TDX, NVIDIA Blackwell, ARM CCA) where code runs protected from the host OS and operator. |
