@@ -6,6 +6,8 @@
 
 ### Prove what your agent was, not just who called it
 
+It's the answer to the question every AI builder has about their own agent: is it governed the way I built it — and how would I know if it drifted? Agent Manifest makes that verifiable to the builder and provable to even an independent third party.
+
 <p align="center">
   <a href="https://agentrust-io.github.io/agent-manifest">
     <img src="https://img.shields.io/badge/Documentation-agentrust--io.github.io%2Fagent--manifest-7c3aed?style=for-the-badge" alt="Documentation" height="36">
@@ -31,6 +33,8 @@
 
 > **Developer Preview** — launching at Confidential Computing Summit, June 23 2026. May have breaking changes before v1.0.
 
+Agent Manifest is how a builder proves — to themselves first, and to anyone who has no reason to trust them — exactly what their agent is: the ten artifacts that define it (system prompt, policy bundle, tool schemas, model identity, RAG corpus, memory, decision trace, A2A delegation, supply chain, HITL), bound into one signed, hardware-attestable, tamper-evident record.
+
 A cryptographically signed, hardware-attestable document that establishes the complete trust surface of an AI agent at deployment. Bind ten artifacts — system prompt, policy bundle, tool schemas, model identity, RAG corpus, memory state, decision trace, A2A delegation chain, supply chain provenance, and human-in-the-loop approvals — into a single tamper-evident identity primitive.
 
 ---
@@ -49,7 +53,9 @@ An AI agent calling a tool today presents no unforgeable proof of:
 
 This is not an authentication gap — agents can authenticate with certificates and tokens. It is an **attestation gap**: the inability to prove, to a third party who does not trust the operator, that the agent running right now is the agent that was approved.
 
-Software-signed manifests don't close this gap. A privileged operator can swap a system prompt in memory after signing, change a model version between approval and runtime, or forge an approval record. Hardware-attested manifests make these attacks structurally impossible — the measurement happens in silicon before any user code runs, and the signing key never leaves the TEE.
+*And not knowing isn't only a regulated-industry problem — it's every AI builder's. Without proof, the bigger risk isn't even adversarial: most exposure is structural — drift, a swapped model, a poisoned corpus, data bleeding through a path no one approved — all unseen. Add an imposter in that same blind spot, under a borrowed identity, and you can't tell it from normal operation. Embarrassing and costly for any enterprise running agents — and reportable in regulated or sovereign systems.*
+
+Software-signed manifests don't close this gap. *A privileged operator — or a rogue agent — can swap a system prompt in memory after signing, change a model version between approval and runtime, or forge an approval record.* Hardware-attested manifests make these attacks structurally impossible — the measurement happens in silicon before any user code runs, and the signing key never leaves the TEE.
 
 ---
 
@@ -132,25 +138,22 @@ Full walkthrough: [docs/getting-started.md](docs/getting-started.md) — Level 0
 ## How it works
 
 ```
-Agent configuration
-  └─ Hash 10 artifacts ──► Manifest (JSON-LD)
-                                │
-                         Sign (Ed25519)
-                                │
-                    ┌───────────▼───────────┐
-                    │   TEE (TPM/SEV/TDX)   │
-                    │  Measure manifest hash │
-                    │  Seal signing key      │
-                    └───────────┬───────────┘
-                                │
-                    Transparency log (Rekor)
-                                │
-                    ┌───────────▼───────────┐
-                    │       Verifier        │
-                    │  Compare artifacts    │
-                    │  Check attestation    │
-                    │  VALID / MISMATCH     │
-                    └───────────────────────┘
+Agent config ─ 10 artifacts
+   │  hash + bind, then sign (Ed25519 / ML-DSA-65)
+   ▼
+Manifest (JSON-LD)
+   │  measured in silicon — TEE: TPM / SEV-SNP / TDX / GPU-CC
+   │  signing key sealed, never exported
+   ▼
+Transparency log (Rekor) ─ append-only, public
+   │
+   ▼
+Verifier (no operator trust): hashes match? · measurement matches? · revoked / expired?
+   │
+   ├─ MATCH ✓     → it's the agent that was approved
+   └─ MISMATCH ✗  → drift · swapped model · poisoned corpus · imposter
+        answers both: the builder ("still governed the way I built it?")
+                      and any third party (auditor / CISO / regulator)
 ```
 
 A verifying party holding a manifest and its attestation report can prove — without trusting the operator — that a specific agent ran specific code under specific policy, produced specific decisions, and received specific human oversight.
