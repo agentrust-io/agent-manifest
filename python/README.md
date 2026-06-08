@@ -80,11 +80,11 @@ print(sig_block["key_id"])      # sha256:<hex>
 ```python
 from agent_manifest._auto_provider import select_provider
 
-# auto-selects: OPAQUE → SEV-SNP → TDX → TPM → Software
+# auto-selects: SEV-SNP → TDX → TPM → software  (OPAQUE is explicit opt-in via OPAQUE_ATTESTATION_URL)
 provider = select_provider(level=1)   # Level 1+ requires hardware
 provider.extend_manifest_hash(manifest_dict)
 report = provider.get_attestation_report()
-# report.platform: "amd-sev-snp" | "intel-tdx" | "tpm" | "opaque"
+# report.platform: "amd-sev-snp" | "intel-tdx" | "tpm" | "opaque" | "software"
 ```
 
 | Provider | Hardware | Level | Install |
