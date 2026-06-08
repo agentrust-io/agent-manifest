@@ -132,25 +132,22 @@ Full walkthrough: [docs/getting-started.md](docs/getting-started.md) — Level 0
 ## How it works
 
 ```
-Agent configuration
-  └─ Hash 10 artifacts ──► Manifest (JSON-LD)
-                                │
-                         Sign (Ed25519)
-                                │
-                    ┌───────────▼───────────┐
-                    │   TEE (TPM/SEV/TDX)   │
-                    │  Measure manifest hash │
-                    │  Seal signing key      │
-                    └───────────┬───────────┘
-                                │
-                    Transparency log (Rekor)
-                                │
-                    ┌───────────▼───────────┐
-                    │       Verifier        │
-                    │  Compare artifacts    │
-                    │  Check attestation    │
-                    │  VALID / MISMATCH     │
-                    └───────────────────────┘
+Agent config ─ 10 artifacts
+   │  hash + bind, then sign (Ed25519 / ML-DSA-65)
+   ▼
+Manifest (JSON-LD)
+   │  measured in silicon — TEE: TPM / SEV-SNP / TDX / GPU-CC
+   │  signing key sealed, never exported
+   ▼
+Transparency log (Rekor) ─ append-only, public
+   │
+   ▼
+Verifier (no operator trust): hashes match? · measurement matches? · revoked / expired?
+   │
+   ├─ MATCH ✓     → it's the agent that was approved
+   └─ MISMATCH ✗  → drift · swapped model · poisoned corpus · imposter
+        answers both: the builder ("still governed the way I built it?")
+                      and any third party (auditor / CISO / regulator)
 ```
 
 A verifying party holding a manifest and its attestation report can prove — without trusting the operator — that a specific agent ran specific code under specific policy, produced specific decisions, and received specific human oversight.
@@ -180,11 +177,12 @@ A verifying party holding a manifest and its attestation report can prove — wi
 |----------|----------|-----------|---------|
 | `SoftwareProvider` | Any (Level 0 only) | Software | Built-in |
 | `TPMProvider` | Any VM with Trusted Launch, AWS Nitro | Medium | `apt install tpm2-tools` |
-| `SEVSNPProvider` | Azure DCasv5, AWS C6a Nitro, GCP N2D | High | Requires `/dev/sev-guest` |
-| `TDXProvider` | Azure DCedsv5, GCP C3 | High | Requires `/dev/tdx-guest` |
-| `OPAQUEProvider` | Opaque Managed Runtime | Highest | Set `OPAQUE_ATTESTATION_URL` |
+| `SEVSNPProvider` | Azure Confidential Computing (DCasv5), GCP Confidential Space (N2D), AWS Nitro | High | Requires `/dev/sev-guest` |
+| `TDXProvider` | Azure Confidential Computing (DCedsv5), GCP Confidential Space (C3) | High | Requires `/dev/tdx-guest` |
+| `GPUCCProvider` _(v0.2)_ | NVIDIA H100/H200/Blackwell (CC mode) | High | NVIDIA Remote Attestation Service (NRAS) |
+| `OPAQUEProvider` | Opaque Managed Runtime | High | Set `OPAQUE_ATTESTATION_URL` (explicit opt-in) |
 
-Provider auto-selects: `OPAQUE → SEV-SNP → TDX → TPM → software`.
+Provider auto-selects: `SEV-SNP → TDX → TPM → software`. `OPAQUEProvider` is explicit opt-in via `OPAQUE_ATTESTATION_URL`.
 
 ```python
 from agent_manifest._auto_provider import select_provider
@@ -192,7 +190,7 @@ from agent_manifest._auto_provider import select_provider
 provider = select_provider(level=1)   # raises if no hardware available
 provider.extend_manifest_hash(manifest_dict)
 report = provider.get_attestation_report()
-# report.platform: "tpm" | "amd-sev-snp" | "intel-tdx" | "opaque"
+# report.platform: "tpm" | "amd-sev-snp" | "intel-tdx" | "gpu-cc" | "opaque"
 ```
 
 ---
@@ -228,9 +226,9 @@ Being submitted to the [Agentic AI Foundation (AAIF)](CHARTER.md) under the Linu
 
 | Standard | Coverage |
 |----------|----------|
-| OWASP Agentic AI Top 10 | All 10 ASI risk categories — deterministic attestation controls |
+| OWASP Agentic AI Top 10 | Addresses all 10 ASI categories with deterministic, attestable controls |
 | NIST AI RMF 1.0 | GOVERN (identity), MAP (artifacts), MEASURE (conformance), MANAGE (revocation) |
-| EU AI Act Art. 13–15 | Transparency (model identity), HITL (Art. 14), cybersecurity (Art. 15 via Level 1) |
+| EU AI Act Art. 13–15 | Transparency (model identity), HITL (Art. 14), supports Art. 15 (cybersecurity) at Level 1 |
 | DORA Art. 9 | Attestation chain + 180-day log retention (Level 2) |
 | CoSAI WS1 | Secure-by-Design Principles, MCP Security Taxonomy |
 
