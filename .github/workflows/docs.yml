@@ -37,7 +37,7 @@ jobs:
       - name: Install docs dependencies
         run: |
           pip install -r requirements-docs.txt
-          pip install -e "python/[server,pq]"
+          pip install -e "python/[server]"
 
       - name: Build and deploy to GitHub Pages
         run: mkdocs gh-deploy --force --clean
