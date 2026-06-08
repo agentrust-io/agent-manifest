@@ -1,11 +1,13 @@
 """provider='auto' attestation backend selection.
 
-Selection order (first available wins):
-  1. OPAQUEProvider  — if OPAQUE_ATTESTATION_URL env var is set
-  2. SEVSNPProvider  — if /dev/sev-guest exists
-  3. TDXProvider     — if /dev/tdx-guest exists
-  4. TPMProvider     — if tpm2_extend is in PATH
-  5. SoftwareProvider — fallback, Level 0 only (no hardware attestation)
+Auto-selection order (first locally-verifiable silicon wins):
+  1. SEVSNPProvider  — if /dev/sev-guest exists
+  2. TDXProvider     — if /dev/tdx-guest exists
+  3. TPMProvider     — if tpm2_extend is in PATH
+  4. SoftwareProvider — fallback, Level 0 only (no hardware attestation)
+
+OPAQUEProvider is explicit opt-in: selected only when OPAQUE_ATTESTATION_URL
+is set. It is never auto-detected.
 
 The SoftwareProvider is never selected automatically for Level 1+ contexts.
 Callers that require Level 1+ MUST explicitly check provider.level >= 1.
@@ -53,7 +55,7 @@ def select_provider(level: int = 0) -> AttestationProvider:
         AttestationUnavailableError: If *level* > 0 and no hardware provider
             is available.
     """
-    # OPAQUE managed runtime
+    # OPAQUE managed runtime — explicit opt-in only, not auto-detected
     if os.environ.get("OPAQUE_ATTESTATION_URL"):
         from ._hw_providers import OPAQUEProvider
         return cast(AttestationProvider, OPAQUEProvider())
@@ -76,8 +78,8 @@ def select_provider(level: int = 0) -> AttestationProvider:
     if level >= 1:
         raise AttestationUnavailableError(
             "No hardware attestation provider available. "
-            "Level 1+ conformance requires TPM 2.0, AMD SEV-SNP, Intel TDX, "
-            "or the OPAQUE managed runtime. "
+            "Level 1+ conformance requires TPM 2.0, AMD SEV-SNP, or Intel TDX. "
+            "To use the OPAQUE managed runtime, set OPAQUE_ATTESTATION_URL. "
             "For development use, set level=0 explicitly."
         )
     return SoftwareProvider()
