@@ -255,4 +255,4 @@ bad_sig = delegate_hop_signer.sign_hop(
 
 - [Tutorial: Server-side verification](server-side-verification.md) — verify delegation chains at the relying party
 - [Tutorial: HITL approval workflows](hitl-approvals.md) — require human sign-off within a delegation chain
-- [Example: A2A delegation chain manifests](../examples/delegation-chain/README.md)
+- [Examples repository](https://github.com/agentrust-io/examples)
