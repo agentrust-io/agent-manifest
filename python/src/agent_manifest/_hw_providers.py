@@ -1,4 +1,4 @@
-"""AMD SEV-SNP, Intel TDX, and OPAQUE attestation providers — issues #6, #7, #8.
+"""AMD SEV-SNP, Intel TDX, and TEE attestation providers — issues #6, #7, #8.
 
 These providers extend _providers.py:AttestationProvider for higher-assurance
 hardware attestation than TPM.
@@ -13,9 +13,9 @@ TDX (issue #7):
   RTMR (Runtime Measurement Register) 1 is conventionally used for
   application-level measurements (RTMR[0] = firmware, RTMR[1] = OS/app).
 
-OPAQUE (issue #8):
-  Delegates to the OPAQUE attestation service via the REST API at
-  OPAQUE_ATTESTATION_URL. The service runs in a managed TEE and returns a
+Attestation service (issue #8):
+  Delegates to an external attestation service via the REST API at
+  ATTESTATION_SERVICE_URL. The service runs in a managed TEE and returns a
   signed TRACE claim.
 """
 from __future__ import annotations
@@ -89,7 +89,7 @@ class SEVSNPProvider(AttestationProvider):
 
         try:
             with open(_SEV_GUEST_DEV, "rb") as dev:
-                fcntl.ioctl(dev, _SNP_REPORT_IOCTL, buf)
+                fcntl.ioctl(dev, _SNP_REPORT_IOCTL, buf)  # type: ignore[attr-defined]
             self._report_bytes = bytes(buf)
         except OSError as e:
             raise AttestationUnavailableError(
@@ -185,7 +185,7 @@ class TDXProvider(AttestationProvider):
 
         try:
             with open(_TDX_GUEST_DEV, "rb") as dev:
-                fcntl.ioctl(dev, _TDX_CMD_GET_REPORT, buf)
+                fcntl.ioctl(dev, _TDX_CMD_GET_REPORT, buf)  # type: ignore[attr-defined]
             self._report_bytes = bytes(buf)
         except OSError as e:
             raise AttestationUnavailableError(f"TDX RTMR extend failed: {e}")
