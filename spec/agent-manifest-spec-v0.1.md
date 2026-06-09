@@ -1,4 +1,4 @@
-# Agent Manifest Specification
+﻿# Agent Manifest Specification
 
 | Field | Value |
 |---|---|
@@ -346,7 +346,7 @@ Tool removal events (where a previously approved tool disappears from the catalo
 
 Enforcement responsibility is assigned as follows:
 
-- **Phase 2 (cMCP gateway) deployments**: The cMCP gateway is the enforcement actor for `rug_pull_policy`. It intercepts tool capability change notifications before they reach the agent.
+- **Phase 2 (cMCP Runtime) deployments**: The cMCP Runtime is the enforcement actor for `rug_pull_policy`. It intercepts tool capability change notifications before they reach the agent.
 - **Level 0/1 deployments without cMCP**: The agent SDK is the enforcement actor. SDK implementations MUST intercept tool capability change events from the underlying protocol transport.
 
 The `RUG_PULL_DETECTED` evidence event is a structured record conforming to a subset of the TRACE envelope (section 6.3.2) with the following additional fields:
@@ -1082,7 +1082,7 @@ The Agent Manifest is the attestation layer above AGT's policy enforcement layer
 
 ### 6.2 Integration with cMCP
 
-The Agent Manifest and cMCP are complementary primitives that operate at different layers of the same trust stack. cMCP attests the gateway enforcement layer; the Agent Manifest attests the complete agent identity surface. Their attestation fields overlap deliberately:
+The Agent Manifest and cMCP are complementary primitives that operate at different layers of the same trust stack. cMCP attests the runtime enforcement layer; the Agent Manifest attests the complete agent identity surface. Their attestation fields overlap deliberately:
 
 | Field | cMCP Attestation | Agent Manifest | Relationship |
 |---|---|---|---|
@@ -1410,7 +1410,7 @@ Target: Q1 2027. Submission to AAIF alongside the AGT donation.
 | A2A | Agent-to-Agent protocol. A wire protocol for inter-agent communication, currently governed by the Linux Foundation. As of the date of this specification, no A2A standard defines a delegation chain or inter-agent trust primitive. |
 | AGT | Agent Governance Toolkit. The open-source agent governance framework created by Imran Siddique; reference implementation of this specification's software layer. |
 | Catalog Hash | Merkle root over per-tool leaf hashes, where each leaf commits to both the tool's schema hash and description hash. |
-| cMCP | Confidential MCP. A hardware-attested MCP gateway; the reference implementation of this specification's attestation layer. |
+| cMCP | Confidential MCP. A hardware-attested MCP runtime; the reference implementation of this specification's attestation layer. |
 | Decision BOM | Decision Bill of Materials. AGT's per-audit-record structure capturing the inputs, policy decision, and outcome for each governance decision. |
 | Delegation Chain | The ordered sequence of principals and scope grants from root human principal to the current agent. An original design of this specification; no published A2A standard defines an equivalent primitive. |
 | HITL | Human-in-the-Loop. A human oversight event that is recorded and bound in the manifest. |
