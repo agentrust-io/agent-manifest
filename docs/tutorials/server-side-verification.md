@@ -20,12 +20,12 @@ pip install "agent-manifest[server]"
 
 The verifier checks six things in order, stopping at the first hard failure:
 
-1. **Revocation** — is this manifest ID in the revocation store?
-2. **Expiry** — is `expires_at` in the past?
-3. **Artifact hashes** — do the hashes in the manifest match what is actually running?
-4. **Delegation chain** — is every hop signed by its parent?
-5. **HITL record** — if approval was required, is a valid, unexpired one present?
-6. **Attestation** — if `enforce_attestation=True`, was hardware attestation verified?
+1. **Revocation**  -  is this manifest ID in the revocation store?
+2. **Expiry**  -  is `expires_at` in the past?
+3. **Artifact hashes**  -  do the hashes in the manifest match what is actually running?
+4. **Delegation chain**  -  is every hop signed by its parent?
+5. **HITL record**  -  if approval was required, is a valid, unexpired one present?
+6. **Attestation**  -  if `enforce_attestation=True`, was hardware attestation verified?
 
 ---
 
@@ -246,6 +246,6 @@ for rec in crl.all_records():
 
 ## What's next
 
-- [Tutorial: A2A delegation chains](delegation-chains.md) — verify multi-hop delegation manifests
-- [Tutorial: Revocation and key rotation](revocation-and-key-rotation.md) — revoke a manifest and update the CRL
-- [Tutorial: Deploying the verification endpoint](deploying-the-verification-endpoint.md) — containerise and run in production
+- [Tutorial: A2A delegation chains](delegation-chains.md)  -  verify multi-hop delegation manifests
+- [Tutorial: Revocation and key rotation](revocation-and-key-rotation.md)  -  revoke a manifest and update the CRL
+- [Tutorial: Deploying the verification endpoint](deploying-the-verification-endpoint.md)  -  containerise and run in production
