@@ -8,7 +8,7 @@ This runbook covers rotating a signing key in production. Run it when a key expi
 
 | Trigger | Urgency | Overlap window |
 |---------|---------|----------------|
-| Key compromise suspected | Immediate | None — revoke old key first |
+| Key compromise suspected | Immediate | None  -  revoke old key first |
 | Scheduled expiry (90-day policy) | Planned | 24-hour overlap |
 | Personnel change (key holder leaves) | Same day | 1-hour overlap |
 | Hardware security key replacement | Planned | 24-hour overlap |
@@ -20,20 +20,20 @@ This runbook covers rotating a signing key in production. Run it when a key expi
 Before starting:
 
 - [ ] Identify all active manifests signed with the current key (query your manifest store by `signature.key_id`)
-- [ ] Confirm the new key is generated in a secure environment (HSM or secrets manager — not on a developer workstation)
+- [ ] Confirm the new key is generated in a secure environment (HSM or secrets manager  -  not on a developer workstation)
 - [ ] Confirm CRL endpoint is reachable and writable
 - [ ] Alert the on-call rotation so they expect a temporary spike in INVALID results during overlap
 
 ---
 
-## Step 1 — Generate a new key pair
+## Step 1  -  Generate a new key pair
 
 ```bash
 # Generate a new Ed25519 key pair
 manifest keygen --out /path/to/new-signing-key.b64url --print-pub
 
 # The printed public key goes into your trust anchor configuration
-# The private key stays in the secrets manager — never in source control
+# The private key stays in the secrets manager  -  never in source control
 ```
 
 Or in Python:
@@ -49,7 +49,7 @@ print("Public key (base64url):", new_kp.public_b64url())
 
 ---
 
-## Step 2 — Re-sign active manifests
+## Step 2  -  Re-sign active manifests
 
 Re-issue every active manifest with the new key. The `manifest_id` and `issued_at` stay the same; only the `signature` block changes.
 
@@ -74,7 +74,7 @@ for manifest in active_manifests:
 
 ---
 
-## Step 3 — Revoke the old key
+## Step 3  -  Revoke the old key
 
 Issue a key-level revocation record for every manifest signed with the old key:
 
@@ -87,7 +87,7 @@ crl = FileCRL(Path("crl.jsonl"))
 for manifest_id in manifests_signed_with_old_key:
     record = sign_revocation(
         manifest_id=manifest_id,
-        reason=f"Key rotation — old key_id={old_key_id}",
+        reason=f"Key rotation  -  old key_id={old_key_id}",
         revoked_by="spiffe://trust.acme.co/security-team",
         keypair=new_kp,   # sign revocations with the NEW key
     )
@@ -96,7 +96,7 @@ for manifest_id in manifests_signed_with_old_key:
 
 ---
 
-## Step 4 — Update the CRL endpoint
+## Step 4  -  Update the CRL endpoint
 
 The `FileCRL` append-only file is your CRL store. Publish it to your `.well-known` endpoint:
 
@@ -106,13 +106,13 @@ aws s3 cp crl.jsonl s3://your-bucket/.well-known/agent-manifest/revocation \
   --content-type application/x-ndjson \
   --cache-control "max-age=30"
 
-# If serving from the FastAPI CRL router, the file is already live —
+# If serving from the FastAPI CRL router, the file is already live  - 
 # the router reads it on each request.
 ```
 
 ---
 
-## Step 5 — Notify verifiers
+## Step 5  -  Notify verifiers
 
 If your verifiers use a trust anchor discovery endpoint (`/.well-known/agent-manifest/trust-anchor`), update it with the new public key:
 
@@ -134,7 +134,7 @@ Verifiers that cache the trust anchor will pick up the new key at their next cac
 
 ---
 
-## Step 6 — Decommission the old private key
+## Step 6  -  Decommission the old private key
 
 After the overlap window has closed and all verifiers have accepted at least one manifest signed with the new key:
 
@@ -149,7 +149,7 @@ After the overlap window has closed and all verifiers have accepted at least one
 During the overlap window, both the old and new keys are active. Verifiers may encounter manifests signed by either key. The correct behaviour:
 
 - Verifiers that know both keys accept both signatures
-- Verifiers that only know the new key will reject old-signed manifests — deploy new manifests before updating verifiers
+- Verifiers that only know the new key will reject old-signed manifests  -  deploy new manifests before updating verifiers
 
 Recommended sequence for zero downtime:
 
@@ -167,7 +167,7 @@ t=1h   Delete old private key
 
 If the new key is defective (e.g., wrong algorithm, corrupted private key bytes):
 
-1. **Do not revoke the old key** — keep it active
+1. **Do not revoke the old key**  -  keep it active
 2. Re-sign manifests with the old key (same process as Step 2)
 3. Remove the new key from the trust anchor
 4. Investigate the new key generation before retrying
