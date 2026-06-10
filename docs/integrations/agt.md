@@ -6,9 +6,9 @@ Agent-manifest and AGT (Agent Governance Toolkit) are complementary layers of an
 
 | Concern | agent-manifest | AGT |
 |---------|---------------|-----|
-| **Who is this agent?** | SPIFFE identity, signed manifest | — |
-| **What has it been bound to?** | Artifact hashes (model, prompt, tools) | — |
-| **Is it attested?** | TPM / SEV-SNP / TDX / OPAQUE | — |
+| **Who is this agent?** | SPIFFE identity, signed manifest |  -  |
+| **What has it been bound to?** | Artifact hashes (model, prompt, tools) |  -  |
+| **Is it attested?** | TPM / SEV-SNP / TDX / OPAQUE |  -  |
 | **Can it be trusted right now?** | Revocation check, expiry | Trust score (time-decayed, context-sensitive) |
 | **What can it do?** | Delegation chain scope | Policy engine (YAML, structural typing) |
 | **What has it done?** | Merkle audit chain root | Observability, GovernanceEventSink |
@@ -55,7 +55,7 @@ def compute_initial_trust(manifest: dict) -> float:
 
 ## Integration point 2: Delegation chain → AGT scope-narrowing policy
 
-AGT's policy engine enforces what an agent is allowed to do. Use the manifest's delegation chain as the input scope for AGT policy evaluation — the delegation chain proves what scope the issuer actually granted, which the policy engine can compare against what the agent is trying to do.
+AGT's policy engine enforces what an agent is allowed to do. Use the manifest's delegation chain as the input scope for AGT policy evaluation  -  the delegation chain proves what scope the issuer actually granted, which the policy engine can compare against what the agent is trying to do.
 
 ```python
 from agt.policy import PolicyEngine, EvaluationContext   # AGT SDK
@@ -201,6 +201,6 @@ The verification sidecar and AGT policy engine run as a single fast path: the co
 
 ## What's next
 
-- [Tutorial: Server-side verification](../tutorials/server-side-verification.md) — the verification sidecar in detail
-- [Tutorial: Revocation and key rotation](../tutorials/revocation.md) — manual revocation flow complementing AGT kill-switch
-- [AGT documentation](https://github.com/microsoft/agent-governance-toolkit) — full AGT reference
+- [Tutorial: Server-side verification](../tutorials/server-side-verification.md)  -  the verification sidecar in detail
+- [Tutorial: Revocation and key rotation](../tutorials/revocation.md)  -  manual revocation flow complementing AGT kill-switch
+- [AGT documentation](https://github.com/microsoft/agent-governance-toolkit)  -  full AGT reference
