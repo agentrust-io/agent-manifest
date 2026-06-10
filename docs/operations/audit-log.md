@@ -23,7 +23,7 @@ A typical audit entry contains:
 }
 ```
 
-The chain root advances after each append. A verifier can prove any entry was recorded before a given root using a Merkle inclusion proof — without reading any other entries.
+The chain root advances after each append. A verifier can prove any entry was recorded before a given root using a Merkle inclusion proof  -  without reading any other entries.
 
 ---
 
