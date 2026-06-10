@@ -20,9 +20,9 @@ pip install "agent-manifest[server]"
 
 | Deployment mode | When to use |
 |-----------------|-------------|
-| **Sidecar** | Each agent service runs its own verifier alongside it — no network hop, lowest latency |
-| **Centralized service** | Shared verifier for a fleet — single manifest store, easier CRL management |
-| **Embedded in API gateway** | Verifier mounted directly in the main application — fewest moving parts |
+| **Sidecar** | Each agent service runs its own verifier alongside it  -  no network hop, lowest latency |
+| **Centralized service** | Shared verifier for a fleet  -  single manifest store, easier CRL management |
+| **Embedded in API gateway** | Verifier mounted directly in the main application  -  fewest moving parts |
 
 This tutorial packages the verifier as a standalone container, which works for all three modes.
 
@@ -150,7 +150,7 @@ LOG_LEVEL = os.getenv("LOG_LEVEL", "info")
 
 ## Health checks and readiness
 
-The `/health` endpoint returns `{"status": "ok"}` as soon as the process starts — use it for Kubernetes liveness probes. If you want a readiness gate that waits until manifests are loaded, add a separate `/ready` endpoint:
+The `/health` endpoint returns `{"status": "ok"}` as soon as the process starts  -  use it for Kubernetes liveness probes. If you want a readiness gate that waits until manifests are loaded, add a separate `/ready` endpoint:
 
 ```python
 @app.get("/ready")
@@ -199,6 +199,6 @@ Agents bootstrapping in a new environment should use the discovery document rath
 
 ## What's next
 
-- [Tutorial: Revocation and key rotation](revocation-and-key-rotation.md) — update the CRL in the running verifier
-- [Operations: Monitoring](../operations/monitoring.md) — metrics and alerting for the verification endpoint
+- [Tutorial: Revocation and key rotation](revocation-and-key-rotation.md)  -  update the CRL in the running verifier
+- [Operations: Monitoring](../operations/monitoring.md)  -  metrics and alerting for the verification endpoint
 - [Operations: Key rotation runbook](../operations/key-rotation.md)
