@@ -46,7 +46,7 @@ The spec defines **197 conformance tests** distributed across levels. A conforma
 
 ## Alternatives considered
 
-**Binary conformant/non-conformant**: A single bar that all deployments must meet. Rejected because the bar cannot be set at a useful level — Level 0 makes conformance meaningless for regulated environments; Level 2 blocks widespread adoption by excluding developer machines and edge devices.
+**Binary conformant/non-conformant**: A single bar that all deployments must meet. Rejected because the bar cannot be set at a useful level  -  Level 0 makes conformance meaningless for regulated environments; Level 2 blocks widespread adoption by excluding developer machines and edge devices.
 
 **Three tiers (dev/prod/regulated)**: Drop Level 1 (TPM-attested) and collapse TPM into the middle tier. Rejected because TPM attestation and SEV-SNP/TDX confidential compute are qualitatively different: TPM measures the boot chain but does not provide memory isolation. Treating them identically misstates the security properties and would mislead auditors.
 
@@ -54,19 +54,19 @@ The spec defines **197 conformance tests** distributed across levels. A conforma
 
 **Named tiers instead of numbers (Bronze/Silver/Gold)**: Rejected because numbered levels compose naturally with version identifiers, can be referenced normatively ("Level 2 or above"), and resist marketing inflation. "Gold" is ambiguous across organizations; "Level 2" is not.
 
-**Attestation as a boolean field**: A single `attested: true/false` instead of a level. Rejected because it collapses the distinction between TPM, SEV-SNP, and managed TEE — which matters for regulatory mapping and threat modeling.
+**Attestation as a boolean field**: A single `attested: true/false` instead of a level. Rejected because it collapses the distinction between TPM, SEV-SNP, and managed TEE  -  which matters for regulatory mapping and threat modeling.
 
 ## Consequences
 
-- A verifier must validate the `attestation.level` field against its configured minimum accepted level. A verifier requiring Level 2 must reject Level 0 and Level 1 manifests — not silently accept them.
+- A verifier must validate the `attestation.level` field against its configured minimum accepted level. A verifier requiring Level 2 must reject Level 0 and Level 1 manifests  -  not silently accept them.
 - PQC signatures (`crypto_profile: hybrid` or `post_quantum`) are required at Level 2 and above, as specified in ADR-0005.
 - Regulatory mappings in `docs/compliance/` use conformance levels as the unit of comparison. Level 0 satisfies developer/test environments. Level 2 satisfies EU AI Act Article 9 risk management requirements for high-risk AI systems. Level 3 satisfies FedRAMP High, HIPAA covered entity requirements, and DORA critical function assessment.
 - The `VerificationContext.enforce_attestation` flag gates Level 1+ at verification time. Future versions will add `min_attestation_level: int` for explicit minimum level enforcement in configuration.
 
 ## References
 
-- [EU AI Act Article 14](https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:52021PC0206) — Human oversight requirements for high-risk AI
-- [NIST SP 800-53 Rev 5](https://csrc.nist.gov/publications/detail/sp/800-53/rev-5/final) — FedRAMP High control baseline
+- [EU AI Act Article 14](https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:52021PC0206)  -  Human oversight requirements for high-risk AI
+- [NIST SP 800-53 Rev 5](https://csrc.nist.gov/publications/detail/sp/800-53/rev-5/final)  -  FedRAMP High control baseline
 - [AMD SEV-SNP](https://www.amd.com/en/developer/sev.html)
 - [Intel TDX](https://www.intel.com/content/www/us/en/developer/tools/trust-domain-extensions/documentation.html)
 - ADR-0005: ML-DSA-65 hybrid signatures (PQC requirement at Level 2+)
