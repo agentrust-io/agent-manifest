@@ -15,7 +15,7 @@ Ed25519 (RFC 8032, cofactorless verification) is the standard profile signature 
 ## Rationale
 
 - Ed25519 is available in the standard library or a single dependency in all target languages (Python `cryptography`, Node.js `@noble/ed25519`, Go `crypto/ed25519`, .NET `System.Security.Cryptography`)
-- Cofactorless verification (as specified in RFC 8032 §5.1.7) is used — this is the dominant implementation behavior and is required for cross-implementation compatibility
+- Cofactorless verification (as specified in RFC 8032 §5.1.7) is used  -  this is the dominant implementation behavior and is required for cross-implementation compatibility
 - 64-byte signatures and 32-byte keys are compact relative to RSA and ECDSA
 - No patent encumbrances
 - Widely deployed in TLS, SSH, and existing PKI infrastructure
@@ -36,5 +36,5 @@ Ed25519 (RFC 8032, cofactorless verification) is the standard profile signature 
 
 ## References
 
-- [RFC 8032 — Edwards-Curve Digital Signature Algorithm (EdDSA)](https://www.rfc-editor.org/rfc/rfc8032)
-- [NIST FIPS 204 — ML-DSA](https://csrc.nist.gov/pubs/fips/204/final)
+- [RFC 8032  -  Edwards-Curve Digital Signature Algorithm (EdDSA)](https://www.rfc-editor.org/rfc/rfc8032)
+- [NIST FIPS 204  -  ML-DSA](https://csrc.nist.gov/pubs/fips/204/final)
