@@ -2,7 +2,7 @@
 
 **Cryptographically anchor all 10 artifacts defining an AI agent at deployment.**
 
-The Agent Manifest SDK implements the Agent Manifest Specification v0.1 — a hardware-attestable document that binds every artifact defining an agent's behavior (system prompt, policy bundle, tool schemas, model identity, RAG corpus, memory state, audit chain, delegation chain, supply chain, and human approvals) into a single tamper-evident identity primitive.
+The Agent Manifest SDK implements the Agent Manifest Specification v0.1  -  a hardware-attestable document that binds every artifact defining an agent's behavior (system prompt, policy bundle, tool schemas, model identity, RAG corpus, memory state, audit chain, delegation chain, supply chain, and human approvals) into a single tamper-evident identity primitive.
 
 ```
 pip install agent-manifest
@@ -127,7 +127,7 @@ manifest revoke <manifest-id> --reason "key compromise" --revoked-by security@ex
 ## Cryptography
 
 - **Standard profile**: Ed25519 (RFC 8032), SHA-256, RFC 8785 canonical JSON
-- **Post-quantum profile**: ML-DSA-65 (NIST FIPS 204), SHAKE-256 — `pip install "agent-manifest[pq]"`
+- **Post-quantum profile**: ML-DSA-65 (NIST FIPS 204), SHAKE-256  -  `pip install "agent-manifest[pq]"`
 - **Hybrid**: Both signatures required, identical pre-image
 - **Transparency**: Rekor/Sigstore integration for non-repudiation
 
