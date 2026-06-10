@@ -4,7 +4,7 @@ DORA (Digital Operational Resilience Act, Regulation (EU) 2022/2554) applied to 
 
 ---
 
-## Article 8 — Identification of ICT risks
+## Article 8  -  Identification of ICT risks
 
 > *Financial entities shall identify all sources of ICT risk* and document information assets and related dependencies.
 
@@ -22,7 +22,7 @@ Every field is signed by the issuer key, making the record tamper-evident. An in
 
 ---
 
-## Article 11 — ICT business continuity
+## Article 11  -  ICT business continuity
 
 > *Financial entities shall put in place ICT business continuity policies, plans, and procedures.*
 
@@ -32,11 +32,11 @@ Every field is signed by the issuer key, making the record tamper-evident. An in
 
 **Revocation:** The `FileCRL` component provides an append-only, signed certificate revocation list. A compromised agent can be revoked in under one second by appending a signed `SignedRevocationRecord`. All verifiers checking the CRL endpoint immediately begin rejecting the revoked agent.
 
-**Recovery time objective (RTO):** Key rotation and agent reissuance can be completed in under five minutes using the runbook. The revocation mechanism has no single point of failure — the CRL file can be served from any static file host.
+**Recovery time objective (RTO):** Key rotation and agent reissuance can be completed in under five minutes using the runbook. The revocation mechanism has no single point of failure  -  the CRL file can be served from any static file host.
 
 ---
 
-## Article 17 — ICT-related incident classification
+## Article 17  -  ICT-related incident classification
 
 > *Financial entities shall classify ICT-related incidents and determine their impact.*
 
@@ -44,15 +44,15 @@ Every field is signed by the issuer key, making the record tamper-evident. An in
 
 When an ICT incident involves an AI agent (e.g., an agent behaves unexpectedly, is compromised, or is suspected of data exfiltration), the manifest provides:
 
-- **Exact configuration at time of incident** — model version, prompt hash, tool catalog hash, all signed and timestamped
-- **Authorisation chain** — who issued the manifest, who approved deployment (HITL record)
-- **Merkle audit root** — allows verifying that specific decisions were recorded before the incident, without replaying the full audit log
+- **Exact configuration at time of incident**  -  model version, prompt hash, tool catalog hash, all signed and timestamped
+- **Authorisation chain**  -  who issued the manifest, who approved deployment (HITL record)
+- **Merkle audit root**  -  allows verifying that specific decisions were recorded before the incident, without replaying the full audit log
 
 This evidence satisfies DORA's requirement to document the "scope and nature" of an incident and supports the incident timeline required under Article 19 reporting.
 
 ---
 
-## Article 25 — Testing of ICT tools and systems
+## Article 25  -  Testing of ICT tools and systems
 
 > *Financial entities shall establish a comprehensive digital operational resilience testing programme.*
 
@@ -62,16 +62,16 @@ Conformance levels provide a testability hierarchy:
 
 | Conformance level | Test coverage | DORA relevance |
 |-------------------|--------------|----------------|
-| 0 — Software only | Manifest schema validation, signature verification | Baseline; insufficient for production financial systems |
-| 1 — TPM | + TPM attestation verification | Acceptable for internal tools |
-| 2 — SEV-SNP / TDX | + hardware enclave report verification | Recommended for customer-facing financial AI |
-| 3 — Managed TEE | + managed attestation authority | Required for critical ICT third-party services |
+| 0  -  Software only | Manifest schema validation, signature verification | Baseline; insufficient for production financial systems |
+| 1  -  TPM | + TPM attestation verification | Acceptable for internal tools |
+| 2  -  SEV-SNP / TDX | + hardware enclave report verification | Recommended for customer-facing financial AI |
+| 3  -  Managed TEE | + managed attestation authority | Required for critical ICT third-party services |
 
 The test suite (`pytest --cov=agent_manifest --cov-fail-under=80`) runs all 197 conformance-level tests in CI, producing a verifiable coverage record. This record can be cited as evidence in DORA testing documentation.
 
 ---
 
-## RTS requirements — key management controls
+## RTS requirements  -  key management controls
 
 The DORA Regulatory Technical Standards (RTS) require documented key management controls for ICT systems. Agent-manifest satisfies the following RTS controls:
 
