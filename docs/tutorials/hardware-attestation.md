@@ -1,6 +1,6 @@
 # Hardware Attestation (SEV-SNP, TDX, OPAQUE)
 
-Hardware attestation binds the manifest to a cryptographic measurement from silicon — proving the agent is running inside a specific, unmodified trusted execution environment. After this tutorial you will be able to:
+Hardware attestation binds the manifest to a cryptographic measurement from silicon  -  proving the agent is running inside a specific, unmodified trusted execution environment. After this tutorial you will be able to:
 
 - Choose the right attestation provider for your infrastructure
 - Extend the manifest hash into hardware using `SEVSNPProvider`, `TDXProvider`, or `OPAQUEProvider`
@@ -23,11 +23,11 @@ Hardware providers require the VM types listed in the table below. The `Software
 
 | Level | Provider | Infrastructure requirement |
 |-------|----------|--------------------------|
-| 0 | *(none)* | Any — software signing only |
+| 0 | *(none)* | Any  -  software signing only |
 | 1 | `TPMProvider` | Linux host with TPM 2.0 |
 | 2 | `SEVSNPProvider` | AMD EPYC (Milan+): Azure DCasv5, AWS C6a Nitro, GCP N2D |
 | 2 | `TDXProvider` | Intel Xeon (Sapphire Rapids+): Azure DCedsv5, GCP C3 |
-| 3 | `OPAQUEProvider` | Any — delegates to OPAQUE's managed TEE |
+| 3 | `OPAQUEProvider` | Any  -  delegates to OPAQUE's managed TEE |
 
 Level 2 provides the strongest locally-verifiable hardware guarantee. Level 3 adds a hardware-signed audit chain managed by OPAQUE inside their TEE.
 
@@ -82,7 +82,7 @@ assert provider.verify_manifest_in_report(report, manifest)
 | `raw['host_data']` | 64 bytes: first 32 = SHA-256 of manifest pre-image, last 32 = zeros |
 | `raw['measurement']` | 48-byte platform measurement covering firmware and kernel |
 | `raw['vmpl']` | VMPL level (0 = highest privilege) |
-| `raw['vcek_cert_chain_verified']` | Always `False` in the SDK — fetch the VCEK from AMD KDS to verify independently |
+| `raw['vcek_cert_chain_verified']` | Always `False` in the SDK  -  fetch the VCEK from AMD KDS to verify independently |
 
 ---
 
@@ -96,7 +96,7 @@ assert provider.verify_manifest_in_report(report, manifest)
 
 ### How it works
 
-`TDXProvider.extend_manifest_hash()` places `SHA-256(manifest_pre_image)` in the `REPORTDATA` field of the TD report. RTMR[1] is the conventional application-level measurement register — RTMR[0] is owned by firmware.
+`TDXProvider.extend_manifest_hash()` places `SHA-256(manifest_pre_image)` in the `REPORTDATA` field of the TD report. RTMR[1] is the conventional application-level measurement register  -  RTMR[0] is owned by firmware.
 
 ### Usage
 
@@ -120,8 +120,8 @@ assert provider.verify_manifest_in_report(report, manifest)
 
 | RTMR | Conventional use |
 |------|-----------------|
-| 0 | TD-measured (firmware and boot) — do not use |
-| 1 | OS and application-level measurements — use this |
+| 0 | TD-measured (firmware and boot)  -  do not use |
+| 1 | OS and application-level measurements  -  use this |
 | 2 | Available for additional software measurements |
 | 3 | Available for additional software measurements |
 
@@ -170,7 +170,7 @@ assert provider.verify_manifest_in_report(report, manifest)
 }
 ```
 
-The `audit_chain_root` anchors every decision the agent made to a Merkle chain held inside the OPAQUE TEE. This is the Level 3 guarantee — the signing key never leaves the TEE.
+The `audit_chain_root` anchors every decision the agent made to a Merkle chain held inside the OPAQUE TEE. This is the Level 3 guarantee  -  the signing key never leaves the TEE.
 
 ---
 
@@ -277,5 +277,5 @@ def test_sev_snp_roundtrip():
 
 ## What's next
 
-- [Tutorial: Deploying the verification endpoint](deploying-the-verification-endpoint.md) — run the verifier in production alongside hardware-attested agents
-- [Tutorial: Server-side verification](server-side-verification.md) — enforce minimum attestation level with `enforce_attestation=True`
+- [Tutorial: Deploying the verification endpoint](deploying-the-verification-endpoint.md)  -  run the verifier in production alongside hardware-attested agents
+- [Tutorial: Server-side verification](server-side-verification.md)  -  enforce minimum attestation level with `enforce_attestation=True`
