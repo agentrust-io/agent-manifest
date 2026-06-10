@@ -17,9 +17,9 @@ pip install "agent-manifest[server]"
 
 ## Why revocation matters
 
-A manifest is signed at issue time. If the signing key is later compromised, all previously issued manifests remain technically valid — their signatures still verify. Revocation provides the out-of-band mechanism to mark those manifests as untrusted without waiting for their `expires_at` to pass.
+A manifest is signed at issue time. If the signing key is later compromised, all previously issued manifests remain technically valid  -  their signatures still verify. Revocation provides the out-of-band mechanism to mark those manifests as untrusted without waiting for their `expires_at` to pass.
 
-The CRL (Certificate Revocation List) is an append-only JSON-Lines file. Each line is a `SignedRevocationRecord` — the record itself is signed by the revoking authority's key, binding the revocation to a specific manifest ID and authority identity. Verifiers query the CRL before accepting any manifest.
+The CRL (Certificate Revocation List) is an append-only JSON-Lines file. Each line is a `SignedRevocationRecord`  -  the record itself is signed by the revoking authority's key, binding the revocation to a specific manifest ID and authority identity. Verifiers query the CRL before accepting any manifest.
 
 ---
 
@@ -29,7 +29,7 @@ The CRL (Certificate Revocation List) is an append-only JSON-Lines file. Each li
 from agent_manifest._revocation import sign_revocation, FileCRL
 from agent_manifest._signing import generate_ed25519
 
-# The revoking authority keypair — keep this separate from the signing key
+# The revoking authority keypair  -  keep this separate from the signing key
 revocation_kp = generate_ed25519()
 
 # The manifest ID to revoke (UUID v7 from your manifest store)
@@ -50,7 +50,7 @@ print(f"At:      {record.revoked_at}")
 print(f"Sig:     {record.revocation_signature[:32]}...")
 ```
 
-`FileCRL` is append-only — records are never deleted. It is suitable for development and small deployments. For production, replace it with a database-backed store and serve the CRL from there.
+`FileCRL` is append-only  -  records are never deleted. It is suitable for development and small deployments. For production, replace it with a database-backed store and serve the CRL from there.
 
 ---
 
@@ -134,7 +134,7 @@ Use this procedure when a signing key is compromised, expiring, or changing owne
 from agent_manifest._signing import generate_ed25519
 
 new_kp = generate_ed25519()
-# Store new_kp.private_b64url() securely — this is the new signing key
+# Store new_kp.private_b64url() securely  -  this is the new signing key
 ```
 
 ### Step 2: Re-sign all active manifests with the new key
@@ -168,7 +168,7 @@ old_manifest_ids = [
 for mid in old_manifest_ids:
     rec = sign_revocation(
         manifest_id=mid,
-        reason="key rotation — old signing key decommissioned 2026-06-07",
+        reason="key rotation  -  old signing key decommissioned 2026-06-07",
         revoked_by="spiffe://security.acme.com/incident-response",
         keypair=revocation_kp,
     )
@@ -198,7 +198,7 @@ compromised_manifest_id = "018f4a3b-2c1d-7e5f-a8b9-0d1e2f3a4b5c"
 # 2. Revoke immediately
 record = sign_revocation(
     manifest_id=compromised_manifest_id,
-    reason="signing key exposed in CI log — incident-2026-06-07",
+    reason="signing key exposed in CI log  -  incident-2026-06-07",
     revoked_by="spiffe://security.acme.com/incident-response",
     keypair=revocation_kp,
 )
@@ -235,5 +235,5 @@ print("Old manifest correctly rejected")
 
 ## What's next
 
-- [Tutorial: Deploying the verification endpoint](deploying-the-verification-endpoint.md) — host the CRL and verify endpoints in production
-- [Operations: Key rotation runbook](../operations/key-rotation.md) — step-by-step runbook for incident response
+- [Tutorial: Deploying the verification endpoint](deploying-the-verification-endpoint.md)  -  host the CRL and verify endpoints in production
+- [Operations: Key rotation runbook](../operations/key-rotation.md)  -  step-by-step runbook for incident response
