@@ -110,7 +110,7 @@ verification_latency.record(duration, {"result": result.result.value})
 | Condition | PromQL | Meaning |
 |-----------|--------|---------|
 | INVALID spike | `rate(agent_manifest_verifications_total{result="MISMATCH"}[5m]) > 0.1` | Possible artifact tampering or replay attack |
-| REVOKED spike | `rate(agent_manifest_verifications_total{result="REVOKED"}[5m]) > 0.5` | Active incident — multiple manifests being revoked |
+| REVOKED spike | `rate(agent_manifest_verifications_total{result="REVOKED"}[5m]) > 0.5` | Active incident  -  multiple manifests being revoked |
 | Verifier unreachable | `absent(agent_manifest_verifications_total)` | Verification sidecar is down |
 
 ### Warning alerts (page next business day)
@@ -162,16 +162,16 @@ groups:
 Key panels for a verification endpoint dashboard:
 
 **Row 1: Request health**
-- Panel: `rate(agent_manifest_verifications_total[5m])` by result — stacked area chart
-- Panel: `rate(agent_manifest_verifications_total{result!="VALID"}[5m])` — single stat with alert threshold
+- Panel: `rate(agent_manifest_verifications_total[5m])` by result  -  stacked area chart
+- Panel: `rate(agent_manifest_verifications_total{result!="VALID"}[5m])`  -  single stat with alert threshold
 
 **Row 2: Latency**
-- Panel: `histogram_quantile(0.50|0.95|0.99, rate(agent_manifest_verification_duration_seconds_bucket[5m]))` — line chart
-- Panel: `histogram_quantile(0.99, rate(agent_manifest_revocation_check_duration_seconds_bucket[5m]))` — single stat
+- Panel: `histogram_quantile(0.50|0.95|0.99, rate(agent_manifest_verification_duration_seconds_bucket[5m]))`  -  line chart
+- Panel: `histogram_quantile(0.99, rate(agent_manifest_revocation_check_duration_seconds_bucket[5m]))`  -  single stat
 
 **Row 3: Fleet health**
-- Panel: `agent_manifest_manifests_active` by `attestation_level` — bar gauge
-- Panel: `rate(agent_manifest_verifications_total{result="EXPIRED"}[1h])` — single stat
+- Panel: `agent_manifest_manifests_active` by `attestation_level`  -  bar gauge
+- Panel: `rate(agent_manifest_verifications_total{result="EXPIRED"}[1h])`  -  single stat
 
 **SLO targets**
 
@@ -188,7 +188,7 @@ Key panels for a verification endpoint dashboard:
 
 | Result | Frequency in healthy system | Cause | Response |
 |--------|-----------------------------|-------|----------|
-| MISMATCH | Rare (< 0.01%) | Artifact changed after issuance | Investigate — possible tamper |
+| MISMATCH | Rare (< 0.01%) | Artifact changed after issuance | Investigate  -  possible tamper |
 | EXPIRED | Low (< 0.1%) | Manifest not refreshed before expiry | Fix issuance pipeline |
 | REVOKED | Rare (near zero) | Expected after revocation event | Confirm revocation was intentional |
 | INCOMPLETE | None | HITL required but missing | Fix approval workflow |
