@@ -17,7 +17,7 @@ pip install "agent-manifest[server]"
 
 ## How revocation works
 
-Revocation is separate from signing. Anyone with the **revoking authority's key** can revoke a manifest — it does not require the original signing key. Each revocation record is signed over `{manifest_id, revoked_at, reason, revoked_by}` to prevent forgery.
+Revocation is separate from signing. Anyone with the **revoking authority's key** can revoke a manifest  -  it does not require the original signing key. Each revocation record is signed over `{manifest_id, revoked_at, reason, revoked_by}` to prevent forgery.
 
 The CRL is an append-only JSON-Lines file. Each line is one `SignedRevocationRecord`. The verifier fetches or reads the CRL at verification time and rejects any manifest whose `manifest_id` appears in it.
 
@@ -32,7 +32,7 @@ from agent_manifest._revocation import sign_revocation, verify_revocation_signat
 from agent_manifest import generate_ed25519
 from pathlib import Path
 
-# The revoking authority keypair — store this separately from the signing key
+# The revoking authority keypair  -  store this separately from the signing key
 revocation_kp = generate_ed25519()
 
 # The manifest ID you want to revoke (UUID v7 from your manifest)
@@ -40,7 +40,7 @@ manifest_id = "018f4a3b-2c1d-7e5f-a8b9-0d1e2f3a4b5c"
 
 record = sign_revocation(
     manifest_id=manifest_id,
-    reason="key compromise — signing key leaked in CI log",
+    reason="key compromise  -  signing key leaked in CI log",
     revoked_by="security@example.com",
     keypair=revocation_kp,
 )
@@ -142,7 +142,7 @@ with open("manifest.json") as f:
 result = verify_manifest(manifest, VerificationContext(), store)
 
 if result.result == OverallResult.REVOKED:
-    print("Manifest has been revoked — request blocked")
+    print("Manifest has been revoked  -  request blocked")
 elif result.result == OverallResult.VALID:
     print("Manifest is valid")
 ```
@@ -197,7 +197,7 @@ old_key_manifests = [
 for mid in old_key_manifests:
     rec = sign_revocation(
         manifest_id=mid,
-        reason="key rotation — old signing key decommissioned",
+        reason="key rotation  -  old signing key decommissioned",
         revoked_by="security@example.com",
         keypair=revocation_kp,
     )
@@ -228,5 +228,5 @@ t=10m Decommission old private key
 
 ## What's next
 
-- [Tutorial: Deploying the verification endpoint](deploy-verifier.md) — host the CRL and verify endpoints in production
-- [Operations: Key rotation runbook](../operations/key-rotation.md) — step-by-step runbook for incident response
+- [Tutorial: Deploying the verification endpoint](deploy-verifier.md)  -  host the CRL and verify endpoints in production
+- [Operations: Key rotation runbook](../operations/key-rotation.md)  -  step-by-step runbook for incident response
