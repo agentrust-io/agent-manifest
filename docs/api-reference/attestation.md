@@ -10,17 +10,17 @@ Hardware attestation providers for Levels 1–3. See [Tutorial: Hardware attesta
 
 ::: agent_manifest._providers.AttestationUnavailableError
 
-## Level 1 — TPM
+## Level 1  -  TPM
 
 ::: agent_manifest._providers.TPMProvider
 
-## Level 2 — SEV-SNP and TDX
+## Level 2  -  SEV-SNP and TDX
 
 ::: agent_manifest._hw_providers.SEVSNPProvider
 
 ::: agent_manifest._hw_providers.TDXProvider
 
-## Level 3 — OPAQUE
+## Level 3  -  OPAQUE
 
 ::: agent_manifest._hw_providers.OPAQUEProvider
 
