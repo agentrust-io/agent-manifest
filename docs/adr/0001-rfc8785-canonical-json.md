@@ -12,19 +12,19 @@ The spec must produce identical byte sequences across Python, TypeScript, Go, an
 
 ## Decision
 
-Use RFC 8785 JSON Canonicalization Scheme (JCS) for all canonical serialization. The `@context` and `@type` JSON-LD fields are treated as ordinary JSON fields for canonicalization purposes — JSON-LD RDF dataset normalization is explicitly prohibited.
+Use RFC 8785 JSON Canonicalization Scheme (JCS) for all canonical serialization. The `@context` and `@type` JSON-LD fields are treated as ordinary JSON fields for canonicalization purposes  -  JSON-LD RDF dataset normalization is explicitly prohibited.
 
 ## Rationale
 
 - RFC 8785 is a published IETF standard with clear normative text and test vectors
 - Widely implemented: reference implementations exist in Python (`jcs`), JavaScript (`canonicalize`), Go (`go-jcs`), Java, and .NET
-- Simpler than JSON-LD RDNA: no RDF graph normalization, no blank node renaming, no triple sorting — just Unicode code point key ordering and IEEE 754 float normalization
+- Simpler than JSON-LD RDNA: no RDF graph normalization, no blank node renaming, no triple sorting  -  just Unicode code point key ordering and IEEE 754 float normalization
 - The JCS test vector (Appendix D of the spec) is machine-verifiable across all SDK implementations
 - RDNA would require a full JSON-LD processor in each SDK, adding a heavyweight dependency
 
 ## Alternatives considered
 
-**JSON-LD RDNA (GPN-09)**: Full RDF dataset normalization. Rejected because it requires a JSON-LD processor, handles blank node renaming (irrelevant to our use case), and produces different output from JCS — mixing the two would create interoperability failures.
+**JSON-LD RDNA (GPN-09)**: Full RDF dataset normalization. Rejected because it requires a JSON-LD processor, handles blank node renaming (irrelevant to our use case), and produces different output from JCS  -  mixing the two would create interoperability failures.
 
 **Informal "canonical JSON"**: Various ad-hoc schemes (sorted keys, no whitespace). Rejected because there is no normative specification, making cross-implementation verification impossible.
 
