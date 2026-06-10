@@ -1,6 +1,6 @@
 # HITL-approved manifest example
 
-This example shows a manifest with a populated `hitl_record` — a cryptographically signed human approval for a high-risk action.
+This example shows a manifest with a populated `hitl_record`  -  a cryptographically signed human approval for a high-risk action.
 
 ## Files
 
