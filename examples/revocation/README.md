@@ -28,7 +28,7 @@ This example shows the full revocation lifecycle:
 }
 ```
 
-The `revocation_signature` is an Ed25519 signature over the RFC 8785 canonical form of `{manifest_id, revoked_at, reason, revoked_by}`. Only the key holder can revoke a manifest — the signature proves the revocation is authentic.
+The `revocation_signature` is an Ed25519 signature over the RFC 8785 canonical form of `{manifest_id, revoked_at, reason, revoked_by}`. Only the key holder can revoke a manifest  -  the signature proves the revocation is authentic.
 
 ## CRL format
 
