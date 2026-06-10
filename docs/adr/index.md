@@ -1,6 +1,6 @@
 # Architecture Decision Records
 
-Each major design decision in the Agent Manifest Specification is recorded here with its rationale, alternatives considered, and consequences. ADRs are immutable once accepted — superseded decisions get a new ADR that references the old one.
+Each major design decision in the Agent Manifest Specification is recorded here with its rationale, alternatives considered, and consequences. ADRs are immutable once accepted  -  superseded decisions get a new ADR that references the old one.
 
 | ADR | Title | Status |
 |-----|-------|--------|
