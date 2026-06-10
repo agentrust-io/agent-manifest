@@ -1,6 +1,6 @@
 # AutoGen and CrewAI integration
 
-This guide covers agent-manifest integration patterns for two multi-agent frameworks: Microsoft AutoGen and CrewAI. Both follow the same three-step pattern — issue, attach, verify — applied to each framework's agent model.
+This guide covers agent-manifest integration patterns for two multi-agent frameworks: Microsoft AutoGen and CrewAI. Both follow the same three-step pattern  -  issue, attach, verify  -  applied to each framework's agent model.
 
 ## Prerequisites
 
@@ -201,7 +201,7 @@ from agent_manifest._verify import (
 REVOCATION_STORE = RevocationStore()
 
 def manifest_guard(output):
-    """Callback run after each task — verifies the executing agent's manifest."""
+    """Callback run after each task  -  verifies the executing agent's manifest."""
     agent = output.agent   # the VerifiedAgent that produced this output
     if hasattr(agent, "manifest_id"):
         manifest = MANIFEST_STORE.get(agent.manifest_id)
@@ -242,6 +242,6 @@ print(result)
 
 ## What's next
 
-- [Tutorial: A2A delegation chains](../tutorials/delegation-chains.md) — cryptographic delegation between AutoGen agents
-- [Tutorial: Revocation and key rotation](../tutorials/revocation.md) — revoke a crew member's manifest mid-operation
-- [Integration: AGT](agt.md) — combine with AGT for policy-driven crew governance
+- [Tutorial: A2A delegation chains](../tutorials/delegation-chains.md)  -  cryptographic delegation between AutoGen agents
+- [Tutorial: Revocation and key rotation](../tutorials/revocation.md)  -  revoke a crew member's manifest mid-operation
+- [Integration: AGT](agt.md)  -  combine with AGT for policy-driven crew governance
