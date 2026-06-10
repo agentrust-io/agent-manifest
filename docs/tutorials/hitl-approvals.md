@@ -85,7 +85,7 @@ approval_sig = approver.sign_approval(
     manifest_id=manifest_id,
     approved_at=approved_at,
     approved_scope=approved_scope,
-    approver_id="spiffe://trust.example/human/alice",
+    approver_id="mailto:alice@example.com",
 )
 ```
 
@@ -97,7 +97,7 @@ approval_sig = approver.sign_approval(
 from agent_manifest._signing import Ed25519Signer
 
 manifest.hitl_record["approvals"] = [{
-    "approver_id":          "spiffe://trust.example/human/alice",
+    "approver_id":          "mailto:alice@example.com",
     "approved_at":          approved_at,
     "approved_scope":       approved_scope,
     "approval_method":      "hardware_key",
@@ -169,7 +169,7 @@ old_approval_sig = approver.sign_approval(
     manifest_id=manifest_id,
     approved_at=approved_at,
     approved_scope=old_scope,
-    approver_id="spiffe://trust.example/human/alice",
+    approver_id="mailto:alice@example.com",
 )
 time.sleep(2)
 

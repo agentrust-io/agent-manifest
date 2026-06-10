@@ -103,7 +103,7 @@ approval_sig = approver.sign_approval(
     manifest_id=manifest_id,
     approved_at=approved_at,
     approved_scope=approved_scope,
-    approver_id="spiffe://finance.acme.com/managers/jane-doe",
+    approver_id="mailto:jane.doe@finance.acme.com",
 )
 ```
 
@@ -117,7 +117,7 @@ from agent_manifest._signing import Ed25519Signer
 agent_kp = generate_ed25519()
 
 manifest.hitl_record["approvals"] = [{
-    "approver_id":        "spiffe://finance.acme.com/managers/jane-doe",
+    "approver_id":        "mailto:jane.doe@finance.acme.com",
     "approved_at":        approved_at,
     "approved_scope":     approved_scope,
     "evidence_hash":      evidence_hash,
@@ -189,7 +189,7 @@ expired_sig = approver.sign_approval(
     manifest_id=manifest_id,
     approved_at=approved_at,
     approved_scope=expired_scope,
-    approver_id="spiffe://finance.acme.com/managers/jane-doe",
+    approver_id="mailto:jane.doe@finance.acme.com",
 )
 
 expired_manifest = dict(manifest_dict)
@@ -209,8 +209,8 @@ The verifier checks that the approval signature is cryptographically valid but d
 
 ```python
 AUTHORISED_APPROVERS = {
-    "spiffe://finance.acme.com/managers/jane-doe",
-    "spiffe://finance.acme.com/managers/bob-smith",
+    "mailto:jane.doe@finance.acme.com",
+    "mailto:bob.smith@finance.acme.com",
 }
 
 result = verify_manifest(manifest_dict, VerificationContext(enforce_hitl=True), RevocationStore())

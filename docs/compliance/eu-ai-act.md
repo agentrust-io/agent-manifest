@@ -70,7 +70,7 @@ The `hitl_approval` field records a human approval event:
 {
   "hitl_approval": {
     "approved_at": "2026-06-01T09:15:00Z",
-    "approver_id": "spiffe://trust.example/user/alice",
+    "approver_id": "mailto:alice@example.com",
     "approved_scope": ["execute_payment", "submit_regulatory_filing"],
     "approval_expires_at": "2026-06-01T17:00:00Z",
     "signature": "..."

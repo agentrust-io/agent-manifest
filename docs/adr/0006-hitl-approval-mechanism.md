@@ -17,7 +17,7 @@ The manifest needs a mechanism to record this approval in a tamper-evident, veri
 
 ## Decision
 
-Embed a **`hitl_record`** field directly in the manifest JSON. The record contains one or more approval entries, each with the following fields: `approver_id` (SPIFFE URI or DID of the approver), `approved_at` (ISO 8601 timestamp), `evidence_hash` (SHA-256 of the canonical form of the action being approved), `approval_duration_seconds` (validity window), and `revocation_signature` (Ed25519 signature by the approver over the canonical approval fields).
+Embed a **`hitl_record`** field directly in the manifest JSON. The record contains one or more approval entries, each with the following fields: `approver_id` (human-attributable identity — see Amendment below), `approved_at` (ISO 8601 timestamp), `evidence_hash` (SHA-256 of the canonical form of the action being approved), `approval_duration_seconds` (validity window), and `revocation_signature` (Ed25519 signature by the approver over the canonical approval fields).
 
 The approval record is **signed by the approver's key**, not the manifest issuer's key.
 
@@ -65,4 +65,21 @@ The `hitl_record` field is excluded from the manifest signing pre-image (alongsi
 - EU AI Act Article 14: Human oversight requirements
 - Spec Section 3.5: HITL approval record schema and verification semantics
 - [FIDO2 / WebAuthn](https://fidoalliance.org/fido2/) — recommended backing for approver keys
-- ADR-0009: SPIFFE URIs as the canonical identity format for `approver_id`
+- ADR-0009: SPIFFE URIs as the canonical identity format for machine workload identity (`agent_id`, `issuer`) — does not apply to `approver_id`
+
+---
+
+## Amendment — 2026-06-10: `approver_id` must not use SPIFFE SVIDs
+
+**Resolved by:** issue #40
+
+The original **Decision** section referenced `approver_id` as a "SPIFFE URI or DID of the approver". This was incorrect. Issue #40 clarified:
+
+> `approver_id` MUST be a human-attributable identity. SPIFFE SVIDs MUST NOT be used as `approver_id` values: SPIFFE SVIDs identify machine workloads, not natural persons.
+
+Preferred forms for `approver_id`:
+- Email URI: `mailto:approver@example.com`
+- OIDC subject claim paired with issuer URI
+- W3C DID bound to a hardware authenticator (e.g. FIDO2 passkey)
+
+SPIFFE URIs remain the correct format for `agent_id` and `issuer` (see ADR-0009), but are explicitly prohibited for `approver_id`. The "DID of the approver" language in the original Decision is retained only when the DID is hardware-bound (e.g. `did:key` backed by a FIDO2 authenticator); a software-only DID is discouraged for the same reason SPIFFE is prohibited.

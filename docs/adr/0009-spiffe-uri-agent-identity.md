@@ -59,6 +59,8 @@ The trust domain (`trust.example` in the example) is operated by the deploying o
 - Multi-org delegation chains are naturally expressed: the root issuer SPIFFE URI and the delegate SPIFFE URI come from different trust domains, making cross-org delegation visually and structurally distinct from intra-org delegation.
 - The trust domain is not verified by the SDK — the spec does not mandate a SPIRE integration. Verification that a SPIFFE URI is authentic (i.e., backed by a real SPIRE certificate) is out of scope for Level 0 and Level 1; it is addressed by the mTLS transport layer at Level 2+.
 
+**Scope note:** This ADR covers `agent_id` and `issuer` (machine workload identities) only. Human approver identity (`hitl_record.approvals[].approver_id`) is explicitly out of scope — SPIFFE SVIDs MUST NOT be used for `approver_id`. See Spec Section 3.5 and ADR-0006 for the approver identity design.
+
 ## References
 
 - [SPIFFE Specification](https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE.md)
