@@ -4,7 +4,7 @@ HIPAA's Security Rule (45 CFR Part 164) applies to AI agents that access, proces
 
 ---
 
-## § 164.312(a)(1) — Access control
+## § 164.312(a)(1)  -  Access control
 
 > *Implement technical policies and procedures for electronic information systems that maintain electronic protected health information to allow access only to those persons or software programs that have been granted access rights.*
 
@@ -38,7 +38,7 @@ The `approval_required: true` field means no sub-agent can be delegated access t
 
 ---
 
-## § 164.312(b) — Audit controls
+## § 164.312(b)  -  Audit controls
 
 > *Implement hardware, software, and/or procedural mechanisms that record and examine activity in information systems that contain or use electronic protected health information.*
 
@@ -55,19 +55,19 @@ For HIPAA audit log retention (minimum six years), the chain root provides a com
 
 ---
 
-## § 164.312(c)(1) — Integrity
+## § 164.312(c)(1)  -  Integrity
 
 > *Implement policies and procedures to protect electronic protected health information from improper alteration or destruction.*
 
 **What agent-manifest provides**
 
-Every manifest field is protected by an Ed25519 + ML-DSA-65 hybrid signature (see [ADR-0005](../adr/0005-ml-dsa-hybrid-signatures.md)). The signature covers the canonicalised JSON of the entire manifest (RFC 8785). Any alteration to any field — model version, prompt hash, tool catalog, delegation chain, HITL approval — produces a signature verification failure.
+Every manifest field is protected by an Ed25519 + ML-DSA-65 hybrid signature (see [ADR-0005](../adr/0005-ml-dsa-hybrid-signatures.md)). The signature covers the canonicalised JSON of the entire manifest (RFC 8785). Any alteration to any field  -  model version, prompt hash, tool catalog, delegation chain, HITL approval  -  produces a signature verification failure.
 
 ML-DSA-65 (NIST FIPS 204) provides post-quantum signature security, satisfying HIPAA's requirement that integrity mechanisms remain effective over the six-year retention period.
 
 ---
 
-## § 164.308(a)(5) — Security awareness and training
+## § 164.308(a)(5)  -  Security awareness and training
 
 > *Implement procedures for guarding against, detecting, and reporting malicious software.*
 
@@ -83,7 +83,7 @@ The approver's key is separate from the issuer key, ensuring that a compromised 
 
 ---
 
-## § 164.308(a)(1) — Security management process
+## § 164.308(a)(1)  -  Security management process
 
 > *Implement policies and procedures to prevent, detect, contain, and correct security violations.*
 
