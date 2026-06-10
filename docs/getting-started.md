@@ -20,7 +20,7 @@ pip install "agent-manifest[cli]"
 pip install "agent-manifest[pq]"
 ```
 
-## Level 0 — Software-only signing
+## Level 0  -  Software-only signing
 
 Level 0 is suitable for development, staging, and non-regulated environments. No hardware required.
 
@@ -137,7 +137,7 @@ Or with the CLI:
 manifest verify signed.json
 ```
 
-## Level 1 — TPM attestation
+## Level 1  -  TPM attestation
 
 Level 1 adds hardware attestation, which binds the manifest hash to a TEE measurement that cannot be forged by the operator. Required for EU AI Act Art. 15 (cybersecurity) and enterprise production deployments.
 
