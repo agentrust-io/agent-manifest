@@ -6,7 +6,7 @@ This page maps agent-manifest capabilities to EU AI Act obligations for high-ris
 
 ---
 
-## Article 9 — Risk management system
+## Article 9  -  Risk management system
 
 > *Providers of high-risk AI systems shall establish a risk management system* that identifies and estimates known and foreseeable risks.
 
@@ -28,19 +28,19 @@ The signed manifest is the risk management record. An auditor can verify that th
 
 ---
 
-## Article 12 — Record-keeping
+## Article 12  -  Record-keeping
 
 > *High-risk AI systems shall automatically log events* to enable post-deployment review.
 
 **What agent-manifest provides**
 
-Every manifest includes an `artifacts.decision_trace` section with a Merkle `audit_chain_root`. Each decision appended to the trace is a leaf in a tamper-evident Merkle tree. An auditor can present any decision and verify it was recorded before a given audit_chain_root — without access to any other decisions.
+Every manifest includes an `artifacts.decision_trace` section with a Merkle `audit_chain_root`. Each decision appended to the trace is a leaf in a tamper-evident Merkle tree. An auditor can present any decision and verify it was recorded before a given audit_chain_root  -  without access to any other decisions.
 
 The audit chain root is deterministic and reproducible: losing the chain does not lose the ability to verify past roots.
 
 ---
 
-## Article 13 — Transparency and provision of information to deployers
+## Article 13  -  Transparency and provision of information to deployers
 
 > *High-risk AI systems shall be designed so that their operation is sufficiently transparent* to enable deployers to interpret and use the system's output appropriately.
 
@@ -54,11 +54,11 @@ The audit chain root is deterministic and reproducible: losing the chain does no
 | System prompt used | `artifacts.system_prompt.hash` (SHA-256, content-addressed) |
 | Tools the system can invoke | `artifacts.tool_manifest.tools[]` |
 
-All fields are signed by the issuer key. A deployer can verify the signed manifest and confirm exactly what model, prompt, and tools are in use — without trusting the agent's self-report.
+All fields are signed by the issuer key. A deployer can verify the signed manifest and confirm exactly what model, prompt, and tools are in use  -  without trusting the agent's self-report.
 
 ---
 
-## Article 14 — Human oversight
+## Article 14  -  Human oversight
 
 > *High-risk AI systems shall be designed so that they can be effectively overseen by natural persons during the period in which the AI system is in use.*
 
@@ -89,7 +89,7 @@ The signature is made over `{manifest_id, approved_at, approved_scope, approver_
 
 ---
 
-## Article 17 — Quality management system
+## Article 17  -  Quality management system
 
 > *Providers shall put in place a quality management system* that ensures compliance with this Regulation.
 
@@ -105,10 +105,10 @@ The issuer key rotation procedure (see [Tutorial: Revocation and key rotation](.
 
 | Conformance level | Hardware root of trust | Recommended for |
 |-------------------|----------------------|-----------------|
-| 0 — Software only | None | Development, low-risk systems |
-| 1 — TPM | TPM 2.0 | General enterprise deployment |
-| 2 — SEV-SNP / TDX | AMD SEV-SNP or Intel TDX | High-risk AI under Article 6 |
-| 3 — Managed TEE | OPAQUE / Cloud HSM | Critical infrastructure, financial services |
+| 0  -  Software only | None | Development, low-risk systems |
+| 1  -  TPM | TPM 2.0 | General enterprise deployment |
+| 2  -  SEV-SNP / TDX | AMD SEV-SNP or Intel TDX | High-risk AI under Article 6 |
+| 3  -  Managed TEE | OPAQUE / Cloud HSM | Critical infrastructure, financial services |
 
 For high-risk AI systems under Article 6(2), Annex III, **Level 2 or above is recommended**. Level 1 is acceptable where hardware TEE deployment is not yet feasible, provided a compensating HITL control is in place.
 
