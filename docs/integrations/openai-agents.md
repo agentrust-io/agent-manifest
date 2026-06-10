@@ -1,6 +1,6 @@
 # OpenAI Agents SDK integration
 
-This guide shows how to attach an agent manifest to an OpenAI Agents SDK agent and how to verify manifests during agent handoffs — the point where one agent delegates to another.
+This guide shows how to attach an agent manifest to an OpenAI Agents SDK agent and how to verify manifests during agent handoffs  -  the point where one agent delegates to another.
 
 ## Prerequisites
 
@@ -209,5 +209,5 @@ hop0_sig = hop_signer.sign_hop(
 
 ## What's next
 
-- [Tutorial: A2A delegation chains](../tutorials/delegation-chains.md) — full delegation chain implementation
-- [Integration: AGT](agt.md) — use AGT policy to gate which orchestrators may hand off to which sub-agents
+- [Tutorial: A2A delegation chains](../tutorials/delegation-chains.md)  -  full delegation chain implementation
+- [Integration: AGT](agt.md)  -  use AGT policy to gate which orchestrators may hand off to which sub-agents
