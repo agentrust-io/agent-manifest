@@ -17,15 +17,15 @@ This example shows a manifest with four artifact bindings: model identity, syste
 | Binding | Hash field | What it protects |
 |---------|-----------|------------------|
 | `model_identity` | `model_id` + `version` (not a hash) | Which model the agent is bound to |
-| `system_prompt` | `hash` | Exact prompt bytes — any edit produces a different hash |
+| `system_prompt` | `hash` | Exact prompt bytes  -  any edit produces a different hash |
 | `tool_manifest` | `catalog_hash` | The set of tools the agent can invoke |
-| `rag_corpus` | `merkle_root` | The retrieval corpus — changing any document invalidates the root |
+| `rag_corpus` | `merkle_root` | The retrieval corpus  -  changing any document invalidates the root |
 
 ## Tamper detection
 
 The verify script demonstrates what happens when `system-prompt.txt` is modified after the manifest is issued. The SHA-256 of the modified file no longer matches the hash in the manifest, producing a `MISMATCH` result.
 
-This is the core guarantee: if any artifact changes after issuance, the verifier detects it without access to the original artifact — only the hash in the signed manifest is needed.
+This is the core guarantee: if any artifact changes after issuance, the verifier detects it without access to the original artifact  -  only the hash in the signed manifest is needed.
 
 ## How hashes are computed
 
