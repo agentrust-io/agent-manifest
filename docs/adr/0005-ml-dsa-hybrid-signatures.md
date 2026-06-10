@@ -22,9 +22,9 @@ Two separate decisions are intertwined:
 **Hybrid mode**: Support `Ed25519+ML-DSA-65` as an explicit `crypto_profile` option. A hybrid manifest carries both signature types; verifiers must validate both. Single-algorithm manifests (Ed25519-only or ML-DSA-65-only) remain valid.
 
 Three `CryptoProfile` values:
-- `standard` — Ed25519 only (Level 0/1 default)
-- `post_quantum` — ML-DSA-65 only (Level 2+ when classical crypto is prohibited)
-- `hybrid` — Ed25519 + ML-DSA-65 (recommended transition path for Level 2+)
+- `standard`  -  Ed25519 only (Level 0/1 default)
+- `post_quantum`  -  ML-DSA-65 only (Level 2+ when classical crypto is prohibited)
+- `hybrid`  -  Ed25519 + ML-DSA-65 (recommended transition path for Level 2+)
 
 ## Rationale
 
@@ -42,28 +42,28 @@ Mandating ML-DSA-65 immediately would break every existing verifier that has not
 
 ### Avoiding algorithm agility as a footgun
 
-The spec does not support arbitrary algorithm combinations. Only the three profiles above are valid. Algorithm agility — allowing any signer to negotiate any algorithm with any verifier — has historically produced downgrade attacks. Constraining to three named profiles eliminates negotiation entirely.
+The spec does not support arbitrary algorithm combinations. Only the three profiles above are valid. Algorithm agility  -  allowing any signer to negotiate any algorithm with any verifier  -  has historically produced downgrade attacks. Constraining to three named profiles eliminates negotiation entirely.
 
 ## Alternatives considered
 
-**Mandate ML-DSA-65 immediately, drop Ed25519**: Breaks backward compatibility with all existing Level 0/1 deployments. Rejected — the migration window must exist.
+**Mandate ML-DSA-65 immediately, drop Ed25519**: Breaks backward compatibility with all existing Level 0/1 deployments. Rejected  -  the migration window must exist.
 
 **Support SPHINCS+**: Hash-based signatures, no algebraic assumptions, conservative choice. Rejected because SPHINCS+ signatures are 7–50 KB depending on parameter set, which is prohibitively large for a manifest that may be attached to every HTTP request.
 
 **Support Falcon-512 / Falcon-1024**: NIST FIPS 206 (Falcon). Lattice-based with smaller signatures than ML-DSA. Rejected for this ADR because `liboqs` Falcon support is less mature than ML-DSA, and Falcon's Gaussian sampling has a history of implementation-specific timing issues. Can be added in a future ADR.
 
-**Algorithm negotiation**: Let the signer declare any algorithm and the verifier negotiate. Rejected — downgrade attacks, implementation complexity, and the spec would need to define negotiation semantics across all four SDKs.
+**Algorithm negotiation**: Let the signer declare any algorithm and the verifier negotiate. Rejected  -  downgrade attacks, implementation complexity, and the spec would need to define negotiation semantics across all four SDKs.
 
 ## Consequences
 
 - `crypto_profile: hybrid` or `post_quantum` requires `pip install "agent-manifest[pq]"` which pulls in `oqs` (Python bindings for `liboqs`). The `oqs` package is an optional dependency to avoid forcing a C library on all users.
-- A Level 0 verifier without `oqs` installed cannot verify a `post_quantum` or `hybrid` manifest. The verifier raises `CryptoProfileNotSupported` — not a silent pass.
+- A Level 0 verifier without `oqs` installed cannot verify a `post_quantum` or `hybrid` manifest. The verifier raises `CryptoProfileNotSupported`  -  not a silent pass.
 - Signatures grow from 64 bytes (Ed25519) to 3309 bytes (ML-DSA-65) or 3373 bytes (hybrid). Manifests passed in HTTP headers must use `X-Agent-Manifest-Id` (a UUID reference) instead of embedding the full signed manifest in the header.
 - The conformance test suite includes AM-CRYPTO-010 through AM-CRYPTO-020 covering all three profiles and hybrid verification.
 
 ## References
 
 - [NIST FIPS 204 (ML-DSA)](https://csrc.nist.gov/pubs/fips/204/final)
-- [liboqs — Open Quantum Safe](https://openquantumsafe.org/)
+- [liboqs  -  Open Quantum Safe](https://openquantumsafe.org/)
 - [CISA Post-Quantum Cryptography Initiative](https://www.cisa.gov/quantum)
 - Spec Section 4.2: Signature algorithm identifiers
