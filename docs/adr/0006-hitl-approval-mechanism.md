@@ -17,7 +17,7 @@ The manifest needs a mechanism to record this approval in a tamper-evident, veri
 
 ## Decision
 
-Embed a **`hitl_record`** field directly in the manifest JSON. The record contains one or more approval entries, each with the following fields: `approver_id` (human-attributable identity — see Amendment below), `approved_at` (ISO 8601 timestamp), `evidence_hash` (SHA-256 of the canonical form of the action being approved), `approval_duration_seconds` (validity window), and `revocation_signature` (Ed25519 signature by the approver over the canonical approval fields).
+Embed a **`hitl_record`** field directly in the manifest JSON. The record contains one or more approval entries, each with the following fields: `approver_id` (human-attributable identity  -  see Amendment below), `approved_at` (ISO 8601 timestamp), `evidence_hash` (SHA-256 of the canonical form of the action being approved), `approval_duration_seconds` (validity window), and `revocation_signature` (Ed25519 signature by the approver over the canonical approval fields).
 
 The approval record is **signed by the approver's key**, not the manifest issuer's key.
 
@@ -31,9 +31,9 @@ A missing `hitl_record` when one is required produces `INVALID`, not an unattest
 
 ## Rationale
 
-**Offline verifiability.** Approval evidence travels with the manifest. Any verifier holding the approver's public key can check the approval without contacting an external service. This is essential for air-gapped environments and for producing a complete audit pack — the manifest file alone proves the approval happened.
+**Offline verifiability.** Approval evidence travels with the manifest. Any verifier holding the approver's public key can check the approval without contacting an external service. This is essential for air-gapped environments and for producing a complete audit pack  -  the manifest file alone proves the approval happened.
 
-**Approver binding via separate signature.** The approval signature covers `approver_id`, `manifest_id`, `approved_at`, and `evidence_hash`. A compromised agent cannot forge an approval from a different approver. The issuer cannot manufacture approvals — the approver's private key is required.
+**Approver binding via separate signature.** The approval signature covers `approver_id`, `manifest_id`, `approved_at`, and `evidence_hash`. A compromised agent cannot forge an approval from a different approver. The issuer cannot manufacture approvals  -  the approver's private key is required.
 
 **Separation of duties.** The manifest issuer signs the manifest; the approver signs the approval. These are structurally independent. The issuer may not know the approver's key, and the approver does not need to re-sign the manifest. Agents can collect approvals from multiple approvers and attach them to the `hitl_record` array without triggering a re-sign of the manifest itself.
 
@@ -45,11 +45,11 @@ The `hitl_record` field is excluded from the manifest signing pre-image (alongsi
 
 ## Alternatives considered
 
-**Webhook-based approval at verification time**: The verifier calls an external approval API on every verify call to check current status. Rejected because it creates an online dependency — a down approval service means verification fails in production, and the approval evidence is not embedded in the audit pack. Air-gapped deployments cannot use this pattern at all.
+**Webhook-based approval at verification time**: The verifier calls an external approval API on every verify call to check current status. Rejected because it creates an online dependency  -  a down approval service means verification fails in production, and the approval evidence is not embedded in the audit pack. Air-gapped deployments cannot use this pattern at all.
 
 **OAuth 2.0 PKCE for human identity**: Use a browser-based OAuth flow to identify the approver. Rejected because it introduces a browser and redirect URI dependency into a machine-native security path. SPIFFE URIs and DIDs are more appropriate for workload and operator identity in server-side environments.
 
-**Out-of-band approval token (separate JWT)**: The approver issues a JWT presented alongside the manifest. Rejected because it requires managing a separate token format, a separate public key registry, and token revocation — all problems the manifest already solves.
+**Out-of-band approval token (separate JWT)**: The approver issues a JWT presented alongside the manifest. Rejected because it requires managing a separate token format, a separate public key registry, and token revocation  -  all problems the manifest already solves.
 
 **Approval via manifest re-signing (multi-signature)**: The approver co-signs the entire manifest. Rejected because it requires the approver to participate in a multi-party signing protocol or hold the issuer key material, which creates key custody problems and breaks the separation of duties rationale.
 
@@ -64,12 +64,12 @@ The `hitl_record` field is excluded from the manifest signing pre-image (alongsi
 
 - EU AI Act Article 14: Human oversight requirements
 - Spec Section 3.5: HITL approval record schema and verification semantics
-- [FIDO2 / WebAuthn](https://fidoalliance.org/fido2/) — recommended backing for approver keys
-- ADR-0009: SPIFFE URIs as the canonical identity format for machine workload identity (`agent_id`, `issuer`) — does not apply to `approver_id`
+- [FIDO2 / WebAuthn](https://fidoalliance.org/fido2/)  -  recommended backing for approver keys
+- ADR-0009: SPIFFE URIs as the canonical identity format for machine workload identity (`agent_id`, `issuer`)  -  does not apply to `approver_id`
 
 ---
 
-## Amendment — 2026-06-10: `approver_id` must not use SPIFFE SVIDs
+## Amendment  -  2026-06-10: `approver_id` must not use SPIFFE SVIDs
 
 **Resolved by:** issue #40
 
