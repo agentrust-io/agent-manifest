@@ -4,7 +4,7 @@ The General Data Protection Regulation (GDPR) applies to AI agents that process 
 
 ---
 
-## Article 5(2) — Accountability principle
+## Article 5(2)  -  Accountability principle
 
 > *The controller shall be responsible for, and be able to demonstrate compliance with, paragraph 1 (the principles).*
 
@@ -16,7 +16,7 @@ A manifest store (database, `.well-known` endpoint, or immutable log) provides a
 
 ---
 
-## Article 25 — Data protection by design and by default
+## Article 25  -  Data protection by design and by default
 
 > *The controller shall implement appropriate technical and organisational measures designed to implement the data-protection principles in an effective manner.*
 
@@ -40,13 +40,13 @@ The verifier rejects any manifest where the effective scope exceeds what the del
 
 ---
 
-## Article 30 — Records of processing activities
+## Article 30  -  Records of processing activities
 
 > *Each controller shall maintain a record of processing activities under its responsibility.*
 
 **What agent-manifest provides**
 
-The manifest is a record of processing intent — it documents what the agent was configured to do at the time of issuance. Fields that are relevant to Article 30 records:
+The manifest is a record of processing intent  -  it documents what the agent was configured to do at the time of issuance. Fields that are relevant to Article 30 records:
 
 | Article 30 requirement | Manifest field |
 |------------------------|----------------|
@@ -60,7 +60,7 @@ The manifest's `issued_at` / `expires_at` pair documents the period during which
 
 ---
 
-## Article 32 — Security of processing
+## Article 32  -  Security of processing
 
 > *The controller and processor shall implement appropriate technical and organisational measures to ensure a level of security appropriate to the risk.*
 
