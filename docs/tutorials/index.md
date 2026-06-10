@@ -2,7 +2,7 @@
 
 Step-by-step guides for specific agent-manifest features. Each tutorial is self-contained and includes runnable code.
 
-If you are new to agent-manifest, start with [Getting Started](../getting-started.md) first — it covers creating and signing your first manifest in 15 minutes.
+If you are new to agent-manifest, start with [Getting Started](../getting-started.md) first  -  it covers creating and signing your first manifest in 15 minutes.
 
 ---
 
