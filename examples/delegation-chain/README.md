@@ -5,7 +5,7 @@ This example shows a two-hop A2A delegation chain:
 ```
 Root issuer (spiffe://trust.acme.co/signing-authority)
   └── Orchestrator agent (hop 0)
-        └── Executor agent (hop 1 — sub-delegate)
+        └── Executor agent (hop 1  -  sub-delegate)
 ```
 
 ## Files
@@ -13,8 +13,8 @@ Root issuer (spiffe://trust.acme.co/signing-authority)
 | File | Description |
 |------|-------------|
 | `root-manifest.json` | The orchestrator's manifest with `delegation_policy` allowing sub-delegation |
-| `delegate-manifest.json` | The executor's manifest — delegated from the orchestrator with narrowed scope |
-| `sub-delegate-manifest.json` | A second-hop manifest — delegated from the executor, scope narrowed further |
+| `delegate-manifest.json` | The executor's manifest  -  delegated from the orchestrator with narrowed scope |
+| `sub-delegate-manifest.json` | A second-hop manifest  -  delegated from the executor, scope narrowed further |
 | `verify.sh` | Demonstrates chain traversal and scope narrowing |
 
 ## Key fields
