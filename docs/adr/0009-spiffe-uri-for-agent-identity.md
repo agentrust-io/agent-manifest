@@ -8,8 +8,8 @@
 
 Every manifest must identify two principals:
 
-1. **The agent** (`agent_id`) — the workload whose behavior the manifest governs
-2. **The issuer** (`issuer`) — the authority that signed the manifest
+1. **The agent** (`agent_id`)  -  the workload whose behavior the manifest governs
+2. **The issuer** (`issuer`)  -  the authority that signed the manifest
 
 These identifiers must be:
 - Globally unique without a central registry
@@ -32,8 +32,8 @@ The trust domain (`payments.acme.com`) is the org-level PKI boundary, operated b
 
 SDK validation rules enforced at `Manifest` construction time:
 - Must start with `spiffe://`
-- No URI fragment (`#`) — fragments have no meaning in SPIFFE
-- No query string (`?`) — SPIFFE URIs are path-only
+- No URI fragment (`#`)  -  fragments have no meaning in SPIFFE
+- No query string (`?`)  -  SPIFFE URIs are path-only
 - Trust domain must be a valid hostname (RFC 1123)
 - Path must be slash-delimited segments with no empty components
 
@@ -55,13 +55,13 @@ Multi-org deployments follow the SPIFFE Federation specification: trust domain f
 
 **DID:key**: A self-sovereign DID derived from a public key (`did:key:z6Mk...`). No registry or infrastructure required. Rejected because `did:key` encodes the current signing key, not the logical identity of the agent. Key rotation would change the agent's `agent_id`, breaking all delegation chains, trust relationships, and policy rules that reference the old DID. An agent's logical identity must be stable across key rotations.
 
-**DID:web**: A DID resolved from a domain (`did:web:trust.example`). Requires hosting a DID document at `https://trust.example/.well-known/did.json`. Rejected because it introduces an HTTP resolution dependency at verification time and couples the agent's identity to the domain's DNS and TLS availability — exactly the kind of online dependency the embedded design of the manifest (ADR-0006, ADR-0007) is designed to avoid.
+**DID:web**: A DID resolved from a domain (`did:web:trust.example`). Requires hosting a DID document at `https://trust.example/.well-known/did.json`. Rejected because it introduces an HTTP resolution dependency at verification time and couples the agent's identity to the domain's DNS and TLS availability  -  exactly the kind of online dependency the embedded design of the manifest (ADR-0006, ADR-0007) is designed to avoid.
 
 **DID:ethr and blockchain-anchored DIDs**: Identity anchored on Ethereum or another blockchain. Rejected categorically: blockchain anchoring introduces gas costs, transaction latency, and external infrastructure dependencies into a security-critical verification path. Not suitable for regulated environments or high-throughput verification.
 
-**Plain URNs (`urn:agent:...`)**: RFC 8141 URNs with a custom namespace. Rejected because URNs have no standard resolution or federation mechanism — there is no urn:agent NID assigned by IANA, no standard way to express trust domains, and no interoperability story with existing zero-trust infrastructure. SPIFFE provides all of this.
+**Plain URNs (`urn:agent:...`)**: RFC 8141 URNs with a custom namespace. Rejected because URNs have no standard resolution or federation mechanism  -  there is no urn:agent NID assigned by IANA, no standard way to express trust domains, and no interoperability story with existing zero-trust infrastructure. SPIFFE provides all of this.
 
-**Opaque UUIDs**: A random UUID assigned at registration. Rejected because UUIDs carry no trust domain context — a UUID from one organization is syntactically identical to one from another. UUIDs require a central registry to map them to actual identities and offer no structural guarantee of uniqueness across organizations.
+**Opaque UUIDs**: A random UUID assigned at registration. Rejected because UUIDs carry no trust domain context  -  a UUID from one organization is syntactically identical to one from another. UUIDs require a central registry to map them to actual identities and offer no structural guarantee of uniqueness across organizations.
 
 **X.509 Subject DN** (`CN=kyc-agent, O=Corp, C=US`): The identity format used in mTLS certificates. Rejected because Subject DNs have no standardized path semantics, are not URL-safe, vary in encoding by CA policy, and require CA-specific parsing to extract a workload identifier reliably.
 
@@ -76,9 +76,9 @@ Multi-org deployments follow the SPIFFE Federation specification: trust domain f
 
 - [SPIFFE Specification](https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE.md)
 - [SPIFFE Federation Specification](https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE_Federation.md)
-- [SPIRE — SPIFFE Runtime Environment](https://spiffe.io/docs/latest/spire-about/)
-- [RFC 1123](https://www.rfc-editor.org/rfc/rfc1123) — Hostname syntax requirements
-- [RFC 9110 §4](https://www.rfc-editor.org/rfc/rfc9110#section-4) — URI format reference
+- [SPIRE  -  SPIFFE Runtime Environment](https://spiffe.io/docs/latest/spire-about/)
+- [RFC 1123](https://www.rfc-editor.org/rfc/rfc1123)  -  Hostname syntax requirements
+- [RFC 9110 §4](https://www.rfc-editor.org/rfc/rfc9110#section-4)  -  URI format reference
 - ADR-0006: HITL approval mechanism (uses SPIFFE URIs for `approver_id`)
 - ADR-0007: Revocation CRL (uses SPIFFE URIs for `revoked_by`)
 - Spec Section 2.2: Identity field validation rules
