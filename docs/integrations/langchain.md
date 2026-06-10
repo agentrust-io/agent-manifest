@@ -12,7 +12,7 @@ pip install "agent-manifest[server]" langchain langchain-openai
 
 ## Part 1: Issue a manifest for a LangChain agent
 
-Create the manifest once at startup — typically when the agent process initialises. The manifest captures what this agent is: its identity, the model it uses, its system prompt, and its tools.
+Create the manifest once at startup  -  typically when the agent process initialises. The manifest captures what this agent is: its identity, the model it uses, its system prompt, and its tools.
 
 ```python
 import hashlib
@@ -83,7 +83,7 @@ class ManifestCallbackHandler(BaseCallbackHandler):
         self.manifest_id = manifest_id
 
     def on_llm_start(self, serialized, prompts, **kwargs):
-        # Attach to run metadata — available in traces and logs
+        # Attach to run metadata  -  available in traces and logs
         kwargs.setdefault("metadata", {})["agent_manifest_id"] = self.manifest_id
 
 MANIFEST_HEADER = {"x-agent-manifest-id": MANIFEST_ID}
@@ -132,7 +132,7 @@ from agent_manifest._verify import (
     OverallResult, RevocationStore, VerificationContext, verify_manifest,
 )
 
-# Load at startup — shared across all tool invocations
+# Load at startup  -  shared across all tool invocations
 MANIFEST_STORE: dict[str, dict] = {}
 REVOCATION_STORE = RevocationStore()
 
@@ -149,13 +149,13 @@ def execute_trade(
     """Execute a trade. Requires a valid caller manifest with trading scope."""
     manifest = load_manifest(caller_manifest_id)
     if manifest is None:
-        return "ERROR: Unknown manifest — request rejected"
+        return "ERROR: Unknown manifest  -  request rejected"
 
     ctx = VerificationContext(enforce_hitl=True)
     result = verify_manifest(manifest, ctx, REVOCATION_STORE)
 
     if result.result != OverallResult.VALID:
-        return f"ERROR: Manifest verification failed — {result.result}"
+        return f"ERROR: Manifest verification failed  -  {result.result}"
 
     # Proceed only if verification passed
     return f"Trade executed: {quantity}x {ticker}"
@@ -199,5 +199,5 @@ When a LangChain agent presents its `manifest_id`, your service needs to look it
 
 ## What's next
 
-- [Tutorial: Server-side verification](../tutorials/server-side-verification.md) — full verification router for a FastAPI service
-- [Tutorial: Revocation and key rotation](../tutorials/revocation.md) — revoke a LangChain agent's manifest on compromise
+- [Tutorial: Server-side verification](../tutorials/server-side-verification.md)  -  full verification router for a FastAPI service
+- [Tutorial: Revocation and key rotation](../tutorials/revocation.md)  -  revoke a LangChain agent's manifest on compromise
