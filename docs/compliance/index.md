@@ -13,10 +13,10 @@ Agent-manifest satisfies traceability, accountability, and audit requirements ac
 
 Every signed manifest is a tamper-evident record that answers five questions regulators ask about AI systems:
 
-1. **Who is this agent?** — SPIFFE URI identity, signed by an issuer key
-2. **What is it running?** — Model, system prompt, and tool hashes cryptographically bound
-3. **How was it deployed?** — Attestation level (0–3), optional hardware enclave evidence
-4. **Who authorised it?** — Delegation chain with issuer signature at each hop
-5. **Has a human reviewed it?** — HITL approval record signed by a named approver
+1. **Who is this agent?**  -  SPIFFE URI identity, signed by an issuer key
+2. **What is it running?**  -  Model, system prompt, and tool hashes cryptographically bound
+3. **How was it deployed?**  -  Attestation level (0–3), optional hardware enclave evidence
+4. **Who authorised it?**  -  Delegation chain with issuer signature at each hop
+5. **Has a human reviewed it?**  -  HITL approval record signed by a named approver
 
 These five properties map directly to the accountability, transparency, and human oversight requirements in every framework listed above.
