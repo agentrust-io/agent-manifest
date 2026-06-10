@@ -20,9 +20,9 @@ pip install "agent-manifest[server]"
 
 | Deployment mode | When to use |
 |-----------------|-------------|
-| **Sidecar** | Each agent service runs its own verifier alongside it — simplest, no network hop |
-| **Centralized service** | Shared verifier for a fleet — single manifest store, easier CRL management |
-| **Embedded** | Verifier mounted directly in the main application's FastAPI app — fewest moving parts |
+| **Sidecar** | Each agent service runs its own verifier alongside it  -  simplest, no network hop |
+| **Centralized service** | Shared verifier for a fleet  -  single manifest store, easier CRL management |
+| **Embedded** | Verifier mounted directly in the main application's FastAPI app  -  fewest moving parts |
 
 This tutorial uses the **embedded** pattern (fewest dependencies) but the Docker and config sections apply to all modes.
 
@@ -105,7 +105,7 @@ RUN pip install --no-cache-dir "agent-manifest[server]" uvicorn[standard]
 
 COPY app.py .
 
-# Manifest store and CRL live in /data — mount as a volume
+# Manifest store and CRL live in /data  -  mount as a volume
 RUN mkdir /data
 
 EXPOSE 8080
@@ -259,12 +259,12 @@ Protect this endpoint with network policy or an API key.
 
 **Option B: Shared database** (recommended for fleets)
 
-Replace `manifest_store: dict` with a database-backed store. On each request the verifier reads from the database — no reload needed, and multiple replicas stay consistent.
+Replace `manifest_store: dict` with a database-backed store. On each request the verifier reads from the database  -  no reload needed, and multiple replicas stay consistent.
 
 ---
 
 ## What's next
 
-- [Tutorial: Revocation and key rotation](revocation.md) — update the CRL in the running verifier
-- [Operations: Monitoring the verification endpoint](../operations/monitoring.md) — metrics and alerting
+- [Tutorial: Revocation and key rotation](revocation.md)  -  update the CRL in the running verifier
+- [Operations: Monitoring the verification endpoint](../operations/monitoring.md)  -  metrics and alerting
 - [Operations: Key rotation runbook](../operations/key-rotation.md)
