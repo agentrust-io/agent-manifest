@@ -1,6 +1,6 @@
 # A2A delegation chains
 
-Agent-to-agent (A2A) delegation lets a root issuer grant a sub-agent a **scoped subset** of its permissions — cryptographically bound and verifiable at every hop. After completing this tutorial you will be able to:
+Agent-to-agent (A2A) delegation lets a root issuer grant a sub-agent a **scoped subset** of its permissions  -  cryptographically bound and verifiable at every hop. After completing this tutorial you will be able to:
 
 - Build a two-hop delegation chain: root issuer → delegate → sub-delegate
 - Sign each hop with the delegating principal's key
@@ -21,7 +21,7 @@ Root issuer (tools: [search, summarize, write])
        └─ Sub-delegate agent (tools: [search])      ← hop 1: narrowed again
 ```
 
-Each hop is signed by the **delegating** principal. The sub-agent cannot claim tools the parent did not grant — the verifier enforces this at every hop.
+Each hop is signed by the **delegating** principal. The sub-agent cannot claim tools the parent did not grant  -  the verifier enforces this at every hop.
 
 ---
 
@@ -60,7 +60,7 @@ root_manifest = Manifest(
     issuer="spiffe://trust.example/signing-authority",
     crypto_profile=CryptoProfile.standard,
     artifacts=ArtifactBindings(),
-    # No delegation_chain on the root — it IS the root
+    # No delegation_chain on the root  -  it IS the root
     delegation_chain=[],
 )
 
@@ -81,7 +81,7 @@ hop_signer = DelegationHopSigner(keypair=root_kp)
 
 delegate_manifest_id = str(ManifestId.generate())
 
-# The root issuer signs hop 0 — granting a subset of its tools
+# The root issuer signs hop 0  -  granting a subset of its tools
 hop0_scope = {
     "tools": ["search", "summarize"],          # subset of root's [search, summarize, write]
     "data_classifications": ["public", "internal"],
@@ -125,12 +125,12 @@ signed_delegate = delegate_signer.sign(delegate_manifest.model_dump(mode="json")
 
 ## Step 4: Build the sub-delegate hop
 
-The sub-delegate's manifest adds a second hop signed by the **delegate agent** — again narrowing the scope.
+The sub-delegate's manifest adds a second hop signed by the **delegate agent**  -  again narrowing the scope.
 
 ```python
 sub_manifest_id = str(ManifestId.generate())
 
-# The delegate agent signs hop 1 — granting only [search] from its [search, summarize]
+# The delegate agent signs hop 1  -  granting only [search] from its [search, summarize]
 hop1_scope = {
     "tools": ["search"],                        # subset of delegate's [search, summarize]
     "data_classifications": ["public"],         # narrowed from ["public", "internal"]
@@ -253,6 +253,6 @@ bad_sig = delegate_hop_signer.sign_hop(
 
 ## What's next
 
-- [Tutorial: Server-side verification](server-side-verification.md) — verify delegation chains at the relying party
-- [Tutorial: HITL approval workflows](hitl-approvals.md) — require human sign-off within a delegation chain
+- [Tutorial: Server-side verification](server-side-verification.md)  -  verify delegation chains at the relying party
+- [Tutorial: HITL approval workflows](hitl-approvals.md)  -  require human sign-off within a delegation chain
 - [Examples repository](https://github.com/agentrust-io/examples)
