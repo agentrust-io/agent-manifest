@@ -6,10 +6,10 @@
 
 ## Context
 
-A compromised agent — one whose signing key has leaked, whose behavior has been found malicious, or that has been decommissioned — must be stoppable without waiting for its manifest to expire naturally. The spec needs a revocation mechanism that:
+A compromised agent  -  one whose signing key has leaked, whose behavior has been found malicious, or that has been decommissioned  -  must be stoppable without waiting for its manifest to expire naturally. The spec needs a revocation mechanism that:
 
 1. Allows an authorised authority to revoke any manifest in under 60 seconds
-2. Makes revocation records tamper-evident — a record cannot be added, removed, or modified undetected
+2. Makes revocation records tamper-evident  -  a record cannot be added, removed, or modified undetected
 3. Is queryable by a verifier without X.509 infrastructure or a heavyweight credential processing stack
 4. Provides a working reference implementation for development with zero infrastructure dependency
 
@@ -21,16 +21,16 @@ The revocation record is signed by the **revoking authority's key**, not the ori
 
 The standard discovery endpoint follows RFC 8615 well-known URI conventions:
 
-- `GET /.well-known/agent-manifest/revocation` — returns all records as JSON-Lines
-- `GET /.well-known/agent-manifest/revocation/{manifest_id}` — returns one record or 404
+- `GET /.well-known/agent-manifest/revocation`  -  returns all records as JSON-Lines
+- `GET /.well-known/agent-manifest/revocation/{manifest_id}`  -  returns one record or 404
 
 `FileCRL` is the reference implementation for development and small-scale deployments. Production deployments must use a database-backed store (Postgres, Redis, DynamoDB, or equivalent). The choice of database is not prescribed by the spec.
 
 ## Rationale
 
-**JSON-Lines for append-only semantics.** Each revocation is a single line appended atomically. No locking is needed between writers and readers — the file grows monotonically and existing entries are never modified. A CRL committed to a git repository is an immutable, auditable append log. Readers parse line-by-line, so a partial read of a large CRL is always consistent.
+**JSON-Lines for append-only semantics.** Each revocation is a single line appended atomically. No locking is needed between writers and readers  -  the file grows monotonically and existing entries are never modified. A CRL committed to a git repository is an immutable, auditable append log. Readers parse line-by-line, so a partial read of a large CRL is always consistent.
 
-**O(1) append cost.** A naive single JSON array requires rewriting the entire file for each revocation — O(n) write cost. JSON-Lines appends are O(1) regardless of CRL size, making revocation latency independent of fleet size.
+**O(1) append cost.** A naive single JSON array requires rewriting the entire file for each revocation  -  O(n) write cost. JSON-Lines appends are O(1) regardless of CRL size, making revocation latency independent of fleet size.
 
 **Signed records prevent forgery.** Without a per-record signature, an attacker with write access to the CRL could add fictitious revocations or delete real ones. The signature over the canonical record fields means any field mutation invalidates the signature.
 
@@ -40,7 +40,7 @@ The standard discovery endpoint follows RFC 8615 well-known URI conventions:
 
 ## Alternatives considered
 
-**W3C Status List 2021 (bitstring revocation list)**: A compact bitstring where each bit represents one credential, keyed by a sequential index assigned at issuance time. Rejected because it requires coordination between the issuer and CRL operator at manifest issuance time (to assign the index), and introduces a dependency on the W3C Verifiable Credentials processing stack — a heavyweight dependency that conflicts with the spec's goal of JSON-native tooling.
+**W3C Status List 2021 (bitstring revocation list)**: A compact bitstring where each bit represents one credential, keyed by a sequential index assigned at issuance time. Rejected because it requires coordination between the issuer and CRL operator at manifest issuance time (to assign the index), and introduces a dependency on the W3C Verifiable Credentials processing stack  -  a heavyweight dependency that conflicts with the spec's goal of JSON-native tooling.
 
 **RFC 5280 X.509 CRL format**: DER-encoded binary with ASN.1 structure, the standard for X.509 certificate revocation. Rejected because the manifest ecosystem is JSON-native. Requiring ASN.1 parsing in every SDK (Python, TypeScript, Go, .NET) is a disproportionate dependency burden for what is fundamentally a simple revocation list.
 
@@ -57,8 +57,8 @@ The standard discovery endpoint follows RFC 8615 well-known URI conventions:
 
 ## References
 
-- [RFC 8615](https://www.rfc-editor.org/rfc/rfc8615) — Well-Known URIs
+- [RFC 8615](https://www.rfc-editor.org/rfc/rfc8615)  -  Well-Known URIs
 - [W3C Status List 2021](https://www.w3.org/TR/vc-status-list/)
-- [RFC 5280](https://www.rfc-editor.org/rfc/rfc5280) — X.509 Certificate Revocation Lists
+- [RFC 5280](https://www.rfc-editor.org/rfc/rfc5280)  -  X.509 Certificate Revocation Lists
 - ADR-0001: RFC 8785 canonical JSON (used for the revocation record signing pre-image)
 - Spec Section 3.7: Revocation record schema and discovery endpoint specification
