@@ -28,9 +28,9 @@ Specifically:
 
 ## Rationale
 
-**Type safety without boilerplate.** Pydantic v2 generates a Rust-backed validator (pydantic-core) from Python type annotations. Fields are validated at `__init__` time — a manifest with a malformed `manifest_id` raises immediately, before any signing or serialization occurs.
+**Type safety without boilerplate.** Pydantic v2 generates a Rust-backed validator (pydantic-core) from Python type annotations. Fields are validated at `__init__` time  -  a manifest with a malformed `manifest_id` raises immediately, before any signing or serialization occurs.
 
-**JSON round-trip fidelity.** `model_dump(mode="json")` converts datetime objects to ISO 8601 strings, enums to their string values, and nested models to dicts — exactly what RFC 8785 canonicalization requires. Hand-rolling this conversion is error-prone and was a source of interoperability bugs in the pre-Pydantic prototype.
+**JSON round-trip fidelity.** `model_dump(mode="json")` converts datetime objects to ISO 8601 strings, enums to their string values, and nested models to dicts  -  exactly what RFC 8785 canonicalization requires. Hand-rolling this conversion is error-prone and was a source of interoperability bugs in the pre-Pydantic prototype.
 
 **Schema evolution is cheap.** Adding or removing a field in the spec means adding or removing one line in the model. Pydantic's `Optional` fields with `default=None` map directly to the spec's optional field semantics.
 
@@ -40,7 +40,7 @@ Specifically:
 
 **dataclasses + marshmallow**: Two libraries, two type annotation syntaxes, manual registration of nested schemas. The round-trip fidelity between marshmallow schemas and Python dataclasses requires explicit field mapping that duplicates the spec field list.
 
-**attrs + cattrs**: Well-designed, but cattrs requires explicit converter registration for enums and datetimes. The spec has 15+ enum types and 8+ datetime fields — the converter boilerplate is larger than the equivalent Pydantic model.
+**attrs + cattrs**: Well-designed, but cattrs requires explicit converter registration for enums and datetimes. The spec has 15+ enum types and 8+ datetime fields  -  the converter boilerplate is larger than the equivalent Pydantic model.
 
 **msgspec**: Faster than Pydantic for pure serialization, but no FastAPI integration and limited support for complex validation rules (e.g., `ManifestId` must be a UUID v7, not just a string). Custom validators in msgspec require more ceremony than Pydantic's `@field_validator`.
 
@@ -50,7 +50,7 @@ Specifically:
 
 - `pydantic>=2.0` is a hard dependency. This brings in `pydantic-core` (a Rust extension), which adds ~2 MB to the wheel and requires a binary wheel for each platform. Wheels are published for all major platforms on PyPI.
 - Code that constructs manifest objects gets type-checked by mypy via pydantic's mypy plugin. This is required: `pyproject.toml` enables `[tool.mypy] plugins = ["pydantic.mypy"]`.
-- Upgrading from Pydantic v1 is not possible — the SDK targets v2 only. The `model_dump` / `model_validate` API names are v2-specific.
+- Upgrading from Pydantic v1 is not possible  -  the SDK targets v2 only. The `model_dump` / `model_validate` API names are v2-specific.
 - Future SDK ports (.NET, Go, Rust) must implement equivalent validation logic without Pydantic. The Python implementation serves as the reference for field constraints.
 
 ## References
