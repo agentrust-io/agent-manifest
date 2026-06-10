@@ -19,9 +19,9 @@ manifest verify signed.json   # VALID
 
 Every entity in a modern enterprise has a verifiable identity. Users have X.509 certificates. Services have SPIFFE SVIDs. Containers have image digests. AI agents have none of these.
 
-An agent calling a tool today presents no unforgeable proof of which system prompt defined its behavior, which model is running, which policy was approved, or whether a human reviewed any of it. This is not an authentication gap — agents can authenticate with tokens. It is an **attestation gap**: the inability to prove, to a third party who does not trust the operator, that the agent running right now is the agent that was approved.
+An agent calling a tool today presents no unforgeable proof of which system prompt defined its behavior, which model is running, which policy was approved, or whether a human reviewed any of it. This is not an authentication gap  -  agents can authenticate with tokens. It is an **attestation gap**: the inability to prove, to a third party who does not trust the operator, that the agent running right now is the agent that was approved.
 
-Software-signed manifests do not close this gap. A privileged operator can replace a system prompt in memory after signing, swap a model version between approval and runtime, or forge a human-in-the-loop approval record. Hardware-attested manifests make these attacks impossible — the measurement happens in silicon before any user code runs and the signing key never leaves the TEE.
+Software-signed manifests do not close this gap. A privileged operator can replace a system prompt in memory after signing, swap a model version between approval and runtime, or forge a human-in-the-loop approval record. Hardware-attested manifests make these attacks impossible  -  the measurement happens in silicon before any user code runs and the signing key never leaves the TEE.
 
 ## How it works
 
@@ -33,7 +33,7 @@ Sign manifest       →   Seal signing key     →  attestation report
 Publish to log      →   Return TRACE claim   →  VALID / MISMATCH
 ```
 
-A verifying party who holds an Agent Manifest and its accompanying attestation report can prove — without trusting the operator — that a specific agent ran specific code under specific policy with specific tools, produced specific decisions, and received specific human oversight.
+A verifying party who holds an Agent Manifest and its accompanying attestation report can prove  -  without trusting the operator  -  that a specific agent ran specific code under specific policy with specific tools, produced specific decisions, and received specific human oversight.
 
 ## The 10 attested artifacts
 
@@ -72,7 +72,7 @@ Provider auto-selects based on available hardware: `OPAQUE → SEV-SNP → TDX �
 
 ## Next steps
 
-- [Getting started](getting-started.md) — Level 0 in 15 minutes
-- [Examples](https://github.com/agentrust-io/examples) — complete manifest JSON for Level 0 and Level 1
-- [Specification](https://github.com/agentrust-io/agent-manifest/blob/main/spec/agent-manifest-spec-v0.1.md) — 197 conformance tests across 5 modules
-- [Architecture decisions](adr/index.md) — rationale behind cryptographic design choices
+- [Getting started](getting-started.md)  -  Level 0 in 15 minutes
+- [Examples](https://github.com/agentrust-io/examples)  -  complete manifest JSON for Level 0 and Level 1
+- [Specification](https://github.com/agentrust-io/agent-manifest/blob/main/spec/agent-manifest-spec-v0.1.md)  -  197 conformance tests across 5 modules
+- [Architecture decisions](adr/index.md)  -  rationale behind cryptographic design choices
