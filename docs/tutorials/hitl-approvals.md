@@ -1,6 +1,6 @@
 # HITL approval workflows
 
-Human-in-the-loop (HITL) approval lets an agent record that a human explicitly authorised a high-risk action — and cryptographically binds that approval to the manifest. After this tutorial you will be able to:
+Human-in-the-loop (HITL) approval lets an agent record that a human explicitly authorised a high-risk action  -  and cryptographically binds that approval to the manifest. After this tutorial you will be able to:
 
 - Create a manifest that requires human approval
 - Record a signed approval from a human approver
@@ -19,7 +19,7 @@ A plain timestamp field can be forged. The HITL approval is signed by the **appr
 
 1. The named approver actually saw this exact manifest
 2. The approval was given at a specific time
-3. The approval covers a specific scope — not a blank cheque
+3. The approval covers a specific scope  -  not a blank cheque
 
 ---
 
@@ -36,7 +36,7 @@ approver_kp = generate_ed25519()  # the human approver's key (use FIDO2 in produ
 
 ## Step 2: Build a manifest that requires approval
 
-Set `hitl_record.required = True` and leave `approvals` empty — the agent will fill this in after getting human sign-off.
+Set `hitl_record.required = True` and leave `approvals` empty  -  the agent will fill this in after getting human sign-off.
 
 ```python
 from agent_manifest import Manifest, ArtifactBindings, CryptoProfile
@@ -192,7 +192,7 @@ tampered["approved_scope"] = {**approved_scope, "max_notional_usd": 10_000_000}
 try:
     verify_hitl_approval(tampered, manifest_id, approver_kp.public_bytes)
 except InvalidSignature:
-    print("Approval signature invalid — scope was tampered")
+    print("Approval signature invalid  -  scope was tampered")
 ```
 
 ---
@@ -201,7 +201,7 @@ except InvalidSignature:
 
 | Concern | Recommendation |
 |---------|----------------|
-| Approver key storage | FIDO2 hardware key or HSM — software keys are only for development |
+| Approver key storage | FIDO2 hardware key or HSM  -  software keys are only for development |
 | Approval UI | Generate the `approved_scope` dict from your UI, sign on the server with the approver's key after authentication |
 | Multiple approvers | Set `required_approvals: 2` and add two entries to `approvals` |
 | Approval duration | Keep short (1–4 hours); for long-running jobs, re-approve rather than extending |
@@ -211,5 +211,5 @@ except InvalidSignature:
 
 ## What's next
 
-- [Tutorial: Revocation and key rotation](revocation.md) — revoke a manifest if the approver's key is compromised
-- [Tutorial: Server-side verification](server-side-verification.md) — enforce HITL at the relying party with `enforce_hitl=True`
+- [Tutorial: Revocation and key rotation](revocation.md)  -  revoke a manifest if the approver's key is compromised
+- [Tutorial: Server-side verification](server-side-verification.md)  -  enforce HITL at the relying party with `enforce_hitl=True`
