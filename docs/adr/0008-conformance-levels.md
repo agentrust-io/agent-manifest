@@ -13,7 +13,7 @@ Different deployment environments offer radically different trust guarantees: a 
 3. Is unambiguous for both implementers and auditors
 4. Scales with the cryptographic machinery actually available
 
-The alternative to a level system is a binary conformant/non-conformant model — every deployment must meet the same bar, or it does not conform.
+The alternative to a level system is a binary conformant/non-conformant model  -  every deployment must meet the same bar, or it does not conform.
 
 ## Decision
 
@@ -44,23 +44,23 @@ The spec defines **197 conformance tests** distributed across levels. A conforma
 
 **Binary conformant/non-conformant**: All implementations must meet a single bar. Rejected because the bar would have to be set at Level 0 (lowest common denominator) or Level 2 (excluding TPM-only deployments). Neither is useful: a Level 0 bar makes conformance meaningless, a Level 2 bar blocks widespread adoption.
 
-**Three levels (no Level 3)**: Drop the managed TEE tier. Rejected because FedRAMP High and equivalent frameworks require a higher-assurance option than hardware attestation alone. The audit chain root — a hardware-signed Merkle commitment to every agent decision — is qualitatively different from a TPM PCR extension.
+**Three levels (no Level 3)**: Drop the managed TEE tier. Rejected because FedRAMP High and equivalent frameworks require a higher-assurance option than hardware attestation alone. The audit chain root  -  a hardware-signed Merkle commitment to every agent decision  -  is qualitatively different from a TPM PCR extension.
 
 **Named tiers instead of numbers (Bronze/Silver/Gold)**: Rejected because numbered levels compose naturally with version identifiers and are easier to reference in normative text. "Level 2" is unambiguous; "Gold" invites marketing inflation.
 
-**Attestation as a boolean field**: A single `attested: true/false` field instead of a level. Rejected because it loses the distinction between TPM, SEV-SNP, and managed TEE — which matters for regulatory mapping and threat modeling.
+**Attestation as a boolean field**: A single `attested: true/false` field instead of a level. Rejected because it loses the distinction between TPM, SEV-SNP, and managed TEE  -  which matters for regulatory mapping and threat modeling.
 
 ## Consequences
 
-- A verifier must validate the `attestation.level` field against its minimum accepted level. A verifier that requires Level 2 must reject Level 0 and Level 1 manifests — not silently accept them.
+- A verifier must validate the `attestation.level` field against its minimum accepted level. A verifier that requires Level 2 must reject Level 0 and Level 1 manifests  -  not silently accept them.
 - The `VerificationContext.enforce_attestation` flag gates Level 1+ at verification time. Future versions will add `min_attestation_level: int` for finer control.
 - Regulatory mappings published in `docs/compliance/` use conformance levels as the unit of comparison: "EU AI Act Article 14 requires Level 1 or above for high-risk AI systems."
 - The 197 conformance tests are distributed as: Level 0: 89 tests, Level 1: 51 tests, Level 2: 42 tests, Level 3: 15 tests.
 
 ## References
 
-- [EU AI Act Article 14](https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:52021PC0206) — Human oversight requirements
-- [NIST SP 800-53](https://csrc.nist.gov/publications/detail/sp/800-53/rev-5/final) — FedRAMP control baseline
+- [EU AI Act Article 14](https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:52021PC0206)  -  Human oversight requirements
+- [NIST SP 800-53](https://csrc.nist.gov/publications/detail/sp/800-53/rev-5/final)  -  FedRAMP control baseline
 - [AMD SEV-SNP](https://www.amd.com/en/developer/sev.html)
 - [Intel TDX](https://www.intel.com/content/www/us/en/developer/tools/trust-domain-extensions/documentation.html)
 - Spec Section 6: Conformance requirements and test identifiers
