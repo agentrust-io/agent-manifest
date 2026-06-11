@@ -2,7 +2,7 @@
 
 This page maps agent-manifest capabilities to EU AI Act obligations for high-risk AI systems. It is written for compliance officers and auditors, not developers.
 
-**Status:** EU AI Act obligations for high-risk AI systems apply from **August 2026**. GPAI model obligations apply from **August 2025**.
+**Status:** GPAI model obligations apply since **August 2025**. Under the current provisional legislative timeline (the digital omnibus amendments), high-risk AI system obligations are expected to apply from around **December 2027**, and AI systems embedded in regulated products from around **August 2028**. These dates remain subject to the legislative process — verify against the [official AI Act timeline](https://artificialintelligenceact.eu/implementation-timeline/) before relying on them. Obligations already in force today (e.g. DORA for financial entities, HIPAA for US healthcare) are unaffected by this timeline.
 
 ---
 
