@@ -83,3 +83,20 @@ Preferred forms for `approver_id`:
 - W3C DID bound to a hardware authenticator (e.g. FIDO2 passkey)
 
 SPIFFE URIs remain the correct format for `agent_id` and `issuer` (see ADR-0009), but are explicitly prohibited for `approver_id`. The "DID of the approver" language in the original Decision is retained only when the DID is hardware-bound (e.g. `did:key` backed by a FIDO2 authenticator); a software-only DID is discouraged for the same reason SPIFFE is prohibited.
+
+---
+
+## Amendment  -  2026-06-11: `hitl_record` is signed with `approvals` normalized, not wholly excluded
+
+**Resolved by:** issue #156
+
+The original Decision section stated that "the `hitl_record` field is excluded from the manifest signing pre-image (alongside `attestation`)". This conflicted with spec Section 3.6, which listed `hitl_record` in the fixed `signed_fields` list. Issue #156 flagged the contradiction and the security gap in the wholly-excluded reading: if `hitl_record` is entirely outside the pre-image, an attacker can strip or weaken the HITL *requirement* itself (`required`, risk-tier metadata, `escalation_policy`, `hitl_runtime`) without invalidating the issuer signature.
+
+Resolution: `hitl_record` IS part of the signing pre-image, with one normalization rule. When computing the pre-image, `hitl_record.approvals` is normalized to an empty array (`[]`). All other `hitl_record` fields are covered by the issuer signature.
+
+This preserves both original design goals:
+
+- **Post-issuance approval attachment.** Because `approvals` is normalized out of the pre-image, approvals can be collected and attached after the manifest is issued without re-signing, exactly as the original Decision intended. Each approval remains independently authenticated by its `approval_signature`.
+- **Tamper-evident HITL requirement.** The requirement that approvals exist (and under what conditions) is bound by the issuer signature and cannot be silently removed.
+
+Verifiers MUST apply the identical normalization before checking the issuer signature. Spec Section 3.6 now contains the normative signing coverage table and the normalization rule; the "excluded alongside `attestation`" sentence in the Decision section above is superseded by this amendment.

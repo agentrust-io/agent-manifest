@@ -729,16 +729,46 @@ Each `approval_signature` is produced by the approver's hardware-backed key (FID
   "key_id": "<key identifier>  -- REQUIRED",
   "key_type": "software | hsm | tee-sealed  -- REQUIRED",
   "signed_at": "<ISO 8601 UTC>  -- REQUIRED",
-  "signed_fields": ["manifest_id", "agent_id", "version", "issued_at", "expires_at", "issuer", "crypto_profile", "artifacts", "delegation_chain", "hitl_record"],
+  "signed_fields": ["@context", "@type", "manifest_id", "previous_manifest_id", "agent_id", "version", "min_verifier_version", "issued_at", "expires_at", "issuer", "crypto_profile", "artifacts", "delegation_chain", "hitl_record", "prior_transparency_log_entry", "log_retention", "data_scope", "operational_lifecycle"],
   "signature_value": "<base64url-encoded signature over RFC 8785 canonical JSON>  -- CONDITIONALLY REQUIRED: REQUIRED when algorithm is Ed25519 or ML-DSA-65",
   "classical_signature": "<base64url-encoded Ed25519 signature>  -- CONDITIONALLY REQUIRED: REQUIRED when algorithm is hybrid-Ed25519-ML-DSA-65",
   "pq_signature": "<base64url-encoded ML-DSA-65 signature>  -- CONDITIONALLY REQUIRED: REQUIRED when algorithm is hybrid-Ed25519-ML-DSA-65"
 }
 ```
 
-**`signed_fields`** is a fixed normative list and MUST NOT be varied by implementations. It covers all top-level fields except `attestation` (appended post-signing by hardware), `signature` (the signing object itself), and `transparency_log_entry` (populated after log submission). This ensures that identity fields including `expires_at`, `manifest_id`, and `issued_at` are covered by the signature and cannot be modified without invalidating it.
+**`signed_fields`** is a fixed normative list and MUST NOT be varied by implementations. <!-- CHANGED: closes #156: replaced contradictory prose with an exhaustive signing coverage table; added hitl_record.approvals normalization rule --> The following table enumerates every top-level manifest field and states whether it is part of the signing pre-image. A field marked "Signed" that is absent from the manifest (an omitted OPTIONAL or CONDITIONALLY REQUIRED field) is simply omitted from the pre-image per the null-omission rule in section 2.3; it MUST NOT be serialized as `null`.
 
-**Canonical serialization**: The signature covers the RFC 8785 canonical JSON serialization of the named `signed_fields`. See section 2.3 for the complete canonicalization specification.
+**Signing coverage table (normative)**
+
+| Top-level field | In signing pre-image | Notes |
+|---|---|---|
+| `@context` | Signed | Treated as an ordinary JSON string field (section 2.3). Binding it prevents post-signing context substitution. |
+| `@type` | Signed | Treated as an ordinary JSON string field (section 2.3). |
+| `manifest_id` | Signed | |
+| `previous_manifest_id` | Signed | Binds re-issuance audit chain continuity. |
+| `agent_id` | Signed | |
+| `version` | Signed | |
+| `min_verifier_version` | Signed | Prevents post-signing downgrade of the required verifier version. |
+| `issued_at` | Signed | |
+| `expires_at` | Signed | |
+| `issuer` | Signed | |
+| `crypto_profile` | Signed | |
+| `artifacts` | Signed | |
+| `attestation` | NOT signed | Appended post-signing by hardware (section 3.3). |
+| `delegation_chain` | Signed | |
+| `hitl_record` | Signed, with `approvals` normalized to `[]` | See the normalization rule below. The HITL requirement itself is tamper-evident; approvals attach post-issuance. |
+| `prior_transparency_log_entry` | Signed | Known at issuance time: it references the previous manifest's log entry (section 2.2). Binds the key rotation chain. |
+| `log_retention` | Signed | Prevents post-signing weakening of the declared retention policy (section 8.1). |
+| `data_scope` | Signed | Prevents post-signing alteration of declared GDPR processing scope (section 9.3). |
+| `operational_lifecycle` | Signed | Prevents post-signing alteration of Art. 13 lifecycle disclosures (section 9.4). |
+| `signature` | NOT signed | The signing object itself. |
+| `transparency_log_entry` | NOT signed | Populated after log submission (see ordering rules below). |
+
+Every top-level field defined by this specification appears in exactly one row of this table. A future spec version that introduces a new top-level field MUST add it to this table.
+
+**`hitl_record.approvals` normalization rule (normative)**: When computing the manifest signing pre-image, the value of `hitl_record.approvals` MUST be normalized to an empty array (`[]`). All other `hitl_record` fields, including `required`, `escalation_policy`, `hitl_runtime`, and any risk-tier metadata, are covered by the issuer signature as-is. This makes the HITL *requirement* tamper-evident (an attacker cannot strip or weaken it without invalidating the issuer signature) while allowing approvals to be attached after the manifest is issued, without re-signing. Approval entries are individually authenticated by their own `approval_signature` and verified separately per section 3.5; they are NOT covered by the issuer signature. Verifiers MUST apply the identical normalization before checking the issuer signature. See ADR-0006 (as amended 2026-06-11).
+
+**Canonical serialization**: The signature covers the RFC 8785 canonical JSON serialization of the named `signed_fields`, after applying the `hitl_record.approvals` normalization rule above. See section 2.3 for the complete canonicalization specification.
 
 **Ed25519 validation rules** <!-- CHANGED: CRYPTO-007 -->: Ed25519 implementations MUST use the cofactorless verification equation (`[S]B == R + [k]A`). Implementations MUST reject non-canonically encoded points (i.e., reject if the encoding does not round-trip through point decoding). Implementations MUST NOT use batch verification unless the batch verifier enforces the same cofactorless equation with canonical encoding checks. Implementations SHOULD use hedged signing (per draft-irtf-cfrg-det-sigs-with-noise) when signing keys reside in hardware signers subject to fault injection.
 
@@ -885,7 +915,7 @@ All canonical JSON serialization in this specification uses **RFC 8785 (JSON Can
 
 | Use | Input |
 |-----|-------|
-| Manifest signature pre-image | Fields in `signed_fields` — excludes `attestation`, `signature`, `transparency_log_entry` |
+| Manifest signature pre-image | Fields in `signed_fields` (excludes `attestation`, `signature`, `transparency_log_entry`), with `hitl_record.approvals` normalized to `[]` per section 3.6 |
 | `manifest_hash_in_report` pre-image | Full draft manifest JSON before attestation block appended |
 | Memory snapshot hash | Memory baseline JSON object |
 | Evidence pack hash | Evidence pack JSON envelope |
@@ -1015,7 +1045,7 @@ An evidence pack is a JSON document with the following structure:
 
 A `VALID` result means all of the following are true:
 
-- The manifest signature is valid under RFC 8785 canonicalization and the manifest is present in the transparency log
+- The manifest signature is valid under RFC 8785 canonicalization and the manifest is present in the transparency log. Before checking the issuer signature, the verifier MUST apply the `hitl_record.approvals` normalization rule from section 3.6 (replace `hitl_record.approvals` with `[]` in the signing pre-image); approvals are verified separately against their own `approval_signature`s
 - The TEE attestation report confirms the manifest hash is bound to the hardware measurement
 - All fields specified in `required_fields` match their running artifacts
 - The manifest has not expired
