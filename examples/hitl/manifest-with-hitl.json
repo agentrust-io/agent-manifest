@@ -40,7 +40,7 @@
     "approvals": [
       {
         "approved_at": "2026-06-05T09:00:00Z",
-        "approver_id": "spiffe://trust.acme.co/user/alice",
+        "approver_id": "mailto:alice@acme.example",
         "approved_scope": {
           "tools": ["execute_payment"],
           "data_classifications": ["pii"],

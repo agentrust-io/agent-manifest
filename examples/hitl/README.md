@@ -18,7 +18,7 @@ This example shows a manifest with a populated `hitl_record` — a cryptographic
   "approvals": [
     {
       "approved_at": "2026-06-05T09:00:00Z",
-      "approver_id": "spiffe://trust.acme.co/user/alice",
+      "approver_id": "mailto:alice@acme.example",
       "approved_scope": {
         "tools": ["execute_payment"],
         "data_classifications": ["pii"],
@@ -39,7 +39,7 @@ The `approval_signature` is an Ed25519 signature over the RFC 8785 canonical for
   "manifest_id": "...",
   "approved_at": "2026-06-05T09:00:00Z",
   "approved_scope": {...},
-  "approver_id": "spiffe://trust.acme.co/user/alice"
+  "approver_id": "mailto:alice@acme.example"
 }
 ```
 
