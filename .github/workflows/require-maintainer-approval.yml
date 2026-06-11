@@ -1,47 +1,89 @@
-name: Require maintainer approval
+# Requires a named-maintainer review before merge for external contributors.
+# AI-only approvals and bot approvals do not count.
+# Branch protection rules enforce the code-owner review requirement.
+name: "Policy: Awaiting maintainer review"
 
 on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+  # Re-evaluate the gate when a review is submitted or dismissed so an
+  # approval clears the failing status without waiting for a new push.
+  # Note: pull_request_review does not support a branches filter, so the
+  # base-branch check lives in the job-level `if` below.
   pull_request_review:
-    types: [submitted]
+    types: [submitted, dismissed]
 
 permissions:
-  pull-requests: read
-  statuses: write
+  contents: read
 
 jobs:
-  check-approver:
-    name: Verify human maintainer approved
+  check-approval:
+    name: "Policy: Awaiting maintainer review"
     runs-on: ubuntu-latest
-    if: github.event.review.state == 'approved'
+    permissions:
+      contents: read
+      pull-requests: read
+    if: >-
+      github.event.pull_request.base.ref == 'main' &&
+      github.event.pull_request.author_association != 'MEMBER' &&
+      github.event.pull_request.author_association != 'OWNER'
     steps:
-      - name: Check approver is a human maintainer
-        uses: actions/github-script@v9
+      - name: Check for named-maintainer review
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
-            const approver = context.payload.review.user;
+            const MAINTAINERS = ['imran-siddique'];
 
-            // Block bot and AI approvals
-            if (approver.type !== 'User') {
+            // Both pull_request_target and pull_request_review payloads
+            // carry the PR at context.payload.pull_request.
+            const prNumber = context.payload.pull_request.number;
+
+            // Re-fetch the PR so we compare against the head SHA at
+            // evaluation time, not a possibly stale SHA from the payload.
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+            });
+            const headSha = pr.head.sha;
+
+            // Paginate: listReviews otherwise returns only the first 30.
+            const reviews = await github.paginate(github.rest.pulls.listReviews, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+            });
+
+            // Only a maintainer's most recent non-comment review counts,
+            // and it must approve the current head commit. An approval of
+            // an older commit does not clear the gate after a later push
+            // (prevents approve-then-swap).
+            const latestByMaintainer = new Map();
+            for (const review of reviews) {
+              if (
+                review.user &&
+                review.user.type === 'User' &&
+                MAINTAINERS.includes(review.user.login) &&
+                review.state !== 'COMMENTED'
+              ) {
+                latestByMaintainer.set(review.user.login, review);
+              }
+            }
+
+            const maintainerApproval = [...latestByMaintainer.values()].find(
+              (r) => r.state === 'APPROVED' && r.commit_id === headSha
+            );
+
+            if (!maintainerApproval) {
               core.setFailed(
-                `PR approval from ${approver.login} (type: ${approver.type}) is not accepted. ` +
-                `A human maintainer listed in MAINTAINERS.md must approve this PR.`
+                'This PR is awaiting a named-maintainer review of the current head commit.\n' +
+                'This is a policy gate, not a CI failure: the PR is mergeable once a named maintainer approves.\n' +
+                'Approvals of earlier commits do not count after new pushes.\n' +
+                'See CODEOWNERS or MAINTAINERS.md for the list of maintainers.'
               );
-              return;
-            }
-
-            // Fetch the maintainers team members
-            const { data: members } = await github.rest.teams.listMembersInOrg({
-              org: context.repo.owner,
-              team_slug: 'maintainers',
-            }).catch(() => ({ data: [] }));
-
-            const maintainerLogins = members.map(m => m.login.toLowerCase());
-
-            if (maintainerLogins.length > 0 && !maintainerLogins.includes(approver.login.toLowerCase())) {
-              core.warning(
-                `Approver ${approver.login} is not in the maintainers team. ` +
-                `A team maintainer approval is still required before merge.`
+            } else {
+              core.info(
+                `Maintainer @${maintainerApproval.user.login} approved this PR at head ${headSha}.`
               );
             }
-
-            core.info(`Approval from human user ${approver.login} recorded.`);
