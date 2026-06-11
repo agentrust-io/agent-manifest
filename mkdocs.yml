@@ -126,7 +126,7 @@ nav:
       - ADR-0006 — HITL Approval Mechanism: adr/0006-hitl-approval-mechanism.md
       - ADR-0007 — JSON-Lines Revocation CRL: adr/0007-revocation-json-lines-crl.md
       - ADR-0008 — Conformance Level Design: adr/0008-conformance-level-design.md
-      - ADR-0009 — SPIFFE URI for Agent Identity: adr/0009-spiffe-uri-for-agent-identity.md
+      - ADR-0009 — SPIFFE URI for Agent Identity: adr/0009-spiffe-uri-agent-identity.md
   - Compliance:
       - Overview: compliance/index.md
       - EU AI Act: compliance/eu-ai-act.md

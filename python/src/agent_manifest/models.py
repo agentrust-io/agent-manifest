@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from ._types import HashValue, ManifestId
 
@@ -196,6 +196,17 @@ class HitlApproval(BaseModel):
     approval_id: ManifestId
     # MUST NOT be a SPIFFE URI — human identity uses DID, email, or employee ID
     approver_id: str
+
+    @field_validator("approver_id")
+    @classmethod
+    def _approver_id_must_not_be_spiffe(cls, v: str) -> str:
+        if v.startswith("spiffe://"):
+            raise ValueError(
+                "approver_id MUST NOT be a SPIFFE URI — SPIFFE identifies machine "
+                "workloads, not humans. Use a DID, mailto: URI, or employee ID "
+                "(spec Section 3.5, ADR-0009 scope note)."
+            )
+        return v
     approver_role: str
     approved_at: datetime
     approved_scope: ApprovedScope

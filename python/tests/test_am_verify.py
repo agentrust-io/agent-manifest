@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from agent_manifest._signing import Ed25519Signer, generate_ed25519
 from agent_manifest._verify import (
     DelegationResult,
     ErrorResponse,
@@ -28,6 +29,17 @@ SHA_B = "sha256:" + "b" * 64
 SHA_C = "sha256:" + "c" * 64
 MID   = "018f4a3b-2c1d-7e5f-a8b9-0d1e2f3a4b5c"
 
+# Fail-closed verifier: VALID requires a signed manifest plus the matching
+# trusted key in the verification context.
+KP = generate_ed25519()
+TRUSTED_KEYS = {KP.key_id: KP.public_b64url()}
+
+
+def sign(m):
+    """(Re-)sign a manifest dict in place and return it."""
+    m["signature"] = Ed25519Signer(KP).sign(m)
+    return m
+
 
 def manifest(**overrides):
     m = {
@@ -47,7 +59,7 @@ def manifest(**overrides):
         "hitl_record": None,
     }
     m.update(overrides)
-    return m
+    return sign(m)
 
 
 def ctx(**overrides):
@@ -56,6 +68,7 @@ def ctx(**overrides):
         policy_bundle_hash=SHA_B,
         model_version="claude-3",
         audit_chain_root=SHA_C,
+        trusted_keys=dict(TRUSTED_KEYS),
     )
     for k, v in overrides.items():
         setattr(c, k, v)
@@ -163,13 +176,13 @@ def test_mismatch_multiple_fields():
 def test_mismatch_supply_chain():
     m = manifest()
     m["artifacts"]["supply_chain"] = {"container_image_digest": SHA_A}
-    r = verify_manifest(m, ctx(container_image_digest=SHA_B), store())
+    r = verify_manifest(sign(m), ctx(container_image_digest=SHA_B), store())
     assert r.fields_verified.supply_chain == FieldResult.MISMATCH
 
 def test_mismatch_rag_corpus():
     m = manifest()
     m["artifacts"]["rag_corpus"] = {"merkle_root": SHA_A}
-    r = verify_manifest(m, ctx(rag_corpus_merkle_root=SHA_B), store())
+    r = verify_manifest(sign(m), ctx(rag_corpus_merkle_root=SHA_B), store())
     assert r.fields_verified.rag_corpus == FieldResult.MISMATCH
 
 def test_mismatch_memory_snapshot():
@@ -179,13 +192,13 @@ def test_mismatch_memory_snapshot():
         "approved_at": NOW.isoformat().replace("+00:00", "Z"),
         "ttl_seconds": 86400,
     }
-    r = verify_manifest(m, ctx(memory_snapshot_hash=SHA_B), store())
+    r = verify_manifest(sign(m), ctx(memory_snapshot_hash=SHA_B), store())
     assert r.fields_verified.memory_baseline == FieldResult.MISMATCH
 
 def test_mismatch_tool_catalog():
     m = manifest()
     m["artifacts"]["tool_manifest"] = {"catalog_hash": SHA_A}
-    r = verify_manifest(m, ctx(tool_catalog_hash=SHA_B), store())
+    r = verify_manifest(sign(m), ctx(tool_catalog_hash=SHA_B), store())
     assert r.fields_verified.tool_manifest == FieldResult.MISMATCH
 
 
@@ -209,7 +222,7 @@ def test_memory_baseline_expired():
         "approved_at": TS_PAST,
         "ttl_seconds": 60,
     }
-    r = verify_manifest(m, ctx(memory_snapshot_hash=SHA_A), store())
+    r = verify_manifest(sign(m), ctx(memory_snapshot_hash=SHA_A), store())
     assert r.fields_verified.memory_baseline == FieldResult.EXPIRED
 
 
@@ -241,7 +254,8 @@ def test_different_manifest_not_revoked():
 # Delegation chain (AM-VERIFY-27 to 29)
 # ---------------------------------------------------------------------------
 
-def test_delegation_chain_present():
+def test_delegation_chain_present_without_keys_is_unverifiable():
+    # Fail-closed: a chain the verifier cannot check is UNVERIFIABLE, not VALID.
     m = manifest(delegation_chain=[{
         "hop": 0, "principal_type": "human",
         "principal_id": "did:web:example", "delegated_at": NOW.isoformat(),
@@ -249,7 +263,8 @@ def test_delegation_chain_present():
         "delegation_signature": "sig",
     }])
     r = verify_manifest(m, ctx(), store())
-    assert r.fields_verified.delegation_chain == DelegationResult.VALID
+    assert r.fields_verified.delegation_chain == DelegationResult.UNVERIFIABLE
+    assert r.result == OverallResult.UNVERIFIABLE
 
 def test_delegation_chain_absent():
     r = verify_manifest(manifest(), ctx(), store())
@@ -332,11 +347,43 @@ def _client(manifests=None):
 
 
 @require_fastapi
-def test_http_verify_valid():
+def test_http_get_verify_without_keys_is_unverifiable():
+    # GET /verify cannot carry trusted keys — fail-closed means a signed
+    # manifest is UNVERIFIABLE, never VALID.
     client, _ = _client()
     r = client.get(f"/verify?manifest_id={MID}")
     assert r.status_code == 200
+    assert r.json()["result"] == "UNVERIFIABLE"
+    assert r.json()["signature_verified"] is False
+
+
+@require_fastapi
+def test_http_post_verify_with_trusted_keys_is_valid():
+    client, _ = _client()
+    r = client.post("/verify", json={
+        "manifest_id": MID,
+        "trusted_keys": TRUSTED_KEYS,
+    })
+    assert r.status_code == 200
     assert r.json()["result"] == "VALID"
+    assert r.json()["signature_verified"] is True
+
+
+@require_fastapi
+def test_http_post_verify_unsigned_manifest_is_signature_missing():
+    m = manifest()
+    del m["signature"]
+    client, _ = _client({MID: m})
+    r = client.post("/verify", json={"manifest_id": MID, "trusted_keys": TRUSTED_KEYS})
+    assert r.status_code == 200
+    assert r.json()["result"] == "SIGNATURE_MISSING"
+
+
+@require_fastapi
+def test_http_post_verify_not_found():
+    client, _ = _client({})
+    r = client.post("/verify", json={"manifest_id": MID})
+    assert r.status_code == 404
 
 
 @require_fastapi

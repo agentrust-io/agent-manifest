@@ -141,7 +141,7 @@ All canonical JSON serialization in this specification uses RFC 8785 (JSON Canon
 
 The `@context` and `@type` JSON-LD fields are treated as ordinary JSON fields for canonicalization purposes. Full JSON-LD RDF dataset normalization (RDNA/GPN-09) is NOT used and MUST NOT be used as a substitute for JCS — the two algorithms produce different canonical forms. Implementations MUST reject manifests where the signature does not verify under RFC 8785 canonicalization.
 
-**Test vector**: The object `{"b":2,"a":1}` canonicalizes under RFC 8785 to the UTF-8 byte sequence `{"a":1,"b":2}` (lexicographic key order, no insignificant whitespace). Its SHA-256 is `9b4a918f398d74d3e367970eca5d4d5c693b41a3e1b657a96d37b5efff7faa81`. Implementations MUST reproduce this value.
+**Test vector**: The object `{"b":2,"a":1}` canonicalizes under RFC 8785 to the UTF-8 byte sequence `{"a":1,"b":2}` (lexicographic key order, no insignificant whitespace). Its SHA-256 is `43258cff783fe7036d8a43033f830adfc60ec037382473548ac742b888292777`. Implementations MUST reproduce this value.
 
 **Null-valued optional fields** MUST be omitted from the canonical form rather than included with a `null` value, unless this specification explicitly states a field is required and may be null (e.g., `model_hash` when `deployment_type` is `api`).
 
