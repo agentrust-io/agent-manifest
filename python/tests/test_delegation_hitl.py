@@ -1,4 +1,4 @@
-"""Tests for A2A delegation chain and HITL approval signing — issues #12 and #13."""
+"""Tests for A2A delegation chain and HITL approval signing - issues #12 and #13."""
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -232,3 +232,44 @@ def test_approval_no_duration_does_not_expire():
         "approval_signature": sig,
     }
     verify_hitl_approval(approval, MID, kp.public_bytes)  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# HitlApproval model - approver_id MUST NOT be a SPIFFE URI (ADR-0009 scope note)
+# ---------------------------------------------------------------------------
+
+def _approval_kwargs(approver_id):
+    from agent_manifest.models import ApprovalMethod, ApprovedScope, RiskTier
+    return dict(
+        approval_id=MID,
+        approver_id=approver_id,
+        approver_role="ciso",
+        approved_at=datetime.now(timezone.utc),
+        approved_scope=ApprovedScope(
+            artifacts=["system_prompt"],
+            risk_tier=RiskTier.high,
+            approval_duration_seconds=3600,
+        ),
+        approval_signature="c2ln",
+        approval_method=ApprovalMethod.hardware_key,
+        evidence_uri="https://evidence.example/approvals/1",
+    )
+
+
+def test_hitl_approval_rejects_spiffe_approver_id():
+    from pydantic import ValidationError
+    from agent_manifest.models import HitlApproval
+    with pytest.raises(ValidationError, match="MUST NOT be a SPIFFE URI"):
+        HitlApproval(**_approval_kwargs("spiffe://trust.acme.co/user/alice"))
+
+
+def test_hitl_approval_accepts_mailto_approver_id():
+    from agent_manifest.models import HitlApproval
+    a = HitlApproval(**_approval_kwargs("mailto:alice@acme.example"))
+    assert a.approver_id == "mailto:alice@acme.example"
+
+
+def test_hitl_approval_accepts_did_approver_id():
+    from agent_manifest.models import HitlApproval
+    a = HitlApproval(**_approval_kwargs("did:web:acme.example:alice"))
+    assert a.approver_id == "did:web:acme.example:alice"

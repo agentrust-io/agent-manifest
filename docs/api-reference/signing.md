@@ -1,6 +1,6 @@
 # Signing
 
-Ed25519 and ML-DSA-65 (post-quantum) signing for agent manifests. See [ADR-0005](../adr/0005-ml-dsa-hybrid-signatures.md) for the signature design.
+Ed25519 and ML-DSA-65 (post-quantum) signing for agent manifests. See [ADR-0005](../adr/0005-ml-dsa-hybrid-signature.md) for the signature design.
 
 ## Key generation
 

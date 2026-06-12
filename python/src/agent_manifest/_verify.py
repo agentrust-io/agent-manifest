@@ -7,7 +7,7 @@ Two hosting modes (spec Section 5.1 / SPEC-07):
   OPAQUE-hosted: Results are served from hashes pushed by the agent SDK at
                  startup to OPAQUE's attestation service.
 
-The verification engine itself is hosting-agnostic — it takes a Manifest
+The verification engine itself is hosting-agnostic - it takes a Manifest
 dict and a set of running artifact hashes and produces a VerificationResult.
 The FastAPI router wires the engine to HTTP.
 """
@@ -35,6 +35,13 @@ class OverallResult(str, Enum):
     INCOMPLETE = "INCOMPLETE"
     ATTESTATION_UNAVAILABLE = "ATTESTATION_UNAVAILABLE"
     INCOMPATIBLE_VERSION = "INCOMPATIBLE_VERSION"
+    # Fail-closed statuses (spec 5.3: VALID requires a valid signature):
+    # SIGNATURE_MISSING - the manifest carries no signature block at all.
+    SIGNATURE_MISSING = "SIGNATURE_MISSING"
+    # UNVERIFIABLE - a signature or delegation chain is present but the
+    # verifier lacks the key material to verify it. MUST NOT be treated
+    # as VALID by relying parties.
+    UNVERIFIABLE = "UNVERIFIABLE"
 
 
 class FieldResult(str, Enum):
@@ -48,6 +55,9 @@ class DelegationResult(str, Enum):
     VALID = "VALID"
     INVALID = "INVALID"
     NOT_PRESENT = "NOT_PRESENT"
+    # Chain present but the verifier lacks the public keys (or constraint
+    # evaluation capability) to verify it - spec 3.4.1 / 5.2.
+    UNVERIFIABLE = "UNVERIFIABLE"
 
 
 class HitlResult(str, Enum):
@@ -99,7 +109,7 @@ class VerificationResult(BaseModel):
 
 
 class ErrorResponse(BaseModel):
-    """Error response schema (Schema F-13 fix — closes spec gap)."""
+    """Error response schema (Schema F-13 fix - closes spec gap)."""
 
     error_code: str
     error_message: str
@@ -112,6 +122,24 @@ class RevocationRecord(BaseModel):
     revoked_at: datetime
     reason: str
     revoked_by: str
+
+
+class VerifyRequest(BaseModel):
+    """Request body for ``POST /verify``.
+
+    ``trusted_keys`` maps key_id (sha256 hex of the raw public key bytes) to
+    the base64url-encoded public key. Signature verification is fail-closed:
+    without trusted keys, a signed manifest yields ``UNVERIFIABLE`` and an
+    unsigned manifest yields ``SIGNATURE_MISSING`` - never ``VALID``.
+    """
+
+    manifest_id: str
+    enforce_hitl: bool = False
+    enforce_attestation: bool = False
+    # key_id (sha256 hex of pub key bytes) -> base64url-encoded public key bytes
+    trusted_keys: dict[str, str] = Field(default_factory=dict)
+    # principal_id -> base64url-encoded public key bytes (for delegation chain)
+    delegation_public_keys: dict[str, str] = Field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -143,15 +171,33 @@ class VerificationContext(BaseModel):
     require_delegation: bool = False
 
 
+# Manifest spec versions this verifier implementation can process (spec 2.4).
+SUPPORTED_MANIFEST_VERSIONS: frozenset[str] = frozenset({"0.1"})
+
+
 def verify_manifest(
     manifest: dict[str, Any],
     context: VerificationContext,
     revocation_store: "RevocationStore",
 ) -> VerificationResult:
-    """Core verification engine — hosting-model agnostic.
+    """Core verification engine - hosting-model agnostic and fail-closed.
 
-    Checks signature, expiry, revocation, artifact hashes, delegation chain, and HITL.
-    Returns a VerificationResult with per-field status and mismatch details.
+    Checks version compatibility, signature, expiry, revocation, artifact
+    hashes, delegation chain, and HITL. Returns a VerificationResult with
+    per-field status and mismatch details.
+
+    Fail-closed semantics (spec 5.3 - VALID requires a valid signature):
+
+    - A manifest with an unsupported (or missing) ``version`` returns
+      ``INCOMPATIBLE_VERSION`` without further processing (spec 2.4).
+    - A manifest without a ``signature`` block returns ``SIGNATURE_MISSING``.
+    - A signed manifest verified without any ``trusted_keys`` in the context
+      returns ``UNVERIFIABLE`` - never ``VALID``.
+    - A delegation chain that cannot be verified (no
+      ``delegation_public_keys``) is marked ``UNVERIFIABLE`` and the overall
+      result is ``UNVERIFIABLE`` (spec 3.4.1 / 5.2).
+    - ``enforce_hitl=True`` with no ``hitl_record`` in the manifest is a
+      failure (``HitlResult.MISSING`` and a non-VALID overall result).
     """
     from cryptography.exceptions import InvalidSignature
 
@@ -159,6 +205,13 @@ def verify_manifest(
     result = VerificationResult(manifest_id=manifest_id, result=OverallResult.VALID)
     mismatches: list[MismatchDetail] = []
     fields = result.fields_verified
+
+    # --- Version negotiation (spec 2.2 / 2.4) - MUST be checked before
+    # verifying so unsupported manifests are never silently misinterpreted.
+    version = manifest.get("version")
+    if version not in SUPPORTED_MANIFEST_VERSIONS:
+        result.result = OverallResult.INCOMPATIBLE_VERSION
+        return result
 
     # --- Revocation check (must happen before VALID can be returned)
     if revocation_store.is_revoked(manifest_id):
@@ -176,8 +229,9 @@ def verify_manifest(
         except (ValueError, AttributeError):
             pass
 
-    # --- Signature verification (CRYPTO-004)
+    # --- Signature verification (CRYPTO-004, fail-closed per spec 5.3)
     sig_block = manifest.get("signature") or {}
+    signature_missing = not sig_block
     if sig_block and context.trusted_keys:
         algorithm = sig_block.get("algorithm", "Ed25519")
         key_id = sig_block.get("key_id", "")
@@ -204,7 +258,7 @@ def verify_manifest(
                     MlDsa65Verifier(pub_bytes).verify(manifest, sig_block.get("signature_value", ""))
                     result.signature_verified = True
                 elif algorithm == "hybrid-Ed25519-ML-DSA-65":
-                    # Hybrid needs both key components — key_id covers combined hash;
+                    # Hybrid needs both key components - key_id covers combined hash;
                     # callers must pass both keys in trusted_keys under their individual key_ids.
                     ed_key_id = sig_block.get("ed25519_key_id", key_id)
                     pq_key_id = sig_block.get("ml_dsa65_key_id", key_id)
@@ -348,9 +402,9 @@ def verify_manifest(
                     actual_hash=f"<invalid: {e}>",
                 ))
         else:
-            # No public keys provided — cannot verify chain.
-            # Mark VALID only if caller explicitly opted in by not requiring verification.
-            fields.delegation_chain = DelegationResult.VALID
+            # No public keys provided - the chain cannot be verified.
+            # Fail closed: surface UNVERIFIABLE rather than VALID (spec 3.4.1 / 5.2).
+            fields.delegation_chain = DelegationResult.UNVERIFIABLE
     else:
         fields.delegation_chain = DelegationResult.NOT_PRESENT
         if context.require_delegation:
@@ -365,7 +419,7 @@ def verify_manifest(
     if hitl and isinstance(hitl, dict):
         required = hitl.get("required", False)
         approvals = hitl.get("approvals") or []
-        if not required:
+        if not required and not context.enforce_hitl:
             fields.hitl_record = HitlResult.NOT_REQUIRED
         elif not approvals:
             if context.enforce_hitl:
@@ -389,7 +443,7 @@ def verify_manifest(
                         all_ok = False
                         break
                 except (ValueError, AttributeError):
-                    # Unparseable timestamp — treat as expired to fail safe (HITL-001)
+                    # Unparseable timestamp - treat as expired to fail safe (HITL-001)
                     all_ok = False
                     break
             if not all_ok:
@@ -400,6 +454,15 @@ def verify_manifest(
                     actual_hash="<approval expired or unparseable>",
                 ))
             fields.hitl_record = HitlResult.APPROVED if all_ok else HitlResult.EXPIRED
+    elif context.enforce_hitl:
+        # enforce_hitl with no hitl_record at all - fail closed. Omitting the
+        # record entirely MUST NOT be weaker than declaring it with no approvals.
+        fields.hitl_record = HitlResult.MISSING
+        mismatches.append(MismatchDetail(
+            field="hitl_record",
+            expected_hash="<hitl_record with valid approval>",
+            actual_hash="<hitl_record absent>",
+        ))
 
     # --- Attestation block verification (HW-010)
     # Check that manifest_hash_in_report matches the computed manifest hash.
@@ -420,10 +483,19 @@ def verify_manifest(
                     actual_hash=reported_hash,
                 ))
 
-    # --- Final result
+    # --- Final result (fail-closed: VALID requires a verified signature and
+    # a verifiable delegation chain - spec 5.3)
     result.mismatch_details = mismatches
     if mismatches:
         result.result = OverallResult.MISMATCH
+    elif signature_missing:
+        result.result = OverallResult.SIGNATURE_MISSING
+    elif not result.signature_verified:
+        # Signature present but no trusted keys (or verification never ran) -
+        # the manifest cannot be authenticated. Never VALID.
+        result.result = OverallResult.UNVERIFIABLE
+    elif fields.delegation_chain == DelegationResult.UNVERIFIABLE:
+        result.result = OverallResult.UNVERIFIABLE
     elif OverallResult.VALID == result.result:
         # VERIFY-001: bound artifacts with no runtime hashes in strict mode
         if context.strict_artifact_verification and unverified_bound:
@@ -481,13 +553,8 @@ def create_router(
 
     router = APIRouter()
 
-    @router.get("/verify", response_model=VerificationResult)
-    async def verify(
-        manifest_id: str = Query(..., description="UUID v7 manifest identifier"),
-        enforce_hitl: bool = Query(False),
-        enforce_attestation: bool = Query(False),
-    ) -> VerificationResult:
-        # Validate manifest_id format
+    def _lookup_manifest(manifest_id: str) -> dict[str, Any]:
+        """Validate manifest_id format and fetch the manifest or raise."""
         from ._types import ManifestId
         try:
             ManifestId._validate(manifest_id)
@@ -509,10 +576,45 @@ def create_router(
                     error_message="The requested manifest was not found.",
                 ).model_dump(),
             )
+        return manifest
 
+    @router.get("/verify", response_model=VerificationResult)
+    async def verify(
+        manifest_id: str = Query(..., description="UUID v7 manifest identifier"),
+        enforce_hitl: bool = Query(False),
+        enforce_attestation: bool = Query(False),
+    ) -> VerificationResult:
+        """Verify a manifest without caller-supplied key material.
+
+        This endpoint cannot receive trusted keys, so signature verification
+        is fail-closed: a signed manifest returns ``UNVERIFIABLE`` and an
+        unsigned manifest returns ``SIGNATURE_MISSING`` - never ``VALID``.
+        Callers that hold the issuer's public keys MUST use ``POST /verify``
+        and supply ``trusted_keys`` to obtain a ``VALID`` result.
+        """
+        manifest = _lookup_manifest(manifest_id)
         ctx = VerificationContext(
             enforce_hitl=enforce_hitl,
             enforce_attestation=enforce_attestation,
+        )
+        return verify_manifest(manifest, ctx, revocation_store)
+
+    @router.post("/verify", response_model=VerificationResult)
+    async def verify_post(request: VerifyRequest) -> VerificationResult:
+        """Verify a manifest with caller-supplied trusted keys.
+
+        The request body carries ``trusted_keys`` (key_id -> base64url public
+        key) used for manifest signature verification, and optionally
+        ``delegation_public_keys`` (principal_id -> base64url public key) for
+        delegation chain verification. Verification is fail-closed - see
+        :func:`verify_manifest`.
+        """
+        manifest = _lookup_manifest(request.manifest_id)
+        ctx = VerificationContext(
+            enforce_hitl=request.enforce_hitl,
+            enforce_attestation=request.enforce_attestation,
+            trusted_keys=request.trusted_keys,
+            delegation_public_keys=request.delegation_public_keys,
         )
         return verify_manifest(manifest, ctx, revocation_store)
 
