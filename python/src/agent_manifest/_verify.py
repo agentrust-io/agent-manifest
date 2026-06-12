@@ -104,6 +104,7 @@ class VerificationResult(BaseModel):
     attestation_verified: bool = False
     fields_verified: FieldsVerified = Field(default_factory=FieldsVerified)
     mismatch_details: list[MismatchDetail] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
     evidence_pack: Optional[EvidencePack] = None
     verification_signature: Optional[str] = None
 
@@ -169,6 +170,10 @@ class VerificationContext(BaseModel):
     strict_artifact_verification: bool = False
     # When True, manifest must have a delegation chain
     require_delegation: bool = False
+    # Conformance level for enforcing spec §3.2.5.1 poisoning_scan rules.
+    # Level 0: not-scanned is permitted (warning only).
+    # Level 1+: not-scanned is a verification failure.
+    conformance_level: int = 0
 
 
 # Manifest spec versions this verifier implementation can process (spec 2.4).
@@ -343,6 +348,27 @@ def verify_manifest(
         rc.get("merkle_root"),
         context.rag_corpus_merkle_root,
     )
+
+    # --- Poisoning scan rules (spec §3.2.5.1)
+    poisoning_scan = rc.get("poisoning_scan") or {}
+    poisoning_result = poisoning_scan.get("result")
+    if poisoning_result == "flagged":
+        mismatches.append(MismatchDetail(
+            field="rag_corpus.poisoning_scan",
+            expected_hash="<result: clean or not-scanned>",
+            actual_hash="<result: flagged>",
+        ))
+    elif poisoning_result == "not-scanned":
+        if context.conformance_level >= 1:
+            mismatches.append(MismatchDetail(
+                field="rag_corpus.poisoning_scan",
+                expected_hash="<result: clean>",
+                actual_hash="<result: not-scanned>",
+            ))
+        else:
+            result.warnings.append(
+                "rag_corpus.poisoning_scan.result is 'not-scanned'; scan before Level 1 conformance"
+            )
 
     mb = artifacts.get("memory_baseline") or {}
     if mb:
