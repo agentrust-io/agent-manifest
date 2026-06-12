@@ -1,4 +1,4 @@
-"""AM-CRYPTO: Cryptographic operations conformance tests — issue #17.
+"""AM-CRYPTO: Cryptographic operations conformance tests - issue #17.
 
 Covers Ed25519 signing/verification, canonical JSON, Merkle tree hashing,
 hybrid envelope structure, and SHA-256/SHAKE-256 hash correctness.
@@ -216,15 +216,15 @@ def test_catalog_root_vector():
     from agent_manifest.models import ToolEntry
     tools = [
         ToolEntry(
-            tool_id="com.example.read_customer_record", name="read",
-            server_id="spiffe://x/s",
+            tool_id="com.example.read_customer_record", tool_name="read",
+            endpoint_id="spiffe://x/s",
             schema_hash=HashValue("sha256:" + "aa" * 32),
             description_hash=HashValue("sha256:" + "bb" * 32),
             version="1.0",
         ),
         ToolEntry(
-            tool_id="com.example.send_notification", name="send",
-            server_id="spiffe://x/s",
+            tool_id="com.example.send_notification", tool_name="send",
+            endpoint_id="spiffe://x/s",
             schema_hash=HashValue("sha256:" + "cc" * 32),
             description_hash=HashValue("sha256:" + "dd" * 32),
             version="1.0",
@@ -247,13 +247,13 @@ def test_catalog_description_bound():
     """Changing description_hash must change catalog root (CRYPTO-002 fix)."""
     from agent_manifest.models import ToolEntry
     t1 = ToolEntry(
-        tool_id="t", name="t", server_id="spiffe://x/s",
+        tool_id="t", tool_name="t", endpoint_id="spiffe://x/s",
         schema_hash=HashValue("sha256:" + "a" * 64),
         description_hash=HashValue("sha256:" + "b" * 64),
         version="1",
     )
     t2 = ToolEntry(
-        tool_id="t", name="t", server_id="spiffe://x/s",
+        tool_id="t", tool_name="t", endpoint_id="spiffe://x/s",
         schema_hash=HashValue("sha256:" + "a" * 64),
         description_hash=HashValue("sha256:" + "c" * 64),  # only desc changed
         version="1",

@@ -240,9 +240,16 @@ def test_approval_no_duration_does_not_expire():
 
 def _approval_kwargs(approver_id):
     from agent_manifest.models import ApprovalMethod, ApprovedScope, RiskTier
+    from agent_manifest.models import ApproverIdentityType
+    identity_type = (
+        ApproverIdentityType.email
+        if approver_id.startswith("mailto:")
+        else ApproverIdentityType.did
+    )
     return dict(
         approval_id=MID,
         approver_id=approver_id,
+        approver_identity_type=identity_type,
         approver_role="ciso",
         approved_at=datetime.now(timezone.utc),
         approved_scope=ApprovedScope(

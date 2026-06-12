@@ -2,7 +2,7 @@
 
 This page maps agent-manifest capabilities to EU AI Act obligations for high-risk AI systems. It is written for compliance officers and auditors, not developers.
 
-**Status:** GPAI model obligations apply since **August 2025**. Under the current provisional legislative timeline (the digital omnibus amendments), high-risk AI system obligations are expected to apply from around **December 2027**, and AI systems embedded in regulated products from around **August 2028**. These dates remain subject to the legislative process — verify against the [official AI Act timeline](https://artificialintelligenceact.eu/implementation-timeline/) before relying on them. Obligations already in force today (e.g. DORA for financial entities, HIPAA for US healthcare) are unaffected by this timeline.
+**Status:** GPAI model obligations apply since **August 2025**. Under the current provisional legislative timeline (the digital omnibus amendments), high-risk AI system obligations are expected to apply from around **December 2027**, and AI systems embedded in regulated products from around **August 2028**. These dates remain subject to the legislative process - verify against the [official AI Act timeline](https://artificialintelligenceact.eu/implementation-timeline/) before relying on them. Obligations already in force today (e.g. DORA for financial entities, HIPAA for US healthcare) are unaffected by this timeline.
 
 ---
 
@@ -12,19 +12,26 @@ This page maps agent-manifest capabilities to EU AI Act obligations for high-ris
 
 **What agent-manifest provides**
 
-The manifest's `risk_classification` field carries a structured risk assessment: category, rationale, and the conformance level required for deployment. This field is signed as part of the manifest, making it tamper-evident.
+The manifest carries a structured risk assessment in `hitl_record.approvals[].approved_scope.risk_tier` (low / medium / high / critical), together with the artifacts the assessment covers and conditions attached to the approval. Each approval is signed by the approver's key, and the HITL requirement itself (`hitl_record.required`) is covered by the issuer signature, making the recorded risk assessment tamper-evident.
 
 ```json
 {
-  "risk_classification": {
-    "category": "high",
-    "rationale": "Processes financial decisions affecting natural persons",
-    "required_conformance_level": 2
+  "hitl_record": {
+    "required": true,
+    "approvals": [{
+      "approver_id": "mailto:risk-officer@example.com",
+      "approved_scope": {
+        "artifacts": ["tool_manifest", "policy_bundle"],
+        "risk_tier": "high",
+        "approval_duration_seconds": 7776000,
+        "conditions": ["Processes financial decisions affecting natural persons"]
+      }
+    }]
   }
 }
 ```
 
-The signed manifest is the risk management record. An auditor can verify that the classification was made before deployment (manifest `issued_at`) and has not been altered since.
+The signed manifest is the risk management record. An auditor can verify that the assessment was made before deployment (manifest `issued_at`) and has not been altered since.
 
 ---
 
@@ -50,7 +57,7 @@ The audit chain root is deterministic and reproducible: losing the chain does no
 |------------------------|----------------|
 | Identity of the provider | `issuer` (SPIFFE URI of the signing authority) |
 | Identity of the AI system | `agent_id` (SPIFFE URI of the agent role) |
-| Model used | `artifacts.model_identity.provider`, `.model_family`, `.version` |
+| Model used | `artifacts.model_identity.provider`, `.model_id`, `.version` |
 | System prompt used | `artifacts.system_prompt.hash` (SHA-256, content-addressed) |
 | Tools the system can invoke | `artifacts.tool_manifest.tools[]` |
 
@@ -64,16 +71,28 @@ All fields are signed by the issuer key. A deployer can verify the signed manife
 
 **What agent-manifest provides**
 
-The `hitl_approval` field records a human approval event:
+The `hitl_record` field records human approval events:
 
 ```json
 {
-  "hitl_approval": {
-    "approved_at": "2026-06-01T09:15:00Z",
-    "approver_id": "mailto:alice@example.com",
-    "approved_scope": ["execute_payment", "submit_regulatory_filing"],
-    "approval_expires_at": "2026-06-01T17:00:00Z",
-    "signature": "..."
+  "hitl_record": {
+    "required": true,
+    "approvals": [{
+      "approval_id": "019236ab-0000-7000-8000-000000000031",
+      "approver_id": "mailto:alice@example.com",
+      "approver_identity_type": "email",
+      "approver_role": "payments-security-officer",
+      "approved_at": "2026-06-01T09:15:00Z",
+      "approved_scope": {
+        "artifacts": ["tool_manifest"],
+        "risk_tier": "high",
+        "approval_duration_seconds": 28800,
+        "conditions": ["execute_payment", "submit_regulatory_filing"]
+      },
+      "approval_signature": "...",
+      "approval_method": "hardware-key",
+      "evidence_uri": "https://approvals.example.com/records/..."
+    }]
   }
 }
 ```
@@ -118,10 +137,10 @@ For high-risk AI systems under Article 6(2), Annex III, **Level 2 or above is re
 
 | EU AI Act Article | Obligation | agent-manifest capability |
 |-------------------|------------|---------------------------|
-| Article 9 | Risk management record | `risk_classification` (signed) |
+| Article 9 | Risk management record | `approved_scope.risk_tier` (approver-signed) |
 | Article 12 | Automatic logging | Merkle `audit_chain_root` |
 | Article 13 | Transparency to deployers | Signed identity + artifact hashes |
-| Article 14 | Human oversight | `hitl_approval` (signed, scoped) |
+| Article 14 | Human oversight | `hitl_record` (signed, scoped) |
 | Article 17 | Quality management | Signed artifact bindings; mismatch detection |
 
 ---

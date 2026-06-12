@@ -4,51 +4,91 @@
   "manifest_id": "019236ab-0000-7000-8000-000000000040",
   "agent_id": "spiffe://trust.acme.co/agent/financial-research/prod",
   "version": "0.1",
-  "issued_at": "2026-06-05T09:00:00Z",
-  "expires_at": "2026-06-05T17:00:00Z",
+  "issued_at": "2026-06-12T09:00:00Z",
+  "expires_at": "2026-09-10T09:00:00Z",
   "issuer": "spiffe://trust.acme.co/signing-authority",
   "crypto_profile": "standard",
   "artifacts": {
-    "model_identity": {
-      "provider": "openai",
-      "model_id": "gpt-4o",
-      "version": "gpt-4o-2024-08-06",
-      "deployment_type": "api",
-      "bound_at": "2026-06-05T09:00:00Z"
-    },
     "system_prompt": {
       "hash": "sha256:2c03cac61cdccb327988d1d7863e5bb920e4e49a206b60179935b9f6f9e9d942",
       "hash_algorithm": "SHA-256",
       "version": "1.0.0",
       "classification": "internal",
-      "storage_uri": "file://examples/multi-artifact/artifacts/system-prompt.txt",
-      "bound_at": "2026-06-05T09:00:00Z"
+      "bound_at": "2026-06-12T09:00:00Z"
+    },
+    "policy_bundle": {
+      "hash": "sha256:f4b2c3d4e5f67890f4b2c3d4e5f67890f4b2c3d4e5f67890f4b2c3d4e5f67891",
+      "policy_language": "cedar",
+      "version": "1.0.0",
+      "enforcement_mode": "enforce",
+      "scope": ["research:read:public_sources"],
+      "agt_version": "0.9.0",
+      "bound_at": "2026-06-12T09:00:00Z"
     },
     "tool_manifest": {
       "catalog_hash": "sha256:2eb6814457bca57c1a355e1f3c9b5a9d4e6aa62811e11b2c375fcf089f67734b",
-      "tool_count": 3,
-      "allow_dynamic_registration": false,
-      "rug_pull_policy": "deny-on-change",
       "tools": [
-        {"name": "search_public_filings", "version": "1.0.0"},
-        {"name": "get_market_data", "version": "1.0.0"},
-        {"name": "search_news", "version": "1.0.0"}
+        {
+          "tool_id": "co.acme.research.search_public_filings",
+          "tool_name": "search_public_filings",
+          "endpoint_id": "spiffe://trust.acme.co/mcp/research-gateway/prod",
+          "schema_hash": "sha256:41b2c3d4e5f6789041b2c3d4e5f6789041b2c3d4e5f6789041b2c3d4e5f67890",
+          "description_hash": "sha256:42b2c3d4e5f6789042b2c3d4e5f6789042b2c3d4e5f6789042b2c3d4e5f67891",
+          "version": "1.0.0",
+          "egress_destinations": ["www.sec.gov"]
+        },
+        {
+          "tool_id": "co.acme.research.get_market_data",
+          "tool_name": "get_market_data",
+          "endpoint_id": "spiffe://trust.acme.co/mcp/research-gateway/prod",
+          "schema_hash": "sha256:43b2c3d4e5f6789043b2c3d4e5f6789043b2c3d4e5f6789043b2c3d4e5f67891",
+          "description_hash": "sha256:44b2c3d4e5f6789044b2c3d4e5f6789044b2c3d4e5f6789044b2c3d4e5f67890",
+          "version": "1.0.0",
+          "egress_destinations": ["marketdata.internal.acme.co"]
+        },
+        {
+          "tool_id": "co.acme.research.search_news",
+          "tool_name": "search_news",
+          "endpoint_id": "spiffe://trust.acme.co/mcp/research-gateway/prod",
+          "schema_hash": "sha256:45b2c3d4e5f6789045b2c3d4e5f6789045b2c3d4e5f6789045b2c3d4e5f67890",
+          "description_hash": "sha256:46b2c3d4e5f6789046b2c3d4e5f6789046b2c3d4e5f6789046b2c3d4e5f67890",
+          "version": "1.0.0",
+          "egress_destinations": ["news.internal.acme.co"]
+        }
       ],
-      "bound_at": "2026-06-05T09:00:00Z"
+      "allow_dynamic_registration": false,
+      "rug_pull_policy": "deny-and-alert",
+      "bound_at": "2026-06-12T09:00:00Z"
+    },
+    "model_identity": {
+      "provider": "openai",
+      "model_id": "gpt-4o",
+      "version": "gpt-4o-2024-08-06",
+      "deployment_type": "api",
+      "model_attestation_type": "provider-asserted",
+      "bound_at": "2026-06-12T09:00:00Z"
     },
     "rag_corpus": {
+      "corpus_id": "acme-financial-research-corpus",
       "merkle_root": "sha256:b9028b1ef2d2e643c7e04f493bc5e2704808aa90baa5dc148f8bdd185cc6a1b9",
-      "version": "20260605",
-      "size_bytes": 2147483648,
       "document_count": 12847,
-      "ingestion_pipeline_hash": "sha256:e4b2c3d4e5f67890e4b2c3d4e5f67890e4b2c3d4e5f67890e4b2c3d4e5f67890",
-      "bound_at": "2026-06-05T09:00:00Z"
+      "ingestion_policy_hash": "sha256:e4b2c3d4e5f67890e4b2c3d4e5f67890e4b2c3d4e5f67890e4b2c3d4e5f67890",
+      "vector_store": "qdrant/1.9",
+      "embedding_model": "text-embedding-3-large",
+      "last_updated": "2026-06-12T08:00:00Z",
+      "poisoning_scan": {
+        "scanner_version": "lakera-scan/1.4.2",
+        "scanned_at": "2026-06-12T08:30:00Z",
+        "result": "clean"
+      },
+      "bound_at": "2026-06-12T09:00:00Z"
     }
   },
   "signature": {
     "algorithm": "Ed25519",
-    "key_id": "sha256:f4b2c3d4e5f67890f4b2c3d4e5f67890f4b2c3d4e5f67890f4b2c3d4e5f67890",
-    "signed_at": "2026-06-05T09:00:00Z",
-    "value": "BASE64URL_PLACEHOLDER_MANIFEST_SIGNATURE"
+    "key_id": "f4b2c3d4e5f67890f4b2c3d4e5f67890f4b2c3d4e5f67890f4b2c3d4e5f67890",
+    "key_type": "software",
+    "signed_at": "2026-06-12T09:00:00Z",
+    "signature_value": "BASE64URL_PLACEHOLDER_MANIFEST_SIGNATURE"
   }
 }

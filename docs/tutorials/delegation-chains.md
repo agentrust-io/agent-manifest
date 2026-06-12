@@ -86,7 +86,6 @@ hop0_scope = {
     "tools": ["search", "summarize"],          # subset of root's [search, summarize, write]
     "data_classifications": ["public", "internal"],
     "max_delegation_depth": 2,
-    "approval_required": False,
 }
 
 hop0_sig = hop_signer.sign_hop(
@@ -135,7 +134,6 @@ hop1_scope = {
     "tools": ["search"],                        # subset of delegate's [search, summarize]
     "data_classifications": ["public"],         # narrowed from ["public", "internal"]
     "max_delegation_depth": 2,
-    "approval_required": False,
 }
 
 delegate_hop_signer = DelegationHopSigner(keypair=delegate_kp)
@@ -237,9 +235,10 @@ bad_sig = delegate_hop_signer.sign_hop(
 ### Depth exceeded (rejected)
 
 ```python
-# Root grants max_delegation_depth=1 but chain has 2 hops
+# Root grants max_delegation_depth=0 (no further delegation) but the chain
+# carries a second hop, i.e. depth 1 (depth = hops below the root).
 # verify_delegation_chain raises:
-# ValueError: Delegation chain depth 2 exceeds root max_delegation_depth 1
+# ValueError: Delegation chain depth 1 exceeds root max_delegation_depth 0
 ```
 
 ### Wrong key (rejected)

@@ -29,12 +29,14 @@ A manifest store (database, `.well-known` endpoint, or immutable log) provides a
 ```json
 {
   "scope_grant": {
-    "tools": ["search_anonymised_records"],
-    "data_classifications": ["anonymised"],
+    "tools": ["org.example.research.search_anonymised_records"],
+    "data_classifications": ["internal"],
     "max_delegation_depth": 0
   }
 }
 ```
+
+(The spec's `data_classifications` values are `public`, `internal`, `confidential`, and `restricted`; map anonymised datasets to the lowest classification your policy allows.)
 
 The verifier rejects any manifest where the effective scope exceeds what the delegation chain granted.
 
@@ -50,8 +52,8 @@ The manifest is a record of processing intent  -  it documents what the agent wa
 
 | Article 30 requirement | Manifest field |
 |------------------------|----------------|
-| Purposes of the processing | `risk_classification.rationale` (free text, signed) |
-| Categories of data subjects | `artifacts.tool_manifest.tools[].data_classifications` |
+| Purposes and legal basis of the processing | `data_scope.legal_basis`, `data_scope.dpia_reference` (signed) |
+| Categories of personal data | `data_scope.personal_data_categories` (signed) |
 | Recipients | `issuer`, `delegation_chain[].principal_id` |
 | Where possible, time limits for erasure | `expires_at` (manifest validity window) |
 | Where possible, security measures | `crypto_profile`, `attestation.level` |

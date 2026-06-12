@@ -56,7 +56,7 @@ The `hitl_record` field is excluded from the manifest signing pre-image (alongsi
 ## Consequences
 
 - Agents that require HITL must implement an approval workflow before presenting the manifest. The SDK provides `HitlApprovalSigner` to construct and sign approval records; the approval UI is out of scope for the spec.
-- The `required_approvals` count is enforced by the verifier. A manifest with `required_approvals: 2` but only one valid approval record results in `HitlResult.APPROVAL_INSUFFICIENT`.
+- Whether approval is required is the boolean `hitl_record.required` (spec Section 3.5). A verifier running with `enforce_hitl=True` treats a missing or empty `approvals` list as `HitlResult.MISSING` and fails closed.
 - Approval expiry is checked at verification time, not at approval collection time. An agent that collects an approval and then presents the manifest 90 minutes later with `approval_duration_seconds: 3600` will be rejected. Long-running actions must implement re-approval logic.
 - Approver keypairs should be hardware-backed (FIDO2/passkey or HSM) in production. The spec does not mandate this but the operational guidance notes it as strongly recommended.
 

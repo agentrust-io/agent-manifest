@@ -4,8 +4,8 @@
   "manifest_id": "019236ab-0000-7000-8000-000000000010",
   "agent_id": "spiffe://trust.acme.co/agent/orchestrator/prod",
   "version": "0.1",
-  "issued_at": "2026-06-05T09:00:00Z",
-  "expires_at": "2026-06-05T17:00:00Z",
+  "issued_at": "2026-06-12T09:00:00Z",
+  "expires_at": "2026-09-10T09:00:00Z",
   "issuer": "spiffe://trust.acme.co/signing-authority",
   "crypto_profile": "standard",
   "artifacts": {
@@ -14,32 +14,57 @@
       "hash_algorithm": "SHA-256",
       "version": "1.0.0",
       "classification": "internal",
-      "bound_at": "2026-06-05T09:00:00Z"
+      "bound_at": "2026-06-12T09:00:00Z"
+    },
+    "policy_bundle": {
+      "hash": "sha256:91b2c3d4e5f6789091b2c3d4e5f6789091b2c3d4e5f6789091b2c3d4e5f67890",
+      "policy_language": "cedar",
+      "version": "1.0.0",
+      "enforcement_mode": "enforce",
+      "scope": ["analysis:read:public_data", "analysis:run:reports"],
+      "agt_version": "0.9.0",
+      "bound_at": "2026-06-12T09:00:00Z"
     },
     "tool_manifest": {
       "catalog_hash": "sha256:c1b2c3d4e5f67890c1b2c3d4e5f67890c1b2c3d4e5f67890c1b2c3d4e5f67890",
-      "tool_count": 2,
-      "allow_dynamic_registration": false,
-      "rug_pull_policy": "deny-on-change",
       "tools": [
-        {"name": "fetch_public_data", "version": "1.0.0"},
-        {"name": "run_analysis", "version": "1.0.0"}
+        {
+          "tool_id": "co.acme.analysis.fetch_public_data",
+          "tool_name": "fetch_public_data",
+          "endpoint_id": "spiffe://trust.acme.co/mcp/analysis-gateway/prod",
+          "schema_hash": "sha256:51b2c3d4e5f6789051b2c3d4e5f6789051b2c3d4e5f6789051b2c3d4e5f67890",
+          "description_hash": "sha256:52b2c3d4e5f6789052b2c3d4e5f6789052b2c3d4e5f6789052b2c3d4e5f67890",
+          "version": "1.0.0",
+          "egress_destinations": ["data.public.example.org"]
+        },
+        {
+          "tool_id": "co.acme.analysis.run_analysis",
+          "tool_name": "run_analysis",
+          "endpoint_id": "spiffe://trust.acme.co/mcp/analysis-gateway/prod",
+          "schema_hash": "sha256:53b2c3d4e5f6789053b2c3d4e5f6789053b2c3d4e5f6789053b2c3d4e5f67890",
+          "description_hash": "sha256:54b2c3d4e5f6789054b2c3d4e5f6789054b2c3d4e5f6789054b2c3d4e5f67890",
+          "version": "1.0.0",
+          "egress_destinations": []
+        }
       ],
-      "bound_at": "2026-06-05T09:00:00Z"
+      "allow_dynamic_registration": false,
+      "rug_pull_policy": "deny-and-alert",
+      "bound_at": "2026-06-12T09:00:00Z"
     },
     "model_identity": {
       "provider": "openai",
       "model_id": "gpt-4o",
       "version": "gpt-4o-2024-08-06",
       "deployment_type": "api",
-      "bound_at": "2026-06-05T09:00:00Z"
+      "model_attestation_type": "provider-asserted",
+      "bound_at": "2026-06-12T09:00:00Z"
     }
   },
-  "delegation_chain": [],
   "signature": {
     "algorithm": "Ed25519",
-    "key_id": "sha256:d1b2c3d4e5f67890d1b2c3d4e5f67890d1b2c3d4e5f67890d1b2c3d4e5f67890",
-    "signed_at": "2026-06-05T09:00:00Z",
-    "value": "BASE64URL_PLACEHOLDER_ORCHESTRATOR_SIGNATURE"
+    "key_id": "d1b2c3d4e5f67890d1b2c3d4e5f67890d1b2c3d4e5f67890d1b2c3d4e5f67890",
+    "key_type": "software",
+    "signed_at": "2026-06-12T09:00:00Z",
+    "signature_value": "BASE64URL_PLACEHOLDER_ORCHESTRATOR_SIGNATURE"
   }
 }

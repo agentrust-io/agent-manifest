@@ -57,7 +57,6 @@ manifest = Manifest(
     artifacts=ArtifactBindings(),
     hitl_record={
         "required": True,
-        "required_approvals": 1,
         "approvals": [],          # filled in below
     },
 )
@@ -76,9 +75,10 @@ approver = HitlApprovalSigner(keypair=approver_kp)
 approved_at = datetime.now(timezone.utc).isoformat()
 
 approved_scope = {
-    "action": "execute_trade",
-    "max_notional_usd": 500_000,
+    "artifacts": ["tool_manifest", "policy_bundle"],
+    "risk_tier": "high",
     "approval_duration_seconds": 3600,   # approval is valid for 1 hour
+    "conditions": ["action=execute_trade", "max_notional_usd <= 500000"],
 }
 
 approval_sig = approver.sign_approval(
@@ -96,17 +96,21 @@ approval_sig = approver.sign_approval(
 ```python
 from agent_manifest._signing import Ed25519Signer
 
-manifest.hitl_record["approvals"] = [{
-    "approver_id":          "mailto:alice@example.com",
-    "approved_at":          approved_at,
-    "approved_scope":       approved_scope,
-    "approval_method":      "hardware_key",
-    "approval_signature":   approval_sig,
-    "approver_key_id":      approver_kp.key_id,
+signed_manifest = manifest.model_dump(mode="json", by_alias=True, exclude_none=True)
+signed_manifest["hitl_record"]["approvals"] = [{
+    "approval_id":            "019236ab-0000-7000-8000-0000000000a1",  # UUID v7
+    "approver_id":            "mailto:alice@example.com",
+    "approver_identity_type": "email",
+    "approver_role":          "trading-desk-supervisor",
+    "approved_at":            approved_at,
+    "approved_scope":         approved_scope,
+    "approval_signature":     approval_sig,
+    "approval_method":        "hardware-key",
+    "evidence_uri":           "https://approvals.example.com/records/execute-trade",
 }]
 
 signer = Ed25519Signer(agent_kp)
-signed_manifest = signer.sign(manifest.model_dump(mode="json"))
+signed_manifest["signature"] = signer.sign(signed_manifest)
 ```
 
 ---
@@ -133,7 +137,12 @@ from agent_manifest._verify import (
     OverallResult, RevocationStore, VerificationContext, verify_manifest
 )
 
-ctx = VerificationContext(enforce_hitl=True)
+# Fail-closed: VALID requires the issuer's key in trusted_keys. Without
+# trusted keys the result is UNVERIFIABLE - never VALID.
+ctx = VerificationContext(
+    enforce_hitl=True,
+    trusted_keys={agent_kp.key_id: agent_kp.public_b64url()},
+)
 result = verify_manifest(signed_manifest, ctx, RevocationStore())
 
 assert result.fields_verified.hitl_record.value == "APPROVED"
@@ -150,7 +159,7 @@ assert result.result == OverallResult.VALID
 # Manifest requires HITL but approvals list is empty
 manifest_no_approval = {
     **signed_manifest,
-    "hitl_record": {"required": True, "required_approvals": 1, "approvals": []},
+    "hitl_record": {"required": True, "approvals": []},
 }
 ctx = VerificationContext(enforce_hitl=True)
 result = verify_manifest(manifest_no_approval, ctx, RevocationStore())
@@ -203,7 +212,7 @@ except InvalidSignature:
 |---------|----------------|
 | Approver key storage | FIDO2 hardware key or HSM  -  software keys are only for development |
 | Approval UI | Generate the `approved_scope` dict from your UI, sign on the server with the approver's key after authentication |
-| Multiple approvers | Set `required_approvals: 2` and add two entries to `approvals` |
+| Multiple approvers | Add one entry per approver to `approvals`; each is independently signed and verified |
 | Approval duration | Keep short (1–4 hours); for long-running jobs, re-approve rather than extending |
 | Audit | Store each `approval_signature` in your audit log with the approver's public key |
 

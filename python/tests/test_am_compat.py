@@ -91,15 +91,15 @@ def test_mcp_tool_evidence_verification_result_enum():
 def test_mcp_rug_pull_detected_by_catalog_hash():
     """Changing tool description must produce different catalog hash."""
     t1 = ToolEntry(
-        tool_id="com.example.read", name="read",
-        server_id="spiffe://x/s",
+        tool_id="com.example.read", tool_name="read",
+        endpoint_id="spiffe://x/s",
         schema_hash=HashValue("sha256:" + "a" * 64),
         description_hash=HashValue("sha256:" + "b" * 64),
         version="1",
     )
     t2 = ToolEntry(
-        tool_id="com.example.read", name="read",
-        server_id="spiffe://x/s",
+        tool_id="com.example.read", tool_name="read",
+        endpoint_id="spiffe://x/s",
         schema_hash=HashValue("sha256:" + "a" * 64),
         description_hash=HashValue("sha256:" + "c" * 64),  # description mutated
         version="1",
@@ -107,12 +107,14 @@ def test_mcp_rug_pull_detected_by_catalog_hash():
     assert build_catalog_tree([t1]) != build_catalog_tree([t2])
 
 def test_allow_dynamic_registration_false_by_default():
+    from agent_manifest.models import RugPullPolicy
     binding = ToolManifestBinding(
         catalog_hash=SHA,
         tools=[ToolEntry(
-            tool_id="t", name="t", server_id="spiffe://x",
+            tool_id="t", tool_name="t", endpoint_id="spiffe://x",
             schema_hash=SHA, description_hash=SHA2, version="1",
         )],
+        rug_pull_policy=RugPullPolicy.deny_and_alert,
         bound_at=NOW,
     )
     assert binding.allow_dynamic_registration is False
@@ -203,17 +205,23 @@ def test_slsa_provenance_in_supply_chain():
     b = SupplyChainBinding(
         container_image_digest=SHA,
         slsa_provenance=SlsaProvenance(
-            level=SlsaLevel.three,
+            builder_id="https://github.com/example/repo/.github/workflows/build.yml@refs/heads/main",
+            subject_digest=SHA,
             provenance_uri="https://build.example/prov/123",
-            build_system="github-actions",
+            declared_level=SlsaLevel.three,
         ),
         bound_at=NOW,
     )
-    assert b.slsa_provenance.level == SlsaLevel.three
+    assert b.slsa_provenance.declared_level == SlsaLevel.three
 
-def test_slsa_level_four():
-    p = SlsaProvenance(level=SlsaLevel.four, provenance_uri="https://x", build_system="hermetic")
-    assert p.level == 4
+def test_slsa_declared_level_four():
+    p = SlsaProvenance(
+        builder_id="https://hermetic.example/builder",
+        subject_digest=SHA,
+        provenance_uri="https://x",
+        declared_level=SlsaLevel.four,
+    )
+    assert p.declared_level == 4
 
 def test_slsa_provenance_optional():
     b = SupplyChainBinding(container_image_digest=SHA, bound_at=NOW)
@@ -222,7 +230,7 @@ def test_slsa_provenance_optional():
 def test_sbom_cyclonedx():
     from agent_manifest.models import Sbom, SbomFormat
     s = Sbom(
-        format=SbomFormat.cyclonedx, version="1.6",
+        format=SbomFormat.cyclonedx, schema_version="CycloneDX 1.6",
         sbom_hash=SHA, sbom_uri="https://x/sbom.json",
         document_id="urn:uuid:abc123",
     )
@@ -279,7 +287,7 @@ def test_corpus_tree_root_is_hash_value():
 
 def test_catalog_tree_root_is_hash_value():
     t = ToolEntry(
-        tool_id="t", name="t", server_id="spiffe://x",
+        tool_id="t", tool_name="t", endpoint_id="spiffe://x",
         schema_hash=SHA, description_hash=SHA2, version="1",
     )
     root = build_catalog_tree([t])
@@ -303,14 +311,19 @@ def _minimal_manifest():
         expires_at=NOW + timedelta(days=90),
         issuer="spiffe://trust.example/issuer",
         artifacts=ArtifactBindings(
-            system_prompt=SystemPromptBinding(hash=SHA, bound_at=NOW),
+            system_prompt=SystemPromptBinding(
+                hash=SHA, version="1.0.0",
+                classification="internal", bound_at=NOW,
+            ),
             policy_bundle=PolicyBundleBinding(
                 hash=SHA, policy_language="cedar",
                 version="1.0", enforcement_mode=EnforcementMode.enforce, bound_at=NOW,
             ),
             model_identity=ModelIdentityBinding(
                 provider="anthropic", model_id="claude", version="3",
-                deployment_type=DeploymentType.api, bound_at=NOW,
+                deployment_type=DeploymentType.api,
+                model_attestation_type="provider-asserted",
+                bound_at=NOW,
             ),
         ),
     )

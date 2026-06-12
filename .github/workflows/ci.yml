@@ -6,12 +6,14 @@ on:
     paths:
       - "python/**"
       - "spec/**"
+      - "examples/**"
       - ".github/workflows/ci.yml"
   pull_request:
     branches: [main]
     paths:
       - "python/**"
       - "spec/**"
+      - "examples/**"
 
 permissions:
   contents: read
