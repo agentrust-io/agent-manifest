@@ -22,19 +22,20 @@ An agent attempting to access ePHI beyond its declared scope produces a `SCOPE_E
 {
   "delegation_chain": [{
     "hop": 0,
+    "principal_type": "system",
     "principal_id": "spiffe://trust.example/system/ehr-coordinator",
+    "delegated_at": "2026-06-12T09:00:00Z",
     "scope_grant": {
-      "tools": ["read_patient_record"],
-      "data_classifications": ["phi"],
-      "max_delegation_depth": 0,
-      "approval_required": true
+      "tools": ["org.example.ehr.read_patient_record"],
+      "data_classifications": ["restricted"],
+      "max_delegation_depth": 0
     },
-    "signature": "..."
+    "delegation_signature": "..."
   }]
 }
 ```
 
-The `approval_required: true` field means no sub-agent can be delegated access to PHI without a matching HITL approval record.
+Map ePHI to the `restricted` data classification. The `max_delegation_depth: 0` grant means no sub-agent can be delegated PHI access at all; pair it with `hitl_record.required: true` so PHI access requires a matching HITL approval record.
 
 ---
 

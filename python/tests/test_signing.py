@@ -1,4 +1,4 @@
-"""Tests for Ed25519 and ML-DSA-65 signing — issue #2.
+"""Tests for Ed25519 and ML-DSA-65 signing - issue #2.
 
 ML-DSA-65 tests are skipped when pyoqs is not installed.
 """
@@ -92,7 +92,7 @@ def test_pre_image_includes_all_signed_fields():
 
 
 def test_pre_image_is_rfc8785():
-    """Pre-image must be valid RFC 8785 — reproducible from the same input."""
+    """Pre-image must be valid RFC 8785 - reproducible from the same input."""
     pre1 = signing_pre_image(SAMPLE_MANIFEST)
     pre2 = signing_pre_image(SAMPLE_MANIFEST)
     assert pre1 == pre2
@@ -155,6 +155,18 @@ def test_ed25519_signed_fields_list_correct():
     kp = generate_ed25519()
     sig_block = Ed25519Signer(kp).sign(SAMPLE_MANIFEST)
     assert set(sig_block["signed_fields"]) == set(SIGNED_FIELDS)
+
+
+def test_ed25519_sign_block_validates_against_model():
+    """The signer's output must be a spec 3.6 signature block: every REQUIRED
+    field (including signed_at) present and accepted by ManifestSignature."""
+    from agent_manifest import ManifestSignature
+
+    kp = generate_ed25519()
+    sig_block = Ed25519Signer(kp).sign(SAMPLE_MANIFEST)
+    parsed = ManifestSignature.model_validate(sig_block)
+    assert parsed.signed_at is not None
+    assert parsed.signed_at.tzinfo is not None  # ISO 8601 UTC, not naive
 
 
 def test_ed25519_small_order_key_rejected():
@@ -281,3 +293,100 @@ def test_hybrid_both_components_cover_same_pre_image():
     )
     pub = Ed25519PublicKey.from_public_bytes(kp.ed25519.public_bytes)
     pub.verify(classical_bytes, pre)  # raises if pre-image differs
+
+
+# ---------------------------------------------------------------------------
+# Spec 3.6 signing coverage table (PR #160) and approvals normalization
+# ---------------------------------------------------------------------------
+
+
+def test_signed_fields_match_spec_coverage_table():
+    """SIGNED_FIELDS must equal the spec 3.6 normative signing coverage table."""
+    assert SIGNED_FIELDS == (
+        "@context",
+        "@type",
+        "manifest_id",
+        "previous_manifest_id",
+        "agent_id",
+        "version",
+        "min_verifier_version",
+        "issued_at",
+        "expires_at",
+        "issuer",
+        "crypto_profile",
+        "artifacts",
+        "delegation_chain",
+        "hitl_record",
+        "prior_transparency_log_entry",
+        "log_retention",
+        "data_scope",
+        "operational_lifecycle",
+    )
+
+
+def _manifest_with_hitl(approvals):
+    m = {k: v for k, v in SAMPLE_MANIFEST.items()}
+    m["hitl_record"] = {"required": True, "approvals": approvals}
+    return m
+
+
+def test_pre_image_normalizes_hitl_approvals_to_empty():
+    """Spec 3.6: hitl_record.approvals is normalized to [] in the pre-image."""
+    approval = {
+        "approval_id": "018f4a3b-2c1d-7e5f-a8b9-0d1e2f3a4b5d",
+        "approver_id": "mailto:alice@acme.example",
+        "approved_at": "2026-06-23T09:00:00Z",
+        "approval_signature": "c2ln",
+    }
+    pre_with = signing_pre_image(_manifest_with_hitl([approval]))
+    pre_without = signing_pre_image(_manifest_with_hitl([]))
+    assert pre_with == pre_without
+    assert b"alice@acme.example" not in pre_with
+
+
+def test_pre_image_keeps_hitl_required_tamper_evident():
+    """Stripping the HITL requirement must change the pre-image."""
+    pre_required = signing_pre_image(_manifest_with_hitl([]))
+    m = {k: v for k, v in SAMPLE_MANIFEST.items()}
+    m["hitl_record"] = {"required": False, "approvals": []}
+    assert pre_required != signing_pre_image(m)
+
+
+def test_approvals_attach_post_issuance_without_resigning():
+    """A manifest signed with no approvals verifies after approvals attach."""
+    kp = generate_ed25519()
+    signed = _manifest_with_hitl([])
+    sig_block = Ed25519Signer(kp).sign(signed)
+
+    # Approval attached after issuance - issuer signature must still verify.
+    attached = _manifest_with_hitl([
+        {
+            "approval_id": "018f4a3b-2c1d-7e5f-a8b9-0d1e2f3a4b5d",
+            "approver_id": "mailto:alice@acme.example",
+            "approved_at": "2026-06-23T09:30:00Z",
+            "approval_signature": "c2ln",
+        }
+    ])
+    Ed25519Verifier(kp.public_bytes).verify(attached, sig_block["signature_value"])
+
+
+def test_newly_signed_fields_are_tamper_evident():
+    """Fields added to the coverage table by #160 must be bound by the signature."""
+    kp = generate_ed25519()
+    m = {k: v for k, v in SAMPLE_MANIFEST.items()}
+    m["log_retention"] = {
+        "minimum_retention_days": 180,
+        "retention_enforced_by": "audit-system",
+    }
+    sig_block = Ed25519Signer(kp).sign(m)
+    Ed25519Verifier(kp.public_bytes).verify(m, sig_block["signature_value"])
+
+    tampered = {k: v for k, v in m.items()}
+    tampered["log_retention"] = {
+        "minimum_retention_days": 1,
+        "retention_enforced_by": "audit-system",
+    }
+    with pytest.raises(InvalidSignature):
+        Ed25519Verifier(kp.public_bytes).verify(
+            tampered, sig_block["signature_value"]
+        )

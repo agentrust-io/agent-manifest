@@ -140,7 +140,7 @@ def submit_to_rekor(audit_chain_root: str, manifest_id: str, signed_manifest: di
                 "content": base64.b64encode(payload).decode(),
                 "publicKey": {
                     "content": base64.b64encode(
-                        signed_manifest["signature"]["value"].encode()
+                        signed_manifest["signature"]["signature_value"].encode()
                     ).decode()
                 }
             }

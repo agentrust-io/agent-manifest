@@ -21,7 +21,9 @@ from datetime import datetime, timedelta, timezone
 from agent_manifest import (
     Manifest, ArtifactBindings,
     ModelIdentityBinding, SystemPromptBinding, ToolManifestBinding,
-    ToolEntry, CryptoProfile,
+    PolicyBundleBinding, ToolEntry,
+    CryptoProfile, DeploymentType, EnforcementMode,
+    ModelAttestationType, PolicyLanguage, RugPullPolicy,
     generate_ed25519,
 )
 from agent_manifest._types import ManifestId
@@ -46,18 +48,47 @@ orchestrator_manifest = Manifest(
     artifacts=ArtifactBindings(
         model_identity=ModelIdentityBinding(
             provider="openai",
-            model_family="gpt-4o",
-            version="gpt-4o-2024-08-06",
+            model_id="gpt-4o",
+            version="2024-08-06",
+            deployment_type=DeploymentType.api,
+            model_attestation_type=ModelAttestationType.provider_asserted,
+            bound_at=now,
         ),
         system_prompt=SystemPromptBinding(
             hash="sha256:" + hashlib.sha256(ORCHESTRATOR_PROMPT.encode()).hexdigest(),
+            version="1.0.0",
+            classification="internal",
+            bound_at=now,
+        ),
+        policy_bundle=PolicyBundleBinding(
+            hash="sha256:" + hashlib.sha256(b"policy-bundle-v1").hexdigest(),
+            policy_language=PolicyLanguage.cedar,
+            version="1.0.0",
+            enforcement_mode=EnforcementMode.enforce,
+            bound_at=now,
         ),
         tool_manifest=ToolManifestBinding(
             catalog_hash="sha256:" + hashlib.sha256(b"[handoff_to_fetcher,handoff_to_analyst]").hexdigest(),
             tools=[
-                ToolEntry(name="handoff_to_fetcher", version="1.0.0"),
-                ToolEntry(name="handoff_to_analyst", version="1.0.0"),
+                ToolEntry(
+                    tool_id="example.trust.handoff_to_fetcher",
+                    tool_name="handoff_to_fetcher",
+                    endpoint_id="spiffe://trust.example/agent/fetcher/prod",
+                    schema_hash="sha256:" + hashlib.sha256(b"fetcher-schema").hexdigest(),
+                    description_hash="sha256:" + hashlib.sha256(b"fetcher-description").hexdigest(),
+                    version="1.0.0",
+                ),
+                ToolEntry(
+                    tool_id="example.trust.handoff_to_analyst",
+                    tool_name="handoff_to_analyst",
+                    endpoint_id="spiffe://trust.example/agent/analyst/prod",
+                    schema_hash="sha256:" + hashlib.sha256(b"analyst-schema").hexdigest(),
+                    description_hash="sha256:" + hashlib.sha256(b"analyst-description").hexdigest(),
+                    version="1.0.0",
+                ),
             ],
+            rug_pull_policy=RugPullPolicy.require_reapproval,
+            bound_at=now,
         ),
     ),
 )
@@ -198,7 +229,7 @@ hop0_sig = hop_signer.sign_hop(
         "tools": ["fetch_public_data"],
         "data_classifications": ["public"],
         "max_delegation_depth": 1,
-        "approval_required": False,
+        "ttl_seconds": 3600,
     },
     manifest_id=fetcher_manifest_id,
 )

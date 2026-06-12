@@ -29,9 +29,9 @@ Removing or altering the approval breaks both signatures. Verifiers can reject t
 
 ---
 
-## Step 1: Configure `required_approvals`
+## Step 1: Configure the HITL requirement
 
-Set `hitl_record.required = True` when building the manifest. Leave `approvals` empty  -  it is filled in after the human signs off.
+Set `hitl_record.required = True` when building the manifest. Leave `approvals` empty  -  it is filled in after the human signs off. The `required` flag is covered by the issuer signature; the `approvals` list is normalized to `[]` in the signing pre-image so approvals can attach post-issuance (spec Section 3.6).
 
 ```python
 from agent_manifest import Manifest, ArtifactBindings, CryptoProfile
@@ -52,7 +52,6 @@ manifest = Manifest(
     artifacts=ArtifactBindings(),
     hitl_record={
         "required": True,
-        "required_approvals": 1,
         "approvals": [],   # filled in after human approval
     },
 )
@@ -93,9 +92,14 @@ approver_kp = generate_ed25519()
 
 approved_at = datetime.now(timezone.utc).isoformat()
 approved_scope = {
-    "action": "execute_trade",
-    "max_notional_usd": 500_000,
+    "artifacts": ["tool_manifest", "policy_bundle"],
+    "risk_tier": "high",
     "approval_duration_seconds": 3600,  # approval valid for 1 hour
+    "conditions": [
+        "action=execute_trade",
+        "max_notional_usd <= 500000",
+        f"evidence_hash={evidence_hash}",
+    ],
 }
 
 approver = HitlApprovalSigner(keypair=approver_kp)
@@ -116,18 +120,20 @@ from agent_manifest._signing import Ed25519Signer
 
 agent_kp = generate_ed25519()
 
-manifest.hitl_record["approvals"] = [{
-    "approver_id":        "mailto:jane.doe@finance.acme.com",
-    "approved_at":        approved_at,
-    "approved_scope":     approved_scope,
-    "evidence_hash":      evidence_hash,
-    "approval_method":    "hardware_key",
-    "approval_signature": approval_sig,
-    "approver_key_id":    approver_kp.key_id,
+manifest_dict = manifest.model_dump(mode="json", by_alias=True, exclude_none=True)
+manifest_dict["hitl_record"]["approvals"] = [{
+    "approval_id":            "019236ab-0000-7000-8000-0000000000a1",  # UUID v7
+    "approver_id":            "mailto:jane.doe@finance.acme.com",
+    "approver_identity_type": "email",
+    "approver_role":          "trading-desk-supervisor",
+    "approved_at":            approved_at,
+    "approved_scope":         approved_scope,
+    "approval_signature":     approval_sig,
+    "approval_method":        "hardware-key",
+    "evidence_uri":           "https://approvals.finance.acme.com/records/trade-500k",
 }]
 
 signer = Ed25519Signer(agent_kp)
-manifest_dict = manifest.model_dump(mode="json", by_alias=True)
 manifest_dict["signature"] = signer.sign(manifest_dict)
 ```
 
@@ -146,7 +152,12 @@ from agent_manifest._verify import (
     verify_manifest,
 )
 
-ctx = VerificationContext(enforce_hitl=True)
+# Fail-closed: VALID requires the issuer's key in trusted_keys. Without
+# trusted keys the result is UNVERIFIABLE - never VALID.
+ctx = VerificationContext(
+    enforce_hitl=True,
+    trusted_keys={agent_kp.key_id: agent_kp.public_b64url()},
+)
 result = verify_manifest(manifest_dict, ctx, RevocationStore())
 
 assert result.fields_verified.hitl_record == HitlResult.APPROVED
@@ -166,7 +177,6 @@ When `required = True` but `approvals` is empty and `enforce_hitl=True`, the res
 no_approval_manifest = dict(manifest_dict)
 no_approval_manifest["hitl_record"] = {
     "required": True,
-    "required_approvals": 1,
     "approvals": [],
 }
 
@@ -231,9 +241,9 @@ if result.fields_verified.hitl_record == HitlResult.APPROVED:
 |---------|----------------|
 | Approver key storage | FIDO2 hardware key or HSM; software keys are for development only |
 | Approval UI | Hash the `approved_scope` dict from your UI before presenting it to the approver for signing |
-| Multiple approvers | Set `required_approvals: 2` and add two entries to `approvals` |
+| Multiple approvers | Add one entry per approver to `approvals`; each is independently signed and verified |
 | Approval duration | 1-4 hours; require re-approval for long-running jobs rather than extending the window |
-| Audit trail | Log each `approval_signature` and `approver_key_id` in your SIEM alongside the manifest ID |
+| Audit trail | Log each `approval_signature` and `evidence_uri` in your SIEM alongside the manifest ID |
 | EU AI Act Art. 14 | Document that `approved_scope` maps to the specific AI system output that was reviewed |
 
 ---

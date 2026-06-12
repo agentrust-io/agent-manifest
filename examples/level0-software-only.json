@@ -27,10 +27,28 @@
     },
     "tool_manifest": {
       "catalog_hash": "sha256:c1b2c3d4e5f67890c1b2c3d4e5f67890c1b2c3d4e5f67890c1b2c3d4e5f67890",
-      "tool_count": 2,
+      "tools": [
+        {
+          "tool_id": "co.acme.docs.fetch_document",
+          "tool_name": "fetch_document",
+          "endpoint_id": "spiffe://trust.acme.co/mcp/docs-gateway/prod",
+          "schema_hash": "sha256:11b2c3d4e5f6789011b2c3d4e5f6789011b2c3d4e5f6789011b2c3d4e5f67890",
+          "description_hash": "sha256:12b2c3d4e5f6789012b2c3d4e5f6789012b2c3d4e5f6789012b2c3d4e5f67890",
+          "version": "1.0.0",
+          "egress_destinations": []
+        },
+        {
+          "tool_id": "co.acme.docs.summarize_document",
+          "tool_name": "summarize_document",
+          "endpoint_id": "spiffe://trust.acme.co/mcp/docs-gateway/prod",
+          "schema_hash": "sha256:13b2c3d4e5f6789013b2c3d4e5f6789013b2c3d4e5f6789013b2c3d4e5f67890",
+          "description_hash": "sha256:14b2c3d4e5f6789014b2c3d4e5f6789014b2c3d4e5f6789014b2c3d4e5f67890",
+          "version": "1.0.0",
+          "egress_destinations": ["api.anthropic.com"]
+        }
+      ],
       "allow_dynamic_registration": false,
-      "rug_pull_policy": "deny-on-change",
-      "egress_destinations": ["https://api.anthropic.com"],
+      "rug_pull_policy": "deny-and-alert",
       "bound_at": "2026-06-04T00:00:00Z"
     },
     "model_identity": {
@@ -38,13 +56,15 @@
       "model_id": "claude-haiku-4-5-20251001",
       "version": "20251001",
       "deployment_type": "api",
+      "model_attestation_type": "provider-asserted",
       "bound_at": "2026-06-04T00:00:00Z"
     }
   },
   "signature": {
     "algorithm": "Ed25519",
-    "key_id": "sha256:d1b2c3d4e5f67890d1b2c3d4e5f67890d1b2c3d4e5f67890d1b2c3d4e5f67890",
+    "key_id": "d1b2c3d4e5f67890d1b2c3d4e5f67890d1b2c3d4e5f67890d1b2c3d4e5f67890",
+    "key_type": "software",
     "signed_at": "2026-06-04T00:00:00Z",
-    "value": "BASE64URL_ENCODED_SIGNATURE_PLACEHOLDER"
+    "signature_value": "BASE64URL_ENCODED_SIGNATURE_PLACEHOLDER"
   }
 }

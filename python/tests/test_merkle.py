@@ -1,4 +1,4 @@
-"""Merkle tree tests — issue #4.
+"""Merkle tree tests - issue #4.
 
 Test vectors computed and verified via PowerShell SHA-256 implementation.
 """
@@ -40,7 +40,7 @@ EMPTY_ROOT_SHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b785
 
 
 # ---------------------------------------------------------------------------
-# MerkleTree — structural tests
+# MerkleTree - structural tests
 # ---------------------------------------------------------------------------
 
 
@@ -103,7 +103,7 @@ def test_deterministic_root():
 
 
 def test_different_leaf_order_same_content():
-    """Order matters — root must differ if leaf order differs."""
+    """Order matters - root must differ if leaf order differs."""
     t1 = MerkleTree()
     t1.add_leaf(b"a")
     t1.add_leaf(b"b")
@@ -123,8 +123,8 @@ def test_different_leaf_order_same_content():
 def _make_tool(tool_id: str, schema_hex: str, desc_hex: str) -> ToolEntry:
     return ToolEntry(
         tool_id=tool_id,
-        name=tool_id.split(".")[-1],
-        server_id="spiffe://trust.example/mcp/server",
+        tool_name=tool_id.split(".")[-1],
+        endpoint_id="spiffe://trust.example/mcp/server",
         schema_hash=HashValue(f"sha256:{schema_hex}"),
         description_hash=HashValue(f"sha256:{desc_hex}"),
         version="1.0.0",
@@ -141,7 +141,7 @@ def test_catalog_root_two_tools():
 
 
 def test_catalog_sorted_by_tool_id():
-    """Order of input list must not affect root — tools are sorted by tool_id."""
+    """Order of input list must not affect root - tools are sorted by tool_id."""
     t1 = _make_tool("com.example.read_customer_record", "aa" * 32, "bb" * 32)
     t2 = _make_tool("com.example.send_notification",   "cc" * 32, "dd" * 32)
     assert build_catalog_tree([t1, t2]) == build_catalog_tree([t2, t1])

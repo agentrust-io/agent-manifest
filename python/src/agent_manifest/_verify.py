@@ -472,7 +472,13 @@ def verify_manifest(
         if reported_hash:
             from ._canonicalize import canonicalize as _canonicalize
             import hashlib as _hashlib
-            subset = {k: v for k, v in manifest.items() if k != "attestation"}
+            # Spec 3.3: the pre-image excludes the attestation block AND the
+            # top-level transparency_log_entry (populated after log submission).
+            subset = {
+                k: v
+                for k, v in manifest.items()
+                if k not in ("attestation", "transparency_log_entry")
+            }
             expected_attest_hash = "sha256:" + _hashlib.sha256(_canonicalize(subset)).hexdigest()
             if hmac.compare_digest(reported_hash, expected_attest_hash):
                 result.attestation_verified = True

@@ -36,7 +36,7 @@ Leaf data for corpus documents: RFC 8785 canonical JSON of the document descript
 ## Consequences
 
 - The `0x00` prefix on leaf nodes and `0x01` prefix on internal nodes are mandatory. Implementations that omit them will fail conformance test AM-BIND-015.
-- Leaf ordering must be deterministic: tool entries sorted by `tool_name` (lexicographic, Unicode code point order, same as RFC 8785 key ordering). Corpus documents sorted by `document_id`.
+- Leaf ordering must be deterministic: tool entries sorted by `tool_id` (lexicographic, Unicode code point order, same as RFC 8785 key ordering). Corpus documents sorted by `document_id`.
 - Empty trees (no tools, no corpus documents) are represented by the SHA-256 of the empty string: `sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`.
 
 ## References

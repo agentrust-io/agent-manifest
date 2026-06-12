@@ -24,6 +24,7 @@ import base64
 import hashlib
 import re
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any
 
 from cryptography.exceptions import InvalidSignature
@@ -41,7 +42,7 @@ from cryptography.hazmat.primitives.serialization import (
 from ._canonicalize import canonicalize
 
 try:
-    import oqs as _oqs  # pyoqs — Open Quantum Safe bindings
+    import oqs as _oqs  # pyoqs - Open Quantum Safe bindings
 
     _OQS_AVAILABLE = True
     _ML_DSA_ALGO = "ML-DSA-65"
@@ -52,14 +53,18 @@ except ImportError:
     _ML_DSA_ALGO = "ML-DSA-65"
 
 
-# Signed fields per spec Section 3.6 — excludes attestation, signature,
-# and transparency_log_entry which are appended post-signing.
+# Signed fields per the spec Section 3.6 normative signing coverage table
+# (PR #160). Excludes attestation, signature, and transparency_log_entry,
+# which are appended post-signing. This list is fixed and normative - it
+# MUST NOT be varied by implementations.
 SIGNED_FIELDS: tuple[str, ...] = (
     "@context",
     "@type",
     "manifest_id",
+    "previous_manifest_id",
     "agent_id",
     "version",
+    "min_verifier_version",
     "issued_at",
     "expires_at",
     "issuer",
@@ -67,6 +72,10 @@ SIGNED_FIELDS: tuple[str, ...] = (
     "artifacts",
     "delegation_chain",
     "hitl_record",
+    "prior_transparency_log_entry",
+    "log_retention",
+    "data_scope",
+    "operational_lifecycle",
 )
 
 
@@ -82,8 +91,15 @@ def _b64url_encode(data: bytes) -> str:
 _B64URL_RE = re.compile(r"^[A-Za-z0-9\-_]*$")
 
 
+def _signed_at_now() -> str:
+    """ISO 8601 UTC timestamp for the signature block's signed_at (spec 3.6)."""
+    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace(
+        "+00:00", "Z"
+    )
+
+
 def _b64url_decode(s: str) -> bytes:
-    # CRYPTO-006: reject standard base64 (+/) — only URL-safe chars allowed
+    # CRYPTO-006: reject standard base64 (+/) - only URL-safe chars allowed
     if not _B64URL_RE.match(s):
         raise ValueError(
             "Invalid base64url: contains non-URL-safe characters (use - and _ not + and /)"
@@ -104,11 +120,22 @@ def signing_pre_image(manifest_dict: dict[str, Any]) -> bytes:
     canonicalizes the result. Fields absent from the manifest are omitted
     (null-exclusion already applied by canonicalize's exclude_none default).
 
-    This function is the single source of truth for the pre-image — both
+    Normalization rule (spec Section 3.6, ADR-0006 as amended): the value of
+    ``hitl_record.approvals`` is normalized to ``[]`` before canonicalization.
+    The HITL requirement itself stays tamper-evident under the issuer
+    signature while approvals attach post-issuance without re-signing; each
+    approval is authenticated separately by its own ``approval_signature``.
+
+    This function is the single source of truth for the pre-image - both
     signers and verifiers MUST call this function to guarantee identical
     byte sequences.
     """
     subset = {k: manifest_dict[k] for k in SIGNED_FIELDS if k in manifest_dict}
+    hitl_record = subset.get("hitl_record")
+    if isinstance(hitl_record, dict):
+        normalized = dict(hitl_record)
+        normalized["approvals"] = []
+        subset["hitl_record"] = normalized
     return canonicalize(subset)
 
 
@@ -116,7 +143,7 @@ def signing_pre_image(manifest_dict: dict[str, Any]) -> bytes:
 # Ed25519
 # ---------------------------------------------------------------------------
 
-# CRYPTO-005: all 8 low-order (torsion) points of the Ed25519 curve — cofactor 8.
+# CRYPTO-005: all 8 low-order (torsion) points of the Ed25519 curve - cofactor 8.
 # A key equal to any of these allows signature forgery; reject at load time.
 _SMALL_ORDER_POINTS: frozenset[bytes] = frozenset({
     bytes.fromhex("0000000000000000000000000000000000000000000000000000000000000000"),
@@ -189,6 +216,7 @@ class Ed25519Signer:
             "algorithm": "Ed25519",
             "key_id": self._kp.key_id,
             "key_type": "software",
+            "signed_at": _signed_at_now(),
             "signature_value": _b64url_encode(sig_bytes),
             "signed_fields": list(SIGNED_FIELDS),
         }
@@ -199,7 +227,7 @@ class Ed25519Verifier:
 
     def __init__(self, public_key_bytes: bytes) -> None:
         # CRYPTO-005: reject all 8 torsion (small-order) subgroup elements.
-        # cryptography >=44 moved this check to verify() time — enforce it here.
+        # cryptography >=44 moved this check to verify() time - enforce it here.
         if len(public_key_bytes) != 32 or public_key_bytes in _SMALL_ORDER_POINTS:
             raise ValueError(
                 "Invalid Ed25519 public key: key is a small-order subgroup element "
@@ -223,7 +251,7 @@ class Ed25519Verifier:
         """
         pre_image = signing_pre_image(manifest_dict)
         sig_bytes = _b64url_decode(signature_value)
-        # SIGN-001: reject before passing to OpenSSL — avoids undefined-length inputs
+        # SIGN-001: reject before passing to OpenSSL - avoids undefined-length inputs
         if len(sig_bytes) != 64:
             raise InvalidSignature(
                 f"Ed25519 signature must be 64 bytes, got {len(sig_bytes)}"
@@ -287,6 +315,7 @@ class MlDsa65Signer:
             "algorithm": "ML-DSA-65",
             "key_id": self._kp.key_id,
             "key_type": "software",
+            "signed_at": _signed_at_now(),
             "signature_value": _b64url_encode(sig_bytes),
             "signed_fields": list(SIGNED_FIELDS),
         }
@@ -356,7 +385,7 @@ class HybridSigner:
         "signed_fields": [...]
     }
 
-    signature_value is empty string in hybrid mode — both component fields
+    signature_value is empty string in hybrid mode - both component fields
     are the authoritative signatures. Kept for schema field compatibility.
     """
 
@@ -375,6 +404,7 @@ class HybridSigner:
             "algorithm": "hybrid-Ed25519-ML-DSA-65",
             "key_id": self._kp.key_id,
             "key_type": "software",
+            "signed_at": _signed_at_now(),
             "classical_signature": _b64url_encode(classical_sig),
             "pq_signature": _b64url_encode(pq_sig),
             "signature_value": "",
@@ -383,7 +413,7 @@ class HybridSigner:
 
 
 class HybridVerifier:
-    """Verifies hybrid signatures — BOTH components must pass independently."""
+    """Verifies hybrid signatures - BOTH components must pass independently."""
 
     def __init__(
         self, ed25519_public_bytes: bytes, ml_dsa65_public_bytes: bytes

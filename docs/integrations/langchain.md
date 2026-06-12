@@ -21,7 +21,9 @@ from datetime import datetime, timedelta, timezone
 from agent_manifest import (
     Manifest, ArtifactBindings,
     ModelIdentityBinding, SystemPromptBinding, ToolManifestBinding,
-    ToolEntry, CryptoProfile,
+    PolicyBundleBinding, ToolEntry,
+    CryptoProfile, DeploymentType, EnforcementMode,
+    ModelAttestationType, PolicyLanguage, RugPullPolicy,
     generate_ed25519,
 )
 from agent_manifest._types import ManifestId
@@ -43,16 +45,39 @@ manifest = Manifest(
     artifacts=ArtifactBindings(
         model_identity=ModelIdentityBinding(
             provider="openai",
-            model_family="gpt-4o",
-            version="gpt-4o-2024-08-06",
+            model_id="gpt-4o",
+            version="2024-08-06",
+            deployment_type=DeploymentType.api,
+            model_attestation_type=ModelAttestationType.provider_asserted,
+            bound_at=now,
         ),
         system_prompt=SystemPromptBinding(
             hash="sha256:" + hashlib.sha256(SYSTEM_PROMPT.encode()).hexdigest(),
-            storage_uri="ipfs://Qm...",   # content-addressed URI
+            version="1.0.0",
+            classification="internal",
+            bound_at=now,
+        ),
+        policy_bundle=PolicyBundleBinding(
+            hash="sha256:" + hashlib.sha256(b"policy-bundle-v1").hexdigest(),
+            policy_language=PolicyLanguage.cedar,
+            version="1.0.0",
+            enforcement_mode=EnforcementMode.enforce,
+            bound_at=now,
         ),
         tool_manifest=ToolManifestBinding(
             catalog_hash="sha256:" + hashlib.sha256(b"[search_public_data]").hexdigest(),
-            tools=[ToolEntry(name="search_public_data", version="1.0.0")],
+            tools=[
+                ToolEntry(
+                    tool_id="example.trust.search_public_data",
+                    tool_name="search_public_data",
+                    endpoint_id="spiffe://trust.example/mcp/research-tools/prod",
+                    schema_hash="sha256:" + hashlib.sha256(b"schema").hexdigest(),
+                    description_hash="sha256:" + hashlib.sha256(b"description").hexdigest(),
+                    version="1.0.0",
+                ),
+            ],
+            rug_pull_policy=RugPullPolicy.require_reapproval,
+            bound_at=now,
         ),
     ),
 )

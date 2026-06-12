@@ -47,7 +47,8 @@ from agent_manifest import (
     Manifest, ArtifactBindings,
     SystemPromptBinding, PolicyBundleBinding,
     ToolManifestBinding, ModelIdentityBinding,
-    CryptoProfile, DeploymentType, EnforcementMode, PolicyLanguage,
+    CryptoProfile, DeploymentType, EnforcementMode, ModelAttestationType,
+    PolicyLanguage,
 )
 from agent_manifest._types import HashValue, ManifestId
 from datetime import datetime, timedelta, timezone
@@ -88,6 +89,7 @@ manifest = Manifest(
             model_id="claude-haiku-4-5-20251001",
             version="20251001",
             deployment_type=DeploymentType.api,
+            model_attestation_type=ModelAttestationType.provider_asserted,
             bound_at=now,
         ),
     ),
@@ -120,11 +122,14 @@ manifest sign draft.json --key keys/private.hex -o signed.json
 ```python
 from agent_manifest._verify import verify_manifest, VerificationContext, RevocationStore
 
+# Fail-closed: VALID requires the issuer's key in trusted_keys. Without
+# trusted keys the result is UNVERIFIABLE - never VALID.
 result = verify_manifest(
     manifest_dict,
     VerificationContext(
         system_prompt_hash=prompt_hash,
         policy_bundle_hash="sha256:" + "b" * 64,
+        trusted_keys={keypair.key_id: keypair.public_b64url()},
     ),
     RevocationStore(),
 )
