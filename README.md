@@ -30,6 +30,7 @@ It's the answer to the question every AI builder has about their own agent: is i
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/agentrust-io/agent-manifest/badge)](https://scorecard.dev/viewer/?uri=github.com/agentrust-io/agent-manifest)
 [![Spec](https://img.shields.io/badge/Spec-v0.1_·_197_conformance_tests-0ea5e9)](spec/agent-manifest-spec-v0.1.md)
 [![AAIF](https://img.shields.io/badge/Targeting-AAIF_%2F_Linux_Foundation-6366f1)](CHARTER.md)
+[![Discord](https://dcbadge.limes.pink/api/server/9JWNpH7E?style=flat)](https://discord.gg/9JWNpH7E)
 
 > **Developer Preview**  -  launching at Confidential Computing Summit, June 23 2026. May have breaking changes before v1.0.
 
@@ -285,6 +286,8 @@ See [SECURITY.md](SECURITY.md) for vulnerability reporting. See [LIMITATIONS.md]
 ## Contributing
 
 [Contributing Guide](CONTRIBUTING.md) · [Security Policy](SECURITY.md) · [Changelog](CHANGELOG.md) · [Roadmap](ROADMAP.md)
+
+Join the community on [Discord](https://discord.gg/9JWNpH7E).
 
 Using Agent Manifest in production? Add your organization to [ADOPTERS.md](ADOPTERS.md).
 
