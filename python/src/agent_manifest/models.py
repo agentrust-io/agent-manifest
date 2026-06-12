@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from ._types import HashValue, ManifestId
 
@@ -153,7 +153,7 @@ class Sbom(BaseModel):
     version: str
     sbom_hash: HashValue
     sbom_uri: str
-    # CycloneDX serialNumber or SPDX documentNamespace — required by spec #46
+    # CycloneDX serialNumber or SPDX documentNamespace - required by spec #46
     document_id: Optional[str] = None
 
 
@@ -194,8 +194,19 @@ class ApprovedScope(BaseModel):
 
 class HitlApproval(BaseModel):
     approval_id: ManifestId
-    # MUST NOT be a SPIFFE URI — human identity uses DID, email, or employee ID
+    # MUST NOT be a SPIFFE URI - human identity uses DID, email, or employee ID
     approver_id: str
+
+    @field_validator("approver_id")
+    @classmethod
+    def _approver_id_must_not_be_spiffe(cls, v: str) -> str:
+        if v.startswith("spiffe://"):
+            raise ValueError(
+                "approver_id MUST NOT be a SPIFFE URI - SPIFFE identifies machine "
+                "workloads, not humans. Use a DID, mailto: URI, or employee ID "
+                "(spec Section 3.5, ADR-0009 scope note)."
+            )
+        return v
     approver_role: str
     approved_at: datetime
     approved_scope: ApprovedScope
@@ -220,12 +231,12 @@ class TransparencyLogEntry(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Artifact bindings — one per spec section 3.2.x
+# Artifact bindings - one per spec section 3.2.x
 # ---------------------------------------------------------------------------
 
 
 class SystemPromptBinding(BaseModel):
-    """Artifact #1 — spec Section 3.2.1."""
+    """Artifact #1 - spec Section 3.2.1."""
 
     hash: HashValue
     hash_algorithm: str = "SHA-256"
@@ -237,7 +248,7 @@ class SystemPromptBinding(BaseModel):
 
 
 class PolicyBundleBinding(BaseModel):
-    """Artifact #2 — spec Section 3.2.2."""
+    """Artifact #2 - spec Section 3.2.2."""
 
     hash: HashValue
     policy_language: PolicyLanguage
@@ -249,7 +260,7 @@ class PolicyBundleBinding(BaseModel):
 
 
 class ToolManifestBinding(BaseModel):
-    """Artifact #3 — spec Section 3.2.3."""
+    """Artifact #3 - spec Section 3.2.3."""
 
     catalog_hash: HashValue
     tools: list[ToolEntry]
@@ -259,7 +270,7 @@ class ToolManifestBinding(BaseModel):
 
 
 class ModelIdentityBinding(BaseModel):
-    """Artifact #4 — spec Section 3.2.4.
+    """Artifact #4 - spec Section 3.2.4.
 
     model_hash conditionality (spec F-08):
       - deployment_type=api          -> model_hash MUST be None
@@ -298,7 +309,7 @@ class ModelIdentityBinding(BaseModel):
 
 
 class RagCorpusBinding(BaseModel):
-    """Artifact #5 — spec Section 3.2.5."""
+    """Artifact #5 - spec Section 3.2.5."""
 
     corpus_id: str
     merkle_root: HashValue
@@ -312,7 +323,7 @@ class RagCorpusBinding(BaseModel):
 
 
 class MemoryBaselineBinding(BaseModel):
-    """Artifact #6 — spec Section 3.2.6.
+    """Artifact #6 - spec Section 3.2.6.
 
     ttl_seconds: min 3600 (1 hour), max 7776000 (90 days).
     """
@@ -328,7 +339,7 @@ class MemoryBaselineBinding(BaseModel):
 
 
 class DecisionTraceBinding(BaseModel):
-    """Artifact #7 — spec Section 3.2.7 (added in #24)."""
+    """Artifact #7 - spec Section 3.2.7 (added in #24)."""
 
     trace_type: TraceType
     audit_chain_root: HashValue
@@ -348,7 +359,7 @@ class DecisionTraceBinding(BaseModel):
 
 
 class SupplyChainBinding(BaseModel):
-    """Artifact #9 — spec Section 3.2.8 (renumbered from 3.2.7 in #24)."""
+    """Artifact #9 - spec Section 3.2.8 (renumbered from 3.2.7 in #24)."""
 
     container_image_digest: HashValue
     base_image_digest: Optional[HashValue] = None
@@ -364,7 +375,7 @@ class SupplyChainBinding(BaseModel):
 
 
 class DelegationHop(BaseModel):
-    """One hop in the A2A delegation chain (Artifact #8 — spec Section 3.4)."""
+    """One hop in the A2A delegation chain (Artifact #8 - spec Section 3.4)."""
 
     hop: int = Field(ge=0)
     principal_type: PrincipalType
@@ -377,7 +388,7 @@ class DelegationHop(BaseModel):
 
 
 class HitlRecord(BaseModel):
-    """Artifact #10 — spec Section 3.5."""
+    """Artifact #10 - spec Section 3.5."""
 
     required: bool
     approvals: list[HitlApproval] = Field(default_factory=list)
@@ -426,7 +437,7 @@ class ManifestSignature(BaseModel):
 
 
 class Manifest(BaseModel):
-    """Root Agent Manifest document — spec Section 3.1."""
+    """Root Agent Manifest document - spec Section 3.1."""
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -443,7 +454,7 @@ class Manifest(BaseModel):
     issuer: str  # SPIFFE URI of signing authority
     crypto_profile: CryptoProfile = CryptoProfile.standard
     artifacts: ArtifactBindings
-    # attestation is appended by the TEE at launch — excluded from signature pre-image
+    # attestation is appended by the TEE at launch - excluded from signature pre-image
     attestation: Optional[dict[str, Any]] = None
     delegation_chain: list[DelegationHop] = Field(default_factory=list)
     hitl_record: Optional[HitlRecord] = None

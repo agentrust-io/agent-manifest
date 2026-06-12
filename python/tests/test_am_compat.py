@@ -1,4 +1,4 @@
-"""AM-COMPAT: Cross-implementation compatibility tests — issue #20.
+"""AM-COMPAT: Cross-implementation compatibility tests - issue #20.
 
 Covers AGT integration, MCP protocol extension, cMCP field cross-check,
 SLSA provenance binding, and JSON Schema export for non-Python verifiers.
@@ -266,6 +266,7 @@ def test_verification_engine_valid_after_sign():
     ctx = VerificationContext(
         system_prompt_hash="sha256:" + "a" * 64,
         policy_bundle_hash="sha256:" + "b" * 64,
+        trusted_keys={kp.key_id: kp.public_b64url()},
     )
     result = verify_manifest(raw, ctx, RevocationStore())
     assert result.result == OverallResult.VALID

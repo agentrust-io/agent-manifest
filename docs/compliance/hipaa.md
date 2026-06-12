@@ -61,7 +61,7 @@ For HIPAA audit log retention (minimum six years), the chain root provides a com
 
 **What agent-manifest provides**
 
-Every manifest field is protected by an Ed25519 + ML-DSA-65 hybrid signature (see [ADR-0005](../adr/0005-ml-dsa-hybrid-signatures.md)). The signature covers the canonicalised JSON of the entire manifest (RFC 8785). Any alteration to any field  -  model version, prompt hash, tool catalog, delegation chain, HITL approval  -  produces a signature verification failure.
+Every manifest field is protected by an Ed25519 + ML-DSA-65 hybrid signature (see [ADR-0005](../adr/0005-ml-dsa-hybrid-signature.md)). The signature covers the canonicalised JSON of the entire manifest (RFC 8785). Any alteration to any field  -  model version, prompt hash, tool catalog, delegation chain, HITL approval  -  produces a signature verification failure.
 
 ML-DSA-65 (NIST FIPS 204) provides post-quantum signature security, satisfying HIPAA's requirement that integrity mechanisms remain effective over the six-year retention period.
 

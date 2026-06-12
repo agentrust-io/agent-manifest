@@ -28,7 +28,16 @@ Valid example:
 spiffe://trust.example/agent/kyc-processor/prod
 ```
 
-The trust domain (`trust.example` in the example) is operated by the deploying organization and is registered out-of-band. The path component identifies the specific workload within that trust domain.
+The trust domain (`trust.example` in the example) is operated by the deploying organization and is registered out-of-band. The path component identifies the specific workload within that trust domain using slash-delimited segments.
+
+SDK validation rules enforced at `Manifest` construction time:
+- Must start with `spiffe://`
+- No URI fragment (`#`) - fragments have no meaning in SPIFFE
+- No query string (`?`) - SPIFFE URIs are path-only
+- Trust domain must be a valid hostname (RFC 1123)
+- Path must be slash-delimited segments with no empty components
+
+Multi-org deployments follow the SPIFFE Federation specification: trust domain federation is established at the infrastructure layer (SPIRE server-to-server federation), not at the manifest layer.
 
 ## Rationale
 
@@ -40,6 +49,8 @@ The trust domain (`trust.example` in the example) is operated by the deploying o
 
 **SPIFFE URIs are infrastructure-neutral.** Unlike X.509 Subject DNs (which require a CA hierarchy) or DIDs (which often require a blockchain or external resolver), SPIFFE URIs are resolved by the deployer's own SPIRE server. An air-gapped deployment can mint SPIFFE identities without external dependencies.
 
+**SVID issuance provides a standard mechanism for backing SPIFFE identities cryptographically.** A SPIFFE Verifiable Identity Document (SVID) is an X.509 certificate or JWT that proves a workload holds a specific SPIFFE URI, issued by the deployer's SPIRE server. At Level 2+, the mTLS transport layer provides SVID-backed proof that the agent presenting the manifest is the same workload named in `agent_id`.
+
 ## Alternatives considered
 
 **did:key**: A self-sovereign DID derived from a public key. No registry or infrastructure required  -  the DID is the public key. Rejected because a `did:key` encodes the current signing key, not the logical identity of the agent. Key rotation would change the agent's identity, breaking all existing trust relationships and delegation chains that reference the old DID. An agent's identity should be stable across key rotations.
@@ -49,6 +60,8 @@ The trust domain (`trust.example` in the example) is operated by the deploying o
 **did:ethr / blockchain DIDs**: Identity anchored on Ethereum or another blockchain. Rejected categorically  -  blockchain anchoring introduces gas costs, transaction latency, and external infrastructure dependencies into a security-critical path. Not suitable for regulated environments.
 
 **X.509 Subject DN** (`CN=kyc-agent, O=Corp, C=US`): The identity format used in mTLS certificates. Rejected because Subject DNs have no standardized path semantics, are not URL-safe, and vary by CA policy. Extracting the workload identity from an X.509 Subject DN reliably requires CA-specific parsing.
+
+**Plain URNs (`urn:agent:...`)**: RFC 8141 URNs with a custom namespace. Rejected because URNs have no standard resolution or federation mechanism - there is no urn:agent NID assigned by IANA, no standard way to express trust domains, and no interoperability story with existing zero-trust infrastructure. SPIFFE provides all of this.
 
 **Opaque UUID**: A random UUID assigned at registration. Rejected because it carries no human-interpretable information, cannot encode organizational hierarchy, and requires a central registry to map UUIDs to actual identities.
 
@@ -64,6 +77,10 @@ The trust domain (`trust.example` in the example) is operated by the deploying o
 ## References
 
 - [SPIFFE Specification](https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE.md)
+- [SPIFFE Federation Specification](https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE_Federation.md)
 - [SPIRE  -  SPIFFE Runtime Environment](https://spiffe.io/docs/latest/spire-about/)
+- [RFC 1123](https://www.rfc-editor.org/rfc/rfc1123) - Hostname syntax requirements
 - [RFC 9110 §4](https://www.rfc-editor.org/rfc/rfc9110#section-4)  -  URI format
 - Spec Section 2.2: Identity field validation rules
+- ADR-0006: HITL approval mechanism (approver identity design - `approver_id` is NOT a SPIFFE URI)
+- ADR-0007: Revocation CRL (uses SPIFFE URIs for `revoked_by`)
