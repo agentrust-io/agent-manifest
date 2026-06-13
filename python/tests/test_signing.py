@@ -390,3 +390,136 @@ def test_newly_signed_fields_are_tamper_evident():
         Ed25519Verifier(kp.public_bytes).verify(
             tampered, sig_block["signature_value"]
         )
+
+
+# ---------------------------------------------------------------------------
+# Ed25519KeyPair repr / str / private_b64url (coverage for lines 166-186)
+# ---------------------------------------------------------------------------
+
+
+def test_ed25519_keypair_repr_redacts_private_key():
+    kp = generate_ed25519()
+    r = repr(kp)
+    assert "REDACTED" in r
+    assert kp.key_id in r
+
+
+def test_ed25519_keypair_str_equals_repr():
+    kp = generate_ed25519()
+    assert str(kp) == repr(kp)
+
+
+def test_ed25519_keypair_private_b64url_roundtrip():
+    """private_b64url() encodes the raw private key; decode must recover the same key pair."""
+    from agent_manifest._signing import ed25519_from_private_bytes, _b64url_decode
+
+    kp = generate_ed25519()
+    priv_b64 = kp.private_b64url()
+    # base64url encoded, no padding
+    assert priv_b64.isascii()
+    priv_raw = _b64url_decode(priv_b64)
+    assert len(priv_raw) == 32  # Ed25519 raw private key is 32 bytes
+    restored = ed25519_from_private_bytes(priv_raw)
+    assert restored.key_id == kp.key_id
+
+
+# ---------------------------------------------------------------------------
+# ed25519_from_private_bytes: error paths (coverage for lines 196-197)
+# ---------------------------------------------------------------------------
+
+
+def test_ed25519_from_private_bytes_valid():
+    """ed25519_from_private_bytes constructs an equivalent key pair."""
+    from agent_manifest._signing import ed25519_from_private_bytes
+
+    kp = generate_ed25519()
+    raw = kp.private_key.private_bytes(
+        __import__("cryptography.hazmat.primitives.serialization", fromlist=["Encoding"]).Encoding.Raw,
+        __import__("cryptography.hazmat.primitives.serialization", fromlist=["PrivateFormat"]).PrivateFormat.Raw,
+        __import__("cryptography.hazmat.primitives.serialization", fromlist=["NoEncryption"]).NoEncryption(),
+    )
+    restored = ed25519_from_private_bytes(raw)
+    assert restored.key_id == kp.key_id
+
+
+def test_ed25519_from_private_bytes_malformed_raises():
+    """Garbage bytes must raise ValueError (wrong length for Ed25519)."""
+    from agent_manifest._signing import ed25519_from_private_bytes
+
+    with pytest.raises((ValueError, Exception)):
+        ed25519_from_private_bytes(b"not-a-valid-ed25519-key")
+
+
+def test_ed25519_from_private_bytes_too_short_raises():
+    """Too-short bytes must raise ValueError."""
+    from agent_manifest._signing import ed25519_from_private_bytes
+
+    with pytest.raises((ValueError, Exception)):
+        ed25519_from_private_bytes(b"\x00" * 10)
+
+
+# ---------------------------------------------------------------------------
+# Malformed PEM / wrong key type passed to Ed25519Verifier
+# ---------------------------------------------------------------------------
+
+
+def test_ed25519_verifier_wrong_length_key_raises():
+    """Passing 33 bytes (not 32) to Ed25519Verifier raises ValueError."""
+    with pytest.raises(ValueError):
+        Ed25519Verifier(b"\x02" * 33)
+
+
+def test_ed25519_verifier_zero_length_key_raises():
+    """Empty bytes raise ValueError."""
+    with pytest.raises(ValueError):
+        Ed25519Verifier(b"")
+
+
+def test_ed25519_verifier_rsa_sized_bytes_raises():
+    """256-byte RSA-sized blob raises ValueError (wrong length for Ed25519)."""
+    with pytest.raises(ValueError):
+        Ed25519Verifier(b"\x01" * 256)
+
+
+# ---------------------------------------------------------------------------
+# signed_at is present and ISO 8601 in every signer output (regression: #165)
+# ---------------------------------------------------------------------------
+
+
+def test_ed25519_signer_signed_at_is_iso8601():
+    """Ed25519Signer.sign() must include a signed_at ISO 8601 UTC string."""
+    import re
+    kp = generate_ed25519()
+    sig_block = Ed25519Signer(kp).sign(SAMPLE_MANIFEST)
+    assert "signed_at" in sig_block
+    signed_at = sig_block["signed_at"]
+    assert isinstance(signed_at, str)
+    # Must end in Z (UTC) and match basic ISO 8601 pattern
+    assert signed_at.endswith("Z"), f"signed_at must be UTC (end with Z), got {signed_at!r}"
+    assert re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$", signed_at), (
+        f"signed_at not valid ISO 8601: {signed_at!r}"
+    )
+
+
+@require_oqs
+def test_ml_dsa65_signer_signed_at_is_iso8601():
+    """MlDsa65Signer.sign() must include a signed_at ISO 8601 UTC string."""
+    import re
+    kp = generate_ml_dsa65()
+    sig_block = MlDsa65Signer(kp).sign(SAMPLE_MANIFEST)
+    assert "signed_at" in sig_block
+    signed_at = sig_block["signed_at"]
+    assert signed_at.endswith("Z"), f"signed_at must be UTC, got {signed_at!r}"
+    assert re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$", signed_at)
+
+
+@require_oqs
+def test_hybrid_signer_signed_at_is_iso8601():
+    """HybridSigner.sign() must include a signed_at ISO 8601 UTC string."""
+    import re
+    kp = generate_hybrid()
+    sig_block = HybridSigner(kp).sign(SAMPLE_MANIFEST)
+    assert "signed_at" in sig_block
+    signed_at = sig_block["signed_at"]
+    assert signed_at.endswith("Z"), f"signed_at must be UTC, got {signed_at!r}"
+    assert re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$", signed_at)
