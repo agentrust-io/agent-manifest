@@ -4,6 +4,16 @@ All notable changes to Agent Manifest are documented here. Format follows [Keep 
 
 ## [Unreleased]
 
+## [0.1.0] — 2026-06-23
+
+Stable launch release at Confidential Computing Summit, June 23 2026.
+
+### Fixed
+
+**[SDK]** Enforce `poisoning_scan.result` rules in verifier — bad scan results now correctly fail closed (#167).
+**[SDK]** Align Pydantic models, examples, and signing logic to the v0.1 spec (#165).
+**[SDK]** Transparency log and signing error paths fully covered; fail-closed verifier restored (#168).
+
 ## [0.1.0-alpha1] — 2026-06-04
 
 Initial developer preview. Launching at Confidential Computing Summit, June 23 2026.
