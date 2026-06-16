@@ -338,6 +338,26 @@ class MemoryBaselineBinding(BaseModel):
     bound_at: datetime
 
 
+class MemoryCheckpointBinding(BaseModel):
+    """Artifact #6 checkpoint anchor - spec Section 3.2.6.2 (v0.2).
+
+    Additive companion to MemoryBaselineBinding. Binds the append-only
+    operation-log root (`memory_root`) for a governed checkpoint advance, so a
+    verifier can check an incremental memory delta via an RFC 9162 consistency
+    proof (see `_memory_delta.verify_delta`) instead of re-approving the whole
+    store. `snapshot_hash` semantics in MemoryBaselineBinding are unchanged; the
+    materialized set-snapshot is a fold over the log.
+
+    ttl_seconds: min 3600 (1 hour), max 7776000 (90 days).
+    """
+
+    memory_root: HashValue
+    seq: int = Field(ge=0)
+    approved_at: datetime
+    ttl_seconds: int = Field(ge=3_600, le=7_776_000)
+    approval_signature: Optional[str] = None
+
+
 class DecisionTraceBinding(BaseModel):
     """Artifact #7 - spec Section 3.2.7 (added in #24)."""
 

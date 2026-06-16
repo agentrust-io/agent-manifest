@@ -258,3 +258,73 @@ def test_inclusion_proof_out_of_range():
     tree.add_leaf(b"x")
     with pytest.raises(IndexError):
         tree.inclusion_proof(1)
+
+
+# ---------------------------------------------------------------------------
+# RFC 9162 §2.1.2 consistency proofs (Phase 1 — memory checkpoint/delta)
+# ---------------------------------------------------------------------------
+
+from agent_manifest._merkle import verify_consistency  # noqa: E402
+
+
+def _tree_of(n: int) -> MerkleTree:
+    """Tree over n deterministic single-byte-ish leaves, insertion order."""
+    t = MerkleTree()
+    for i in range(n):
+        t.add_leaf(f"leaf-{i}".encode())
+    return t
+
+
+def _subrange_root(lo: int, hi: int) -> bytes:
+    """Independent oracle: Merkle root over leaves [lo, hi)."""
+    t = MerkleTree()
+    for i in range(lo, hi):
+        t.add_leaf(f"leaf-{i}".encode())
+    return t.root()
+
+
+def test_consistency_proof_accepts_append_only_extension():
+    m, n = 5, 9
+    big = _tree_of(n)
+    small = _tree_of(m)
+    proof = big.consistency_proof(m)
+    assert verify_consistency(small.root(), big.root(), m, n, proof) is True
+
+
+def test_consistency_proof_rejects_tampered_old_root():
+    m, n = 5, 9
+    big = _tree_of(n)
+    proof = big.consistency_proof(m)
+    bad_old = bytes([_tree_of(m).root()[0] ^ 0xFF]) + _tree_of(m).root()[1:]
+    assert verify_consistency(bad_old, big.root(), m, n, proof) is False
+
+
+def test_consistency_proof_rejects_non_prefix_tree():
+    # Build an n-tree whose first m leaves differ from the m-tree.
+    m, n = 4, 8
+    small = _tree_of(m)
+    forged = MerkleTree()
+    for i in range(n):
+        forged.add_leaf(f"OTHER-{i}".encode())
+    proof = forged.consistency_proof(m)
+    assert verify_consistency(small.root(), forged.root(), m, n, proof) is False
+
+
+def test_consistency_proof_rfc9162_known_vector():
+    # RFC 9162 §2.1.2 SUBPROOF for m=7, n=8 yields exactly:
+    #   [leaf6, leaf7, MTH(D[4:6]), MTH(D[0:4])]
+    big = _tree_of(8)
+    proof = big.consistency_proof(7)
+    # Literal hex pins (independent of _mth) — a node-hash/split-point regression
+    # changes these bytes even if the same bug corrupts the _subrange_root oracle.
+    expected = [
+        bytes.fromhex("676f3782f5b3a5fb4370ed49572cedc523f4a66322269c85f2af0509d17b0a4d"),  # leaf 6
+        bytes.fromhex("060242692909024231d050c5d4434146ba77da322d450286f577c9f951615d53"),  # leaf 7
+        bytes.fromhex("985bb5d36b927800876871da925a7e82abe83a9ddba5882920a007a55ea2b376"),  # MTH(4:6)
+        bytes.fromhex("bdd1c5ff55b19cb6b0e7c761bf9a6ccaa27fbbfc07b74f1fabb6e911a0bd2ab3"),  # MTH(0:4)
+    ]
+    assert proof == expected
+    # cross-check the independent oracle agrees, then verify end-to-end
+    assert proof == [_subrange_root(6, 7), _subrange_root(7, 8),
+                     _subrange_root(4, 6), _subrange_root(0, 4)]
+    assert verify_consistency(_tree_of(7).root(), big.root(), 7, 8, proof) is True

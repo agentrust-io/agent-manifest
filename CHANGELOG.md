@@ -4,6 +4,17 @@ All notable changes to Agent Manifest are documented here. Format follows [Keep 
 
 ## [Unreleased]
 
+### Added
+
+**[SPEC]** Memory Checkpoint & Delta Protocol (Section 3.2.6.2) — v0.2 incremental memory binding.
+- Append-only operation-log (merkle-log) model lets persistent memory evolve across a session and prove the evolution was governed, without re-approving the whole store.
+- Per-representation leaf canonicalization: key-value, semantic/vector (binds embedding + model id), and graph-RAG (nodes + edges).
+- A governed checkpoint advance is accepted only with a valid RFC 9162 §2.1.2 consistency proof; an unproven change still triggers v0.1 drift detection (`MEMORY_DRIFT_DETECTED`) — fail-closed preserved.
+
+**[SDK]** `MerkleTree.consistency_proof` + `verify_consistency` (RFC 9162 §2.1.2) in `agent_manifest._merkle`.
+**[SDK]** `agent_manifest._memory_delta`: `build_memory_tree`, `MemoryCheckpoint`, `verify_delta`, `fold_kv`.
+**[SDK]** `MemoryCheckpointBinding` model (`memory_root` anchor; additive — `MemoryBaselineBinding` and `snapshot_hash` semantics unchanged).
+
 ## [0.1.0-alpha1] — 2026-06-04
 
 Initial developer preview. Launching at Confidential Computing Summit, June 23 2026.
