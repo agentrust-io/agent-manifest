@@ -4,6 +4,12 @@ All notable changes to Agent Manifest are documented here. Format follows [Keep 
 
 ## [Unreleased]
 
+### Added
+
+**[SPEC]** Document runtime-session binding guidance for gateways, including
+the signed fields that bind `agent_id`, artifact hashes, validity windows,
+delegation handling, and attestation separation (#175).
+
 ## [0.1.0] — 2026-06-23
 
 Stable launch release at Confidential Computing Summit, June 23 2026.
