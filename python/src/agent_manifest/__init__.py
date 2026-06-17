@@ -23,6 +23,13 @@ from ._signing import (
     signing_pre_image,
     generate_ed25519, Ed25519KeyPair, Ed25519Signer, Ed25519Verifier,
 )
+from ._verify import (
+    verify_manifest,
+    VerificationContext, VerificationResult,
+    OverallResult, FieldResult, DelegationResult, HitlResult,
+    FieldsVerified, MismatchDetail, EvidencePack,
+    RevocationStore, RevocationRecord,
+)
 
 __all__ = [
     "Manifest", "ArtifactBindings",
@@ -44,4 +51,8 @@ __all__ = [
     "canonicalize", "canonical_hash",
     "SIGNED_FIELDS", "signing_pre_image",
     "generate_ed25519", "Ed25519KeyPair", "Ed25519Signer", "Ed25519Verifier",
+    "verify_manifest", "VerificationContext", "VerificationResult",
+    "OverallResult", "FieldResult", "DelegationResult", "HitlResult",
+    "FieldsVerified", "MismatchDetail", "EvidencePack",
+    "RevocationStore", "RevocationRecord",
 ]
