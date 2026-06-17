@@ -4,6 +4,12 @@ All notable changes to Agent Manifest are documented here. Format follows [Keep 
 
 ## [Unreleased]
 
+### Added
+
+**[SDK]** Export the verification API from the package root, so relying parties
+and gateways call `agent_manifest.verify_manifest()` and `VerificationContext`
+directly instead of importing the private `_verify` module (#175).
+
 ## [0.1.0] — 2026-06-23
 
 Stable launch release at Confidential Computing Summit, June 23 2026.

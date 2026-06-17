@@ -80,3 +80,23 @@ def test_public_verify_roundtrip_valid_then_mismatch():
         manifest, drifted, agent_manifest.RevocationStore()
     )
     assert mismatch.result == agent_manifest.OverallResult.MISMATCH
+
+
+def test_partial_context_leaves_unprovided_fields_not_bound():
+    # A verifier only checks what it can observe at runtime. With a partial
+    # context (system prompt provided, policy bundle omitted), the unprovided
+    # field is reported NOT_BOUND rather than a mismatch, and the overall result
+    # stays VALID.
+    keypair = agent_manifest.generate_ed25519()
+    manifest, sha_a, _sha_b = _signed_manifest(keypair)
+    trusted = {keypair.key_id: keypair.public_b64url()}
+
+    partial = agent_manifest.VerificationContext(
+        system_prompt_hash=sha_a,
+        trusted_keys=trusted,
+    )
+    result = agent_manifest.verify_manifest(
+        manifest, partial, agent_manifest.RevocationStore()
+    )
+    assert result.result == agent_manifest.OverallResult.VALID
+    assert result.fields_verified.policy_bundle == agent_manifest.FieldResult.NOT_BOUND
