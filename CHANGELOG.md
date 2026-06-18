@@ -8,7 +8,11 @@ All notable changes to Agent Manifest are documented here. Format follows [Keep 
 
 **[SDK]** Export the verification API from the package root, so relying parties
 and gateways call `agent_manifest.verify_manifest()` and `VerificationContext`
-directly instead of importing the private `_verify` module (#175).
+directly instead of importing the private `_verify` module (#176).
+
+**[SPEC]** Document runtime-session binding guidance for gateways, including
+the signed fields that bind `agent_id`, artifact hashes, validity windows,
+delegation handling, and attestation separation (#177).
 
 ## [0.1.0] — 2026-06-23
 

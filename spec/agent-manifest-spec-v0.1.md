@@ -1055,6 +1055,60 @@ A `VALID` result means all of the following are true:
 
 A `MISMATCH` result means at least one required field does not match its running artifact. The `mismatch_details` array MUST enumerate every mismatched field. A relying party receiving a `MISMATCH` MUST NOT proceed with the operation that triggered verification.
 
+#### 5.3.1 Runtime session binding for gateways
+
+A gateway that binds an Agent Manifest to a runtime session, such as cMCP, MUST
+use the manifest verification API rather than reconstructing a signing
+pre-image locally. In the Python SDK, the public entry point is
+`agent_manifest.verify_manifest(manifest, context, revocation_store)`;
+low-level signers and verifiers use `agent_manifest.signing_pre_image()`, which
+is the single source of truth for the RFC 8785 canonical byte sequence and the
+`hitl_record.approvals` normalization rule in section 3.6.
+
+For a runtime session binding, the verifier MUST check all of the following
+before treating the manifest identity as bound to the session:
+
+1. The manifest version is supported and the issuer signature verifies with a
+   trusted issuer key.
+2. The current time is within the manifest validity window:
+   `issued_at <= now < expires_at`.
+3. The authenticated workload subject for the current session equals the
+   manifest `agent_id`. For SPIFFE deployments this is the leaf SVID subject.
+   Development modes that derive the subject from configuration or from the
+   manifest itself MUST surface that weaker subject source to relying parties.
+4. The runtime-loaded policy bundle hash equals
+   `artifacts.policy_bundle.hash`.
+5. The runtime-loaded tool catalog hash equals
+   `artifacts.tool_manifest.catalog_hash`.
+6. Any additional artifacts required by local policy, such as
+   `artifacts.system_prompt.hash`, match the runtime values supplied in the
+   `VerificationContext`.
+7. The manifest is not revoked.
+
+Because the entire `artifacts` object, `agent_id`, `issuer`, `issued_at`,
+`expires_at`, and `crypto_profile` fields are in the normative `signed_fields`
+set (section 3.6), these checks bind the session to the issuer-authenticated
+identity and artifact set.
+
+For the first cMCP integration profile, standard-profile Ed25519 manifests are
+sufficient. A gateway MAY support `ML-DSA-65` or
+`hybrid-Ed25519-ML-DSA-65` when the deployment requires the post-quantum
+profile, but it MUST reject any algorithm or `crypto_profile` it cannot verify;
+it MUST NOT silently downgrade to Ed25519-only verification for a post-quantum
+manifest.
+
+When `delegation_chain` is present, the session subject still binds to the
+current manifest's leaf `agent_id`. Each delegation hop is verified separately
+under section 3.4; the gateway MUST NOT require the session SVID to equal every
+principal in the chain.
+
+The `attestation` block is appended by the Confidential Runtime and is excluded
+from the issuer signature pre-image. A gateway MUST NOT use the attestation
+block as a substitute for the `agent_id` subject match above. If local policy
+requires hardware evidence, the gateway additionally sets
+`enforce_attestation=true` and validates the attestation block under section
+3.3.
+
 ### 5.4 Error Response Schema <!-- CHANGED: SCHEMA F-13 - new section -->
 
 All non-2xx responses from the verification endpoint MUST use the following error response structure:
