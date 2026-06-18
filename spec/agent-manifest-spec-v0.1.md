@@ -597,12 +597,12 @@ The attestation service acts as a RATS Verifier in the sense of RFC 9334. For de
 The following profiles define, per platform, the measurement field used to carry the `manifest_hash_in_report`, the format of the `measurement` field, and which component performs the extension.
 
 **AMD SEV-SNP**
-- `manifest_hash_in_report` is extended into the `HOST_DATA` field of the SNP attestation report (64 bytes, purpose-built for guest-supplied data). Do NOT use a PCR register for this purpose.
-- `measurement` field: SHA-384 of initial guest memory pages (96 bytes, 192 lowercase hex characters).
+- `manifest_hash_in_report` is extended into the `HOST_DATA` field of the SNP attestation report (32 bytes, purpose-built for guest-supplied data). Do NOT use a PCR register for this purpose.
+- `measurement` field: SHA-256 of initial guest memory pages (64 bytes, 128 lowercase hex characters).
 - Extension actor: the Confidential Runtime extends `HOST_DATA` before guest launch.
 
 **Intel TDX**
-- `manifest_hash_in_report` is extended into `RTMR[1]` using `TDG.MR.RTMR.EXTEND` before any workload code runs.
+- `manifest_hash_in_report` is extended into `RTMR[3]` using `TDG.MR.RTMR.EXTEND` before any workload code runs.
 - `measurement` field: MRTD value (SHA-384, 96 bytes, 192 lowercase hex characters). For deployments using multiple RTMRs, the `measurement` field MUST be a JSON object: `{"mrtd": "<hex>", "rtmr0": "<hex>", "rtmr1": "<hex>", "rtmr2": "<hex>", "rtmr3": "<hex>"}`.
 - Extension actor: the Confidential Runtime performs the RTMR extension.
 
