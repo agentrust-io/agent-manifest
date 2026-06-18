@@ -1,6 +1,6 @@
 site_name: Agent Manifest
 site_description: Cryptographic identity and provenance standard for AI agents
-site_url: https://agentrust-io.github.io/agent-manifest
+site_url: https://manifest.agentrust-io.com
 repo_url: https://github.com/agentrust-io/agent-manifest
 repo_name: agentrust-io/agent-manifest
 edit_uri: edit/main/docs/
@@ -8,6 +8,7 @@ docs_dir: docs
 
 theme:
   name: material
+  font: false
   logo: assets/icon.svg
   favicon: assets/icon.svg
   palette:
@@ -35,13 +36,16 @@ theme:
     - search.highlight
     - content.code.copy
     - content.tabs.link
+    - content.code.annotate
+    - content.tooltips
+    - navigation.instant.progress
+    - navigation.footer
+    - navigation.expand
+    - search.share
     - toc.follow
-    - header.autohide
+    - announce.dismiss
   icon:
     repo: fontawesome/brands/github
-  font:
-    text: Inter, system-ui, -apple-system, sans-serif
-    code: JetBrains Mono, Cascadia Code, monospace
 
 plugins:
   - search
@@ -91,7 +95,23 @@ extra:
   social:
     - icon: fontawesome/brands/github
       link: https://github.com/agentrust-io/agent-manifest
+      name: agent-manifest on GitHub
+    - icon: fontawesome/brands/python
+      link: https://pypi.org/project/agent-manifest/
+      name: agent-manifest on PyPI
   generator: false
+  analytics:
+    feedback:
+      title: Was this page helpful?
+      ratings:
+        - icon: material/emoticon-happy-outline
+          name: This page was helpful
+          data: 1
+          note: Thanks for your feedback!
+        - icon: material/emoticon-sad-outline
+          name: This page could be improved
+          data: 0
+          note: Thanks for your feedback — open an issue to let us know.
 
 extra_css:
   - stylesheets/extra.css
