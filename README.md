@@ -9,8 +9,8 @@
 It's the answer to the question every AI builder has about their own agent: is it governed the way I built it  -  and how would I know if it drifted? Agent Manifest makes that verifiable to the builder and provable to even an independent third party.
 
 <p align="center">
-  <a href="https://agentrust-io.github.io/agent-manifest">
-    <img src="https://img.shields.io/badge/Documentation-agentrust--io.github.io%2Fagent--manifest-7c3aed?style=for-the-badge" alt="Documentation" height="36">
+  <a href="https://manifest.agentrust-io.com">
+    <img src="https://img.shields.io/badge/%F0%9F%93%96_Full_Documentation-manifest.agentrust--io.com-8251EE?style=for-the-badge&logoColor=white" alt="Full Documentation" height="40">
   </a>
 </p>
 
