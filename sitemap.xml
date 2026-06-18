@@ -1,207 +1,207 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
-         <loc>https://agentrust-io.github.io/agent-manifest/</loc>
+         <loc>https://manifest.agentrust-io.com/</loc>
          <lastmod>2026-06-18</lastmod>
     </url>
     <url>
-         <loc>https://agentrust-io.github.io/agent-manifest/changelog/</loc>
+         <loc>https://manifest.agentrust-io.com/changelog/</loc>
          <lastmod>2026-06-18</lastmod>
     </url>
     <url>
-         <loc>https://agentrust-io.github.io/agent-manifest/contributing/</loc>
+         <loc>https://manifest.agentrust-io.com/contributing/</loc>
          <lastmod>2026-06-18</lastmod>
     </url>
     <url>
-         <loc>https://agentrust-io.github.io/agent-manifest/getting-started/</loc>
+         <loc>https://manifest.agentrust-io.com/getting-started/</loc>
          <lastmod>2026-06-18</lastmod>
     </url>
     <url>
-         <loc>https://agentrust-io.github.io/agent-manifest/governance/</loc>
+         <loc>https://manifest.agentrust-io.com/governance/</loc>
          <lastmod>2026-06-18</lastmod>
     </url>
     <url>
-         <loc>https://agentrust-io.github.io/agent-manifest/limitations/</loc>
+         <loc>https://manifest.agentrust-io.com/limitations/</loc>
          <lastmod>2026-06-18</lastmod>
     </url>
     <url>
-         <loc>https://agentrust-io.github.io/agent-manifest/roadmap/</loc>
+         <loc>https://manifest.agentrust-io.com/roadmap/</loc>
          <lastmod>2026-06-18</lastmod>
     </url>
     <url>
-         <loc>https://agentrust-io.github.io/agent-manifest/spec-overview/</loc>
+         <loc>https://manifest.agentrust-io.com/spec-overview/</loc>
          <lastmod>2026-06-18</lastmod>
     </url>
     <url>
-         <loc>https://agentrust-io.github.io/agent-manifest/adr/</loc>
+         <loc>https://manifest.agentrust-io.com/adr/</loc>
          <lastmod>2026-06-18</lastmod>
     </url>
     <url>
-         <loc>https://agentrust-io.github.io/agent-manifest/adr/0000-template/</loc>
+         <loc>https://manifest.agentrust-io.com/adr/0000-template/</loc>
          <lastmod>2026-06-18</lastmod>
     </url>
     <url>
-         <loc>https://agentrust-io.github.io/agent-manifest/adr/0001-rfc8785-canonical-json/</loc>
+         <loc>https://manifest.agentrust-io.com/adr/0001-rfc8785-canonical-json/</loc>
          <lastmod>2026-06-18</lastmod>
     </url>
     <url>
-         <loc>https://agentrust-io.github.io/agent-manifest/adr/0002-ed25519-standard-profile/</loc>
+         <loc>https://manifest.agentrust-io.com/adr/0002-ed25519-standard-profile/</loc>
          <lastmod>2026-06-18</lastmod>
     </url>
     <url>
-         <loc>https://agentrust-io.github.io/agent-manifest/adr/0003-rfc9162-merkle-domain-separation/</loc>
+         <loc>https://manifest.agentrust-io.com/adr/0003-rfc9162-merkle-domain-separation/</loc>
          <lastmod>2026-06-18</lastmod>
     </url>
     <url>
-         <loc>https://agentrust-io.github.io/agent-manifest/adr/0004-pydantic-v2-schema-modeling/</loc>
+         <loc>https://manifest.agentrust-io.com/adr/0004-pydantic-v2-schema-modeling/</loc>
          <lastmod>2026-06-18</lastmod>
     </url>
     <url>
-         <loc>https://agentrust-io.github.io/agent-manifest/adr/0005-ml-dsa-hybrid-signature/</loc>
+         <loc>https://manifest.agentrust-io.com/adr/0005-ml-dsa-hybrid-signature/</loc>
          <lastmod>2026-06-18</lastmod>
     </url>
     <url>
-         <loc>https://agentrust-io.github.io/agent-manifest/adr/0006-hitl-approval-mechanism/</loc>
+         <loc>https://manifest.agentrust-io.com/adr/0006-hitl-approval-mechanism/</loc>
          <lastmod>2026-06-18</lastmod>
     </url>
     <url>
-         <loc>https://agentrust-io.github.io/agent-manifest/adr/0007-revocation-json-lines-crl/</loc>
+         <loc>https://manifest.agentrust-io.com/adr/0007-revocation-json-lines-crl/</loc>
          <lastmod>2026-06-18</lastmod>
     </url>
     <url>
-         <loc>https://agentrust-io.github.io/agent-manifest/adr/0008-conformance-level-design/</loc>
+         <loc>https://manifest.agentrust-io.com/adr/0008-conformance-level-design/</loc>
          <lastmod>2026-06-18</lastmod>
     </url>
     <url>
-         <loc>https://agentrust-io.github.io/agent-manifest/adr/0009-spiffe-uri-agent-identity/</loc>
+         <loc>https://manifest.agentrust-io.com/adr/0009-spiffe-uri-agent-identity/</loc>
          <lastmod>2026-06-18</lastmod>
     </url>
     <url>
-         <loc>https://agentrust-io.github.io/agent-manifest/api-reference/</loc>
+         <loc>https://manifest.agentrust-io.com/api-reference/</loc>
          <lastmod>2026-06-18</lastmod>
     </url>
     <url>
-         <loc>https://agentrust-io.github.io/agent-manifest/api-reference/attestation/</loc>
+         <loc>https://manifest.agentrust-io.com/api-reference/attestation/</loc>
          <lastmod>2026-06-18</lastmod>
     </url>
     <url>
-         <loc>https://agentrust-io.github.io/agent-manifest/api-reference/cli/</loc>
+         <loc>https://manifest.agentrust-io.com/api-reference/cli/</loc>
          <lastmod>2026-06-18</lastmod>
     </url>
     <url>
-         <loc>https://agentrust-io.github.io/agent-manifest/api-reference/delegation/</loc>
+         <loc>https://manifest.agentrust-io.com/api-reference/delegation/</loc>
          <lastmod>2026-06-18</lastmod>
     </url>
     <url>
-         <loc>https://agentrust-io.github.io/agent-manifest/api-reference/models/</loc>
+         <loc>https://manifest.agentrust-io.com/api-reference/models/</loc>
          <lastmod>2026-06-18</lastmod>
     </url>
     <url>
-         <loc>https://agentrust-io.github.io/agent-manifest/api-reference/revocation/</loc>
+         <loc>https://manifest.agentrust-io.com/api-reference/revocation/</loc>
          <lastmod>2026-06-18</lastmod>
     </url>
     <url>
-         <loc>https://agentrust-io.github.io/agent-manifest/api-reference/signing/</loc>
+         <loc>https://manifest.agentrust-io.com/api-reference/signing/</loc>
          <lastmod>2026-06-18</lastmod>
     </url>
     <url>
-         <loc>https://agentrust-io.github.io/agent-manifest/api-reference/verification/</loc>
+         <loc>https://manifest.agentrust-io.com/api-reference/verification/</loc>
          <lastmod>2026-06-18</lastmod>
     </url>
     <url>
-         <loc>https://agentrust-io.github.io/agent-manifest/compliance/</loc>
+         <loc>https://manifest.agentrust-io.com/compliance/</loc>
          <lastmod>2026-06-18</lastmod>
     </url>
     <url>
-         <loc>https://agentrust-io.github.io/agent-manifest/compliance/dora/</loc>
+         <loc>https://manifest.agentrust-io.com/compliance/dora/</loc>
          <lastmod>2026-06-18</lastmod>
     </url>
     <url>
-         <loc>https://agentrust-io.github.io/agent-manifest/compliance/eu-ai-act/</loc>
+         <loc>https://manifest.agentrust-io.com/compliance/eu-ai-act/</loc>
          <lastmod>2026-06-18</lastmod>
     </url>
     <url>
-         <loc>https://agentrust-io.github.io/agent-manifest/compliance/gdpr/</loc>
+         <loc>https://manifest.agentrust-io.com/compliance/gdpr/</loc>
          <lastmod>2026-06-18</lastmod>
     </url>
     <url>
-         <loc>https://agentrust-io.github.io/agent-manifest/compliance/hipaa/</loc>
+         <loc>https://manifest.agentrust-io.com/compliance/hipaa/</loc>
          <lastmod>2026-06-18</lastmod>
     </url>
     <url>
-         <loc>https://agentrust-io.github.io/agent-manifest/integrations/</loc>
+         <loc>https://manifest.agentrust-io.com/integrations/</loc>
          <lastmod>2026-06-18</lastmod>
     </url>
     <url>
-         <loc>https://agentrust-io.github.io/agent-manifest/integrations/agt/</loc>
+         <loc>https://manifest.agentrust-io.com/integrations/agt/</loc>
          <lastmod>2026-06-18</lastmod>
     </url>
     <url>
-         <loc>https://agentrust-io.github.io/agent-manifest/integrations/autogen-crewai/</loc>
+         <loc>https://manifest.agentrust-io.com/integrations/autogen-crewai/</loc>
          <lastmod>2026-06-18</lastmod>
     </url>
     <url>
-         <loc>https://agentrust-io.github.io/agent-manifest/integrations/langchain/</loc>
+         <loc>https://manifest.agentrust-io.com/integrations/langchain/</loc>
          <lastmod>2026-06-18</lastmod>
     </url>
     <url>
-         <loc>https://agentrust-io.github.io/agent-manifest/integrations/openai-agents/</loc>
+         <loc>https://manifest.agentrust-io.com/integrations/openai-agents/</loc>
          <lastmod>2026-06-18</lastmod>
     </url>
     <url>
-         <loc>https://agentrust-io.github.io/agent-manifest/operations/</loc>
+         <loc>https://manifest.agentrust-io.com/operations/</loc>
          <lastmod>2026-06-18</lastmod>
     </url>
     <url>
-         <loc>https://agentrust-io.github.io/agent-manifest/operations/audit-log/</loc>
+         <loc>https://manifest.agentrust-io.com/operations/audit-log/</loc>
          <lastmod>2026-06-18</lastmod>
     </url>
     <url>
-         <loc>https://agentrust-io.github.io/agent-manifest/operations/key-rotation/</loc>
+         <loc>https://manifest.agentrust-io.com/operations/key-rotation/</loc>
          <lastmod>2026-06-18</lastmod>
     </url>
     <url>
-         <loc>https://agentrust-io.github.io/agent-manifest/operations/monitoring/</loc>
+         <loc>https://manifest.agentrust-io.com/operations/monitoring/</loc>
          <lastmod>2026-06-18</lastmod>
     </url>
     <url>
-         <loc>https://agentrust-io.github.io/agent-manifest/tutorials/</loc>
+         <loc>https://manifest.agentrust-io.com/tutorials/</loc>
          <lastmod>2026-06-18</lastmod>
     </url>
     <url>
-         <loc>https://agentrust-io.github.io/agent-manifest/tutorials/delegation-chains/</loc>
+         <loc>https://manifest.agentrust-io.com/tutorials/delegation-chains/</loc>
          <lastmod>2026-06-18</lastmod>
     </url>
     <url>
-         <loc>https://agentrust-io.github.io/agent-manifest/tutorials/deploy-verifier/</loc>
+         <loc>https://manifest.agentrust-io.com/tutorials/deploy-verifier/</loc>
          <lastmod>2026-06-18</lastmod>
     </url>
     <url>
-         <loc>https://agentrust-io.github.io/agent-manifest/tutorials/deploying-the-verification-endpoint/</loc>
+         <loc>https://manifest.agentrust-io.com/tutorials/deploying-the-verification-endpoint/</loc>
          <lastmod>2026-06-18</lastmod>
     </url>
     <url>
-         <loc>https://agentrust-io.github.io/agent-manifest/tutorials/hardware-attestation/</loc>
+         <loc>https://manifest.agentrust-io.com/tutorials/hardware-attestation/</loc>
          <lastmod>2026-06-18</lastmod>
     </url>
     <url>
-         <loc>https://agentrust-io.github.io/agent-manifest/tutorials/hitl-approval-workflows/</loc>
+         <loc>https://manifest.agentrust-io.com/tutorials/hitl-approval-workflows/</loc>
          <lastmod>2026-06-18</lastmod>
     </url>
     <url>
-         <loc>https://agentrust-io.github.io/agent-manifest/tutorials/hitl-approvals/</loc>
+         <loc>https://manifest.agentrust-io.com/tutorials/hitl-approvals/</loc>
          <lastmod>2026-06-18</lastmod>
     </url>
     <url>
-         <loc>https://agentrust-io.github.io/agent-manifest/tutorials/revocation-and-key-rotation/</loc>
+         <loc>https://manifest.agentrust-io.com/tutorials/revocation-and-key-rotation/</loc>
          <lastmod>2026-06-18</lastmod>
     </url>
     <url>
-         <loc>https://agentrust-io.github.io/agent-manifest/tutorials/revocation/</loc>
+         <loc>https://manifest.agentrust-io.com/tutorials/revocation/</loc>
          <lastmod>2026-06-18</lastmod>
     </url>
     <url>
-         <loc>https://agentrust-io.github.io/agent-manifest/tutorials/server-side-verification/</loc>
+         <loc>https://manifest.agentrust-io.com/tutorials/server-side-verification/</loc>
          <lastmod>2026-06-18</lastmod>
     </url>
 </urlset>
