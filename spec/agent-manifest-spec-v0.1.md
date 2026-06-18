@@ -227,7 +227,7 @@ The `expires_at` field MUST be present. If omitted by the manifest author, imple
 All fields annotated as UUID v7 MUST conform to RFC 9562 Section 5.7. The string representation MUST use the canonical 8-4-4-4-12 hyphenated lowercase hexadecimal format. The version nibble MUST be 7 (binary 0111). Implementations MUST reject UUID fields whose version nibble is not 7.
 
 <!-- CHANGED: F-01 - SPIFFE URI path note -->
-The `agent_id` path structure `/agent/<name>/<instance>` shown in examples is a convention, not a requirement. Trust domain must be lowercase `[a-z0-9._-]`; path segments may use `[a-zA-Z0-9._-]`. UUID v7 instance identifiers (hyphens permitted in path segments) are valid. Example: `spiffe://example.opaque.co/agent/payments-processor/01926b4c-1234-7abc-9def-000000000001`.
+The `agent_id` path structure `/agent/<name>/<instance>` shown in examples is a convention, not a requirement. Trust domain must be lowercase `[a-z0-9._-]`; path segments may use `[a-zA-Z0-9._-]`. UUID v7 instance identifiers (hyphens permitted in path segments) are valid. Example: `spiffe://trust.example/agent/payments-processor/01926b4c-1234-7abc-9def-000000000001`.
 
 <!-- CHANGED: SCHEMA F-15/@context - normative note on provisional URL -->
 The `@context` URL `https://agentmanifest.agentrust.io/v0.1/context.json` is provisional for the v0.1 draft period. The AAIF working group will assign the canonical URL prior to v1.0 ratification. Implementations MUST support the canonical AAIF URL when it is assigned, and SHOULD support the v0.1 draft URL for backward compatibility with pre-ratification manifests.
@@ -1521,7 +1521,7 @@ This specification builds on architectural work developed across the Agent Gover
 
 ---
 
-*Agent Manifest Specification v0.1 - Opaque Systems - June 2026*
+*Agent Manifest Specification v0.1 - AgentTrust - June 2026*
 
 
 ### D. RFC 8785 Canonical JSON Test Vector <!-- CHANGED: closes #25 -->

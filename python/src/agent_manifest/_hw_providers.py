@@ -69,6 +69,15 @@ class SEVSNPProvider(AttestationProvider):
                 "before trusting the SNP attestation report. "
                 "Pass require_vcek_verification=False only in development."
             )
+        if not require_vcek_verification:
+            import warnings
+            warnings.warn(
+                "SEVSNPProvider: VCEK certificate chain verification is disabled. "
+                "This does not satisfy Level 2 conformance. "
+                "Set require_vcek_verification=True for production use.",
+                UserWarning,
+                stacklevel=2,
+            )
         self._manifest_hash: Optional[str] = None
         self._report_bytes: Optional[bytes] = None
 
