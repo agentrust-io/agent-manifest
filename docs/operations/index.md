@@ -16,6 +16,6 @@ Agent-manifest has three operational components you need to run:
 
 2. **CRL endpoint**  -  serves the certificate revocation list at `.well-known/agent-manifest/revocation`. This must be highly available  -  verifiers poll it continuously.
 
-3. **Verification sidecar**  -  the FastAPI router (`create_router()`) that runs alongside each agent. See [Tutorial: Deploying the verifier](../tutorials/deploy-verifier.md) for the deployment pattern.
+3. **Verification sidecar**  -  the FastAPI router (`create_router()`) that runs alongside each agent. See [Tutorial: Deploying the verifier](../tutorials/deploying-the-verification-endpoint.md) for the deployment pattern.
 
 Each guide covers the operational concerns specific to one of these components.

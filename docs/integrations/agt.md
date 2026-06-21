@@ -202,5 +202,5 @@ The verification sidecar and AGT policy engine run as a single fast path: the co
 ## What's next
 
 - [Tutorial: Server-side verification](../tutorials/server-side-verification.md)  -  the verification sidecar in detail
-- [Tutorial: Revocation and key rotation](../tutorials/revocation.md)  -  manual revocation flow complementing AGT kill-switch
+- [Tutorial: Revocation and key rotation](../tutorials/revocation-and-key-rotation.md)  -  manual revocation flow complementing AGT kill-switch
 - [AGT documentation](https://github.com/microsoft/agent-governance-toolkit)  -  full AGT reference

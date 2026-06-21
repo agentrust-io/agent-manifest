@@ -225,4 +225,4 @@ When a LangChain agent presents its `manifest_id`, your service needs to look it
 ## What's next
 
 - [Tutorial: Server-side verification](../tutorials/server-side-verification.md)  -  full verification router for a FastAPI service
-- [Tutorial: Revocation and key rotation](../tutorials/revocation.md)  -  revoke a LangChain agent's manifest on compromise
+- [Tutorial: Revocation and key rotation](../tutorials/revocation-and-key-rotation.md)  -  revoke a LangChain agent's manifest on compromise

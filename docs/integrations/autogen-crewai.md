@@ -261,5 +261,5 @@ print(result)
 ## What's next
 
 - [Tutorial: A2A delegation chains](../tutorials/delegation-chains.md)  -  cryptographic delegation between AutoGen agents
-- [Tutorial: Revocation and key rotation](../tutorials/revocation.md)  -  revoke a crew member's manifest mid-operation
+- [Tutorial: Revocation and key rotation](../tutorials/revocation-and-key-rotation.md)  -  revoke a crew member's manifest mid-operation
 - [Integration: AGT](agt.md)  -  combine with AGT for policy-driven crew governance

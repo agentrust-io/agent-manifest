@@ -1,6 +1,6 @@
 # cMCP Session Binding
 
-By the end of this tutorial you will understand how cMCP (PR #323) binds a signed Agent Manifest to a session at startup, what checks it performs, and what the Trust Record carries as a result.
+By the end of this tutorial you will understand how cMCP binds a signed Agent Manifest to a session at startup, what checks it performs, and what the Trust Record carries as a result.
 
 ## What you'll learn
 
@@ -15,13 +15,13 @@ By the end of this tutorial you will understand how cMCP (PR #323) binds a signe
 pip install agent-manifest
 ```
 
-You also need a cMCP gateway with PR #323 applied (session binding support).
+You also need cMCP v0.2.0 or later (includes session binding support).
 
 ---
 
-## What cMCP PR #323 does
+## How session binding works
 
-cMCP PR #323 adds agent manifest session binding to the gateway startup sequence. When the env var `CMCP_AGENT_MANIFEST_PATH` points to a signed manifest, cMCP loads that manifest and verifies three things before the session opens:
+cMCP agent manifest session binding runs at gateway startup. When the env var `CMCP_AGENT_MANIFEST_PATH` points to a signed manifest, cMCP loads that manifest and verifies three things before the session opens:
 
 1. The manifest's cryptographic signature is valid against a configured trusted key.
 2. `manifest.agent_id` matches the authenticated agent subject from the session credentials.
