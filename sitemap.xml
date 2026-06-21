@@ -169,11 +169,15 @@
          <lastmod>2026-06-21</lastmod>
     </url>
     <url>
-         <loc>https://manifest.agentrust-io.com/tutorials/delegation-chains/</loc>
+         <loc>https://manifest.agentrust-io.com/tutorials/ci-cd-signing/</loc>
          <lastmod>2026-06-21</lastmod>
     </url>
     <url>
-         <loc>https://manifest.agentrust-io.com/tutorials/deploy-verifier/</loc>
+         <loc>https://manifest.agentrust-io.com/tutorials/cmcp-session-binding/</loc>
+         <lastmod>2026-06-21</lastmod>
+    </url>
+    <url>
+         <loc>https://manifest.agentrust-io.com/tutorials/delegation-chains/</loc>
          <lastmod>2026-06-21</lastmod>
     </url>
     <url>
@@ -189,19 +193,15 @@
          <lastmod>2026-06-21</lastmod>
     </url>
     <url>
-         <loc>https://manifest.agentrust-io.com/tutorials/hitl-approvals/</loc>
-         <lastmod>2026-06-21</lastmod>
-    </url>
-    <url>
          <loc>https://manifest.agentrust-io.com/tutorials/revocation-and-key-rotation/</loc>
          <lastmod>2026-06-21</lastmod>
     </url>
     <url>
-         <loc>https://manifest.agentrust-io.com/tutorials/revocation/</loc>
+         <loc>https://manifest.agentrust-io.com/tutorials/server-side-verification/</loc>
          <lastmod>2026-06-21</lastmod>
     </url>
     <url>
-         <loc>https://manifest.agentrust-io.com/tutorials/server-side-verification/</loc>
+         <loc>https://manifest.agentrust-io.com/tutorials/your-first-manifest/</loc>
          <lastmod>2026-06-21</lastmod>
     </url>
 </urlset>
