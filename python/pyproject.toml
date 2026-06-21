@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "agent-manifest"
-version = "0.1.0"
+version = "0.1.1"
 description = "Agent Manifest SDK — cryptographically anchor all 10 artifacts defining an AI agent at deployment"
 readme = "README.md"
 requires-python = ">=3.11"
