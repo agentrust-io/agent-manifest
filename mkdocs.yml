@@ -123,13 +123,13 @@ nav:
       - Overview: tutorials/index.md
       - Server-side verification: tutorials/server-side-verification.md
       - A2A delegation chains: tutorials/delegation-chains.md
-      - HITL approval workflows: tutorials/hitl-approvals.md
-      - Revocation and key rotation: tutorials/revocation.md
+      - HITL approval workflows: tutorials/hitl-approval-workflows.md
+      - Revocation and key rotation: tutorials/revocation-and-key-rotation.md
       - Hardware attestation: tutorials/hardware-attestation.md
-      - Deploying the verifier: tutorials/deploy-verifier.md
-      - HITL approval workflows (how-to): tutorials/hitl-approval-workflows.md
-      - Revocation and key rotation (how-to): tutorials/revocation-and-key-rotation.md
       - Deploying the verification endpoint: tutorials/deploying-the-verification-endpoint.md
+      - Your first manifest: tutorials/your-first-manifest.md
+      - CI/CD signing: tutorials/ci-cd-signing.md
+      - cMCP session binding: tutorials/cmcp-session-binding.md
   - Integrations:
       - Overview: integrations/index.md
       - LangChain: integrations/langchain.md
