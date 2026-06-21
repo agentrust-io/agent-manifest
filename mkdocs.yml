@@ -175,6 +175,3 @@ nav:
       - Changelog: changelog.md
       - Contributing: contributing.md
       - Governance: governance.md
-
-extra_javascript:
-  - https://agentrust-io.com/supernav.js
