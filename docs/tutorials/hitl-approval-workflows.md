@@ -29,9 +29,9 @@ Removing or altering the approval breaks both signatures. Verifiers can reject t
 
 ---
 
-## Step 1: Configure the HITL requirement
+## Configure the HITL requirement
 
-Set `hitl_record.required = True` when building the manifest. Leave `approvals` empty  -  it is filled in after the human signs off. The `required` flag is covered by the issuer signature; the `approvals` list is normalized to `[]` in the signing pre-image so approvals can attach post-issuance (spec Section 3.6).
+Set `hitl_record.required = True` when building the manifest. Leave `approvals` empty - it is filled in after the human signs off. The `required` flag is covered by the issuer signature; the `approvals` list is normalized to `[]` in the signing pre-image so approvals can attach post-issuance (spec Section 3.6).
 
 ```python
 from agent_manifest import Manifest, ArtifactBindings, CryptoProfile
@@ -59,7 +59,7 @@ manifest = Manifest(
 
 ---
 
-## Step 2: Build the evidence hash
+## Build the evidence hash
 
 The `evidence_hash` field binds the approval to a specific action or dataset, not just to the manifest. Compute it by hashing the action description in a stable, reproducible way.
 
@@ -79,9 +79,9 @@ evidence_hash = "sha256:" + hashlib.sha256(
 
 ---
 
-## Step 3: Get human approval and sign it
+## Get human approval and sign it
 
-In production this step happens through an approval workflow  -  a Slack bot, web UI, or dedicated approval service. The approver authenticates with their FIDO2 key, reviews the action, and the system signs on their behalf.
+In production this step happens through an approval workflow - a Slack bot, web UI, or dedicated approval service. The approver authenticates with their FIDO2 key, reviews the action, and the system signs on their behalf.
 
 ```python
 from agent_manifest import generate_ed25519
@@ -113,7 +113,7 @@ approval_sig = approver.sign_approval(
 
 ---
 
-## Step 4: Attach the approval and sign the manifest
+## Attach the approval and sign the manifest
 
 ```python
 from agent_manifest._signing import Ed25519Signer
@@ -139,7 +139,7 @@ manifest_dict["signature"] = signer.sign(manifest_dict)
 
 ---
 
-## Step 5: Verify HITL with `verify_manifest()`
+## Verify HITL with `verify_manifest()`
 
 Pass `enforce_hitl=True` in the `VerificationContext` so the verifier treats a missing or expired approval as a hard failure.
 
@@ -215,7 +215,7 @@ assert result.result == OverallResult.MISMATCH
 
 ### Approval from an unauthorised approver
 
-The verifier checks that the approval signature is cryptographically valid but does not enforce which `approver_id` values are acceptable  -  that is your policy. After calling `verify_manifest`, check the `approver_id` against your authorised set:
+The verifier checks that the approval signature is cryptographically valid but does not enforce which `approver_id` values are acceptable - that is your policy. After calling `verify_manifest`, check the `approver_id` against your authorised set:
 
 ```python
 AUTHORISED_APPROVERS = {
@@ -248,7 +248,6 @@ if result.fields_verified.hitl_record == HitlResult.APPROVED:
 
 ---
 
-## What's next
+## Summary
 
-- [Tutorial: Revocation and key rotation](revocation-and-key-rotation.md)  -  revoke a manifest if an approver's key is compromised
-- [Tutorial: Server-side verification](server-side-verification.md)  -  enforce HITL at the relying party
+This tutorial walked through signing a HITL approval with an approver's key, embedding it in a manifest, and verifying it with `enforce_hitl=True`. The signed approval binds the human review to a specific action scope and expires automatically. See [Revocation and key rotation](revocation-and-key-rotation.md) to revoke a manifest if an approver's key is compromised, and [Server-side verification](server-side-verification.md) to enforce HITL at the relying party.
