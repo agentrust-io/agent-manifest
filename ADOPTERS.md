@@ -4,7 +4,7 @@ Organizations using or evaluating Agent Manifest in production or pilot deployme
 
 To add your organization, open a PR editing this file. Include: organization name, use case (one sentence), and optionally a contact or case study link.
 
-## Design partners (v0.1 preview)
+## Founding contributors
 
 | Organization | Use case |
 |---|---|
