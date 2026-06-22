@@ -11,6 +11,8 @@ All commands write JSON to stdout and accept --output/-o to write to a file.
 """
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import os
 import sys
@@ -54,6 +56,30 @@ def _write(data: dict[str, Any], output: Optional[str]) -> None:
         click.echo(f"Written to {output}", err=True)
     else:
         click.echo(text)
+
+
+def _trusted_key_from_public_hex(path: str) -> dict[str, str]:
+    """Load a raw Ed25519 public key hex file as verifier trusted_keys."""
+    key_path = Path(path).resolve()
+    if not key_path.is_file():
+        raise click.ClickException(
+            f"Public key file not found or is not a regular file: {path}"
+        )
+
+    key_hex = key_path.read_text().strip()
+    try:
+        public_bytes = bytes.fromhex(key_hex)
+    except ValueError:
+        raise click.ClickException("Public key file does not contain valid hex data.")
+
+    if len(public_bytes) != 32:
+        raise click.ClickException(
+            f"Ed25519 public key must be 32 bytes, got {len(public_bytes)} bytes."
+        )
+
+    key_id = hashlib.sha256(public_bytes).hexdigest()
+    public_b64 = base64.urlsafe_b64encode(public_bytes).rstrip(b"=").decode()
+    return {key_id: public_b64}
 
 
 @click.group()
@@ -236,12 +262,14 @@ def attest(manifest_file: str, provider: str, level: int, output: Optional[str])
 @click.option("--enforce-hitl", is_flag=True, default=False)
 @click.option("--enforce-attestation", is_flag=True, default=False)
 @click.option("--crl-path", default=None, help="Path to a FileCRL JSON-Lines file for revocation checks")
+@click.option("--public-key", default=None, help="Path to a trusted raw Ed25519 public key hex file")
 @click.option("--output", "-o", default=None)
 def verify(
     manifest_file: str,
     enforce_hitl: bool,
     enforce_attestation: bool,
     crl_path: Optional[str],
+    public_key: Optional[str],
     output: Optional[str],
 ) -> None:
     """Verify a manifest against the local verification engine.
@@ -255,9 +283,11 @@ def verify(
       manifest verify attested.json --crl-path revocations.jsonl
     """
     data = _load_json(manifest_file)
+    trusted_keys = _trusted_key_from_public_hex(public_key) if public_key else {}
     ctx = VerificationContext(
         enforce_hitl=enforce_hitl,
         enforce_attestation=enforce_attestation,
+        trusted_keys=trusted_keys,
     )
 
     # REVOC-001: load CRL if provided, otherwise use empty in-memory store
