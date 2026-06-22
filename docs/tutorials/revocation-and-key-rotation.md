@@ -48,15 +48,13 @@ print(f"At:      {record.revoked_at}")
 print(f"Sig:     {record.revocation_signature[:32]}...")
 ```
 
-Or via the CLI:
+Or via the CLI (produces an unsigned `RevocationRecord` as JSON on stdout):
 
 ```bash
-manifest revoke \
-  --manifest-id 018f4a3b-2c1d-7e5f-a8b9-0d1e2f3a4b5c \
+manifest revoke 018f4a3b-2c1d-7e5f-a8b9-0d1e2f3a4b5c \
   --reason "key compromise" \
   --revoked-by security@example.com \
-  --key keys/revocation-private.hex \
-  --crl crl.jsonl
+  --output revocation.json
 ```
 
 Append the record to the CRL file and verify the record's own signature before trusting it:

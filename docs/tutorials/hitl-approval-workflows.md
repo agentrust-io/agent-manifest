@@ -35,11 +35,11 @@ Set `hitl_record.required = True` when building the manifest. Leave `approvals` 
 
 ```python
 from agent_manifest import Manifest, ArtifactBindings, CryptoProfile
-from agent_manifest._types import ManifestId
 from datetime import datetime, timedelta, timezone
+import uuid_utils  # pip install uuid-utils
 
 now = datetime.now(timezone.utc)
-manifest_id = str(ManifestId.generate())
+manifest_id = str(uuid_utils.uuid7())
 
 manifest = Manifest(
     manifest_id=manifest_id,

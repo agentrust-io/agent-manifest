@@ -56,12 +56,12 @@ manifest_dict = {
 }
 ```
 
-Use a real UUID v7 in production. You can generate one with `ManifestId.generate()`:
+Use a real UUID v7 in production. The CLI's `manifest create` command generates one automatically, or you can generate one with the `uuid-utils` package or any UUID v7 library:
 
 ```python
-from agent_manifest._types import ManifestId
-
-manifest_dict["manifest_id"] = str(ManifestId.generate())
+# uuid-utils provides RFC 9562 UUID v7 (pip install uuid-utils)
+import uuid_utils
+manifest_dict["manifest_id"] = str(uuid_utils.uuid7())
 ```
 
 ---
