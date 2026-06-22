@@ -14,7 +14,7 @@ Launching at Confidential Computing Summit, June 23 2026.
 
 ## Next — v0.2 (Q3 2026)
 
-Driven by design-partner feedback from the CC Summit. Current candidates:
+Driven by community and early adopter feedback from the CC Summit period. Current candidates:
 
 - **HITL approval scheme clarification** — specify whether hybrid mode applies to approver signatures; document approver key rotation
 - **Policy bundle test vector** — add Merkle root test vector for composite bundles (Section 3.2.2)
@@ -46,4 +46,4 @@ v0.2 will go through the RFC process (14-day comment period) for any normative c
 
 ## How to influence the roadmap
 
-Open a GitHub issue with the `spec` label describing the problem you are trying to solve. Design partner feedback from the CC Summit period (June–September 2026) has priority for v0.2 scope decisions.
+Open a GitHub issue with the `spec` label describing the problem you are trying to solve. Community and early adopter feedback from the CC Summit period (June–September 2026) has priority for v0.2 scope decisions.

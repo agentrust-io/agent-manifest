@@ -1437,11 +1437,9 @@ The Art. 13 row in section 9.1 cross-references `operational_lifecycle.expected_
 - Conformance test suite (197 tests)
 - Reference implementation targeting AAIF + cMCP
 
-### 10.2 Version 0.2 - Design Partner Feedback
+### 10.2 Version 0.2
 
-<!-- CHANGED: REG-003 - added OCC RFI tracking to roadmap -->
-
-Targets: Q3 2026. Input from ServiceNow, JPMC, Across AI, and sovereign AI partners.
+Targets: Q3 2026. Driven by community and early adopter feedback collected during the CC Summit period (June–September 2026).
 
 - Memory baseline protocol for stateful agents (v0.1 defines the binding; v0.2 defines the checkpoint protocol)
 - RAG corpus incremental update protocol - how to bind a delta without re-hashing the full corpus
