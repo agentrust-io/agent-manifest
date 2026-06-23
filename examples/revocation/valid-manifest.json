@@ -4,8 +4,8 @@
   "manifest_id": "019236ab-0000-7000-8000-000000000020",
   "agent_id": "spiffe://trust.acme.co/agent/payment-processor/prod",
   "version": "0.1",
-  "issued_at": "2026-06-05T08:00:00Z",
-  "expires_at": "2026-06-05T16:00:00Z",
+  "issued_at": "2026-06-12T08:00:00Z",
+  "expires_at": "2026-09-10T08:00:00Z",
   "issuer": "spiffe://trust.acme.co/signing-authority",
   "crypto_profile": "standard",
   "artifacts": {
@@ -14,30 +14,48 @@
       "hash_algorithm": "SHA-256",
       "version": "1.0.0",
       "classification": "internal",
-      "bound_at": "2026-06-05T08:00:00Z"
+      "bound_at": "2026-06-12T08:00:00Z"
+    },
+    "policy_bundle": {
+      "hash": "sha256:94b2c3d4e5f6789094b2c3d4e5f6789094b2c3d4e5f6789094b2c3d4e5f67890",
+      "policy_language": "cedar",
+      "version": "1.0.0",
+      "enforcement_mode": "enforce",
+      "scope": ["payments:execute:amount_lte_10000"],
+      "agt_version": "0.9.0",
+      "bound_at": "2026-06-12T08:00:00Z"
     },
     "tool_manifest": {
       "catalog_hash": "sha256:b2b2c3d4e5f67890b2b2c3d4e5f67890b2b2c3d4e5f67890b2b2c3d4e5f67890",
-      "tool_count": 1,
-      "allow_dynamic_registration": false,
-      "rug_pull_policy": "deny-on-change",
       "tools": [
-        {"name": "execute_payment", "version": "1.0.0"}
+        {
+          "tool_id": "co.acme.payments.execute_payment",
+          "tool_name": "execute_payment",
+          "endpoint_id": "spiffe://trust.acme.co/mcp/payments-gateway/prod",
+          "schema_hash": "sha256:31b2c3d4e5f6789031b2c3d4e5f6789031b2c3d4e5f6789031b2c3d4e5f67890",
+          "description_hash": "sha256:32b2c3d4e5f6789032b2c3d4e5f6789032b2c3d4e5f6789032b2c3d4e5f67890",
+          "version": "1.0.0",
+          "egress_destinations": ["payments.internal.acme.co"]
+        }
       ],
-      "bound_at": "2026-06-05T08:00:00Z"
+      "allow_dynamic_registration": false,
+      "rug_pull_policy": "deny-and-alert",
+      "bound_at": "2026-06-12T08:00:00Z"
     },
     "model_identity": {
       "provider": "anthropic",
       "model_id": "claude-haiku-4-5-20251001",
       "version": "20251001",
       "deployment_type": "api",
-      "bound_at": "2026-06-05T08:00:00Z"
+      "model_attestation_type": "provider-asserted",
+      "bound_at": "2026-06-12T08:00:00Z"
     }
   },
   "signature": {
     "algorithm": "Ed25519",
-    "key_id": "sha256:c2b2c3d4e5f67890c2b2c3d4e5f67890c2b2c3d4e5f67890c2b2c3d4e5f67890",
-    "signed_at": "2026-06-05T08:00:00Z",
-    "value": "BASE64URL_PLACEHOLDER_PAYMENT_AGENT_SIGNATURE"
+    "key_id": "c2b2c3d4e5f67890c2b2c3d4e5f67890c2b2c3d4e5f67890c2b2c3d4e5f67890",
+    "key_type": "software",
+    "signed_at": "2026-06-12T08:00:00Z",
+    "signature_value": "BASE64URL_PLACEHOLDER_PAYMENT_AGENT_SIGNATURE"
   }
 }

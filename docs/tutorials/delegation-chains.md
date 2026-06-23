@@ -43,16 +43,16 @@ The root manifest declares the full scope the issuer authorises.
 
 ```python
 from agent_manifest import Manifest, ArtifactBindings, CryptoProfile
-from agent_manifest._types import ManifestId
 from agent_manifest._signing import Ed25519Signer
 from agent_manifest._delegation import DelegationHopSigner
 from datetime import datetime, timedelta, timezone
 import base64
+import uuid_utils  # pip install uuid-utils
 
 now = datetime.now(timezone.utc)
 
 root_manifest = Manifest(
-    manifest_id=str(ManifestId.generate()),
+    manifest_id=str(uuid_utils.uuid7()),
     agent_id="spiffe://trust.example/agent/orchestrator",
     version="0.1",
     issued_at=now,
@@ -79,14 +79,13 @@ from agent_manifest._delegation import DelegationHopSigner
 
 hop_signer = DelegationHopSigner(keypair=root_kp)
 
-delegate_manifest_id = str(ManifestId.generate())
+delegate_manifest_id = str(uuid_utils.uuid7())
 
 # The root issuer signs hop 0  -  granting a subset of its tools
 hop0_scope = {
     "tools": ["search", "summarize"],          # subset of root's [search, summarize, write]
     "data_classifications": ["public", "internal"],
     "max_delegation_depth": 2,
-    "approval_required": False,
 }
 
 hop0_sig = hop_signer.sign_hop(
@@ -128,14 +127,13 @@ signed_delegate = delegate_signer.sign(delegate_manifest.model_dump(mode="json")
 The sub-delegate's manifest adds a second hop signed by the **delegate agent**  -  again narrowing the scope.
 
 ```python
-sub_manifest_id = str(ManifestId.generate())
+sub_manifest_id = str(uuid_utils.uuid7())
 
 # The delegate agent signs hop 1  -  granting only [search] from its [search, summarize]
 hop1_scope = {
     "tools": ["search"],                        # subset of delegate's [search, summarize]
     "data_classifications": ["public"],         # narrowed from ["public", "internal"]
     "max_delegation_depth": 2,
-    "approval_required": False,
 }
 
 delegate_hop_signer = DelegationHopSigner(keypair=delegate_kp)
@@ -237,9 +235,10 @@ bad_sig = delegate_hop_signer.sign_hop(
 ### Depth exceeded (rejected)
 
 ```python
-# Root grants max_delegation_depth=1 but chain has 2 hops
+# Root grants max_delegation_depth=0 (no further delegation) but the chain
+# carries a second hop, i.e. depth 1 (depth = hops below the root).
 # verify_delegation_chain raises:
-# ValueError: Delegation chain depth 2 exceeds root max_delegation_depth 1
+# ValueError: Delegation chain depth 1 exceeds root max_delegation_depth 0
 ```
 
 ### Wrong key (rejected)
@@ -254,5 +253,5 @@ bad_sig = delegate_hop_signer.sign_hop(
 ## What's next
 
 - [Tutorial: Server-side verification](server-side-verification.md)  -  verify delegation chains at the relying party
-- [Tutorial: HITL approval workflows](hitl-approvals.md)  -  require human sign-off within a delegation chain
+- [Tutorial: HITL approval workflows](hitl-approval-workflows.md)  -  require human sign-off within a delegation chain
 - [Examples repository](https://github.com/agentrust-io/examples)

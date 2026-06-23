@@ -1,11 +1,11 @@
-"""A2A delegation chain signing and verification — issue #12.
+"""A2A delegation chain signing and verification - issue #12.
 
 Implements the cryptographic delegation chain primitive from spec Section 3.4.
 Each hop is signed by the delegating principal's Ed25519 key over the RFC 8785
 canonical form of the hop's scope_grant + metadata. Scope narrowing is enforced:
 a child scope may not claim broader permissions than its parent granted.
 
-HITL approval record signing — issue #13.
+HITL approval record signing - issue #13.
 Each approval is signed by the approver's Ed25519 key (hardware-backed in
 production; software key in development). The approval covers the canonical
 form of approved_scope + manifest_id + approved_at.
@@ -22,6 +22,24 @@ from ._signing import Ed25519Verifier, Ed25519KeyPair
 # ---------------------------------------------------------------------------
 # A2A Delegation chain
 # ---------------------------------------------------------------------------
+
+
+# Spec 3.4.1: when max_delegation_depth is omitted from a scope_grant,
+# verifying parties MUST apply a default value of 3.
+DEFAULT_MAX_DELEGATION_DEPTH = 3
+
+
+def delegation_depth_exceeded(chain_length: int, root_max_depth: int) -> bool:
+    """Single depth rule shared by the Pydantic models and this verifier.
+
+    Spec 3.4/3.4.1 semantics: hops are 0-indexed from the root, so the depth
+    of a chain is the number of sub-delegation hops below the root, i.e.
+    ``chain_length - 1``. ``max_delegation_depth: 0`` on the root scope_grant
+    means no further delegation is permitted (a single root hop is still
+    valid). A chain is rejected when its depth exceeds the root scope_grant's
+    ``max_delegation_depth``.
+    """
+    return chain_length - 1 > root_max_depth
 
 
 def _hop_pre_image(
@@ -96,10 +114,11 @@ def verify_delegation_chain(
     if not delegation_chain:
         return
 
-    root_max_depth = delegation_chain[0]["scope_grant"].get("max_delegation_depth", 3)
-    # DELEG-002: max_delegation_depth counts sub-delegation levels below the root,
-    # so a chain of (root + N delegates) has depth N. Allow length <= max_depth + 1.
-    if len(delegation_chain) > root_max_depth + 1:
+    root_max_depth = delegation_chain[0]["scope_grant"].get(
+        "max_delegation_depth", DEFAULT_MAX_DELEGATION_DEPTH
+    )
+    # DELEG-002: one shared rule - see delegation_depth_exceeded above.
+    if delegation_depth_exceeded(len(delegation_chain), root_max_depth):
         raise ValueError(
             f"Delegation chain depth {len(delegation_chain) - 1} exceeds "
             f"root max_delegation_depth {root_max_depth}"

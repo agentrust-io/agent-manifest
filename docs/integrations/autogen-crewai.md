@@ -26,7 +26,10 @@ from datetime import datetime, timedelta, timezone
 
 from agent_manifest import (
     Manifest, ArtifactBindings, ModelIdentityBinding, SystemPromptBinding,
-    CryptoProfile, generate_ed25519,
+    PolicyBundleBinding,
+    CryptoProfile, DeploymentType, EnforcementMode,
+    ModelAttestationType, PolicyLanguage,
+    generate_ed25519,
 )
 from agent_manifest._types import ManifestId
 from agent_manifest._signing import Ed25519Signer
@@ -44,10 +47,25 @@ def issue_manifest(agent_id: str, system_message: str, model: str) -> dict:
         crypto_profile=CryptoProfile.standard,
         artifacts=ArtifactBindings(
             model_identity=ModelIdentityBinding(
-                provider="openai", model_family="gpt-4o", version=model,
+                provider="openai",
+                model_id=model,
+                version="2024-08-06",
+                deployment_type=DeploymentType.api,
+                model_attestation_type=ModelAttestationType.provider_asserted,
+                bound_at=now,
             ),
             system_prompt=SystemPromptBinding(
                 hash="sha256:" + hashlib.sha256(system_message.encode()).hexdigest(),
+                version="1.0.0",
+                classification="internal",
+                bound_at=now,
+            ),
+            policy_bundle=PolicyBundleBinding(
+                hash="sha256:" + hashlib.sha256(b"policy-bundle-v1").hexdigest(),
+                policy_language=PolicyLanguage.cedar,
+                version="1.0.0",
+                enforcement_mode=EnforcementMode.enforce,
+                bound_at=now,
             ),
         ),
     )
@@ -243,5 +261,5 @@ print(result)
 ## What's next
 
 - [Tutorial: A2A delegation chains](../tutorials/delegation-chains.md)  -  cryptographic delegation between AutoGen agents
-- [Tutorial: Revocation and key rotation](../tutorials/revocation.md)  -  revoke a crew member's manifest mid-operation
+- [Tutorial: Revocation and key rotation](../tutorials/revocation-and-key-rotation.md)  -  revoke a crew member's manifest mid-operation
 - [Integration: AGT](agt.md)  -  combine with AGT for policy-driven crew governance

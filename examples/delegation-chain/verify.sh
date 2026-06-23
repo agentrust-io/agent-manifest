@@ -20,8 +20,11 @@ delegate = json.loads((BASE / "delegate-manifest.json").read_text())
 sub      = json.loads((BASE / "sub-delegate-manifest.json").read_text())
 
 # ── 1. Show the delegation chain depth at each level ──────────────────────────
+# Spec 3.1: an agent with no delegation omits delegation_chain entirely
+# (an empty array is invalid).
+root_chain = root.get('delegation_chain', [])
 print(f"Orchestrator  ({root['agent_id']!r})")
-print(f"  delegation_chain length: {len(root['delegation_chain'])} (root — no delegation)")
+print(f"  delegation_chain: {'omitted' if not root_chain else len(root_chain)} (root - no delegation)")
 print()
 print(f"Executor      ({delegate['agent_id']!r})")
 print(f"  delegation_chain length: {len(delegate['delegation_chain'])} (one hop from orchestrator)")

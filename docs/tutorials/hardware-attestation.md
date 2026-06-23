@@ -143,7 +143,8 @@ OPAQUE runs attestation inside its own managed TEE and returns a signed TRACE cl
 import os
 from agent_manifest._hw_providers import OPAQUEProvider
 
-os.environ["OPAQUE_ATTESTATION_URL"] = "https://attest.opaque.co"
+os.environ["OPAQUE_ATTESTATION_URL"] = "https://YOUR_OPAQUE_TENANT.attest.example.com"
+# Replace with your Opaque attestation service URL (requires an Opaque account)
 # os.environ["OPAQUE_API_KEY"] = "your-key"  # if required
 
 provider = OPAQUEProvider()

@@ -227,7 +227,7 @@ The `expires_at` field MUST be present. If omitted by the manifest author, imple
 All fields annotated as UUID v7 MUST conform to RFC 9562 Section 5.7. The string representation MUST use the canonical 8-4-4-4-12 hyphenated lowercase hexadecimal format. The version nibble MUST be 7 (binary 0111). Implementations MUST reject UUID fields whose version nibble is not 7.
 
 <!-- CHANGED: F-01 - SPIFFE URI path note -->
-The `agent_id` path structure `/agent/<name>/<instance>` shown in examples is a convention, not a requirement. Trust domain must be lowercase `[a-z0-9._-]`; path segments may use `[a-zA-Z0-9._-]`. UUID v7 instance identifiers (hyphens permitted in path segments) are valid. Example: `spiffe://example.opaque.co/agent/payments-processor/01926b4c-1234-7abc-9def-000000000001`.
+The `agent_id` path structure `/agent/<name>/<instance>` shown in examples is a convention, not a requirement. Trust domain must be lowercase `[a-z0-9._-]`; path segments may use `[a-zA-Z0-9._-]`. UUID v7 instance identifiers (hyphens permitted in path segments) are valid. Example: `spiffe://trust.example/agent/payments-processor/01926b4c-1234-7abc-9def-000000000001`.
 
 <!-- CHANGED: SCHEMA F-15/@context - normative note on provisional URL -->
 The `@context` URL `https://agentmanifest.agentrust.io/v0.1/context.json` is provisional for the v0.1 draft period. The AAIF working group will assign the canonical URL prior to v1.0 ratification. Implementations MUST support the canonical AAIF URL when it is assigned, and SHOULD support the v0.1 draft URL for backward compatibility with pre-ratification manifests.
@@ -656,12 +656,12 @@ The attestation service acts as a RATS Verifier in the sense of RFC 9334. For de
 The following profiles define, per platform, the measurement field used to carry the `manifest_hash_in_report`, the format of the `measurement` field, and which component performs the extension.
 
 **AMD SEV-SNP**
-- `manifest_hash_in_report` is extended into the `HOST_DATA` field of the SNP attestation report (64 bytes, purpose-built for guest-supplied data). Do NOT use a PCR register for this purpose.
-- `measurement` field: SHA-384 of initial guest memory pages (96 bytes, 192 lowercase hex characters).
+- `manifest_hash_in_report` is extended into the `HOST_DATA` field of the SNP attestation report (32 bytes, purpose-built for guest-supplied data). Do NOT use a PCR register for this purpose.
+- `measurement` field: SHA-256 of initial guest memory pages (64 bytes, 128 lowercase hex characters).
 - Extension actor: the Confidential Runtime extends `HOST_DATA` before guest launch.
 
 **Intel TDX**
-- `manifest_hash_in_report` is extended into `RTMR[1]` using `TDG.MR.RTMR.EXTEND` before any workload code runs.
+- `manifest_hash_in_report` is extended into `RTMR[3]` using `TDG.MR.RTMR.EXTEND` before any workload code runs.
 - `measurement` field: MRTD value (SHA-384, 96 bytes, 192 lowercase hex characters). For deployments using multiple RTMRs, the `measurement` field MUST be a JSON object: `{"mrtd": "<hex>", "rtmr0": "<hex>", "rtmr1": "<hex>", "rtmr2": "<hex>", "rtmr3": "<hex>"}`.
 - Extension actor: the Confidential Runtime performs the RTMR extension.
 
@@ -1114,6 +1114,60 @@ A `VALID` result means all of the following are true:
 
 A `MISMATCH` result means at least one required field does not match its running artifact. The `mismatch_details` array MUST enumerate every mismatched field. A relying party receiving a `MISMATCH` MUST NOT proceed with the operation that triggered verification.
 
+#### 5.3.1 Runtime session binding for gateways
+
+A gateway that binds an Agent Manifest to a runtime session, such as cMCP, MUST
+use the manifest verification API rather than reconstructing a signing
+pre-image locally. In the Python SDK, the public entry point is
+`agent_manifest.verify_manifest(manifest, context, revocation_store)`;
+low-level signers and verifiers use `agent_manifest.signing_pre_image()`, which
+is the single source of truth for the RFC 8785 canonical byte sequence and the
+`hitl_record.approvals` normalization rule in section 3.6.
+
+For a runtime session binding, the verifier MUST check all of the following
+before treating the manifest identity as bound to the session:
+
+1. The manifest version is supported and the issuer signature verifies with a
+   trusted issuer key.
+2. The current time is within the manifest validity window:
+   `issued_at <= now < expires_at`.
+3. The authenticated workload subject for the current session equals the
+   manifest `agent_id`. For SPIFFE deployments this is the leaf SVID subject.
+   Development modes that derive the subject from configuration or from the
+   manifest itself MUST surface that weaker subject source to relying parties.
+4. The runtime-loaded policy bundle hash equals
+   `artifacts.policy_bundle.hash`.
+5. The runtime-loaded tool catalog hash equals
+   `artifacts.tool_manifest.catalog_hash`.
+6. Any additional artifacts required by local policy, such as
+   `artifacts.system_prompt.hash`, match the runtime values supplied in the
+   `VerificationContext`.
+7. The manifest is not revoked.
+
+Because the entire `artifacts` object, `agent_id`, `issuer`, `issued_at`,
+`expires_at`, and `crypto_profile` fields are in the normative `signed_fields`
+set (section 3.6), these checks bind the session to the issuer-authenticated
+identity and artifact set.
+
+For the first cMCP integration profile, standard-profile Ed25519 manifests are
+sufficient. A gateway MAY support `ML-DSA-65` or
+`hybrid-Ed25519-ML-DSA-65` when the deployment requires the post-quantum
+profile, but it MUST reject any algorithm or `crypto_profile` it cannot verify;
+it MUST NOT silently downgrade to Ed25519-only verification for a post-quantum
+manifest.
+
+When `delegation_chain` is present, the session subject still binds to the
+current manifest's leaf `agent_id`. Each delegation hop is verified separately
+under section 3.4; the gateway MUST NOT require the session SVID to equal every
+principal in the chain.
+
+The `attestation` block is appended by the Confidential Runtime and is excluded
+from the issuer signature pre-image. A gateway MUST NOT use the attestation
+block as a substitute for the `agent_id` subject match above. If local policy
+requires hardware evidence, the gateway additionally sets
+`enforce_attestation=true` and validates the attestation block under section
+3.3.
+
 ### 5.4 Error Response Schema <!-- CHANGED: SCHEMA F-13 - new section -->
 
 All non-2xx responses from the verification endpoint MUST use the following error response structure:
@@ -1442,11 +1496,9 @@ The Art. 13 row in section 9.1 cross-references `operational_lifecycle.expected_
 - Conformance test suite (197 tests)
 - Reference implementation targeting AAIF + cMCP
 
-### 10.2 Version 0.2 - Design Partner Feedback
+### 10.2 Version 0.2
 
-<!-- CHANGED: REG-003 - added OCC RFI tracking to roadmap -->
-
-Targets: Q3 2026. Input from ServiceNow, JPMC, Across AI, and sovereign AI partners.
+Targets: Q3 2026. Driven by community and early adopter feedback collected during the CC Summit period (June–September 2026).
 
 - Memory baseline protocol for stateful agents (v0.1 defines the binding; v0.2 defines the checkpoint protocol)
 - RAG corpus incremental update protocol - how to bind a delta without re-hashing the full corpus
@@ -1526,7 +1578,7 @@ This specification builds on architectural work developed across the Agent Gover
 
 ---
 
-*Agent Manifest Specification v0.1 - Opaque Systems - June 2026*
+*Agent Manifest Specification v0.1 - AgentTrust - June 2026*
 
 
 ### D. RFC 8785 Canonical JSON Test Vector <!-- CHANGED: closes #25 -->

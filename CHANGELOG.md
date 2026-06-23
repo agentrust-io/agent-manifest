@@ -15,6 +15,24 @@ All notable changes to Agent Manifest are documented here. Format follows [Keep 
 **[SDK]** `agent_manifest._memory_delta`: `build_memory_tree`, `MemoryCheckpoint`, `verify_delta`, `fold_kv`.
 **[SDK]** `MemoryCheckpointBinding` model (`memory_root` anchor; additive — `MemoryBaselineBinding` and `snapshot_hash` semantics unchanged).
 
+**[SDK]** Export the verification API from the package root, so relying parties
+and gateways call `agent_manifest.verify_manifest()` and `VerificationContext`
+directly instead of importing the private `_verify` module (#176).
+
+**[SPEC]** Document runtime-session binding guidance for gateways, including
+the signed fields that bind `agent_id`, artifact hashes, validity windows,
+delegation handling, and attestation separation (#177).
+
+## [0.1.0] — 2026-06-23
+
+Stable launch release at Confidential Computing Summit, June 23 2026.
+
+### Fixed
+
+**[SDK]** Enforce `poisoning_scan.result` rules in verifier — bad scan results now correctly fail closed (#167).
+**[SDK]** Align Pydantic models, examples, and signing logic to the v0.1 spec (#165).
+**[SDK]** Transparency log and signing error paths fully covered; fail-closed verifier restored (#168).
+
 ## [0.1.0-alpha1] — 2026-06-04
 
 Initial developer preview. Launching at Confidential Computing Summit, June 23 2026.

@@ -29,17 +29,17 @@ Removing or altering the approval breaks both signatures. Verifiers can reject t
 
 ---
 
-## Step 1: Configure `required_approvals`
+## Configure the HITL requirement
 
-Set `hitl_record.required = True` when building the manifest. Leave `approvals` empty  -  it is filled in after the human signs off.
+Set `hitl_record.required = True` when building the manifest. Leave `approvals` empty - it is filled in after the human signs off. The `required` flag is covered by the issuer signature; the `approvals` list is normalized to `[]` in the signing pre-image so approvals can attach post-issuance (spec Section 3.6).
 
 ```python
 from agent_manifest import Manifest, ArtifactBindings, CryptoProfile
-from agent_manifest._types import ManifestId
 from datetime import datetime, timedelta, timezone
+import uuid_utils  # pip install uuid-utils
 
 now = datetime.now(timezone.utc)
-manifest_id = str(ManifestId.generate())
+manifest_id = str(uuid_utils.uuid7())
 
 manifest = Manifest(
     manifest_id=manifest_id,
@@ -52,7 +52,6 @@ manifest = Manifest(
     artifacts=ArtifactBindings(),
     hitl_record={
         "required": True,
-        "required_approvals": 1,
         "approvals": [],   # filled in after human approval
     },
 )
@@ -60,7 +59,7 @@ manifest = Manifest(
 
 ---
 
-## Step 2: Build the evidence hash
+## Build the evidence hash
 
 The `evidence_hash` field binds the approval to a specific action or dataset, not just to the manifest. Compute it by hashing the action description in a stable, reproducible way.
 
@@ -80,9 +79,9 @@ evidence_hash = "sha256:" + hashlib.sha256(
 
 ---
 
-## Step 3: Get human approval and sign it
+## Get human approval and sign it
 
-In production this step happens through an approval workflow  -  a Slack bot, web UI, or dedicated approval service. The approver authenticates with their FIDO2 key, reviews the action, and the system signs on their behalf.
+In production this step happens through an approval workflow - a Slack bot, web UI, or dedicated approval service. The approver authenticates with their FIDO2 key, reviews the action, and the system signs on their behalf.
 
 ```python
 from agent_manifest import generate_ed25519
@@ -93,9 +92,14 @@ approver_kp = generate_ed25519()
 
 approved_at = datetime.now(timezone.utc).isoformat()
 approved_scope = {
-    "action": "execute_trade",
-    "max_notional_usd": 500_000,
+    "artifacts": ["tool_manifest", "policy_bundle"],
+    "risk_tier": "high",
     "approval_duration_seconds": 3600,  # approval valid for 1 hour
+    "conditions": [
+        "action=execute_trade",
+        "max_notional_usd <= 500000",
+        f"evidence_hash={evidence_hash}",
+    ],
 }
 
 approver = HitlApprovalSigner(keypair=approver_kp)
@@ -109,31 +113,33 @@ approval_sig = approver.sign_approval(
 
 ---
 
-## Step 4: Attach the approval and sign the manifest
+## Attach the approval and sign the manifest
 
 ```python
 from agent_manifest._signing import Ed25519Signer
 
 agent_kp = generate_ed25519()
 
-manifest.hitl_record["approvals"] = [{
-    "approver_id":        "mailto:jane.doe@finance.acme.com",
-    "approved_at":        approved_at,
-    "approved_scope":     approved_scope,
-    "evidence_hash":      evidence_hash,
-    "approval_method":    "hardware_key",
-    "approval_signature": approval_sig,
-    "approver_key_id":    approver_kp.key_id,
+manifest_dict = manifest.model_dump(mode="json", by_alias=True, exclude_none=True)
+manifest_dict["hitl_record"]["approvals"] = [{
+    "approval_id":            "019236ab-0000-7000-8000-0000000000a1",  # UUID v7
+    "approver_id":            "mailto:jane.doe@finance.acme.com",
+    "approver_identity_type": "email",
+    "approver_role":          "trading-desk-supervisor",
+    "approved_at":            approved_at,
+    "approved_scope":         approved_scope,
+    "approval_signature":     approval_sig,
+    "approval_method":        "hardware-key",
+    "evidence_uri":           "https://approvals.finance.acme.com/records/trade-500k",
 }]
 
 signer = Ed25519Signer(agent_kp)
-manifest_dict = manifest.model_dump(mode="json", by_alias=True)
 manifest_dict["signature"] = signer.sign(manifest_dict)
 ```
 
 ---
 
-## Step 5: Verify HITL with `verify_manifest()`
+## Verify HITL with `verify_manifest()`
 
 Pass `enforce_hitl=True` in the `VerificationContext` so the verifier treats a missing or expired approval as a hard failure.
 
@@ -146,7 +152,12 @@ from agent_manifest._verify import (
     verify_manifest,
 )
 
-ctx = VerificationContext(enforce_hitl=True)
+# Fail-closed: VALID requires the issuer's key in trusted_keys. Without
+# trusted keys the result is UNVERIFIABLE - never VALID.
+ctx = VerificationContext(
+    enforce_hitl=True,
+    trusted_keys={agent_kp.key_id: agent_kp.public_b64url()},
+)
 result = verify_manifest(manifest_dict, ctx, RevocationStore())
 
 assert result.fields_verified.hitl_record == HitlResult.APPROVED
@@ -166,7 +177,6 @@ When `required = True` but `approvals` is empty and `enforce_hitl=True`, the res
 no_approval_manifest = dict(manifest_dict)
 no_approval_manifest["hitl_record"] = {
     "required": True,
-    "required_approvals": 1,
     "approvals": [],
 }
 
@@ -205,7 +215,7 @@ assert result.result == OverallResult.MISMATCH
 
 ### Approval from an unauthorised approver
 
-The verifier checks that the approval signature is cryptographically valid but does not enforce which `approver_id` values are acceptable  -  that is your policy. After calling `verify_manifest`, check the `approver_id` against your authorised set:
+The verifier checks that the approval signature is cryptographically valid but does not enforce which `approver_id` values are acceptable - that is your policy. After calling `verify_manifest`, check the `approver_id` against your authorised set:
 
 ```python
 AUTHORISED_APPROVERS = {
@@ -231,14 +241,13 @@ if result.fields_verified.hitl_record == HitlResult.APPROVED:
 |---------|----------------|
 | Approver key storage | FIDO2 hardware key or HSM; software keys are for development only |
 | Approval UI | Hash the `approved_scope` dict from your UI before presenting it to the approver for signing |
-| Multiple approvers | Set `required_approvals: 2` and add two entries to `approvals` |
+| Multiple approvers | Add one entry per approver to `approvals`; each is independently signed and verified |
 | Approval duration | 1-4 hours; require re-approval for long-running jobs rather than extending the window |
-| Audit trail | Log each `approval_signature` and `approver_key_id` in your SIEM alongside the manifest ID |
+| Audit trail | Log each `approval_signature` and `evidence_uri` in your SIEM alongside the manifest ID |
 | EU AI Act Art. 14 | Document that `approved_scope` maps to the specific AI system output that was reviewed |
 
 ---
 
-## What's next
+## Summary
 
-- [Tutorial: Revocation and key rotation](revocation-and-key-rotation.md)  -  revoke a manifest if an approver's key is compromised
-- [Tutorial: Server-side verification](server-side-verification.md)  -  enforce HITL at the relying party
+This tutorial walked through signing a HITL approval with an approver's key, embedding it in a manifest, and verifying it with `enforce_hitl=True`. The signed approval binds the human review to a specific action scope and expires automatically. See [Revocation and key rotation](revocation-and-key-rotation.md) to revoke a manifest if an approver's key is compromised, and [Server-side verification](server-side-verification.md) to enforce HITL at the relying party.

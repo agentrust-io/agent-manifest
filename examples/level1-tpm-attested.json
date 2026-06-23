@@ -28,13 +28,37 @@
     },
     "tool_manifest": {
       "catalog_hash": "sha256:c2b2c3d4e5f67890c2b2c3d4e5f67890c2b2c3d4e5f67890c2b2c3d4e5f67890",
-      "tool_count": 3,
-      "allow_dynamic_registration": false,
-      "rug_pull_policy": "deny-on-change",
-      "egress_destinations": [
-        "https://api.anthropic.com",
-        "https://payments.internal.acme.co"
+      "tools": [
+        {
+          "tool_id": "co.acme.payments.authorize_payment",
+          "tool_name": "authorize_payment",
+          "endpoint_id": "spiffe://trust.acme.co/mcp/payments-gateway/prod",
+          "schema_hash": "sha256:21b2c3d4e5f6789021b2c3d4e5f6789021b2c3d4e5f6789021b2c3d4e5f67890",
+          "description_hash": "sha256:22b2c3d4e5f6789022b2c3d4e5f6789022b2c3d4e5f6789022b2c3d4e5f67891",
+          "version": "1.2.0",
+          "egress_destinations": ["payments.internal.acme.co"]
+        },
+        {
+          "tool_id": "co.acme.payments.lookup_account",
+          "tool_name": "lookup_account",
+          "endpoint_id": "spiffe://trust.acme.co/mcp/payments-gateway/prod",
+          "schema_hash": "sha256:23b2c3d4e5f6789023b2c3d4e5f6789023b2c3d4e5f6789023b2c3d4e5f67890",
+          "description_hash": "sha256:24b2c3d4e5f6789024b2c3d4e5f6789024b2c3d4e5f6789024b2c3d4e5f67890",
+          "version": "1.2.0",
+          "egress_destinations": ["payments.internal.acme.co"]
+        },
+        {
+          "tool_id": "co.acme.payments.payment_history",
+          "tool_name": "payment_history",
+          "endpoint_id": "spiffe://trust.acme.co/mcp/payments-gateway/prod",
+          "schema_hash": "sha256:25b2c3d4e5f6789025b2c3d4e5f6789025b2c3d4e5f6789025b2c3d4e5f67890",
+          "description_hash": "sha256:26b2c3d4e5f6789026b2c3d4e5f6789026b2c3d4e5f6789026b2c3d4e5f67890",
+          "version": "1.2.0",
+          "egress_destinations": ["payments.internal.acme.co"]
+        }
       ],
+      "allow_dynamic_registration": false,
+      "rug_pull_policy": "deny-and-hold",
       "bound_at": "2026-06-04T00:00:00Z"
     },
     "model_identity": {
@@ -42,6 +66,7 @@
       "model_id": "claude-sonnet-4-6",
       "version": "20251001",
       "deployment_type": "api",
+      "model_attestation_type": "provider-asserted",
       "bound_at": "2026-06-04T00:00:00Z"
     },
     "decision_trace": {
@@ -61,7 +86,8 @@
         "builder_id": "https://github.com/acme-co/payment-authorizer/.github/workflows/build.yml@refs/heads/main",
         "subject_digest": "sha256:f2b2c3d4e5f67890f2b2c3d4e5f67890f2b2c3d4e5f67890f2b2c3d4e5f67890",
         "provenance_uri": "https://github.com/acme-co/payment-authorizer/attestations/12345",
-        "rekor_entry_id": "108e9186e8c5ec2374569f4ca53ac3f0d0c2f3b8a1e5d2c7f4b9e6a3d0c8f5b2"
+        "rekor_entry_id": "108e9186e8c5ec2374569f4ca53ac3f0d0c2f3b8a1e5d2c7f4b9e6a3d0c8f5b2",
+        "declared_level": 3
       },
       "sbom": {
         "format": "cyclonedx",
@@ -74,7 +100,7 @@
         {
           "server_id": "spiffe://trust.acme.co/mcp/payments-gateway/prod",
           "image_digest": "sha256:12b2c3d4e5f67890a2b2c3d4e5f67890a2b2c3d4e5f67890a2b2c3d4e5f67890",
-          "slsa_level": "3",
+          "slsa_level": 3,
           "phase2_attested": false
         }
       ],
@@ -82,24 +108,33 @@
     }
   },
   "attestation": {
-    "tee_type": "tpm",
+    "platform": "tpm",
     "tee_version": "2.0",
-    "manifest_hash_in_report": true,
-    "manifest_hash": "sha256:22b2c3d4e5f67890a2b2c3d4e5f67890a2b2c3d4e5f67890a2b2c3d4e5f67890",
-    "report_uri": "https://attestation.internal.acme.co/reports/payment-authorizer-20260604",
+    "measurement": "32b2c3d4e5f67890a2b2c3d4e5f67890a2b2c3d4e5f67890a2b2c3d4e5f67890",
+    "manifest_hash_in_report": "sha256:22b2c3d4e5f67890a2b2c3d4e5f67890a2b2c3d4e5f67890a2b2c3d4e5f67890",
     "audit_chain_root": "sha256:e2b2c3d4e5f67890e2b2c3d4e5f67890e2b2c3d4e5f67890e2b2c3d4e5f67890",
-    "bound_at": "2026-06-04T00:00:00Z"
+    "report_timestamp": "2026-06-04T00:00:30Z",
+    "report_uri": "https://attestation.internal.acme.co/reports/payment-authorizer-20260604"
   },
   "signature": {
     "algorithm": "Ed25519",
-    "key_id": "sha256:d2b2c3d4e5f67890d2b2c3d4e5f67890d2b2c3d4e5f67890d2b2c3d4e5f67890",
+    "key_id": "d2b2c3d4e5f67890d2b2c3d4e5f67890d2b2c3d4e5f67890d2b2c3d4e5f67890",
+    "key_type": "tee-sealed",
     "signed_at": "2026-06-04T00:00:00Z",
-    "value": "BASE64URL_ENCODED_SIGNATURE_PLACEHOLDER"
+    "signature_value": "BASE64URL_ENCODED_SIGNATURE_PLACEHOLDER"
   },
   "transparency_log_entry": {
-    "log_url": "https://rekor.sigstore.dev",
-    "entry_id": "108e9186e8c5ec2374569f4ca53ac3f0d0c2f3b8a1e5d2c7f4b9e6a3d0c8f5b3",
-    "integrated_time": "2026-06-04T00:01:00Z",
-    "log_index": 98765432
+    "log_id": "c0d23d6ad406973f9559f3ba2d1ca01f84147d8ffc5b8445c224f98b9591801d",
+    "log_index": 98765432,
+    "entry_uuid": "108e9186e8c5ec2374569f4ca53ac3f0d0c2f3b8a1e5d2c7f4b9e6a3d0c8f5b3",
+    "integrated_time": 1780531260,
+    "inclusion_proof": {
+      "checkpoint": "rekor.sigstore.dev - 1193050959916656506\n98765433\nPLACEHOLDER_SIGNED_TREE_HEAD",
+      "hashes": [
+        "42b2c3d4e5f6789042b2c3d4e5f6789042b2c3d4e5f6789042b2c3d4e5f67890",
+        "43b2c3d4e5f6789043b2c3d4e5f6789043b2c3d4e5f6789043b2c3d4e5f67890"
+      ],
+      "tree_size": 98765433
+    }
   }
 }

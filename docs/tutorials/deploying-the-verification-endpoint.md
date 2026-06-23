@@ -20,28 +20,11 @@ pip install "agent-manifest[server]"
 
 | Deployment mode | When to use |
 |-----------------|-------------|
-| **Sidecar** | Each agent service runs its own verifier alongside it  -  no network hop, lowest latency |
-| **Centralized service** | Shared verifier for a fleet  -  single manifest store, easier CRL management |
-| **Embedded in API gateway** | Verifier mounted directly in the main application  -  fewest moving parts |
+| **Sidecar** | Each agent service runs its own verifier alongside it - no network hop, lowest latency |
+| **Centralized service** | Shared verifier for a fleet - single manifest store, easier CRL management |
+| **Embedded in API gateway** | Verifier mounted directly in the main application - fewest moving parts |
 
 This tutorial packages the verifier as a standalone container, which works for all three modes.
-
----
-
-## Container packaging
-
-```dockerfile
-FROM python:3.12-slim
-WORKDIR /app
-COPY pyproject.toml .
-RUN pip install "agent-manifest[server]"
-COPY verifier.py .
-CMD ["uvicorn", "verifier:app", "--host", "0.0.0.0", "--port", "8080"]
-```
-
-```bash
-docker build -t agent-manifest-verifier .
-```
 
 ---
 
@@ -75,6 +58,17 @@ async def discovery():
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/ready")
+async def ready():
+    if not manifest_store:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
+            status_code=503,
+            content={"status": "no manifests loaded"},
+        )
+    return {"status": "ready", "manifests": len(manifest_store)}
 ```
 
 This mounts the following endpoints:
@@ -82,14 +76,32 @@ This mounts the following endpoints:
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/agent/verify?manifest_id=...` | Returns a `VerificationResult` |
+| `POST` | `/agent/verify` | Verify with caller-supplied trusted keys |
 | `GET` | `/agent/revocation-status?manifest_id=...` | Returns revocation record or 404 |
 | `GET` | `/.well-known/agent-manifest/revocation` | Full CRL as JSON array |
 | `GET` | `/.well-known/agent-manifest/revocation/{id}` | Single CRL entry or 404 |
-| `GET` | `/.well-known/agent-manifest` | Discovery document |
+| `GET` | `/.well-known/agent-manifest` | RFC 8615 discovery document |
 | `GET` | `/health` | Liveness probe |
+| `GET` | `/ready` | Readiness probe |
 
-!!! note
-    `RevocationStore` in this example is in-memory. For production, replace it with a database-backed store that is shared across replicas and persists across restarts.
+`RevocationStore` in this example is in-memory. For production, replace it with a database-backed store that is shared across replicas and persists across restarts.
+
+---
+
+## Container packaging
+
+```dockerfile
+FROM python:3.12-slim
+WORKDIR /app
+COPY pyproject.toml .
+RUN pip install "agent-manifest[server]"
+COPY verifier.py .
+CMD ["uvicorn", "verifier:app", "--host", "0.0.0.0", "--port", "8080"]
+```
+
+```bash
+docker build -t agent-manifest-verifier .
+```
 
 ---
 
@@ -107,10 +119,18 @@ services:
       - ./data:/data
     environment:
       CRL_PATH: /data/revocations.jsonl
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
   agent-service:
     image: python:3.12-slim
     command: ["echo", "Replace with your agent service"]
+    depends_on:
+      verifier:
+        condition: service_healthy
 ```
 
 ```bash
@@ -124,6 +144,65 @@ curl "http://localhost:8080/agent/verify?manifest_id=018f4a3b-2c1d-7e5f-a8b9-0d1
 
 # Browse the CRL
 curl "http://localhost:8080/.well-known/agent-manifest/revocation"
+
+# Use the discovery document
+curl http://localhost:8080/.well-known/agent-manifest
+# {"revocation":"/.well-known/agent-manifest/revocation","verify":"/agent/verify"}
+```
+
+---
+
+## Kubernetes deployment
+
+```yaml
+# k8s/verifier-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-manifest-verifier
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: agent-manifest-verifier
+  template:
+    metadata:
+      labels:
+        app: agent-manifest-verifier
+    spec:
+      containers:
+        - name: verifier
+          image: agent-manifest-verifier:latest
+          ports:
+            - containerPort: 8080
+          env:
+            - name: CRL_PATH
+              value: /data/revocations.jsonl
+          volumeMounts:
+            - name: manifests
+              mountPath: /data/manifests
+              readOnly: true
+            - name: crl
+              mountPath: /data
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            initialDelaySeconds: 3
+            periodSeconds: 5
+      volumes:
+        - name: manifests
+          configMap:
+            name: agent-manifests
+        - name: crl
+          persistentVolumeClaim:
+            claimName: crl-pvc
 ```
 
 ---
@@ -148,57 +227,31 @@ LOG_LEVEL = os.getenv("LOG_LEVEL", "info")
 
 ---
 
-## Health checks and readiness
+## Hot-reloading manifests
 
-The `/health` endpoint returns `{"status": "ok"}` as soon as the process starts  -  use it for Kubernetes liveness probes. If you want a readiness gate that waits until manifests are loaded, add a separate `/ready` endpoint:
+The in-memory `manifest_store` is populated at startup. In production you will add new agents without restarting. Two approaches:
+
+**Option A: Reload endpoint** (simplest)
 
 ```python
-@app.get("/ready")
-async def ready():
-    if not manifest_store:
-        from fastapi.responses import JSONResponse
-        return JSONResponse(
-            status_code=503,
-            content={"status": "no manifests loaded"},
-        )
-    return {"status": "ready", "manifests": len(manifest_store)}
+@app.post("/admin/reload", include_in_schema=False)
+async def reload_manifests():
+    manifest_store.clear()
+    for path in Path("/data/manifests").glob("*.json"):
+        import json
+        m = json.loads(path.read_text())
+        manifest_store[m["manifest_id"]] = m
+    return {"loaded": len(manifest_store)}
 ```
 
-Kubernetes probe configuration:
+Protect this endpoint with network policy or an API key.
 
-```yaml
-livenessProbe:
-  httpGet:
-    path: /health
-    port: 8080
-  initialDelaySeconds: 5
-  periodSeconds: 10
+**Option B: Shared database** (recommended for fleets)
 
-readinessProbe:
-  httpGet:
-    path: /ready
-    port: 8080
-  initialDelaySeconds: 3
-  periodSeconds: 5
-```
+Replace `manifest_store: dict` with a database-backed store. On each request the verifier reads from the database - no reload needed, and multiple replicas stay consistent.
 
 ---
 
-## `.well-known/agent-manifest` discovery
+## Summary
 
-The discovery endpoint follows [RFC 8615](https://www.rfc-editor.org/rfc/rfc8615) (well-known URIs). Clients can `GET /.well-known/agent-manifest` to discover the verification and revocation URLs without hardcoding them.
-
-```bash
-curl http://localhost:8080/.well-known/agent-manifest
-# {"revocation":"/.well-known/agent-manifest/revocation","verify":"/agent/verify"}
-```
-
-Agents bootstrapping in a new environment should use the discovery document rather than assuming fixed paths.
-
----
-
-## What's next
-
-- [Tutorial: Revocation and key rotation](revocation-and-key-rotation.md)  -  update the CRL in the running verifier
-- [Operations: Monitoring](../operations/monitoring.md)  -  metrics and alerting for the verification endpoint
-- [Operations: Key rotation runbook](../operations/key-rotation.md)
+This tutorial built a containerised verification service that exposes the RFC 8615 discovery endpoint, a full-featured verification route, and the CRL endpoint. The same `verifier.py` works as a sidecar, a centralised service, or embedded in your API gateway. See [Revocation and key rotation](revocation-and-key-rotation.md) to update the CRL in the running verifier, and [Operations: Monitoring](../operations/monitoring.md) for metrics and alerting.

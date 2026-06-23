@@ -1,4 +1,4 @@
-"""AM-BIND: Artifact binding conformance tests — issue #16.
+"""AM-BIND: Artifact binding conformance tests - issue #16.
 
 Covers all 10 artifact bindings: schema validation, cardinality enforcement,
 conditional requirements, enum exhaustiveness, and the Manifest root model.
@@ -17,6 +17,8 @@ from agent_manifest.models import (
     DriftPolicy,
     EnforcementMode,
     MemoryBaselineBinding,
+    MemoryType,
+    ModelAttestationType,
     ModelIdentityBinding,
     PolicyBundleBinding,
     PolicyLanguage,
@@ -43,7 +45,7 @@ MID = ManifestId("018f4a3b-2c1d-7e5f-a8b9-0d1e2f3a4b5c")
 
 
 # ---------------------------------------------------------------------------
-# ManifestId — UUID v7
+# ManifestId - UUID v7
 # ---------------------------------------------------------------------------
 
 def test_manifest_id_valid():
@@ -89,16 +91,24 @@ def test_hash_value_uppercase_rejected():
 
 
 # ---------------------------------------------------------------------------
-# Artifact #1 — SystemPromptBinding
+# Artifact #1 - SystemPromptBinding
 # ---------------------------------------------------------------------------
 
 def test_system_prompt_minimal():
-    b = SystemPromptBinding(hash=SHA, bound_at=NOW)
+    b = SystemPromptBinding(
+        hash=SHA, version="1.0.0",
+        classification=DataClassification.internal, bound_at=NOW,
+    )
     assert b.hash == SHA
+
+def test_system_prompt_version_and_classification_required():
+    # Spec 3.2.1: version and classification are REQUIRED
+    with pytest.raises(ValidationError):
+        SystemPromptBinding(hash=SHA, bound_at=NOW)
 
 def test_system_prompt_optional_fields():
     b = SystemPromptBinding(
-        hash=SHA, bound_at=NOW,
+        hash=SHA, version="1.0.0", bound_at=NOW,
         classification=DataClassification.confidential,
         safety_level="high",
     )
@@ -106,7 +116,7 @@ def test_system_prompt_optional_fields():
 
 
 # ---------------------------------------------------------------------------
-# Artifact #2 — PolicyBundleBinding
+# Artifact #2 - PolicyBundleBinding
 # ---------------------------------------------------------------------------
 
 def test_policy_bundle_cedar():
@@ -125,26 +135,35 @@ def test_policy_bundle_advisory_mode():
 
 
 # ---------------------------------------------------------------------------
-# Artifact #3 — ToolManifestBinding
+# Artifact #3 - ToolManifestBinding
 # ---------------------------------------------------------------------------
 
 def _tool(tool_id="com.example.t", schema_hex="a"*64, desc_hex="b"*64):
     return ToolEntry(
-        tool_id=tool_id, name="t",
-        server_id="spiffe://x/server",
+        tool_id=tool_id, tool_name="t",
+        endpoint_id="spiffe://x/server",
         schema_hash=HashValue(f"sha256:{schema_hex}"),
         description_hash=HashValue(f"sha256:{desc_hex}"),
         version="1.0",
     )
 
 def test_tool_manifest_allow_dynamic_false_by_default():
-    b = ToolManifestBinding(catalog_hash=SHA, tools=[_tool()], bound_at=NOW)
+    b = ToolManifestBinding(
+        catalog_hash=SHA, tools=[_tool()],
+        rug_pull_policy=RugPullPolicy.deny_and_alert, bound_at=NOW,
+    )
     assert b.allow_dynamic_registration is False
+
+def test_tool_manifest_rug_pull_policy_required():
+    # Spec 3.2.3: rug_pull_policy is REQUIRED with no default
+    with pytest.raises(ValidationError):
+        ToolManifestBinding(catalog_hash=SHA, tools=[_tool()], bound_at=NOW)
 
 def test_tool_manifest_boolean_not_string():
     b = ToolManifestBinding(
         catalog_hash=SHA, tools=[_tool()],
-        allow_dynamic_registration=False, bound_at=NOW,
+        allow_dynamic_registration=False,
+        rug_pull_policy=RugPullPolicy.deny_and_alert, bound_at=NOW,
     )
     assert isinstance(b.allow_dynamic_registration, bool)
 
@@ -157,48 +176,90 @@ def test_tool_manifest_rug_pull_enum():
 
 
 # ---------------------------------------------------------------------------
-# Artifact #4 — ModelIdentityBinding — conditional model_hash
+# Artifact #4 - ModelIdentityBinding - conditional model_hash
 # ---------------------------------------------------------------------------
 
 def test_model_api_no_hash():
     b = ModelIdentityBinding(
         provider="anthropic", model_id="claude", version="3",
-        deployment_type=DeploymentType.api, model_hash=None, bound_at=NOW,
+        deployment_type=DeploymentType.api, model_hash=None,
+        model_attestation_type=ModelAttestationType.provider_asserted,
+        bound_at=NOW,
     )
     assert b.model_hash is None
 
 def test_model_api_with_hash_rejected():
-    with pytest.raises(ValidationError, match="MUST be null for"):
+    with pytest.raises(ValidationError, match="MUST be null"):
         ModelIdentityBinding(
             provider="anthropic", model_id="claude", version="3",
-            deployment_type=DeploymentType.api, model_hash=SHA, bound_at=NOW,
+            deployment_type=DeploymentType.api, model_hash=SHA,
+            model_attestation_type=ModelAttestationType.hash_bound,
+            bound_at=NOW,
         )
 
 def test_model_local_requires_hash():
     with pytest.raises(ValidationError, match="REQUIRED when deployment_type"):
         ModelIdentityBinding(
             provider="internal", model_id="llm", version="1",
-            deployment_type=DeploymentType.local, model_hash=None, bound_at=NOW,
+            deployment_type=DeploymentType.local, model_hash=None,
+            model_attestation_type=ModelAttestationType.hash_bound,
+            bound_at=NOW,
         )
 
 def test_model_confidential_inference_requires_hash():
     b = ModelIdentityBinding(
         provider="opaque", model_id="llm", version="1",
         deployment_type=DeploymentType.confidential_inference,
-        model_hash=SHA, bound_at=NOW,
+        model_hash=SHA,
+        model_attestation_type=ModelAttestationType.hash_bound,
+        bound_at=NOW,
     )
     assert b.model_hash == SHA
 
-def test_model_third_party_api_hash_optional():
+def test_model_third_party_api_hash_must_be_null():
+    # Spec 3.2.4: model_hash MUST be null for api and third-party-api
     b = ModelIdentityBinding(
         provider="azure_oai", model_id="gpt4", version="0613",
-        deployment_type=DeploymentType.third_party_api, bound_at=NOW,
+        deployment_type=DeploymentType.third_party_api,
+        model_attestation_type=ModelAttestationType.provider_asserted,
+        bound_at=NOW,
     )
     assert b.model_hash is None
+    with pytest.raises(ValidationError, match="MUST be null"):
+        ModelIdentityBinding(
+            provider="azure_oai", model_id="gpt4", version="0613",
+            deployment_type=DeploymentType.third_party_api, model_hash=SHA,
+            model_attestation_type=ModelAttestationType.hash_bound,
+            bound_at=NOW,
+        )
+
+def test_model_attestation_type_required():
+    # Spec 3.2.4: model_attestation_type is REQUIRED
+    with pytest.raises(ValidationError):
+        ModelIdentityBinding(
+            provider="anthropic", model_id="claude", version="3",
+            deployment_type=DeploymentType.api, bound_at=NOW,
+        )
+
+def test_model_attestation_type_must_match_hash_presence():
+    with pytest.raises(ValidationError, match="provider-asserted"):
+        ModelIdentityBinding(
+            provider="anthropic", model_id="claude", version="3",
+            deployment_type=DeploymentType.api,
+            model_attestation_type=ModelAttestationType.hash_bound,
+            bound_at=NOW,
+        )
+    with pytest.raises(ValidationError, match="hash-bound"):
+        ModelIdentityBinding(
+            provider="internal", model_id="llm", version="1",
+            deployment_type=DeploymentType.local, model_hash=SHA,
+            model_attestation_type=ModelAttestationType.provider_asserted,
+            bound_at=NOW,
+        )
 
 
 # ---------------------------------------------------------------------------
-# Artifact #5 — RagCorpusBinding
+# Artifact #5 - RagCorpusBinding
 # ---------------------------------------------------------------------------
 
 def test_rag_corpus_with_scan():
@@ -215,7 +276,7 @@ def test_rag_corpus_with_scan():
 
 
 # ---------------------------------------------------------------------------
-# Artifact #6 — MemoryBaselineBinding
+# Artifact #6 - MemoryBaselineBinding
 # ---------------------------------------------------------------------------
 
 def test_memory_baseline_ttl_minimum():
@@ -245,9 +306,56 @@ def test_memory_baseline_valid_ttl():
     )
     assert b.ttl_seconds == 86400
 
+def test_memory_baseline_type_none_requires_null_snapshot():
+    # Spec 3.2.6: memory_type=none -> snapshot_hash MUST be null, ttl omitted
+    b = MemoryBaselineBinding(
+        baseline_id=MID, snapshot_hash=None, memory_type=MemoryType.none,
+        store="none", approved_at=NOW,
+        drift_policy=DriftPolicy.log_only, bound_at=NOW,
+    )
+    assert b.snapshot_hash is None
+    assert b.ttl_seconds is None
+    with pytest.raises(ValidationError, match="MUST be null"):
+        MemoryBaselineBinding(
+            baseline_id=MID, snapshot_hash=SHA, memory_type=MemoryType.none,
+            store="none", approved_at=NOW,
+            drift_policy=DriftPolicy.log_only, bound_at=NOW,
+        )
+
+def test_memory_baseline_snapshot_required_unless_none():
+    with pytest.raises(ValidationError, match="snapshot_hash is REQUIRED"):
+        MemoryBaselineBinding(
+            baseline_id=MID, snapshot_hash=None, memory_type=MemoryType.session,
+            store="redis/7", approved_at=NOW,
+            drift_policy=DriftPolicy.alert_on_drift, bound_at=NOW,
+        )
+
+def test_memory_baseline_persistent_requires_ttl():
+    with pytest.raises(ValidationError, match="ttl_seconds is REQUIRED"):
+        MemoryBaselineBinding(
+            baseline_id=MID, snapshot_hash=SHA, memory_type=MemoryType.persistent,
+            store="redis/7", approved_at=NOW,
+            drift_policy=DriftPolicy.deny_on_drift, bound_at=NOW,
+        )
+
+def test_memory_baseline_shared_requires_owner():
+    with pytest.raises(ValidationError, match="shared_memory_owner is REQUIRED"):
+        MemoryBaselineBinding(
+            baseline_id=MID, snapshot_hash=SHA, memory_type=MemoryType.shared,
+            store="redis/7", approved_at=NOW, ttl_seconds=86400,
+            drift_policy=DriftPolicy.deny_on_drift, bound_at=NOW,
+        )
+    b = MemoryBaselineBinding(
+        baseline_id=MID, snapshot_hash=SHA, memory_type=MemoryType.shared,
+        store="redis/7", approved_at=NOW, ttl_seconds=86400,
+        shared_memory_owner=MID,
+        drift_policy=DriftPolicy.deny_on_drift, bound_at=NOW,
+    )
+    assert b.shared_memory_owner == MID
+
 
 # ---------------------------------------------------------------------------
-# Artifact #7 — DecisionTraceBinding (added in #24)
+# Artifact #7 - DecisionTraceBinding (added in #24)
 # ---------------------------------------------------------------------------
 
 def test_decision_trace_valid():
@@ -286,7 +394,7 @@ def test_decision_trace_audit_key_sealed_is_bool():
 
 
 # ---------------------------------------------------------------------------
-# Root Manifest — expiry validation
+# Root Manifest - expiry validation
 # ---------------------------------------------------------------------------
 
 def _minimal_manifest(**overrides):
@@ -297,14 +405,19 @@ def _minimal_manifest(**overrides):
         expires_at=NOW + timedelta(days=90),
         issuer="spiffe://trust.example/issuer",
         artifacts=ArtifactBindings(
-            system_prompt=SystemPromptBinding(hash=SHA, bound_at=NOW),
+            system_prompt=SystemPromptBinding(
+                hash=SHA, version="1.0.0",
+                classification=DataClassification.internal, bound_at=NOW,
+            ),
             policy_bundle=PolicyBundleBinding(
                 hash=SHA, policy_language=PolicyLanguage.cedar,
                 version="1.0", enforcement_mode=EnforcementMode.enforce, bound_at=NOW,
             ),
             model_identity=ModelIdentityBinding(
                 provider="anthropic", model_id="claude", version="3",
-                deployment_type=DeploymentType.api, bound_at=NOW,
+                deployment_type=DeploymentType.api,
+                model_attestation_type=ModelAttestationType.provider_asserted,
+                bound_at=NOW,
             ),
         ),
     )
@@ -334,10 +447,30 @@ def test_manifest_delegation_depth_exceeded():
             ),
             delegation_signature="sig",
         )
-        for i in range(3)  # 3 hops > max_delegation_depth=2
+        for i in range(4)  # depth = 4 - 1 = 3 > max_delegation_depth=2
     ]
     with pytest.raises(ValidationError, match="max_delegation_depth"):
         Manifest(**_minimal_manifest(delegation_chain=hops))
+
+def test_manifest_delegation_depth_at_limit_is_valid():
+    # depth = len(chain) - 1; a chain of 3 hops has depth 2 == max 2 -> valid
+    hops = [
+        DelegationHop(
+            hop=i, principal_type=PrincipalType.agent,
+            principal_id=f"spiffe://x/{i}",
+            delegated_at=NOW,
+            scope_grant=ScopeGrant(max_delegation_depth=2, ttl_seconds=3600),
+            delegation_signature="sig",
+        )
+        for i in range(3)
+    ]
+    m = Manifest(**_minimal_manifest(delegation_chain=hops))
+    assert m.delegation_chain is not None and len(m.delegation_chain) == 3
+
+def test_manifest_empty_delegation_chain_invalid():
+    # Spec 3.1: an empty delegation_chain array is invalid - omit the field
+    with pytest.raises(ValidationError):
+        Manifest(**_minimal_manifest(delegation_chain=[]))
 
 def test_manifest_json_schema_export():
     m = Manifest(**_minimal_manifest())
