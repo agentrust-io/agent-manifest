@@ -476,6 +476,65 @@ For `drift_policy` action definitions:
 - `log-only`: Record the drift in the audit log. No operational impact.
 
 
+##### 3.2.6.2 Memory Checkpoint and Delta Protocol <!-- CHANGED: SPEC-07 (v0.2) - incremental memory binding -->
+
+v0.1 (Section 3.2.6.1) binds memory as a static set snapshot: any change forces a full
+re-hash and re-approval. v0.2 adds an OPTIONAL incremental path that binds memory as an
+**append-only operation log** — a merkle-log (same model as `decision_trace.trace_type:
+merkle-log`, Section 3.2.7) — so an agent may evolve persistent memory across a session and
+prove the evolution was governed, without re-approving the whole store.
+
+**Memory tree.** Memory mutations are encoded as an ordered sequence of operations. Each
+operation is one leaf, appended in sequence order (NOT sorted). The `memory_root` is the
+RFC 9162 Merkle Tree Hash over the operation leaves, in HashValue form. A leaf is
+`H(0x00 || tag || canonical_op)` where `tag` domain-separates the representation and
+`canonical_op` is the RFC 8785 canonical JSON (Section 4.1) of the operation:
+
+- **Key-value** (`tag = "am-mem-kv\x00"`): `PUT` op `{"key","op","value"}`; `DEL` op `{"key","op"}`.
+- **Semantic / vector** (`tag = "am-mem-vec\x00"`): `{"content_hash","embedding","embedding_model_id","id","op"}`,
+  where `embedding` is the lowercase-hex of the quantized embedding bytes. Binding the
+  `embedding_model_id` makes a silent re-embedding or re-quantization change the root.
+- **Graph** (`tag = "am-mem-gnode\x00"` / `"am-mem-gedge\x00"`): node `{"node_id","op","props"}`;
+  edge `{"dst","op","props","rel","src"}`.
+
+`DEL`/removal MUST be encoded as an appended operation; a verifier MUST NOT accept a delta
+that rewrites or removes an existing log position. The materialized current memory state
+(and hence the v0.1 `snapshot_hash`, Section 3.2.6.1) is the left fold of the operation log
+(last-writer-wins for `PUT`/`DEL`).
+
+**Checkpoint.** A checkpoint binds `{memory_root, tree_size, seq, approved_at, ttl_seconds}`
+(see `MemoryCheckpointBinding`). `seq` is a strictly monotonic checkpoint counter.
+
+**Delta acceptance.** A verifier presented with a prior checkpoint, a new checkpoint, and an
+RFC 9162 §2.1.2 consistency proof MUST accept the advance as a governed checkpoint (NOT
+drift) if and only if, in this order:
+
+1. the consistency proof verifies that the prior `memory_root` is an append-only positional
+   prefix of the new `memory_root` (RFC 9162 §2.1.4.2);
+2. `new.seq > prev.seq` (else `rollback`);
+3. the new checkpoint is within its TTL window, `now <= new.approved_at + new.ttl_seconds`
+   (else `expired`);
+4. the delta is within the deployer's declared budget (else `budget`).
+
+If step 1 fails, the change is **drift** and MUST be handled by the existing `drift_policy`
+(Section 3.2.6.1) — `MEMORY_DRIFT_DETECTED`. This preserves the v0.1 fail-closed guarantee:
+absence of a valid consistency proof never grants acceptance.
+
+**Test vector.** The KV operation log `[PUT a=1, PUT b=2]` produces
+`memory_root = sha256:9a41dee8ec223727525f8b26685e413664190d2b82cd62d4f7c15180a9e1f5af`.
+The single-operation prefix `[PUT a=1]` has leaf preimage
+`am-mem-kv\x00{"key":"a","op":"PUT","value":1}` and leaf hash
+`sha256:f2904e572018f088488c4fbd2e5fffaa3bc5f94488eec27ca73f4d1348595b91`; its consistency
+proof to the 2-operation log is the single node
+`42effb8d6d6bf9904585248b30b039a5ede7a447a5f8fd21cc0a8b0b850c566f`. Implementations MUST
+reproduce these values.
+
+**Limitations (v0.2).** Log compaction / checkpoint re-baseline is not yet defined: a
+deployment MUST re-baseline (full re-approval per Section 3.2.6.1) before the cumulative
+operation count approaches implementation limits. HITL co-signing of a checkpoint advance and
+`shared` memory owner co-signing are deferred to a later revision.
+
+
 #### 3.2.7 Decision Trace Binding <!-- CHANGED: added missing artifact #7 schema block -->
 
 ```json

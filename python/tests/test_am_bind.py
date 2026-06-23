@@ -477,3 +477,23 @@ def test_manifest_json_schema_export():
     schema = m.json_schema()
     assert "properties" in schema
     assert "manifest_id" in schema["properties"]
+
+
+# ---------------------------------------------------------------------------
+# Artifact #6 checkpoint — MemoryCheckpointBinding (Phase 3, v0.2 §3.2.6.2)
+# ---------------------------------------------------------------------------
+
+def test_memory_checkpoint_binding_roundtrips_memory_root():
+    from agent_manifest.models import MemoryCheckpointBinding
+    b = MemoryCheckpointBinding(
+        memory_root=HashValue("sha256:" + "c" * 64),
+        seq=3, approved_at=NOW, ttl_seconds=86400,
+    )
+    parsed = MemoryCheckpointBinding.model_validate(b.model_dump())
+    assert parsed.memory_root == "sha256:" + "c" * 64
+    assert parsed.seq == 3
+    # malformed memory_root rejected by HashValue validation
+    with pytest.raises(ValidationError):
+        MemoryCheckpointBinding(
+            memory_root="not-a-hash", seq=1, approved_at=NOW, ttl_seconds=86400,
+        )

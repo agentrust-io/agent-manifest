@@ -431,3 +431,70 @@ def test_http_result_schema_has_all_fields():
     for field in ("verification_id", "manifest_id", "result", "fields_verified",
                   "mismatch_details", "verified_at"):
         assert field in body, f"Missing field: {field}"
+
+
+# ---------------------------------------------------------------------------
+# Memory checkpoint/delta (Phase 3, v0.2 §3.2.6.2)
+# ---------------------------------------------------------------------------
+
+def _artifacts_with_memory(snap):
+    return {
+        "system_prompt": {"hash": SHA_A},
+        "policy_bundle": {"hash": SHA_B, "enforcement_mode": "enforce"},
+        "model_identity": {"version": "claude-3", "deployment_type": "api"},
+        "decision_trace": {"audit_chain_root": SHA_C},
+        "memory_baseline": {
+            "snapshot_hash": snap, "ttl_seconds": 86400,
+            "approved_at": NOW.isoformat().replace("+00:00", "Z"),
+        },
+    }
+
+
+def test_fold_reproduces_v01_snapshot_hash():
+    # v0.1 snapshot_hash = SHA-256 of RFC 8785 canonical of the KV map (spec:469).
+    from agent_manifest._memory_delta import fold_kv
+    from agent_manifest._canonicalize import canonical_hash
+    ops = [{"op": "PUT", "key": "a", "value": 1},
+           {"op": "PUT", "key": "b", "value": 2},
+           {"op": "PUT", "key": "a", "value": 3},
+           {"op": "DEL", "key": "b"}]
+    materialized = fold_kv(ops)
+    assert materialized == {"a": 3}
+    # Pin to the literal v0.1 snapshot derivation (SHA-256 of RFC 8785 canonical
+    # of the KV map, spec:469) — non-circular: a fold/canonicalization regression
+    # changes this value.
+    assert canonical_hash(materialized) == (
+        "sha256:70778ce01ad8d1a82c80a3500bee476f34651238edeb936c4a7b0161b1395169"
+    )
+
+
+def test_verification_still_flags_unproven_memory_change():
+    # Regression guard: the v0.1 drift comparand (_verify.py:364-367) still flags
+    # a memory snapshot that differs from the bound value (no delta downgrade).
+    m = manifest(artifacts=_artifacts_with_memory("sha256:" + "e" * 64))
+    c = ctx(memory_snapshot_hash="sha256:" + "f" * 64)
+    r = verify_manifest(m, c, store())
+    assert r.fields_verified.memory_baseline == FieldResult.MISMATCH
+
+
+def test_verification_accepts_bound_delta():
+    # Bind the new checkpoint's root in a manifest-shaped binding, then check the
+    # advance with verify_delta (model = bind, verify_delta = check).
+    from agent_manifest.models import MemoryCheckpointBinding
+    from agent_manifest._memory_delta import (
+        MemoryCheckpoint, memory_merkletree, verify_delta,
+    )
+    now = datetime(2026, 6, 15, 12, 0, tzinfo=timezone.utc)
+    prev_ops = [{"op": "PUT", "key": f"k{i}", "value": i} for i in range(4)]
+    new_ops = prev_ops + [{"op": "PUT", "key": "k4", "value": 1}]
+    prev = MemoryCheckpoint.from_ops(prev_ops, "kv", seq=1, approved_at=now, ttl_seconds=86400)
+    new = MemoryCheckpoint.from_ops(new_ops, "kv", seq=2, approved_at=now, ttl_seconds=86400)
+    binding = MemoryCheckpointBinding(
+        memory_root=new.memory_root, seq=new.seq, approved_at=now, ttl_seconds=86400,
+    )
+    proof = memory_merkletree(new_ops, "kv").consistency_proof(len(prev_ops))
+    v = verify_delta(prev, new, new_ops, proof, now=now)
+    assert v.accepted is True
+    # the manifest binding round-trips and preserves the checkpoint anchor
+    parsed = MemoryCheckpointBinding.model_validate(binding.model_dump())
+    assert parsed.memory_root == new.memory_root and parsed.seq == new.seq

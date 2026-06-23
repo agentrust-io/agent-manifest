@@ -152,6 +152,35 @@ class MerkleTree:
         )
         return computed == expected_root
 
+    def consistency_proof(self, first_size: int) -> list[bytes]:
+        """RFC 9162 §2.1.2 consistency proof from *first_size* to current size.
+
+        Proves the first ``first_size`` leaves of this tree are an append-only
+        positional prefix of the full tree. Used to bind a memory/corpus
+        checkpoint advance (see ``_memory_delta``).
+
+        Raises:
+            ValueError: If *first_size* is not in ``1..len(leaves)``.
+        """
+        n = len(self._leaf_hashes)
+        if not 0 < first_size <= n:
+            raise ValueError(
+                f"first_size {first_size} out of range 1..{n}"
+            )
+        if first_size == n:
+            return []
+        return self._subproof(first_size, self._leaf_hashes, True)
+
+    def _subproof(self, m: int, hashes: list[bytes], b: bool) -> list[bytes]:
+        """RFC 9162 §2.1.2 SUBPROOF recursion over pre-hashed leaves."""
+        n = len(hashes)
+        if m == n:
+            return [] if b else [self._mth(hashes)]
+        k = _split_point(n)
+        if m <= k:
+            return self._subproof(m, hashes[:k], b) + [self._mth(hashes[k:])]
+        return self._subproof(m - k, hashes[k:], False) + [self._mth(hashes[:k])]
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
@@ -215,6 +244,68 @@ def _compute_root_from_proof(
             fr = fr // 2
         fn = (fn + 1) // 2
     return node
+
+
+def verify_consistency(
+    first_root: bytes,
+    second_root: bytes,
+    first_size: int,
+    second_size: int,
+    proof: list[bytes],
+    *,
+    algorithm: str = "sha256",
+) -> bool:
+    """Verify an RFC 9162 §2.1.4.2 consistency proof.
+
+    Returns True iff *proof* proves the size-*first_size* tree (root
+    *first_root*) is an append-only positional prefix of the size-*second_size*
+    tree (root *second_root*). Uses only the two roots, sizes, and proof — never
+    the leaf data — so a verifier without the store can check a checkpoint
+    advance. A non-prefix, tampered, or truncated proof returns False (the
+    fail-closed path for memory-delta verification).
+    """
+    h = _HASH_FNS[algorithm]
+    if first_size > second_size:
+        return False
+    if first_size == second_size:
+        return not proof and first_root == second_root
+    if first_size == 0:
+        return not proof
+    terms = list(proof)
+    if first_size & (first_size - 1) == 0:  # first_size is a power of two
+        terms = [first_root] + terms
+    if not terms:
+        return False
+    fn, sn = first_size - 1, second_size - 1
+    while fn & 1:
+        fn >>= 1
+        sn >>= 1
+    fr, sr, sn = _fold_consistency_terms(terms, fn, sn, h)
+    return fr is not None and fr == first_root and sr == second_root and sn == 0
+
+
+def _fold_consistency_terms(
+    terms: list[bytes], fn: int, sn: int, h: Callable[[bytes], bytes]
+) -> tuple[bytes | None, bytes | None, int]:
+    """RFC 9162 §2.1.4.2 inner loop: fold proof nodes into (old_root, new_root).
+
+    Returns ``(None, None, -1)`` on a malformed proof (over-consumed path).
+    """
+    fr = sr = terms[0]
+    for c in terms[1:]:
+        if sn == 0:
+            return None, None, -1
+        if (fn & 1) or fn == sn:
+            fr = h(b"\x01" + c + fr)
+            sr = h(b"\x01" + c + sr)
+            while (fn & 1) == 0 and fn != 0:
+                fn >>= 1
+                sn >>= 1
+        else:
+            sr = h(b"\x01" + sr + c)
+        fn >>= 1
+        sn >>= 1
+    return fr, sr, sn
 
 
 # ---------------------------------------------------------------------------
