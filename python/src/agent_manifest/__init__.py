@@ -24,8 +24,10 @@ from ._signing import (
     signing_pre_image,
     generate_ed25519, Ed25519KeyPair, Ed25519Signer, Ed25519Verifier,
 )
+from ._providers import AttestationReport, AttestationUnavailableError, RuntimeAttestationReport
 from ._verify import (
     verify_manifest,
+    verify_runtime_report,
     VerificationContext, VerificationResult,
     OverallResult, FieldResult, DelegationResult, HitlResult,
     FieldsVerified, MismatchDetail, EvidencePack,
@@ -53,7 +55,9 @@ __all__ = [
     "canonicalize", "canonical_hash",
     "SIGNED_FIELDS", "signing_pre_image",
     "generate_ed25519", "Ed25519KeyPair", "Ed25519Signer", "Ed25519Verifier",
-    "verify_manifest", "VerificationContext", "VerificationResult",
+    "AttestationReport", "AttestationUnavailableError", "RuntimeAttestationReport",
+    "verify_manifest", "verify_runtime_report",
+    "VerificationContext", "VerificationResult",
     "OverallResult", "FieldResult", "DelegationResult", "HitlResult",
     "FieldsVerified", "MismatchDetail", "EvidencePack",
     "RevocationStore", "RevocationRecord",

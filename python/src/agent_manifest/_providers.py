@@ -48,22 +48,90 @@ class AttestationReport:
     raw: dict[str, Any] = field(default_factory=dict)  # provider-specific extras
 
 
+@dataclass
+class RuntimeAttestationReport:
+    """Fresh hardware quote binding current runtime state to the TEE's boot measurement.
+
+    Produced by attest_runtime_state() on demand — distinct from the one-time
+    AttestationReport produced at startup. The hardware signs both its immutable
+    boot measurement (MEASUREMENT / MRTD / PCRs) and the caller-supplied
+    REPORT_DATA = sha256(nonce || context_hash_bytes), so a verifier can confirm:
+
+      1. TEE identity — same boot measurement as at startup (hardware hasn't changed)
+      2. Current state — context_hash matches what the agent claims to be running
+      3. Freshness — nonce is unique per challenge, preventing replay
+
+    The boot measurement itself never changes — this call does not re-measure
+    the TEE firmware or kernel. What it adds is a hardware-signed certificate
+    that a specific runtime state was active at a specific moment in that TEE.
+    """
+
+    platform: str
+    # sha256(nonce || context_hash_bytes) placed in REPORT_DATA / HOST_DATA
+    report_data_hash: str
+    # sha256:<hex> of the caller-supplied runtime context (system prompt, policy, tools…)
+    context_hash: str
+    # hex of the nonce — verifier checks this matches what it supplied
+    nonce_hex: str
+    quote: Optional[bytes] = None
+    raw: dict[str, Any] = field(default_factory=dict)
+
+
 class AttestationProvider(ABC):
     """Interface all providers implement."""
 
     @abstractmethod
     def extend_manifest_hash(self, manifest_json: dict[str, Any]) -> None:
-        """Extend the manifest hash into the hardware measurement register."""
+        """Extend the manifest hash into the hardware measurement register.
+
+        Called once at agent startup. The result is the boot-time attestation:
+        it proves which manifest was active when the TEE was initialised, but
+        does not continuously track runtime state changes after that point.
+        """
 
     @abstractmethod
     def get_attestation_report(self) -> AttestationReport:
-        """Return the current platform attestation report."""
+        """Return the boot-time platform attestation report."""
 
     @abstractmethod
     def verify_manifest_in_report(
         self, report: AttestationReport, manifest_json: dict[str, Any]
     ) -> bool:
         """Return True if the report contains the expected manifest hash."""
+
+    @abstractmethod
+    def attest_runtime_state(
+        self,
+        nonce: bytes,
+        context_hash: str,
+    ) -> RuntimeAttestationReport:
+        """Return a fresh hardware quote binding current runtime state to TEE identity.
+
+        Unlike extend_manifest_hash() + get_attestation_report() which run once at
+        startup, this method can be called periodically or per-N-calls to produce
+        a hardware-signed freshness proof of the agent's current runtime state.
+
+        The hardware sets REPORT_DATA / HOST_DATA to:
+            sha256(nonce || bytes.fromhex(context_hash.split(":")[-1]))
+        and signs it together with the unchanged boot measurement, so a verifier
+        holding the nonce can confirm both TEE identity and current state.
+
+        The boot measurement (MEASUREMENT / MRTD / PCR values) is immutable —
+        this call does not re-measure the TEE. It produces a fresh hardware
+        signature over new caller-supplied data in the user-controlled field.
+
+        Args:
+            nonce: Freshness token supplied by the verifier (16–32 bytes).
+                   A new nonce must be used for each challenge to prevent replay.
+            context_hash: sha256:<hex> of the current runtime context. Callers
+                          compute this from system_prompt_hash, policy_hash,
+                          tool_catalog_hash, and any other state that must be
+                          proven fresh. Use canonical JSON + sha256 for determinism.
+
+        Raises:
+            AttestationUnavailableError: If the hardware device is not accessible
+                or (for TPM) the Attestation Key has not been provisioned.
+        """
 
     # Shared helper
     def manifest_pre_image(self, manifest_json: dict[str, Any]) -> bytes:
@@ -134,7 +202,11 @@ class TPMProvider(AttestationProvider):
             the TPM device is not accessible.
     """
 
-    def __init__(self, pcr_index: Optional[int] = None) -> None:
+    def __init__(
+        self,
+        pcr_index: Optional[int] = None,
+        ak_context: Optional[str] = None,
+    ) -> None:
         self._is_nitro = _detect_nitro()
         if pcr_index is not None:
             self._pcr = pcr_index
@@ -143,6 +215,9 @@ class TPMProvider(AttestationProvider):
         else:
             self._pcr = _TPM_DEFAULT_PCR
         self._last_manifest_hash: Optional[str] = None
+        # Path to a pre-provisioned Attestation Key context for tpm2_quote.
+        # Required only for attest_runtime_state(); boot-time attestation works without it.
+        self._ak_context = ak_context
 
     @property
     def pcr_index(self) -> int:
@@ -221,6 +296,93 @@ class TPMProvider(AttestationProvider):
         """
         expected = self.manifest_hash_value(manifest_json)
         return report.manifest_hash == expected
+
+    def attest_runtime_state(
+        self,
+        nonce: bytes,
+        context_hash: str,
+    ) -> RuntimeAttestationReport:
+        """TPM quote over current PCR state with nonce as qualifying data.
+
+        Requires a pre-provisioned Attestation Key (AK) passed as ak_context
+        at construction time. To provision one:
+
+            tpm2_createprimary -c primary.ctx
+            tpm2_create -C primary.ctx -G rsa -u ak.pub -r ak.priv
+            tpm2_load -C primary.ctx -u ak.pub -r ak.priv -c ak.ctx
+
+        The quote covers the current value of PCR self._pcr (already extended
+        with the manifest hash at startup) and the qualifying data
+        sha256(nonce || context_hash_bytes), which the hardware signs together.
+
+        Note: Unlike SEV-SNP / TDX (where REPORT_DATA is freely caller-controlled),
+        TPM PCR values accumulate — the boot-time extension cannot be undone.
+        The qualifying data carries the freshness proof; the PCR proves TEE identity.
+        """
+        if self._ak_context is None:
+            raise AttestationUnavailableError(
+                "TPM runtime re-attestation requires a pre-provisioned Attestation Key. "
+                "Provision one with tpm2_createprimary + tpm2_create + tpm2_load, "
+                "then pass ak_context='/path/to/ak.ctx' to TPMProvider(). "
+                "See: https://tpm2-tools.readthedocs.io/en/latest/man/tpm2_quote.1/"
+            )
+
+        quote_bin = shutil.which("tpm2_quote")
+        if quote_bin is None:
+            raise AttestationUnavailableError(
+                "tpm2_quote not found. Install tpm2-tools: apt-get install tpm2-tools"
+            )
+
+        context_bytes = bytes.fromhex(context_hash.split(":", 1)[-1])
+        qualifying_data = hashlib.sha256(nonce + context_bytes).digest()
+        report_data_hash = f"sha256:{hashlib.sha256(qualifying_data).hexdigest()}"
+
+        import tempfile as _tempfile, os as _os
+        msg_fd, msg_path = _tempfile.mkstemp(suffix=".msg")
+        sig_fd, sig_path = _tempfile.mkstemp(suffix=".sig")
+        _os.close(msg_fd)
+        _os.close(sig_fd)
+
+        try:
+            result = subprocess.run(
+                [
+                    quote_bin,
+                    f"--key-context={self._ak_context}",
+                    f"--pcr-list=sha256:{self._pcr}",
+                    f"--qualification={qualifying_data.hex()}",
+                    f"--message={msg_path}",
+                    f"--signature={sig_path}",
+                ],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                raise AttestationUnavailableError(
+                    f"tpm2_quote failed: {result.stderr.strip()}"
+                )
+            with open(msg_path, "rb") as f:
+                msg_bytes = f.read()
+            with open(sig_path, "rb") as f:
+                sig_bytes = f.read()
+        finally:
+            for p in (msg_path, sig_path):
+                try:
+                    _os.unlink(p)
+                except OSError:
+                    pass
+
+        return RuntimeAttestationReport(
+            platform=self.platform_label,
+            report_data_hash=report_data_hash,
+            context_hash=context_hash,
+            nonce_hex=nonce.hex(),
+            quote=msg_bytes + sig_bytes,
+            raw={
+                "pcr_index": self._pcr,
+                "qualifying_data": qualifying_data.hex(),
+                "tpm2_quote_output": result.stdout,
+            },
+        )
 
     def _parse_pcrread_output(self, output: str) -> dict[str, str]:
         """Parse tpm2_pcrread YAML output into {PCR_label: hash_value}."""

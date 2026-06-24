@@ -684,6 +684,69 @@ The following profiles define, per platform, the measurement field used to carry
 - Google Confidential Space uses AMD SEV-SNP as the underlying TEE. The AMD SEV-SNP profile applies. Additionally, the `measurement` field MUST include the Confidential Space-specific `sub_mod` claims from the OIDC token issued by the Confidential Space attestation service.
 - Extension actor: As per AMD SEV-SNP profile.
 
+##### 3.3.2 Runtime Attestation Reports (Freshness Proofs)
+
+The `attestation` block defined in Section 3.3 is a boot-time artifact. It proves which manifest was active when the TEE was initialised. It does not prove that the agent's runtime state (system prompt, policy bundle, tool catalog) has remained unchanged after launch.
+
+For deployments requiring continuous or challenge-response evidence, the SDK exposes `attest_runtime_state(nonce, context_hash)`, which produces a **Runtime Attestation Report** — a separate evidence artifact that is never appended to the manifest.
+
+**Scope of the TEE boot measurement**
+
+The TEE boot measurement (`MEASUREMENT` on SNP, `MRTD` on TDX, PCR values on TPM) is hardware-immutable after launch. No re-measurement of the TEE is possible. What `attest_runtime_state()` provides is a fresh hardware-signed quote in which the caller-controlled field (`HOST_DATA` on SNP, `REPORTDATA` on TDX) is set to a value that binds the nonce and the current runtime context. The hardware signs both the immutable boot measurement and this caller-supplied value, giving the verifier:
+
+1. **TEE identity** — the boot measurement has not changed since the boot-time `attestation` block was produced
+2. **Current state** — the caller-supplied field encodes `sha256(nonce || context_hash_bytes)`
+3. **Freshness** — a verifier-supplied nonce prevents replay of an older quote
+
+**REPORT_DATA derivation (normative)**
+
+The caller-controlled field MUST be set to:
+
+```
+caller_data = sha256(nonce || bytes.fromhex(context_hash_hex))
+```
+
+where `context_hash` is a `sha256:<hex>` digest of the RFC 8785 canonical JSON of the runtime context object:
+
+```json
+{
+  "policy_bundle_hash":  "sha256:<hex>",
+  "system_prompt_hash":  "sha256:<hex>",
+  "tool_catalog_hash":   "sha256:<hex>"
+}
+```
+
+Additional fields (`model_version`, `rag_corpus_merkle_root`, `memory_snapshot_hash`) MAY be included. Field names MUST be sorted lexicographically. The hash MUST be over the UTF-8 encoding of the canonical form with no BOM.
+
+**Runtime Attestation Report fields**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `platform` | string | Same values as `attestation.platform` |
+| `report_data_hash` | string | `sha256:` + SHA-256 of `caller_data` above |
+| `context_hash` | string | The `sha256:<hex>` context hash supplied by the caller |
+| `nonce_hex` | string | Hex encoding of the verifier-supplied nonce |
+| `quote` | bytes (optional) | Raw platform quote blob for hardware signature verification |
+
+**Verification**
+
+A verifier MUST:
+1. Confirm `report_data_hash == sha256(sha256(nonce || context_hash_bytes))` using `verify_runtime_report()` or equivalent. A report that fails this check MUST be rejected.
+2. Confirm that the boot measurement in the raw `quote` blob matches the `measurement` field in the manifest's `attestation` block. A mismatch indicates the runtime report was produced in a different TEE than the one that was originally attested.
+3. Optionally verify the hardware signature in `quote` using the platform vendor SDK (`amd sev-snp-verify`, Intel TDX Attest SDK, `tpm2_checkquote`).
+
+**What runtime attestation does not prove**
+
+A Runtime Attestation Report does not prove that the values in `context_hash` are correct — it proves only that the agent claimed this context hash in a TEE with the specified boot measurement at the moment the nonce was signed. The verifier is responsible for independently computing the expected `context_hash` from the live artifacts and comparing it against `report.context_hash`.
+
+**Scheduling**
+
+The frequency of `attest_runtime_state()` calls is not mandated by this standard. Verifiers that require freshness guarantees SHOULD supply a new nonce per challenge and require a response within a bounded time window. The SDK provides the primitive; scheduling and enforcement are the responsibility of the caller or a runtime enforcement layer (e.g., cMCP).
+
+**TPM note**
+
+`attest_runtime_state()` on `TPMProvider` requires a pre-provisioned Attestation Key (AK) passed at construction time. See the SDK documentation for provisioning steps. SEV-SNP and TDX do not have this requirement.
+
 ### 3.4 A2A Delegation Chain
 
 <!-- CHANGED: F-04 - clarified delegation chain is original design with no A2A protocol dependency; SPEC-05 - added normative Scope Grant Semantics subsection; SCHEMA F-10 - added normative max_delegation_depth default and Cedar constraint validation rules -->

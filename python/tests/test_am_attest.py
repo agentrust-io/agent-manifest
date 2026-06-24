@@ -9,6 +9,7 @@ import hashlib
 from agent_manifest._providers import (
     AttestationReport,
     AttestationUnavailableError,
+    RuntimeAttestationReport,
     TPMProvider,
 )
 from agent_manifest._auto_provider import SoftwareProvider, select_provider
@@ -95,6 +96,7 @@ def test_provider_has_required_methods():
     assert hasattr(p, "extend_manifest_hash")
     assert hasattr(p, "get_attestation_report")
     assert hasattr(p, "verify_manifest_in_report")
+    assert hasattr(p, "attest_runtime_state")
     assert hasattr(p, "manifest_pre_image")
     assert hasattr(p, "manifest_hash_value")
 
@@ -236,3 +238,95 @@ def test_raw_ed25519_to_pem_length():
     pem = _raw_ed25519_to_pem(kp.public_bytes)
     # Ed25519 SubjectPublicKeyInfo is 44 bytes DER = ~60 chars base64
     assert len(pem) > 60
+
+
+# ---------------------------------------------------------------------------
+# RuntimeAttestationReport + attest_runtime_state() (AM-ATTEST-30 to 38)
+# ---------------------------------------------------------------------------
+
+_NONCE = b"\x01" * 16
+_CTX_HASH = "sha256:" + "aa" * 32
+
+
+def test_runtime_report_required_fields():
+    r = RuntimeAttestationReport(
+        platform="software",
+        report_data_hash="sha256:" + "aa" * 32,
+        context_hash=_CTX_HASH,
+        nonce_hex=_NONCE.hex(),
+    )
+    assert r.platform == "software"
+    assert r.report_data_hash.startswith("sha256:")
+    assert r.context_hash == _CTX_HASH
+    assert r.nonce_hex == _NONCE.hex()
+    assert r.quote is None
+    assert r.raw == {}
+
+
+def test_software_provider_attest_runtime_state_returns_report():
+    p = SoftwareProvider()
+    rt = p.attest_runtime_state(_NONCE, _CTX_HASH)
+    assert isinstance(rt, RuntimeAttestationReport)
+    assert rt.platform == "software"
+    assert rt.nonce_hex == _NONCE.hex()
+    assert rt.context_hash == _CTX_HASH
+
+
+def test_runtime_state_report_data_hash_derivation():
+    """report_data_hash must equal sha256(sha256(nonce || context_bytes))."""
+    p = SoftwareProvider()
+    nonce = b"\x02" * 16
+    ctx = "sha256:" + "bb" * 32
+    rt = p.attest_runtime_state(nonce, ctx)
+
+    ctx_bytes = bytes.fromhex(ctx.split(":", 1)[-1])
+    qualifying = hashlib.sha256(nonce + ctx_bytes).digest()
+    expected = "sha256:" + hashlib.sha256(qualifying).hexdigest()
+    assert rt.report_data_hash == expected
+
+
+def test_runtime_state_different_nonces_differ():
+    p = SoftwareProvider()
+    rt1 = p.attest_runtime_state(b"\x01" * 16, _CTX_HASH)
+    rt2 = p.attest_runtime_state(b"\x02" * 16, _CTX_HASH)
+    assert rt1.report_data_hash != rt2.report_data_hash
+
+
+def test_runtime_state_different_contexts_differ():
+    p = SoftwareProvider()
+    rt1 = p.attest_runtime_state(_NONCE, "sha256:" + "aa" * 32)
+    rt2 = p.attest_runtime_state(_NONCE, "sha256:" + "bb" * 32)
+    assert rt1.report_data_hash != rt2.report_data_hash
+
+
+def test_runtime_state_is_deterministic():
+    """Same nonce + context must always produce the same report_data_hash."""
+    p = SoftwareProvider()
+    rt1 = p.attest_runtime_state(_NONCE, _CTX_HASH)
+    rt2 = p.attest_runtime_state(_NONCE, _CTX_HASH)
+    assert rt1.report_data_hash == rt2.report_data_hash
+
+
+def test_tpm_provider_no_ak_raises():
+    """attest_runtime_state without an AK must raise AttestationUnavailableError immediately."""
+    p = TPMProvider()  # no ak_context
+    try:
+        p.attest_runtime_state(_NONCE, _CTX_HASH)
+        assert False, "expected AttestationUnavailableError"
+    except AttestationUnavailableError as exc:
+        assert "Attestation Key" in str(exc)
+
+
+def test_software_provider_raw_labels_not_hw_attested():
+    p = SoftwareProvider()
+    rt = p.attest_runtime_state(_NONCE, _CTX_HASH)
+    assert "warning" in rt.raw
+    assert "software-only" in rt.raw["warning"]
+
+
+def test_all_hw_providers_expose_attest_runtime_state():
+    from agent_manifest._hw_providers import SEVSNPProvider, TDXProvider, OPAQUEProvider
+    for cls in (SEVSNPProvider, TDXProvider, OPAQUEProvider):
+        assert callable(getattr(cls, "attest_runtime_state", None)), (
+            f"{cls.__name__} missing attest_runtime_state"
+        )

@@ -25,7 +25,12 @@ import os
 import struct
 from typing import Any, Optional
 
-from ._providers import AttestationProvider, AttestationReport, AttestationUnavailableError
+from ._providers import (
+    AttestationProvider,
+    AttestationReport,
+    AttestationUnavailableError,
+    RuntimeAttestationReport,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -140,6 +145,53 @@ class SEVSNPProvider(AttestationProvider):
         # External report: fall back to manifest_hash field comparison
         return report.manifest_hash == self.manifest_hash_value(manifest_json)
 
+    def attest_runtime_state(
+        self,
+        nonce: bytes,
+        context_hash: str,
+    ) -> RuntimeAttestationReport:
+        """Fresh SNP report with HOST_DATA = sha256(nonce || context_hash_bytes).
+
+        Issues a new SNP_GET_REPORT ioctl — no cached state is reused.
+        The returned report carries the same immutable MEASUREMENT as the
+        boot-time report, plus a freshly hardware-signed HOST_DATA field
+        that binds the nonce and current context hash.
+        """
+        import fcntl
+        context_bytes = bytes.fromhex(context_hash.split(":", 1)[-1])
+        qualifying = hashlib.sha256(nonce + context_bytes).digest()
+        report_data_hash = f"sha256:{hashlib.sha256(qualifying).hexdigest()}"
+
+        # HOST_DATA: first 32 bytes = sha256(nonce || context), last 32 = zeros
+        user_data = qualifying + bytes(32)
+        req = user_data + struct.pack("<I", 0) + bytes(28)
+        buf = bytearray(4096)
+        buf[:len(req)] = req
+
+        try:
+            with open(_SEV_GUEST_DEV, "rb") as dev:
+                fcntl.ioctl(dev, _SNP_REPORT_IOCTL, buf)  # type: ignore[attr-defined]
+        except OSError as e:
+            raise AttestationUnavailableError(
+                f"SNP_GET_REPORT ioctl failed during runtime re-attestation: {e}"
+            )
+
+        quote_bytes = bytes(buf)
+        measurement_hex = quote_bytes[0x90:0x90 + 48].hex()
+
+        return RuntimeAttestationReport(
+            platform="amd-sev-snp",
+            report_data_hash=report_data_hash,
+            context_hash=context_hash,
+            nonce_hex=nonce.hex(),
+            quote=quote_bytes,
+            raw={
+                "host_data": quote_bytes[0x140:0x180].hex(),
+                "measurement": measurement_hex,
+                "vcek_cert_chain_verified": False,
+            },
+        )
+
 
 # ---------------------------------------------------------------------------
 # Intel TDX Provider
@@ -226,6 +278,50 @@ class TDXProvider(AttestationProvider):
             actual = self._report_bytes[104:136].hex()
             return _hmac.compare_digest(actual, expected_hex)
         return report.manifest_hash == self.manifest_hash_value(manifest_json)
+
+    def attest_runtime_state(
+        self,
+        nonce: bytes,
+        context_hash: str,
+    ) -> RuntimeAttestationReport:
+        """Fresh TD report with REPORTDATA = sha256(nonce || context_hash_bytes).
+
+        Issues a new TDX_CMD_GET_REPORT ioctl — no cached state is reused.
+        The returned report carries the same immutable MRTD as the boot-time
+        report, plus a freshly hardware-signed REPORTDATA field that binds
+        the nonce and current context hash.
+        """
+        import fcntl
+        context_bytes = bytes.fromhex(context_hash.split(":", 1)[-1])
+        qualifying = hashlib.sha256(nonce + context_bytes).digest()
+        report_data_hash = f"sha256:{hashlib.sha256(qualifying).hexdigest()}"
+
+        # REPORTDATA: 32-byte digest zero-padded to 64 bytes
+        reportdata = qualifying + bytes(32)
+        buf = bytearray(1088)
+        buf[:64] = reportdata
+
+        try:
+            with open(_TDX_GUEST_DEV, "rb") as dev:
+                fcntl.ioctl(dev, _TDX_CMD_GET_REPORT, buf)  # type: ignore[attr-defined]
+        except OSError as e:
+            raise AttestationUnavailableError(
+                f"TDX_CMD_GET_REPORT failed during runtime re-attestation: {e}"
+            )
+
+        quote_bytes = bytes(buf)
+
+        return RuntimeAttestationReport(
+            platform="intel-tdx",
+            report_data_hash=report_data_hash,
+            context_hash=context_hash,
+            nonce_hex=nonce.hex(),
+            quote=quote_bytes,
+            raw={
+                "rtmr_index": self._rtmr,
+                "report_data": quote_bytes[104:168].hex(),
+            },
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -343,3 +439,72 @@ class OPAQUEProvider(AttestationProvider):
         self, report: AttestationReport, manifest_json: dict[str, Any]
     ) -> bool:
         return report.manifest_hash == self.manifest_hash_value(manifest_json)
+
+    def attest_runtime_state(
+        self,
+        nonce: bytes,
+        context_hash: str,
+    ) -> RuntimeAttestationReport:
+        """Delegate runtime re-attestation to the OPAQUE attestation service.
+
+        Calls POST /v1/attest-runtime with the nonce and context_hash.
+        The service measures both inside its managed TEE and returns a
+        hardware-signed TRACE claim covering the nonce and context.
+        """
+        try:
+            import httpx
+        except ImportError:
+            raise AttestationUnavailableError(
+                'OPAQUEProvider requires httpx: pip install "agent-manifest[server]"'
+            )
+
+        context_bytes = bytes.fromhex(context_hash.split(":", 1)[-1])
+        qualifying = hashlib.sha256(nonce + context_bytes).digest()
+        report_data_hash = f"sha256:{hashlib.sha256(qualifying).hexdigest()}"
+
+        import base64
+        headers: dict[str, str] = {}
+        api_key = os.environ.get("OPAQUE_API_KEY")
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+
+        try:
+            response = httpx.post(
+                f"{self._url}/v1/attest-runtime",
+                json={
+                    "nonce": base64.b64encode(nonce).decode(),
+                    "context_hash": context_hash,
+                },
+                headers=headers,
+                timeout=30.0,
+            )
+        except (httpx.HTTPError, OSError) as e:
+            raise AttestationUnavailableError(
+                f"OPAQUE runtime attestation service unreachable: {type(e).__name__}"
+            ) from e
+
+        if response.status_code != 200:
+            raise AttestationUnavailableError(
+                f"OPAQUE runtime attestation returned HTTP {response.status_code}"
+            )
+
+        content_length = int(response.headers.get("content-length", "0"))
+        if content_length > self._MAX_RESPONSE_BYTES:
+            raise AttestationUnavailableError(
+                f"OPAQUE runtime attestation response too large: {content_length} bytes"
+            )
+
+        try:
+            raw = response.json()
+        except ValueError as e:
+            raise AttestationUnavailableError(
+                f"OPAQUE runtime attestation returned invalid JSON: {type(e).__name__}"
+            ) from e
+
+        return RuntimeAttestationReport(
+            platform="opaque",
+            report_data_hash=report_data_hash,
+            context_hash=context_hash,
+            nonce_hex=nonce.hex(),
+            raw=raw,
+        )
