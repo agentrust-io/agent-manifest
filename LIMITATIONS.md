@@ -40,6 +40,55 @@ Level 0 (software-only signing) is suitable for development and staging. It does
 - **Replace a secrets manager** — signing private keys must be stored in a secrets manager (Azure Key Vault, AWS Secrets Manager, HSM); do not store them on disk without protection
 - **Automatically rotate** — key rotation and manifest re-issuance must be triggered by the caller; the SDK provides the protocol but no scheduling
 
+## Hardware attestation scope: boot-time binding only
+
+Hardware attestation in this SDK proves **what was approved at agent startup**,
+not what the agent is doing right now. Specifically:
+
+- `extend_manifest_hash()` + `get_attestation_report()` run **once** at startup.
+  The resulting report binds the manifest hash to the TEE's boot measurement
+  (AMD SEV-SNP `MEASUREMENT`, Intel TDX `MRTD`, or TPM PCR values). After that
+  call returns, the hardware is not consulted again by default.
+- The boot measurement itself is **immutable** — it reflects the firmware and
+  kernel image that were loaded when the TEE was initialised. No re-measurement
+  of the TEE is possible after boot; this is a hardware property, not an SDK
+  limitation.
+- `verify_manifest()` checks the attestation block **once** at verification
+  time (typically at deploy or during periodic audits). It does not continuously
+  re-verify that the agent's runtime state still matches what was attested.
+
+**What this means in practice:** an attacker who compromises the agent process
+after startup (modifying the system prompt in memory, swapping the policy bundle,
+injecting a tool) would not be detected by the boot-time attestation alone.
+
+### Freshness proofs with `attest_runtime_state()`
+
+For deployments that need to prove the agent has not drifted since startup, use
+`attest_runtime_state(nonce, context_hash)`. This method issues a new hardware
+quote on demand. The TEE sets its caller-controlled field
+(`HOST_DATA` on SEV-SNP, `REPORTDATA` on TDX, qualifying data on TPM) to
+`sha256(nonce || context_hash_bytes)` and signs it together with the unchanged
+boot measurement. A verifier that supplies the nonce and independently computes
+`context_hash` can then confirm:
+
+1. **TEE identity** — the boot measurement matches the expected launch digest
+2. **Current state** — context_hash covers the live system prompt, policy, and tool catalog
+3. **Freshness** — the nonce is unique per challenge, preventing replay
+
+This is not a second boot measurement — the TEE firmware measurement never
+changes. It is a hardware-signed freshness certificate that specific runtime
+state was active in the same TEE at a specific moment.
+
+Callers are responsible for deciding how often to call `attest_runtime_state()`
+(e.g., every N tool calls, every M minutes, or on every verifier challenge). The
+SDK provides the primitive; the scheduling and verification policy belong in the
+caller or a runtime enforcement layer (e.g., cMCP).
+
+**TPM note:** `attest_runtime_state()` on `TPMProvider` requires a
+pre-provisioned Attestation Key (AK). See the docstring for provisioning steps.
+SEV-SNP and TDX have no such requirement — the IOCTL is available to any process
+with access to `/dev/sev-guest` or `/dev/tdx-guest`.
+
 ## Performance
 
 Hardware attestation adds latency at agent startup (not per-request):

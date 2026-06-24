@@ -6,6 +6,7 @@ Launching at Confidential Computing Summit, June 23 2026.
 
 - Specification: all 10 artifact bindings, conformance levels 0–3, 197 conformance tests
 - Python SDK: signing, verification, hardware attestation (TPM / SEV-SNP / TDX / OPAQUE), CLI
+- Runtime attestation freshness proofs: `attest_runtime_state()` + `verify_runtime_report()` (spec §3.3.2, ADR-0010)
 - Standard crypto profile: Ed25519, SHA-256, RFC 8785
 - Post-quantum profile: ML-DSA-65 (NIST FIPS 204), SHAKE-256 (via `[pq]` extra)
 - Integration architecture documented: AGT, cMCP, MCP

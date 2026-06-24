@@ -1,12 +1,24 @@
 # Hardware Attestation (SEV-SNP, TDX, OPAQUE)
 
-Hardware attestation binds the manifest to a cryptographic measurement from silicon  -  proving the agent is running inside a specific, unmodified trusted execution environment. After this tutorial you will be able to:
+Hardware attestation binds the manifest to a cryptographic measurement from silicon  -  proving the agent was initialised inside a specific, unmodified trusted execution environment. After this tutorial you will be able to:
 
 - Choose the right attestation provider for your infrastructure
 - Extend the manifest hash into hardware using `SEVSNPProvider`, `TDXProvider`, or `OPAQUEProvider`
 - Read and verify the attestation report
+- Request periodic freshness proofs with `attest_runtime_state()`
 - Use the auto-provider when the environment is not known at build time
 - Write tests that work without hardware
+
+> **What boot-time attestation proves — and doesn't prove**
+>
+> `extend_manifest_hash()` runs once at agent startup. It proves *which manifest
+> was approved when the TEE was initialised* — it does not continuously monitor
+> whether the agent's runtime state has changed since then. The TEE's boot
+> measurement (`MEASUREMENT` on SEV-SNP, `MRTD` on TDX, PCR values on TPM) is
+> hardware-immutable after launch; no re-measurement is possible.
+>
+> For a freshness proof that the agent is *currently* running the approved state,
+> use [`attest_runtime_state()`](#runtime-state-attestation-freshness-proofs).
 
 ## Prerequisites
 
@@ -276,7 +288,154 @@ def test_sev_snp_roundtrip():
 
 ---
 
+---
+
+## Runtime state attestation (freshness proofs)
+
+The boot-time attestation proves *what was approved at startup*. If you need to
+prove the agent has not drifted since then — same system prompt, same policy,
+same tool catalog — call `attest_runtime_state()` periodically or on each
+verifier challenge.
+
+### How it works
+
+The hardware's caller-controlled field (`HOST_DATA` on SEV-SNP, `REPORTDATA`
+on TDX, qualifying data on TPM) is set to:
+
+```
+sha256(nonce || context_hash_bytes)
+```
+
+The hardware signs this together with the **unchanged** boot measurement, so the
+verifier receives a single quote that proves both TEE identity (from the
+immutable measurement) and current state (from the fresh REPORT_DATA).
+
+The boot measurement is not re-run — hardware makes that impossible. What changes
+is only the caller-controlled field, which is what carries the freshness proof.
+
+### Computing the context hash
+
+```python
+import hashlib, json
+
+def compute_context_hash(
+    system_prompt_hash: str,
+    policy_hash: str,
+    tool_catalog_hash: str,
+) -> str:
+    """sha256 of canonical JSON over the runtime context fields."""
+    payload = json.dumps(
+        {
+            "system_prompt_hash": system_prompt_hash,
+            "policy_hash": policy_hash,
+            "tool_catalog_hash": tool_catalog_hash,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
+    return "sha256:" + hashlib.sha256(payload).hexdigest()
+```
+
+Include every field the verifier needs to pin. Add `model_version` or
+`rag_corpus_merkle_root` if those are also in scope.
+
+### Requesting a fresh quote
+
+```python
+import os
+from agent_manifest._hw_providers import SEVSNPProvider
+
+provider = SEVSNPProvider()
+provider.extend_manifest_hash(manifest)      # once at startup
+
+# ... agent runs ...
+
+# Verifier supplies a fresh nonce for each challenge
+nonce = os.urandom(32)
+
+context_hash = compute_context_hash(
+    system_prompt_hash="sha256:aabbcc...",
+    policy_hash="sha256:112233...",
+    tool_catalog_hash="sha256:445566...",
+)
+
+rt_report = provider.attest_runtime_state(nonce, context_hash)
+
+print(f"Platform:         {rt_report.platform}")        # "amd-sev-snp"
+print(f"Nonce (hex):      {rt_report.nonce_hex}")
+print(f"Context hash:     {rt_report.context_hash}")
+print(f"REPORT_DATA hash: {rt_report.report_data_hash}")
+# rt_report.quote — raw hardware quote blob; send to verifier for signature check
+```
+
+The same API works identically with `TDXProvider` and `OPAQUEProvider`. For
+`SoftwareProvider` it produces a software-only binding (Level 0, not hardware
+attested — useful in tests).
+
+### TPM: Attestation Key required
+
+`TPMProvider.attest_runtime_state()` uses `tpm2_quote`, which requires a
+pre-provisioned Attestation Key (AK). Provision one before calling it:
+
+```bash
+tpm2_createprimary -c primary.ctx
+tpm2_create -C primary.ctx -G rsa -u ak.pub -r ak.priv
+tpm2_load -C primary.ctx -u ak.pub -r ak.priv -c ak.ctx
+```
+
+Then pass the path at construction:
+
+```python
+from agent_manifest._providers import TPMProvider
+
+provider = TPMProvider(ak_context="/var/lib/agent-manifest/ak.ctx")
+provider.extend_manifest_hash(manifest)
+
+rt_report = provider.attest_runtime_state(nonce, context_hash)
+```
+
+SEV-SNP and TDX have no equivalent requirement — the IOCTL is available without
+pre-provisioning any key material.
+
+### How often to call it
+
+The SDK provides the primitive; the scheduling policy is yours. Common patterns:
+
+| Pattern | When to use |
+|---------|-------------|
+| Per verifier challenge | Highest assurance — verifier controls nonce freshness |
+| Every N tool calls | Bounds the window of undetected drift |
+| On a fixed interval (e.g., every 5 min) | Simpler to implement; interval sets the worst-case detection lag |
+| At startup only | Equivalent to boot-time attestation — not a freshness proof |
+
+For regulated workloads, let the verifier dictate the nonce and challenge
+frequency rather than having the agent self-report.
+
+### Mocking in tests
+
+```python
+from unittest.mock import patch
+from agent_manifest._providers import RuntimeAttestationReport
+
+mock_rt = RuntimeAttestationReport(
+    platform="amd-sev-snp",
+    report_data_hash="sha256:" + "aa" * 32,
+    context_hash="sha256:" + "bb" * 32,
+    nonce_hex="cc" * 32,
+    raw={"measurement": "dd" * 48, "vcek_cert_chain_verified": False},
+)
+
+with patch(
+    "agent_manifest._hw_providers.SEVSNPProvider.attest_runtime_state",
+    return_value=mock_rt,
+):
+    rt_report = provider.attest_runtime_state(nonce, context_hash)
+```
+
+---
+
 ## What's next
 
 - [Tutorial: Deploying the verification endpoint](deploying-the-verification-endpoint.md)  -  run the verifier in production alongside hardware-attested agents
 - [Tutorial: Server-side verification](server-side-verification.md)  -  enforce minimum attestation level with `enforce_attestation=True`
+- [Known Limitations](../../LIMITATIONS.md)  -  full scope of what attestation does and does not prove

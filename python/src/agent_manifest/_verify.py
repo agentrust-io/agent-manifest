@@ -13,6 +13,7 @@ The FastAPI router wires the engine to HTTP.
 """
 from __future__ import annotations
 
+import hashlib
 import hmac
 import uuid
 from datetime import datetime, timezone
@@ -536,6 +537,46 @@ def verify_manifest(
             result.result = OverallResult.ATTESTATION_UNAVAILABLE
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# Runtime attestation verification
+# ---------------------------------------------------------------------------
+
+
+def verify_runtime_report(
+    report: Any,
+    nonce: bytes,
+    context_hash: str,
+) -> bool:
+    """Check the software-verifiable consistency of a RuntimeAttestationReport.
+
+    Verifies that ``report.report_data_hash`` equals the expected derivation:
+        sha256(sha256(nonce || bytes.fromhex(context_hash_hex)))
+
+    This proves the report was produced for *this* nonce and *this* context_hash
+    — i.e., it is not a replay of an older report. It does NOT verify the
+    hardware signature on the underlying TEE quote blob; for that, use the
+    platform vendor SDK (amd sev-snp-verify, Intel TDX Attest SDK,
+    tpm2_checkquote) against ``report.quote``.
+
+    Args:
+        report:       RuntimeAttestationReport returned by attest_runtime_state().
+        nonce:        The freshness token you supplied to attest_runtime_state().
+        context_hash: The context hash you supplied to attest_runtime_state(),
+                      in "sha256:<hex>" format.
+
+    Returns:
+        True if the report_data_hash is consistent with the nonce and context.
+    """
+    from ._providers import RuntimeAttestationReport as _RRT
+    if not isinstance(report, _RRT):
+        raise TypeError(f"expected RuntimeAttestationReport, got {type(report).__name__}")
+
+    ctx_bytes = bytes.fromhex(context_hash.split(":", 1)[-1])
+    qualifying = hashlib.sha256(nonce + ctx_bytes).digest()
+    expected = "sha256:" + hashlib.sha256(qualifying).hexdigest()
+    return hmac.compare_digest(report.report_data_hash, expected)
 
 
 # ---------------------------------------------------------------------------

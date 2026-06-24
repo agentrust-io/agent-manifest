@@ -14,11 +14,18 @@ Callers that require Level 1+ MUST explicitly check provider.level >= 1.
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import shutil
 from typing import Any, cast
 
-from ._providers import AttestationProvider, AttestationReport, AttestationUnavailableError, TPMProvider
+from ._providers import (
+    AttestationProvider,
+    AttestationReport,
+    AttestationUnavailableError,
+    RuntimeAttestationReport,
+    TPMProvider,
+)
 
 
 class SoftwareProvider(AttestationProvider):
@@ -43,6 +50,22 @@ class SoftwareProvider(AttestationProvider):
 
     def verify_manifest_in_report(self, report: AttestationReport, manifest_json: dict[str, Any]) -> bool:
         return bool(report.manifest_hash == self.manifest_hash_value(manifest_json))
+
+    def attest_runtime_state(self, nonce: bytes, context_hash: str) -> RuntimeAttestationReport:
+        """Software-only runtime state binding — no hardware involved.
+
+        Useful for development and testing. MUST NOT be used to satisfy
+        Level 1+ conformance claims because there is no hardware signing.
+        """
+        context_bytes = bytes.fromhex(context_hash.split(":", 1)[-1])
+        qualifying = hashlib.sha256(nonce + context_bytes).digest()
+        return RuntimeAttestationReport(
+            platform="software",
+            report_data_hash=f"sha256:{hashlib.sha256(qualifying).hexdigest()}",
+            context_hash=context_hash,
+            nonce_hex=nonce.hex(),
+            raw={"warning": "software-only: not hardware attested, not valid for Level 1+"},
+        )
 
 
 def select_provider(level: int = 0) -> AttestationProvider:
