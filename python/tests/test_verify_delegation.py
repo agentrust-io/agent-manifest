@@ -9,12 +9,9 @@ import base64
 from datetime import datetime, timezone
 
 import pytest
-from cryptography.exceptions import InvalidSignature
-
 from agent_manifest._delegation import (
     DelegationHopSigner,
     _validate_hop_structure,
-    verify_delegation_chain,
 )
 from agent_manifest._signing import Ed25519Signer, generate_ed25519
 from agent_manifest._verify import (
