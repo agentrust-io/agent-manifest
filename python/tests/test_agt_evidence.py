@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 import importlib.util
 
-_REPO_ROOT = Path(__file__).parent.parent.parent.parent  # agent-manifest root
+_REPO_ROOT = Path(__file__).parent.parent.parent  # agent-manifest root
 _SCRIPTS_DIR = _REPO_ROOT / "scripts"
 
 MANIFEST_ARTIFACTS = [
@@ -188,7 +188,7 @@ def test_verify_evidence_passes(tmp_path, generator):
 
     failures = [c for c in attestation.evidence_checks if c.status == "fail"]
     assert not failures, (
-        f"Evidence checks failed:\n"
+        "Evidence checks failed:\n"
         + "\n".join(f"  {c.check_id}: {c.message}" for c in failures)
     )
 

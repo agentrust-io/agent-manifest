@@ -121,7 +121,7 @@ jobs:
 
       - name: Install package and AGT
         working-directory: python
-        run: pip install -e ".[dev]" agent-governance-toolkit-core
+        run: pip install -e ".[dev]" agent-compliance
 
       - name: Install PyYAML (needed by gen script)
         run: pip install pyyaml
