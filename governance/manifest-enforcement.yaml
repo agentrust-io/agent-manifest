@@ -1,0 +1,31 @@
+# Default-deny governance policy descriptor for the Agent Manifest SDK.
+# This YAML document is consumed by `agt verify --evidence` to establish that
+# agent-manifest enforces deny-by-default identity governance semantics.
+deny_by_default: true
+default_action: deny
+
+name: agent-manifest-governance
+version: "0.1"
+description: >
+  Agent Manifest enforces default-deny identity governance: any agent that
+  cannot present a cryptographically signed manifest anchored to a verified
+  SPIFFE identity is denied by default. All 10 manifest artifacts must be
+  cryptographically bound and verifiable before an agent is considered trusted.
+
+enforcement_model: manifest-signing
+artifact_count: 10
+artifacts:
+  - identity
+  - model
+  - policy
+  - tools
+  - data
+  - capabilities
+  - lineage
+  - evaluation
+  - trust_boundary
+  - delegation
+
+owasp_coverage:
+  ASI-07: SPIFFE-based agent identity anchored to hardware TEE signing key
+  ASI-09: 10-artifact Merkle commitment — supply chain integrity at agent-definition time
