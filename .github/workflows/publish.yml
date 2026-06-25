@@ -52,11 +52,34 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v7
+
       - uses: actions/download-artifact@v8
         with:
           name: dist
           path: dist/
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install package and AGT for governance attestation
+        working-directory: python
+        run: pip install -e "." agent-governance-toolkit-core pyyaml
+
+      - name: Generate evidence file
+        run: python scripts/gen_agt_evidence.py
+
+      - name: AGT governance verify (strict)
+        run: agt verify --evidence agt-evidence.json
+
+      - name: Save attestation JSON
+        run: agt --json verify --evidence agt-evidence.json > agt-attestation.json
+
       - uses: softprops/action-gh-release@v3
         with:
-          files: dist/*
+          files: |
+            dist/*
+            agt-evidence.json
+            agt-attestation.json
           generate_release_notes: true

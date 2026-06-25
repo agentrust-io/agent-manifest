@@ -108,6 +108,42 @@ jobs:
         working-directory: python
         run: pip-audit
 
+  governance:
+    name: AGT governance verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install package and AGT
+        working-directory: python
+        run: pip install -e ".[dev]" agent-governance-toolkit-core
+
+      - name: Install PyYAML (needed by gen script)
+        run: pip install pyyaml
+
+      - name: Generate evidence file
+        run: python scripts/gen_agt_evidence.py
+
+      - name: AGT governance verify (strict)
+        run: agt verify --evidence agt-evidence.json
+
+      - name: Save attestation JSON
+        run: agt --json verify --evidence agt-evidence.json > agt-attestation.json
+
+      - name: Upload governance artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: agt-governance-${{ github.sha }}
+          path: |
+            agt-evidence.json
+            agt-attestation.json
+          if-no-files-found: warn
+
   build-check:
     name: Build check
     runs-on: ubuntu-latest
