@@ -28,6 +28,15 @@ from ._signing import Ed25519Verifier, Ed25519KeyPair
 # verifying parties MUST apply a default value of 3.
 DEFAULT_MAX_DELEGATION_DEPTH = 3
 
+# A2A spec §4.2: allowed principal_type values.
+VALID_PRINCIPAL_TYPES = frozenset({"human", "agent", "service"})
+
+# Required fields per delegation hop (A2A spec §4.2 / agent-manifest spec §3.4).
+_REQUIRED_HOP_FIELDS = frozenset({
+    "hop", "principal_id", "principal_type", "delegated_at",
+    "scope_grant", "delegation_signature",
+})
+
 
 def delegation_depth_exceeded(chain_length: int, root_max_depth: int) -> bool:
     """Single depth rule shared by the Pydantic models and this verifier.
@@ -89,6 +98,32 @@ class DelegationHopSigner:
         return base64.urlsafe_b64encode(sig_bytes).rstrip(b"=").decode()
 
 
+def _validate_hop_structure(hop: dict[str, Any], hop_index: int) -> None:
+    """Raise ValueError for structural A2A conformance violations.
+
+    Validates required fields and principal_type per A2A spec §4.2.
+    Called before cryptographic verification so structural errors surface
+    as distinct ValueError rather than IndexError or KeyError.
+    """
+    missing = _REQUIRED_HOP_FIELDS - hop.keys()
+    if missing:
+        raise ValueError(
+            f"Delegation hop {hop_index} missing required fields: {sorted(missing)}"
+        )
+    principal_type = hop["principal_type"]
+    if principal_type not in VALID_PRINCIPAL_TYPES:
+        raise ValueError(
+            f"Delegation hop {hop_index} has invalid principal_type {principal_type!r}; "
+            f"must be one of {sorted(VALID_PRINCIPAL_TYPES)}"
+        )
+    # principal_id must be non-empty string (SPIFFE URI, DID, or mailto)
+    principal_id = hop["principal_id"]
+    if not isinstance(principal_id, str) or not principal_id.strip():
+        raise ValueError(
+            f"Delegation hop {hop_index} has empty or non-string principal_id"
+        )
+
+
 def verify_delegation_chain(
     delegation_chain: list[dict[str, Any]],
     public_keys: dict[str, bytes],  # principal_id -> public key bytes
@@ -127,6 +162,9 @@ def verify_delegation_chain(
     prev_scope: Optional[dict[str, Any]] = None
 
     for i, hop in enumerate(delegation_chain):
+        # Structural validation before any field access (raises ValueError on violation)
+        _validate_hop_structure(hop, i)
+
         if hop.get("hop") != i:
             raise ValueError(f"Hop {i} has wrong hop index: {hop.get('hop')}")
 

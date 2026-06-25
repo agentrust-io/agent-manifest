@@ -142,6 +142,8 @@ class VerifyRequest(BaseModel):
     trusted_keys: dict[str, str] = Field(default_factory=dict)
     # principal_id -> base64url-encoded public key bytes (for delegation chain)
     delegation_public_keys: dict[str, str] = Field(default_factory=dict)
+    # When True, a manifest without a delegation_chain is a verification failure
+    require_delegation: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -688,6 +690,7 @@ def create_router(
             enforce_attestation=request.enforce_attestation,
             trusted_keys=request.trusted_keys,
             delegation_public_keys=request.delegation_public_keys,
+            require_delegation=request.require_delegation,
         )
         return verify_manifest(manifest, ctx, revocation_store)
 
