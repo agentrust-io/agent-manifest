@@ -1,0 +1,69 @@
+{
+  "id": "AM-VEC-007",
+  "description": "Unsupported manifest version is rejected before verifying.",
+  "spec_refs": [
+    "2.4"
+  ],
+  "manifest": {
+    "manifest_id": "018f4a3b-2c1d-7e5f-a8b9-0d1e2f3a4b5c",
+    "agent_id": "spiffe://trust.example/agent/kyc/prod",
+    "version": "0.2",
+    "issued_at": "2025-01-01T00:00:00Z",
+    "expires_at": "2099-12-31T23:59:59Z",
+    "issuer": "spiffe://trust.example/signing-authority",
+    "crypto_profile": "standard",
+    "artifacts": {
+      "system_prompt": {
+        "hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "policy_bundle": {
+        "hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "model_identity": {
+        "model_hash": null,
+        "version": "claude-3",
+        "deployment_type": "api"
+      }
+    },
+    "delegation_chain": [],
+    "hitl_record": null,
+    "signature": {
+      "algorithm": "Ed25519",
+      "key_id": "56475aa75463474c0285df5dbf2bcab73da651358839e9b77481b2eab107708c",
+      "key_type": "software",
+      "signed_at": "2025-01-01T00:00:00Z",
+      "signature_value": "DyP2zkq1nN-cS9ZofxjorGNzuomwKhNtV8f4KV7RCjZCAg_GAeQu2xVDw16-fp__L93fPLR3AwT1W6tCJmQpCg",
+      "signed_fields": [
+        "@context",
+        "@type",
+        "manifest_id",
+        "previous_manifest_id",
+        "agent_id",
+        "version",
+        "min_verifier_version",
+        "issued_at",
+        "expires_at",
+        "issuer",
+        "crypto_profile",
+        "artifacts",
+        "delegation_chain",
+        "hitl_record",
+        "prior_transparency_log_entry",
+        "log_retention",
+        "data_scope",
+        "operational_lifecycle"
+      ]
+    }
+  },
+  "context": {
+    "system_prompt_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "policy_bundle_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "model_version": "claude-3",
+    "trusted_keys": {
+      "56475aa75463474c0285df5dbf2bcab73da651358839e9b77481b2eab107708c": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+    }
+  },
+  "expected": {
+    "result": "INCOMPATIBLE_VERSION"
+  }
+}
