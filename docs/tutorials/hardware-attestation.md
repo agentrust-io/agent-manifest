@@ -56,7 +56,9 @@ Level 2 provides the strongest locally-verifiable hardware guarantee. Level 3 ad
 
 ### How it works
 
-`SEVSNPProvider.extend_manifest_hash()` computes `SHA-256(manifest_pre_image)` and places the 32-byte digest in the first half of the `HOST_DATA` field of the SNP attestation report. `HOST_DATA` is 64 bytes reserved for user-defined binding data. Verifiers check that `HOST_DATA[:32]` matches the expected manifest hash.
+> **Experimental:** the hardware providers are reference implementations and are not yet validated against real SEV-SNP/TDX hardware. The report field naming, byte offsets, and IOCTL ABI are being corrected (see issue #205). Do not rely on them in production.
+
+`SEVSNPProvider.extend_manifest_hash()` computes `SHA-256(manifest_pre_image)` and places the 32-byte digest in the first half of the guest-controlled `REPORT_DATA` field of the SNP attestation report, populated via the `user_data` member of the report request. `REPORT_DATA` is 64 bytes reserved for guest-supplied binding data. Verifiers check that `REPORT_DATA[:32]` matches the expected manifest hash. (`HOST_DATA` is a separate, host-set field and is not used here.)
 
 ### Usage
 
@@ -74,7 +76,7 @@ except AttestationUnavailableError as e:
 with open("manifest.json") as f:
     manifest = json.load(f)
 
-# Extends SHA-256(manifest_pre_image) into HOST_DATA
+# Extends SHA-256(manifest_pre_image) into REPORT_DATA (guest-controlled field)
 provider.extend_manifest_hash(manifest)
 
 # Read the attestation report
@@ -299,7 +301,7 @@ verifier challenge.
 
 ### How it works
 
-The hardware's caller-controlled field (`HOST_DATA` on SEV-SNP, `REPORTDATA`
+The hardware's guest-controlled field (`REPORT_DATA` on SEV-SNP, `REPORTDATA`
 on TDX, qualifying data on TPM) is set to:
 
 ```

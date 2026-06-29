@@ -29,7 +29,7 @@ TEE attestation hardware has two distinct fields:
 | Field | Set by | Mutable after boot? |
 |-------|--------|-------------------|
 | `MEASUREMENT` / `MRTD` / PCR values | Hardware/firmware at launch | No — silicon-sealed |
-| `REPORT_DATA` / `HOST_DATA` (SNP/TDX) or qualifying data (TPM) | Caller software via IOCTL | Yes — caller-controlled, hardware-signed |
+| `REPORT_DATA` (SNP) / `REPORTDATA` (TDX) or qualifying data (TPM) | Caller (guest) software via IOCTL | Yes — guest-controlled, hardware-signed |
 
 The boot measurement is immutable. However, the caller-controlled field can be
 set to arbitrary bytes at any time by issuing a new IOCTL, and the hardware
@@ -69,8 +69,9 @@ are separate evidence artifacts — they are not appended to the manifest.
 
 Re-measuring the TEE is not possible after boot. The only way to get fresh
 hardware-signed evidence is via the caller-controlled field. This is not a
-workaround — it is the intended mechanism. SNP's `HOST_DATA` and TDX's
-`REPORTDATA` exist specifically for this purpose.
+workaround — it is the intended mechanism. SNP's `REPORT_DATA` (the guest-controlled
+field, distinct from the host-set `HOST_DATA`) and TDX's `REPORTDATA` exist
+specifically for this purpose.
 
 **Why sha256(nonce || context_hash_bytes) rather than nonce alone?**
 
@@ -129,7 +130,7 @@ their own enforcement loop.
 
 ## References
 
-- AMD SEV-SNP: `HOST_DATA` field — Linux kernel `sev-guest.h`, `struct snp_report_req`
+- AMD SEV-SNP: `REPORT_DATA` field, populated via the `user_data` member of `struct snp_report_req` — Linux kernel `sev-guest.h`
 - Intel TDX: `REPORTDATA` field — Intel TDX Module Architecture Spec §3.3
 - TPM 2.0: qualifying data in `TPM2_Quote` — TCG PC Client Platform Firmware Profile §4.2
 - RFC 9334: RATS architecture (Attester / Verifier / Relying Party roles)
