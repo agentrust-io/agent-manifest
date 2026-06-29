@@ -57,7 +57,7 @@ A verifying party who holds an Agent Manifest and its accompanying attestation r
 | TPM 2.0 | Any Azure/AWS/GCP VM with Trusted Launch | Medium |
 | AMD SEV-SNP | Azure DCasv5, AWS C6a Nitro, GCP N2D | High |
 | Intel TDX | Azure DCedsv5, GCP C3 | High |
-| OPAQUE | OPAQUE Managed Runtime | Highest |
+| OPAQUE | OPAQUE Managed Runtime | Managed (chain-verified) |
 
 Provider auto-selects based on available hardware: `OPAQUE → SEV-SNP → TDX → TPM → software`.
 

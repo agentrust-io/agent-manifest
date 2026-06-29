@@ -52,7 +52,11 @@ Existing approaches reduce to operator trust. A software-signed manifest proves 
 
 > **The Anthropic Design Test - Applied to Agent Identity**
 >
-> Anthropic's Zero Trust for AI Agents framework asks: does a control make the attack impossible, or just tedious? Software-signed manifests are tedious controls. A determined operator rewrites them. Hardware-attested manifests are impossible controls - the measurement happens in silicon before any user code runs, and the signing key never leaves the TEE.
+> Anthropic's Zero Trust for AI Agents framework asks whether a control makes an attack impossible or merely tedious. Software-only manifests are tedious: a privileged operator can rewrite them. Hardware raises the bar in two specific ways, and it is worth being precise about which.
+>
+> First, the TEE launch measurement (SNP `MEASUREMENT`, TDX `MRTD`, TPM PCRs) is computed in silicon before any guest code runs, so the launch image cannot be altered undetected. Second, a signing key sealed to that measurement exists only inside an attested environment, so valid signatures cannot be produced anywhere else.
+>
+> What hardware does not do is measure individual files or in-memory objects after boot. Binding a manifest hash into a guest-supplied report field is an assertion by guest software, not a silicon measurement. The manifest makes tampering tamper-evident to a verifier who checks the full attestation chain and confirms the signing key is sealed to the measurement. It does not make in-memory tampering impossible. Read the conformance levels with that boundary in mind.
 
 ### 1.3 The Ten Unattested Surfaces
 
@@ -70,6 +74,8 @@ The following table enumerates the complete agent trust surface. Columns indicat
 | 8 | A2A Delegation | Agent-to-agent trust chain; delegated scope constraints | Orchestrator spoofing; scope laundering across delegation hops | None - no standard | Chain binding |
 | 9 | Supply Chain | Container manifest; SLSA provenance; dependency SBOMs | Compromised dependency runs as approved binary | SLSA (build-time only) | Runtime measure |
 | 10 | HITL Approvals | Human oversight records with identity and timestamp | EU AI Act Art. 14 violation; no accountability chain | None - no standard | Full binding |
+
+> **What the "Agent Manifest" column means.** "Binding" in this table is a cryptographic *signature* binding inside an attested environment, not a hardware *measurement* of each artifact. The TEE measures the launch image in silicon; it does not measure individual files, policy documents, or in-memory objects after boot. A binding is therefore only as strong as a verifier who checks the full attestation chain and confirms the signing key is sealed to the launch measurement. Terms like "hardware-sealed" and "TEE-signed" should be read in that sense.
 
 ## 2. Specification Overview
 
