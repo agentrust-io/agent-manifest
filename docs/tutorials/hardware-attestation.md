@@ -41,7 +41,7 @@ Hardware providers require the VM types listed in the table below. The `Software
 | 2 | `TDXProvider` | Intel Xeon (Sapphire Rapids+): Azure DCedsv5, GCP C3 |
 | 3 | `OPAQUEProvider` | Any  -  delegates to OPAQUE's managed TEE |
 
-Level 2 provides the strongest locally-verifiable hardware guarantee. Level 3 adds a hardware-signed audit chain managed by OPAQUE inside their TEE.
+Level 2 roots the binding in a confidential VM (SEV-SNP/TDX); its strength depends on the verifier checking the full attestation chain and the signing key being sealed to the launch measurement. Level 3 is the operationally-managed option: the agent runs inside OPAQUE's managed TEE, with OPAQUE handling provisioning and key lifecycle and producing a hardware-signed audit chain. Level 3 is not inherently higher assurance than a correctly-verified Level 2, and verifiers must still check the returned claim's signature.
 
 ---
 
