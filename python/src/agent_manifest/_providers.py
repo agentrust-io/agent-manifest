@@ -8,7 +8,7 @@ Implemented providers:
   TPMProvider       — Generic TPM 2.0 + AWS Nitro via tpm2-tools
   SEVSNPProvider    — AMD SEV-SNP (via /dev/sev-guest)        [issue #6]
   TDXProvider       — Intel TDX (via /dev/tdx-guest)          [issue #7]
-  OPAQUEProvider    — Opaque Managed Runtime stub             [issue #8]
+  OPAQUEProvider    — OPAQUE Managed Runtime stub             [issue #8]
 """
 from __future__ import annotations
 
@@ -337,7 +337,8 @@ class TPMProvider(AttestationProvider):
         qualifying_data = hashlib.sha256(nonce + context_bytes).digest()
         report_data_hash = f"sha256:{hashlib.sha256(qualifying_data).hexdigest()}"
 
-        import tempfile as _tempfile, os as _os
+        import os as _os
+        import tempfile as _tempfile
         msg_fd, msg_path = _tempfile.mkstemp(suffix=".msg")
         sig_fd, sig_path = _tempfile.mkstemp(suffix=".sig")
         _os.close(msg_fd)
