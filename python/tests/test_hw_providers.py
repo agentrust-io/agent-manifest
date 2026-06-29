@@ -95,7 +95,7 @@ def test_sevsnp_extend_with_mocked_ioctl(monkeypatch):
 
     mock_buf = bytearray(4096)
     mock_buf[0x90:0x90 + 48] = bytes(range(48))   # fake measurement
-    mock_buf[0x140:0x180] = bytes(range(64))        # fake HOST_DATA
+    mock_buf[0x50:0x50 + 64] = bytes(range(64))     # fake REPORT_DATA (guest-supplied field)
 
     import fcntl
 
@@ -114,7 +114,7 @@ def test_sevsnp_extend_with_mocked_ioctl(monkeypatch):
     assert report.platform == "amd-sev-snp"
     assert report.manifest_hash.startswith("sha256:")
     assert report.raw["measurement"] == bytes(range(48)).hex()
-    assert report.raw["host_data"] == bytes(range(64)).hex()
+    assert report.raw["report_data"] == bytes(range(64)).hex()
     assert report.raw["vmpl"] == 0
 
 
@@ -136,21 +136,21 @@ def test_sevsnp_extend_ioctl_oserror_raises(monkeypatch):
 
 @pytest.mark.skipif(not LINUX, reason="fcntl only available on Linux")
 def test_sevsnp_extend_manifest_hash_value_matches(monkeypatch):
-    """verify_manifest_in_report must compare HOST_DATA from hardware bytes (HW-002)."""
+    """verify_manifest_in_report must compare REPORT_DATA from hardware bytes (HW-002)."""
     monkeypatch.setattr(os.path, "exists", lambda p: p == "/dev/sev-guest")
     provider = SEVSNPProvider()
 
     import fcntl
 
-    def mock_ioctl_with_host_data(fd, op, buf):
-        # Simulate hardware echoing user_data into HOST_DATA (offset 0x140)
+    def mock_ioctl_with_report_data(fd, op, buf):
+        # Simulate hardware echoing user_data into REPORT_DATA (offset 0x50)
         # extend_manifest_hash puts user_data = digest||zeros at buf[0:64]
-        buf[0x140:0x140 + 64] = buf[0:64]
+        buf[0x50:0x50 + 64] = buf[0:64]
 
     mock_dev = MagicMock()
     mock_dev.__enter__ = lambda s: mock_dev
     mock_dev.__exit__ = MagicMock(return_value=False)
-    monkeypatch.setattr(fcntl, "ioctl", mock_ioctl_with_host_data)
+    monkeypatch.setattr(fcntl, "ioctl", mock_ioctl_with_report_data)
     with patch("builtins.open", return_value=mock_dev):
         provider.extend_manifest_hash(SAMPLE_MANIFEST)
 
