@@ -92,7 +92,7 @@ report = provider.get_attestation_report()
 | `TPMProvider` | TPM 2.0 / AWS Nitro | 1 | `apt install tpm2-tools` |
 | `SEVSNPProvider` | AMD SEV-SNP | 2 | Needs `/dev/sev-guest` |
 | `TDXProvider` | Intel TDX | 2 | Needs `/dev/tdx-guest` |
-| `OPAQUEProvider` | Opaque Runtime | 3 | Set `OPAQUE_ATTESTATION_URL` |
+| `OPAQUEProvider` | OPAQUE Runtime | 3 | Set `OPAQUE_ATTESTATION_URL` |
 
 ## Verification
 

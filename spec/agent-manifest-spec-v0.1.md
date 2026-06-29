@@ -1637,7 +1637,7 @@ Target: Q1 2027. Submission to AAIF alongside the AGT donation.
 
 ### C. Acknowledgments
 
-This specification builds on architectural work developed across the Agent Governance Toolkit (AGT), the Confidential MCP (cMCP) specification, the Opaque Systems Agent Trust Platform design, and prior research into Cryptographic Agent Provenance and Verifiable Agent Delegation. The delegation chain design is informed by the IATP (Inter-Agent Trust Protocol) architecture developed in the context of the Agent Internet proposal. The post-quantum profile extends AGT's existing ML-DSA-65 implementation. The HITL record design is informed by the EU AI Act Art. 14 implementation guidance from the European AI Office.
+This specification builds on architectural work developed across the Agent Governance Toolkit (AGT), the Confidential MCP (cMCP) specification, the OPAQUE Systems Agent Trust Platform design, and prior research into Cryptographic Agent Provenance and Verifiable Agent Delegation. The delegation chain design is informed by the IATP (Inter-Agent Trust Protocol) architecture developed in the context of the Agent Internet proposal. The post-quantum profile extends AGT's existing ML-DSA-65 implementation. The HITL record design is informed by the EU AI Act Art. 14 implementation guidance from the European AI Office.
 
 ---
 

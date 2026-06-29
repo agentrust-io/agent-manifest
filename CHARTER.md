@@ -25,7 +25,7 @@ Out of scope: runtime policy enforcement (see Agent Governance Toolkit), MCP pro
 
 Upon AAIF acceptance, governance transitions from the current single-maintainer model to a Technical Steering Committee (TSC).
 
-**Composition**: 3–7 members. No single organization may hold more than 40% of TSC seats. The founding Project Lead (Imran Siddique, Opaque Systems) holds one permanent founding seat for the v1.0 ratification cycle, after which all seats are elected.
+**Composition**: 3–7 members. No single organization may hold more than 40% of TSC seats. The founding Project Lead (Imran Siddique, OPAQUE Systems) holds one permanent founding seat for the v1.0 ratification cycle, after which all seats are elected.
 
 **Election**: TSC members are elected annually by active contributors (defined as: at least one merged PR or accepted spec change in the preceding 12 months). Each contributor has one vote.
 

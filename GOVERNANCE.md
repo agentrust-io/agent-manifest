@@ -20,7 +20,7 @@ Full commit and merge rights on designated package areas. PyPI publish rights on
 
 ### Project Lead
 
-Final decision authority on specification changes, AAIF submission scope, conformance test disputes, and Maintainer appointments. Currently: Imran Siddique (Opaque Systems).
+Final decision authority on specification changes, AAIF submission scope, conformance test disputes, and Maintainer appointments. Currently: Imran Siddique (OPAQUE Systems).
 
 **Succession**: If the Project Lead is unavailable for 30+ days without notice, the active Maintainers vote to appoint an interim lead. Succession plan will be formalized before AAIF v1.0 submission with a Technical Steering Committee structure.
 
