@@ -156,7 +156,7 @@ import os
 from agent_manifest._hw_providers import OPAQUEProvider
 
 os.environ["OPAQUE_ATTESTATION_URL"] = "https://YOUR_OPAQUE_TENANT.attest.example.com"
-# Replace with your Opaque attestation service URL (requires an Opaque account)
+# Replace with your OPAQUE attestation service URL (requires an OPAQUE account)
 # os.environ["OPAQUE_API_KEY"] = "your-key"  # if required
 
 provider = OPAQUEProvider()
