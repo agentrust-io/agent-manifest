@@ -93,7 +93,7 @@ assert provider.verify_manifest_in_report(report, manifest)
 
 | Field | Description |
 |-------|-------------|
-| `raw['host_data']` | 64 bytes: first 32 = SHA-256 of manifest pre-image, last 32 = zeros |
+| `raw['report_data']` | REPORT_DATA (offset 0x50), 64 bytes: first 32 = SHA-256 of manifest pre-image, last 32 = zeros |
 | `raw['measurement']` | 48-byte platform measurement covering firmware and kernel |
 | `raw['vmpl']` | VMPL level (0 = highest privilege) |
 | `raw['vcek_cert_chain_verified']` | Always `False` in the SDK  -  fetch the VCEK from AMD KDS to verify independently |
@@ -240,7 +240,7 @@ mock_report = AttestationReport(
     platform="amd-sev-snp",
     manifest_hash="sha256:" + "aa" * 32,
     raw={
-        "host_data": "cc" * 64,
+        "report_data": "cc" * 64,
         "measurement": "bb" * 48,
         "vmpl": 0,
         "vcek_cert_chain_verified": False,

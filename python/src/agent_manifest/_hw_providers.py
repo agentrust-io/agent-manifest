@@ -100,7 +100,7 @@ class SEVSNPProvider(AttestationProvider):
         self._report_bytes: Optional[bytes] = None
 
     def extend_manifest_hash(self, manifest_json: dict[str, Any]) -> None:
-        """Request an SNP attestation report with HOST_DATA = sha256(pre_image) || 0x00*32."""
+        """Request an SNP attestation report with REPORT_DATA = sha256(pre_image) || 0x00*32."""
         import fcntl
         pre = self.manifest_pre_image(manifest_json)
         digest = hashlib.sha256(pre).digest()
@@ -135,9 +135,10 @@ class SEVSNPProvider(AttestationProvider):
             platform="amd-sev-snp",
             manifest_hash=self._manifest_hash or "",
             raw={
-                # FIXME(#205): guest-supplied data lives in REPORT_DATA (offset 0x50), not
-                # HOST_DATA (0x140). This reads the wrong field and is not hardware-validated.
-                "host_data": self._report_bytes[0x140:0x180].hex(),
+                # REPORT_DATA (the guest-supplied field) is at offset 0x50, 64 bytes, in the
+                # SNP attestation report. NOTE: the live IOCTL ABI and the response-header
+                # wrapping around the report are not yet validated against real hardware (#204).
+                "report_data": self._report_bytes[0x50:0x50 + 64].hex(),
                 "measurement": measurement_hex,
                 "vmpl": 0,
                 # HW-008: VCEK chain not verified — the ioctl response does not embed
@@ -153,9 +154,8 @@ class SEVSNPProvider(AttestationProvider):
         if self._report_bytes is not None:
             import hmac as _hmac
             expected_hex = self.manifest_hash_value(manifest_json).split(":", 1)[-1]
-            # FIXME(#205): reads HOST_DATA (offset 0x140); guest-supplied data is in
-            # REPORT_DATA (offset 0x50). Not hardware-validated — see module docstring.
-            actual = self._report_bytes[0x140:0x140 + 32].hex()
+            # REPORT_DATA (guest-supplied) is at offset 0x50; the first 32 bytes hold the digest.
+            actual = self._report_bytes[0x50:0x50 + 32].hex()
             return _hmac.compare_digest(actual, expected_hex)
         # External report: fall back to manifest_hash field comparison
         return report.manifest_hash == self.manifest_hash_value(manifest_json)
@@ -165,11 +165,11 @@ class SEVSNPProvider(AttestationProvider):
         nonce: bytes,
         context_hash: str,
     ) -> RuntimeAttestationReport:
-        """Fresh SNP report with HOST_DATA = sha256(nonce || context_hash_bytes).
+        """Fresh SNP report with REPORT_DATA = sha256(nonce || context_hash_bytes).
 
         Issues a new SNP_GET_REPORT ioctl — no cached state is reused.
         The returned report carries the same immutable MEASUREMENT as the
-        boot-time report, plus a freshly hardware-signed HOST_DATA field
+        boot-time report, plus a freshly hardware-signed REPORT_DATA field
         that binds the nonce and current context hash.
         """
         import fcntl
@@ -177,7 +177,7 @@ class SEVSNPProvider(AttestationProvider):
         qualifying = hashlib.sha256(nonce + context_bytes).digest()
         report_data_hash = f"sha256:{hashlib.sha256(qualifying).hexdigest()}"
 
-        # HOST_DATA: first 32 bytes = sha256(nonce || context), last 32 = zeros
+        # REPORT_DATA: first 32 bytes = sha256(nonce || context), last 32 = zeros
         user_data = qualifying + bytes(32)
         req = user_data + struct.pack("<I", 0) + bytes(28)
         buf = bytearray(4096)
@@ -201,7 +201,7 @@ class SEVSNPProvider(AttestationProvider):
             nonce_hex=nonce.hex(),
             quote=quote_bytes,
             raw={
-                "host_data": quote_bytes[0x140:0x180].hex(),
+                "report_data": quote_bytes[0x50:0x50 + 64].hex(),
                 "measurement": measurement_hex,
                 "vcek_cert_chain_verified": False,
             },
@@ -221,9 +221,14 @@ _TDX_CMD_GET_REPORT = 0xC4405401  # HW-001: corrected from 0xC0A00401
 class TDXProvider(AttestationProvider):
     """Intel TDX attestation via /dev/tdx-guest (Linux kernel 6.2+).
 
-    Extends the manifest hash into RTMR[1] using TDG.MR.RTMR.EXTEND.
-    RTMR[1] is conventionally used for OS-level and application-level
-    measurements (RTMR[0] = TD-measured, RTMR[2-3] = available for SW).
+    EXPERIMENTAL / not hardware-validated — see the module docstring and #204.
+
+    This provider binds the manifest hash into the guest-supplied REPORTDATA
+    field of a TDREPORT. It does NOT perform an RTMR extend (despite the
+    historical `RTMR_INDEX` attribute): RTMR[1] extension via TDG.MR.RTMR.EXTEND
+    is not implemented. It also returns a raw TDREPORT, which is local-only and
+    NOT remotely verifiable — converting a TDREPORT into a Quote requires the
+    TDX Quoting Enclave / Quote Generation Service (also not implemented here).
 
     Requirements:
       - Intel 4th Gen Xeon (Sapphire Rapids) or later with TDX enabled
