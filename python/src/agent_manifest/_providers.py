@@ -67,7 +67,7 @@ class RuntimeAttestationReport:
     """
 
     platform: str
-    # sha256(nonce || context_hash_bytes) placed in REPORT_DATA / HOST_DATA
+    # sha256(nonce || context_hash_bytes) placed in the guest-controlled field (REPORT_DATA on SNP)
     report_data_hash: str
     # sha256:<hex> of the caller-supplied runtime context (system prompt, policy, tools…)
     context_hash: str
@@ -111,7 +111,7 @@ class AttestationProvider(ABC):
         startup, this method can be called periodically or per-N-calls to produce
         a hardware-signed freshness proof of the agent's current runtime state.
 
-        The hardware sets REPORT_DATA / HOST_DATA to:
+        The hardware sets the guest-controlled field (REPORT_DATA on SNP) to:
             sha256(nonce || bytes.fromhex(context_hash.split(":")[-1]))
         and signs it together with the unchanged boot measurement, so a verifier
         holding the nonce can confirm both TEE identity and current state.

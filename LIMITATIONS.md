@@ -66,7 +66,7 @@ injecting a tool) would not be detected by the boot-time attestation alone.
 For deployments that need to prove the agent has not drifted since startup, use
 `attest_runtime_state(nonce, context_hash)`. This method issues a new hardware
 quote on demand. The TEE sets its caller-controlled field
-(`HOST_DATA` on SEV-SNP, `REPORTDATA` on TDX, qualifying data on TPM) to
+(`REPORT_DATA` on SEV-SNP, `REPORTDATA` on TDX, qualifying data on TPM) to
 `sha256(nonce || context_hash_bytes)` and signs it together with the unchanged
 boot measurement. A verifier that supplies the nonce and independently computes
 `context_hash` can then confirm:

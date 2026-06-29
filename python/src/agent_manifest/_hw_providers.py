@@ -1,12 +1,20 @@
 """AMD SEV-SNP, Intel TDX, and TEE attestation providers — issues #6, #7, #8.
 
+EXPERIMENTAL: these hardware providers are reference implementations and have
+NOT been validated against real SEV-SNP/TDX hardware. The report field usage,
+byte offsets, and IOCTL ABI below are known to be incorrect or unverified and
+are tracked for a hardware-validated rewrite (issues #204, #205). Do not rely
+on these providers for production attestation.
+
 These providers extend _providers.py:AttestationProvider for higher-assurance
 hardware attestation than TPM.
 
 SEV-SNP (issue #6):
-  Uses /dev/sev-guest to extend the manifest hash into the HOST_DATA field
-  of the SNP attestation report. HOST_DATA is a 64-byte field specifically
-  reserved for user-defined data — ideal for binding a manifest hash.
+  Uses /dev/sev-guest to bind the manifest hash into the guest-controlled
+  REPORT_DATA field of the SNP attestation report (populated via the user_data
+  member of the report request). REPORT_DATA is a 64-byte field reserved for
+  guest-supplied data. HOST_DATA is a separate, host-set field (32 bytes) that
+  the guest cannot write, and is NOT used here.
 
 TDX (issue #7):
   Uses /dev/tdx-guest to extend the manifest hash into RTMR[1].
@@ -46,9 +54,14 @@ _SNP_REPORT_IOCTL = 0xC0A00300  # _IOWR('s', 0, struct snp_report_req) — kerne
 class SEVSNPProvider(AttestationProvider):
     """AMD SEV-SNP attestation via /dev/sev-guest (Linux kernel 5.19+).
 
-    Extends the manifest hash into HOST_DATA (64 bytes) of the SNP attestation
-    report. The first 32 bytes of HOST_DATA carry the SHA-256 of the manifest
-    pre-image; the remaining 32 bytes are zero-padded.
+    EXPERIMENTAL / not hardware-validated — see the module docstring and #205.
+
+    Binds the manifest hash into the guest-controlled REPORT_DATA (64 bytes) of
+    the SNP attestation report. The first 32 bytes carry the SHA-256 of the
+    manifest pre-image; the remaining 32 bytes are zero-padded. (HOST_DATA is a
+    separate host-set field and is not used.) The report-parsing offsets in this
+    class are not yet corrected for REPORT_DATA and must be fixed against the
+    AMD ABI before production use (#205).
 
     Requirements:
       - AMD EPYC (Milan or later) with SEV-SNP enabled in BIOS
@@ -122,7 +135,9 @@ class SEVSNPProvider(AttestationProvider):
             platform="amd-sev-snp",
             manifest_hash=self._manifest_hash or "",
             raw={
-                "host_data": self._report_bytes[0x140:0x180].hex(),  # HOST_DATA at offset 0x140
+                # FIXME(#205): guest-supplied data lives in REPORT_DATA (offset 0x50), not
+                # HOST_DATA (0x140). This reads the wrong field and is not hardware-validated.
+                "host_data": self._report_bytes[0x140:0x180].hex(),
                 "measurement": measurement_hex,
                 "vmpl": 0,
                 # HW-008: VCEK chain not verified — the ioctl response does not embed
@@ -138,8 +153,8 @@ class SEVSNPProvider(AttestationProvider):
         if self._report_bytes is not None:
             import hmac as _hmac
             expected_hex = self.manifest_hash_value(manifest_json).split(":", 1)[-1]
-            # HOST_DATA is at offset 0x140 in snp_attestation_report; first 32 bytes
-            # hold the SHA-256 digest we placed there in extend_manifest_hash()
+            # FIXME(#205): reads HOST_DATA (offset 0x140); guest-supplied data is in
+            # REPORT_DATA (offset 0x50). Not hardware-validated — see module docstring.
             actual = self._report_bytes[0x140:0x140 + 32].hex()
             return _hmac.compare_digest(actual, expected_hex)
         # External report: fall back to manifest_hash field comparison

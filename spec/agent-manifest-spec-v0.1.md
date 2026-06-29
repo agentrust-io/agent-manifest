@@ -656,9 +656,9 @@ The attestation service acts as a RATS Verifier in the sense of RFC 9334. For de
 The following profiles define, per platform, the measurement field used to carry the `manifest_hash_in_report`, the format of the `measurement` field, and which component performs the extension.
 
 **AMD SEV-SNP**
-- `manifest_hash_in_report` is extended into the `HOST_DATA` field of the SNP attestation report (32 bytes, purpose-built for guest-supplied data). Do NOT use a PCR register for this purpose.
+- `manifest_hash_in_report` is bound via the `HOST_DATA` field of the SNP attestation report (32 bytes). `HOST_DATA` is host-supplied launch data: it is set by the host/launcher (the Confidential Runtime) at `SNP_LAUNCH_FINISH` and the guest can read but not modify it after launch. This boot-time binding is therefore only as trustworthy as the launcher that measures the manifest. `HOST_DATA` is NOT the guest-controlled field; the guest-controlled field is `REPORT_DATA` (64 bytes), used for the runtime freshness proofs in §3.3.2. Do NOT use a PCR register for this purpose.
 - `measurement` field: SHA-256 of initial guest memory pages (64 bytes, 128 lowercase hex characters).
-- Extension actor: the Confidential Runtime extends `HOST_DATA` before guest launch.
+- Extension actor: the Confidential Runtime (host/launcher) sets `HOST_DATA` at `SNP_LAUNCH_FINISH`, before the guest runs; the guest cannot alter it.
 
 **Intel TDX**
 - `manifest_hash_in_report` is extended into `RTMR[3]` using `TDG.MR.RTMR.EXTEND` before any workload code runs.
@@ -692,7 +692,7 @@ For deployments requiring continuous or challenge-response evidence, the SDK exp
 
 **Scope of the TEE boot measurement**
 
-The TEE boot measurement (`MEASUREMENT` on SNP, `MRTD` on TDX, PCR values on TPM) is hardware-immutable after launch. No re-measurement of the TEE is possible. What `attest_runtime_state()` provides is a fresh hardware-signed quote in which the caller-controlled field (`HOST_DATA` on SNP, `REPORTDATA` on TDX) is set to a value that binds the nonce and the current runtime context. The hardware signs both the immutable boot measurement and this caller-supplied value, giving the verifier:
+The TEE boot measurement (`MEASUREMENT` on SNP, `MRTD` on TDX, PCR values on TPM) is hardware-immutable after launch. No re-measurement of the TEE is possible. What `attest_runtime_state()` provides is a fresh hardware-signed quote in which the guest-controlled field (`REPORT_DATA` on SNP, `REPORTDATA` on TDX) is set to a value that binds the nonce and the current runtime context. The hardware signs both the immutable boot measurement and this caller-supplied value, giving the verifier:
 
 1. **TEE identity** — the boot measurement has not changed since the boot-time `attestation` block was produced
 2. **Current state** — the caller-supplied field encodes `sha256(nonce || context_hash_bytes)`
