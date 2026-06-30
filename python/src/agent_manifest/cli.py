@@ -306,7 +306,28 @@ def verify(
             click.echo(f"  MISMATCH {d.field}: expected {d.expected_hash[:20]}...", err=True)
         sys.exit(1)
     else:
-        click.echo("Result: VALID", err=True)
+        # A VALID result from this command authenticates the signature, but the
+        # CLI never supplies runtime artifact hashes, so any bound artifact is
+        # unchecked. Do not print a bare "VALID" that could be misread as proof
+        # the running artifacts match the manifest (VERIFY-001).
+        artifact_warning = next(
+            (w for w in result.warnings if "artifact bindings NOT verified" in w),
+            None,
+        )
+        if artifact_warning:
+            click.echo(
+                "Result: VALID (signature only - artifact bindings NOT verified)",
+                err=True,
+            )
+            click.echo(
+                "  WARNING: this manifest binds artifacts, but no runtime "
+                "hashes were checked. The signature is authentic; the running "
+                "artifacts were NOT compared against the manifest. Provide "
+                "runtime hashes (or use strict verification) to verify bindings.",
+                err=True,
+            )
+        else:
+            click.echo("Result: VALID", err=True)
 
 
 class _CRLRevocationStore(RevocationStore):

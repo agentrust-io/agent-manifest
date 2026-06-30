@@ -26,6 +26,8 @@ from agent_manifest._verify import (
 NOW = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 MID = "018f4a3b-2c1d-7e5f-a8b9-0d1e2f3a4b5c"
 SHA = "sha256:" + "a" * 64
+# The manifest signing identity (agent_id) the chain root MUST be bound to.
+AGENT_ID = "spiffe://trust.example/agent/kyc/prod"
 
 SCOPE = {
     "tools": ["com.example.read"],
@@ -110,7 +112,7 @@ def _make_chain(kp, principal_id="spiffe://trust.example/agent/root", n_hops=1) 
 
 def test_valid_chain_single_hop():
     kp = generate_ed25519()
-    pid = "spiffe://trust.example/orchestrator"
+    pid = AGENT_ID  # chain root must be bound to the manifest signing identity
     chain = _make_chain(kp, principal_id=pid)
     m = base_manifest(delegation_chain=chain)
     ctx = base_context(delegation_public_keys={pid: kp.public_b64url()})
@@ -122,7 +124,7 @@ def test_valid_chain_single_hop():
 def test_valid_chain_multi_hop():
     root_kp = generate_ed25519()
     sub_kp = generate_ed25519()
-    root_pid = "spiffe://trust.example/root"
+    root_pid = AGENT_ID  # root bound to manifest signing identity
     sub_pid = "spiffe://trust.example/sub"
     narrow_scope = {**SCOPE, "tools": ["com.example.read"]}
 
@@ -150,14 +152,16 @@ def test_valid_chain_multi_hop():
     assert result.result == OverallResult.VALID
 
 
-def test_valid_chain_service_principal_type():
+def test_valid_chain_agent_principal_type():
+    # principal_type must be a schema-valid PrincipalType (human/system/agent);
+    # the manifest schema gate rejects out-of-enum values such as "service".
     kp = generate_ed25519()
-    pid = "spiffe://trust.example/svc/gateway"
+    pid = AGENT_ID  # root bound to manifest signing identity
     sig = DelegationHopSigner(kp).sign_hop(
-        hop=0, principal_id=pid, principal_type="service",
+        hop=0, principal_id=pid, principal_type="agent",
         delegated_at=NOW, scope_grant=SCOPE, manifest_id=MID,
     )
-    chain = [{"hop": 0, "principal_id": pid, "principal_type": "service",
+    chain = [{"hop": 0, "principal_id": pid, "principal_type": "agent",
                "delegated_at": NOW, "scope_grant": SCOPE, "delegation_signature": sig}]
     m = base_manifest(delegation_chain=chain)
     ctx = base_context(delegation_public_keys={pid: kp.public_b64url()})
@@ -168,6 +172,34 @@ def test_valid_chain_service_principal_type():
 # ---------------------------------------------------------------------------
 # UNVERIFIABLE - chain present but no keys supplied
 # ---------------------------------------------------------------------------
+
+
+def test_chain_root_not_bound_to_issuer_is_mismatch():
+    """Fix #1: a verifiable chain whose root != manifest signing identity fails."""
+    kp = generate_ed25519()
+    rogue_pid = "spiffe://trust.example/attacker"  # not the manifest agent_id
+    chain = _make_chain(kp, principal_id=rogue_pid)
+    m = base_manifest(delegation_chain=chain)  # agent_id is AGENT_ID, not rogue_pid
+    ctx = base_context(delegation_public_keys={rogue_pid: kp.public_b64url()})
+    result = verify_manifest(m, ctx, store())
+    assert result.fields_verified.delegation_chain == DelegationResult.INVALID
+    assert result.result == OverallResult.MISMATCH
+    assert any(
+        "does not match the manifest" in d.actual_hash
+        for d in result.mismatch_details
+    )
+
+
+def test_chain_root_bound_to_issuer_field_is_valid():
+    """When issuer is set, a chain rooted at the issuer verifies."""
+    kp = generate_ed25519()
+    issuer = "spiffe://trust.example/signing-authority"
+    chain = _make_chain(kp, principal_id=issuer)
+    m = base_manifest(delegation_chain=chain, issuer=issuer)
+    ctx = base_context(delegation_public_keys={issuer: kp.public_b64url()})
+    result = verify_manifest(m, ctx, store())
+    assert result.fields_verified.delegation_chain == DelegationResult.VALID
+    assert result.result == OverallResult.VALID
 
 
 def test_chain_without_keys_is_unverifiable():
@@ -307,7 +339,7 @@ def test_require_delegation_with_no_chain_is_mismatch():
 
 def test_require_delegation_with_valid_chain_is_valid():
     kp = generate_ed25519()
-    pid = "spiffe://trust.example/root"
+    pid = AGENT_ID  # root bound to manifest signing identity
     chain = _make_chain(kp, principal_id=pid)
     m = base_manifest(delegation_chain=chain)
     ctx = base_context(
@@ -368,7 +400,7 @@ def test_empty_principal_id_raises():
 def test_invalid_principal_type_via_verify_manifest():
     """Structural violation in chain must surface as MISMATCH via full verify path."""
     kp = generate_ed25519()
-    pid = "spiffe://trust.example/root"
+    pid = AGENT_ID  # root bound to manifest signing identity
     # Build valid sig but inject invalid principal_type
     sig = DelegationHopSigner(kp).sign_hop(
         hop=0, principal_id=pid, principal_type="agent",
@@ -379,5 +411,7 @@ def test_invalid_principal_type_via_verify_manifest():
     m = base_manifest(delegation_chain=chain)
     ctx = base_context(delegation_public_keys={pid: kp.public_b64url()})
     result = verify_manifest(m, ctx, store())
-    assert result.fields_verified.delegation_chain == DelegationResult.INVALID
+    # An out-of-enum principal_type is now caught fail-closed by the manifest
+    # schema gate, which runs before delegation processing.
     assert result.result == OverallResult.MISMATCH
+    assert any(d.field.startswith("schema") for d in result.mismatch_details)

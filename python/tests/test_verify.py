@@ -130,8 +130,8 @@ def test_memory_baseline_ttl_expired():
     m = base_manifest()
     m["artifacts"]["memory_baseline"] = {
         "snapshot_hash": SHA,
-        "approved_at": PAST,
-        "ttl_seconds": 60,
+        "approved_at": PAST,  # 1 day ago, so a 1h TTL is well past expiry
+        "ttl_seconds": 3600,  # schema minimum (1 hour)
     }
     ctx = base_context(memory_snapshot_hash=SHA)
     result = verify_manifest(sign(m), ctx, store())
@@ -410,3 +410,40 @@ def test_missing_version_is_incompatible():
 def test_supported_version_passes_version_gate():
     result = verify_manifest(base_manifest(version="0.1"), base_context(), store())
     assert result.result == OverallResult.VALID
+
+
+# ---------------------------------------------------------------------------
+# Fix #3: schema validation on the verify path (fail-closed)
+# ---------------------------------------------------------------------------
+
+
+def test_unknown_top_level_field_fails_schema():
+    m = base_manifest(rogue_field="injected")
+    result = verify_manifest(m, base_context(), store())
+    assert result.result == OverallResult.MISMATCH
+    assert any(d.field.startswith("schema") for d in result.mismatch_details)
+
+
+def test_unknown_nested_field_fails_schema():
+    m = base_manifest()
+    m["artifacts"]["system_prompt"]["rogue_field"] = "injected"
+    result = verify_manifest(sign(m), base_context(), store())
+    assert result.result == OverallResult.MISMATCH
+    assert any(d.field.startswith("schema") for d in result.mismatch_details)
+
+
+def test_malformed_expires_at_fails_schema_not_silently_valid():
+    # A malformed expires_at must be a failure, not a silently non-expiring
+    # manifest. Re-sign so the signature itself is not the failure.
+    m = base_manifest()
+    m["expires_at"] = "not-a-real-timestamp"
+    result = verify_manifest(sign(m), base_context(), store())
+    assert result.result == OverallResult.MISMATCH
+    assert any(d.field.startswith("schema") for d in result.mismatch_details)
+
+
+def test_bad_enum_value_fails_schema():
+    m = base_manifest(crypto_profile="totally-not-a-profile")
+    result = verify_manifest(m, base_context(), store())
+    assert result.result == OverallResult.MISMATCH
+    assert any(d.field.startswith("schema") for d in result.mismatch_details)

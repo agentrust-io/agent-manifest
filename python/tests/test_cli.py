@@ -140,3 +140,33 @@ def test_cli_verify_with_missing_public_key_file_fails_cleanly(tmp_path):
     assert result.exit_code != 0
     assert "Public key file not found or is not a regular file" in result.output
     assert "Traceback" not in result.output
+
+
+# ---------------------------------------------------------------------------
+# Fix #4: CLI must be honest when artifacts are bound but not checked
+# ---------------------------------------------------------------------------
+
+
+def test_cli_verify_bound_artifacts_without_runtime_hashes_qualifies_valid(tmp_path):
+    # The manifest binds system_prompt and policy_bundle hashes, but the CLI
+    # supplies no runtime hashes, so those bindings are never compared. The
+    # output must qualify the VALID status and warn - never a bare "VALID".
+    keypair = generate_ed25519()
+    signed_path = _write_signed_manifest(tmp_path, keypair)
+    public_path = _write_public_key(tmp_path, keypair)
+
+    result = CliRunner().invoke(
+        cli,
+        ["manifest", "verify", str(signed_path), "--public-key", str(public_path)],
+    )
+
+    # Signature is genuinely valid (exit 0), but the status must be qualified.
+    assert result.exit_code == 0
+    payload = _json_stdout(result)
+    assert payload["result"] == "VALID"
+    assert "VALID (signature only - artifact bindings NOT verified)" in result.output
+    assert "WARNING" in result.output
+    # The bare "Result: VALID" line must NOT be emitted in this case.
+    assert "Result: VALID\n" not in result.output
+    # And the result payload carries the machine-readable warning too.
+    assert any("artifact bindings NOT verified" in w for w in payload["warnings"])

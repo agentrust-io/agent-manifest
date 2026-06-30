@@ -128,19 +128,28 @@ def verify_delegation_chain(
     delegation_chain: list[dict[str, Any]],
     public_keys: dict[str, bytes],  # principal_id -> public key bytes
     manifest_id: str,
+    manifest_issuer: Optional[str] = None,
 ) -> None:
     """Verify all hops in a delegation chain.
 
     Checks:
+      - The chain root is bound to the manifest's signing identity (when
+        ``manifest_issuer`` is supplied).
       - Each hop signature is valid for its principal's key.
       - Hop indices are sequential starting from 0.
-      - Scope at each hop is not broader than the previous hop's grant.
+      - Scope at each hop is not broader than the previous hop's grant
+        (tools, data_classifications, constraints, ttl_seconds, depth).
       - Chain depth does not exceed root hop's max_delegation_depth.
 
     Args:
         delegation_chain: List of hop dicts from the manifest.
         public_keys: Map of principal_id -> raw Ed25519 public key bytes.
         manifest_id: Manifest ID to include in pre-image (replay protection).
+        manifest_issuer: The manifest's signing identity (issuer or agent_id).
+            When provided, the root hop's principal MUST equal this identity;
+            otherwise the chain is rejected. A chain whose root is not the
+            manifest signer could be grafted onto an unrelated manifest, so
+            this binding is fail-closed when an issuer is known.
 
     Raises:
         InvalidSignature: If any hop signature is invalid.
@@ -148,6 +157,25 @@ def verify_delegation_chain(
     """
     if not delegation_chain:
         return
+
+    # Bind the chain root to the manifest's signing identity. The root hop
+    # establishes the authority the rest of the chain narrows from, so it must
+    # originate from the same principal that signed the manifest. Match either
+    # principal_id or principal_manifest_id so SPIFFE-keyed and manifest-keyed
+    # roots are both accepted.
+    if manifest_issuer:
+        root = delegation_chain[0]
+        root_identities = {
+            root.get("principal_id"),
+            root.get("principal_manifest_id"),
+        }
+        if manifest_issuer not in root_identities:
+            raise ValueError(
+                "Delegation chain root principal "
+                f"{root.get('principal_id')!r} does not match the manifest "
+                f"signing identity {manifest_issuer!r}; the chain is not bound "
+                "to the manifest issuer"
+            )
 
     root_max_depth = delegation_chain[0]["scope_grant"].get(
         "max_delegation_depth", DEFAULT_MAX_DELEGATION_DEPTH
@@ -234,6 +262,42 @@ def _check_scope_narrowing(parent: dict[str, Any], child: dict[str, Any], hop_in
         raise ValueError(
             f"Scope laundering at hop {hop_index}: "
             f"child claims data_classifications {extra!r} not granted by parent"
+        )
+
+    # Constraints are restrictions, so narrowing means the child MUST keep
+    # every parent constraint and may only add more. Dropping a parent
+    # constraint widens the grant and is rejected.
+    parent_constraints = set(parent.get("constraints") or [])
+    child_constraints = set(child.get("constraints") or [])
+    dropped = parent_constraints - child_constraints
+    if dropped:
+        raise ValueError(
+            f"Scope laundering at hop {hop_index}: "
+            f"child drops parent constraints {dropped!r}; child constraints "
+            "must be a superset of the parent's"
+        )
+
+    # ttl_seconds: a child may not live longer than its parent. Absent (None)
+    # means unbounded; a child claiming unbounded under a bounded parent, or a
+    # larger bound, widens the grant.
+    parent_ttl = parent.get("ttl_seconds")
+    child_ttl = child.get("ttl_seconds")
+    if parent_ttl is not None and (child_ttl is None or child_ttl > parent_ttl):
+        raise ValueError(
+            f"Scope laundering at hop {hop_index}: "
+            f"child ttl_seconds {child_ttl!r} exceeds parent ttl_seconds "
+            f"{parent_ttl!r}"
+        )
+
+    # max_delegation_depth: a child may not authorize a deeper sub-chain than
+    # its parent permitted. Omission defaults to the spec value (3).
+    parent_depth = parent.get("max_delegation_depth", DEFAULT_MAX_DELEGATION_DEPTH)
+    child_depth = child.get("max_delegation_depth", DEFAULT_MAX_DELEGATION_DEPTH)
+    if child_depth > parent_depth:
+        raise ValueError(
+            f"Scope laundering at hop {hop_index}: "
+            f"child max_delegation_depth {child_depth} exceeds parent "
+            f"max_delegation_depth {parent_depth}"
         )
 
 

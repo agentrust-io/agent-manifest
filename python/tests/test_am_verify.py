@@ -219,8 +219,8 @@ def test_memory_baseline_expired():
     m = manifest()
     m["artifacts"]["memory_baseline"] = {
         "snapshot_hash": SHA_A,
-        "approved_at": TS_PAST,
-        "ttl_seconds": 60,
+        "approved_at": TS_PAST,  # 1 day ago, so a 1h TTL is well past expiry
+        "ttl_seconds": 3600,  # schema minimum (1 hour)
     }
     r = verify_manifest(sign(m), ctx(memory_snapshot_hash=SHA_A), store())
     assert r.fields_verified.memory_baseline == FieldResult.EXPIRED
