@@ -183,6 +183,42 @@ class VerificationContext(BaseModel):
 SUPPORTED_MANIFEST_VERSIONS: frozenset[str] = frozenset({"0.1"})
 
 
+def _strict_schema_violations(manifest: dict[str, Any]) -> list[tuple[str, str]]:
+    """Run the manifest through the Pydantic schema and return fail-closed errors.
+
+    Returns a list of (location, message) tuples for every validation error
+    that is NOT a tolerated "missing required field" error. An empty list
+    means the manifest carries no disqualifying schema violation.
+
+    Tolerated: ``missing`` errors only. Disqualifying: unknown fields
+    (``extra_forbidden``), type errors, bad enums, unparseable or
+    out-of-window timestamps, and any ``value_error`` raised by a model
+    validator (e.g. the expiry-window rule).
+    """
+    from pydantic import ValidationError
+
+    from .models import Manifest
+
+    # An empty delegation_chain means "no delegation"; the engine already
+    # normalizes it to absent (``manifest.get("delegation_chain") or []``).
+    # The schema models it as ``min_length=1`` (omit when empty), so drop an
+    # empty/None chain before validating to avoid flagging the benign idiom.
+    if not manifest.get("delegation_chain"):
+        manifest = {k: v for k, v in manifest.items() if k != "delegation_chain"}
+
+    try:
+        Manifest.model_validate(manifest)
+    except ValidationError as exc:
+        violations: list[tuple[str, str]] = []
+        for err in exc.errors():
+            if err.get("type") == "missing":
+                continue
+            loc = ".".join(str(p) for p in err.get("loc", ()))
+            violations.append((loc, err.get("msg", "schema error")))
+        return violations
+    return []
+
+
 def verify_manifest(
     manifest: dict[str, Any],
     context: VerificationContext,
@@ -213,6 +249,31 @@ def verify_manifest(
     result = VerificationResult(manifest_id=manifest_id, result=OverallResult.VALID)
     mismatches: list[MismatchDetail] = []
     fields = result.fields_verified
+
+    # --- Schema validation (fail-closed). verify_manifest accepts a raw dict,
+    # so it must run the manifest through the Pydantic guards before trusting
+    # any field. This makes extra="forbid" (unknown fields), enum/type
+    # constraints, the expiry window, and timestamp parsing actually apply on
+    # the verify path. A malformed expires_at is a schema failure here, not a
+    # silently non-expiring manifest.
+    #
+    # Only pure "missing required field" errors are tolerated: the engine
+    # treats absent artifact bindings and metadata as NOT_BOUND and degrades
+    # safely, and requiring every business field would reject otherwise
+    # well-formed manifests the engine can still evaluate. Every other class of
+    # error (unknown field, wrong type, bad enum, unparseable/out-of-window
+    # timestamp, or any value_error from a model validator) fails closed.
+    schema_violations = _strict_schema_violations(manifest)
+    if schema_violations:
+        result.result = OverallResult.MISMATCH
+        for loc, msg in schema_violations:
+            mismatches.append(MismatchDetail(
+                field=f"schema:{loc}" if loc else "schema",
+                expected_hash="<schema-valid manifest>",
+                actual_hash=f"<{msg}>",
+            ))
+        result.mismatch_details = mismatches
+        return result
 
     # --- Version negotiation (spec 2.2 / 2.4) - MUST be checked before
     # verifying so unsupported manifests are never silently misinterpreted.
@@ -421,7 +482,12 @@ def verify_manifest(
                     pid: _b64url_decode(b64)
                     for pid, b64 in context.delegation_public_keys.items()
                 }
-                verify_delegation_chain(chain, pub_keys, manifest_id)
+                # Bind the chain root to the manifest signing identity so a
+                # valid chain cannot be grafted onto an unrelated manifest.
+                manifest_issuer = manifest.get("issuer") or manifest.get("agent_id")
+                verify_delegation_chain(
+                    chain, pub_keys, manifest_id, manifest_issuer=manifest_issuer
+                )
                 fields.delegation_chain = DelegationResult.VALID
             except (InvalidSignature, ValueError) as e:
                 fields.delegation_chain = DelegationResult.INVALID
@@ -537,6 +603,17 @@ def verify_manifest(
             result.result = OverallResult.INCOMPLETE
         elif context.enforce_attestation and not result.attestation_verified:
             result.result = OverallResult.ATTESTATION_UNAVAILABLE
+
+    # Surface bound-but-unchecked artifacts even in non-strict mode so callers
+    # never read a VALID result as proof that artifact bindings were checked.
+    # A signature-only VALID means the manifest is authentic, not that the
+    # running artifacts match what it bound (VERIFY-001).
+    if unverified_bound:
+        result.warnings.append(
+            "artifact bindings NOT verified (no runtime hashes provided for "
+            + ", ".join(sorted(unverified_bound))
+            + "); VALID reflects signature only"
+        )
 
     return result
 

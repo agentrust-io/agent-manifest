@@ -133,6 +133,125 @@ def test_missing_public_key_raises():
 
 
 # ---------------------------------------------------------------------------
+# Fix #1: chain root must be bound to the manifest signing identity
+# ---------------------------------------------------------------------------
+
+def test_root_principal_must_match_manifest_issuer():
+    kp = generate_ed25519()
+    root_pid = "spiffe://x/root"
+    sig = DelegationHopSigner(kp).sign_hop(
+        hop=0, principal_id=root_pid, principal_type="agent",
+        delegated_at=NOW, scope_grant=SCOPE, manifest_id=MID,
+    )
+    chain = [{"hop": 0, "principal_id": root_pid, "principal_type": "agent",
+               "delegated_at": NOW, "scope_grant": SCOPE, "delegation_signature": sig}]
+    # Root principal does not match the supplied manifest issuer -> rejected.
+    with pytest.raises(ValueError, match="does not match the manifest"):
+        verify_delegation_chain(
+            chain, {root_pid: kp.public_bytes}, MID,
+            manifest_issuer="spiffe://x/some-other-issuer",
+        )
+
+
+def test_root_principal_matching_issuer_passes():
+    kp = generate_ed25519()
+    issuer = "spiffe://x/issuer"
+    sig = DelegationHopSigner(kp).sign_hop(
+        hop=0, principal_id=issuer, principal_type="agent",
+        delegated_at=NOW, scope_grant=SCOPE, manifest_id=MID,
+    )
+    chain = [{"hop": 0, "principal_id": issuer, "principal_type": "agent",
+               "delegated_at": NOW, "scope_grant": SCOPE, "delegation_signature": sig}]
+    verify_delegation_chain(
+        chain, {issuer: kp.public_bytes}, MID, manifest_issuer=issuer,
+    )  # must not raise
+
+
+def test_root_principal_matches_via_principal_manifest_id():
+    kp = generate_ed25519()
+    root_pid = "spiffe://x/root"
+    issuer = "018f4a3b-2c1d-7e5f-a8b9-0d1e2f3a4b5c"
+    sig = DelegationHopSigner(kp).sign_hop(
+        hop=0, principal_id=root_pid, principal_type="agent",
+        delegated_at=NOW, scope_grant=SCOPE, manifest_id=MID,
+    )
+    chain = [{"hop": 0, "principal_id": root_pid, "principal_type": "agent",
+               "delegated_at": NOW, "scope_grant": SCOPE,
+               "delegation_signature": sig, "principal_manifest_id": issuer}]
+    verify_delegation_chain(
+        chain, {root_pid: kp.public_bytes}, MID, manifest_issuer=issuer,
+    )  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# Fix #2: scope narrowing covers constraints, ttl_seconds, max_delegation_depth
+# ---------------------------------------------------------------------------
+
+def _two_hop_chain(root_scope, child_scope):
+    kp_root, kp_child = generate_ed25519(), generate_ed25519()
+    sig0 = DelegationHopSigner(kp_root).sign_hop(
+        hop=0, principal_id="spiffe://x/root", principal_type="human",
+        delegated_at=NOW, scope_grant=root_scope, manifest_id=MID,
+    )
+    sig1 = DelegationHopSigner(kp_child).sign_hop(
+        hop=1, principal_id="spiffe://x/child", principal_type="agent",
+        delegated_at=NOW, scope_grant=child_scope, manifest_id=MID,
+    )
+    chain = [
+        {"hop": 0, "principal_id": "spiffe://x/root", "principal_type": "human",
+         "delegated_at": NOW, "scope_grant": root_scope, "delegation_signature": sig0},
+        {"hop": 1, "principal_id": "spiffe://x/child", "principal_type": "agent",
+         "delegated_at": NOW, "scope_grant": child_scope, "delegation_signature": sig1},
+    ]
+    keys = {"spiffe://x/root": kp_root.public_bytes,
+            "spiffe://x/child": kp_child.public_bytes}
+    return chain, keys
+
+
+def test_child_dropping_parent_constraint_is_rejected():
+    root = {"tools": ["t"], "max_delegation_depth": 3, "ttl_seconds": 3600,
+            "constraints": ["region==eu", "amount<1000"]}
+    child = {"tools": ["t"], "max_delegation_depth": 3, "ttl_seconds": 3600,
+             "constraints": ["region==eu"]}  # dropped amount<1000
+    chain, keys = _two_hop_chain(root, child)
+    with pytest.raises(ValueError, match="drops parent constraints"):
+        verify_delegation_chain(chain, keys, MID)
+
+
+def test_child_adding_constraint_is_allowed():
+    root = {"tools": ["t"], "max_delegation_depth": 3, "ttl_seconds": 3600,
+            "constraints": ["region==eu"]}
+    child = {"tools": ["t"], "max_delegation_depth": 3, "ttl_seconds": 3600,
+             "constraints": ["region==eu", "amount<100"]}  # added, superset
+    chain, keys = _two_hop_chain(root, child)
+    verify_delegation_chain(chain, keys, MID)  # must not raise
+
+
+def test_child_raising_ttl_is_rejected():
+    root = {"tools": ["t"], "max_delegation_depth": 3, "ttl_seconds": 3600}
+    child = {"tools": ["t"], "max_delegation_depth": 3, "ttl_seconds": 7200}
+    chain, keys = _two_hop_chain(root, child)
+    with pytest.raises(ValueError, match="ttl_seconds .* exceeds parent"):
+        verify_delegation_chain(chain, keys, MID)
+
+
+def test_child_unbounded_ttl_under_bounded_parent_is_rejected():
+    root = {"tools": ["t"], "max_delegation_depth": 3, "ttl_seconds": 3600}
+    child = {"tools": ["t"], "max_delegation_depth": 3}  # ttl absent = unbounded
+    chain, keys = _two_hop_chain(root, child)
+    with pytest.raises(ValueError, match="ttl_seconds .* exceeds parent"):
+        verify_delegation_chain(chain, keys, MID)
+
+
+def test_child_raising_max_delegation_depth_is_rejected():
+    root = {"tools": ["t"], "max_delegation_depth": 1, "ttl_seconds": 3600}
+    child = {"tools": ["t"], "max_delegation_depth": 5, "ttl_seconds": 3600}
+    chain, keys = _two_hop_chain(root, child)
+    with pytest.raises(ValueError, match="max_delegation_depth .* exceeds parent"):
+        verify_delegation_chain(chain, keys, MID)
+
+
+# ---------------------------------------------------------------------------
 # HITL approval signing
 # ---------------------------------------------------------------------------
 
