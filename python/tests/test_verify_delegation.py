@@ -415,3 +415,25 @@ def test_invalid_principal_type_via_verify_manifest():
     # schema gate, which runs before delegation processing.
     assert result.result == OverallResult.MISMATCH
     assert any(d.field.startswith("schema") for d in result.mismatch_details)
+
+
+# ---------------------------------------------------------------------------
+# Drift guard: delegation validator set must equal the PrincipalType enum
+# ---------------------------------------------------------------------------
+
+
+def test_valid_principal_types_match_principal_type_enum():
+    """The delegation validator's allowed set must equal the canonical enum.
+
+    ``PrincipalType`` (the JSON-schema-backed Pydantic enum) is the single
+    source of truth. ``VALID_PRINCIPAL_TYPES`` is derived from it, so the two
+    can never disagree; this test fails loudly if that derivation ever breaks.
+    """
+    from agent_manifest._delegation import VALID_PRINCIPAL_TYPES
+    from agent_manifest.models import PrincipalType
+
+    enum_values = {member.value for member in PrincipalType}
+    assert set(VALID_PRINCIPAL_TYPES) == enum_values
+    # Guard against regressing to the old, inconsistent literal set.
+    assert "service" not in VALID_PRINCIPAL_TYPES
+    assert {"human", "system", "agent"} == enum_values

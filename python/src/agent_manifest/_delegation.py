@@ -28,8 +28,25 @@ from ._signing import Ed25519Verifier, Ed25519KeyPair
 # verifying parties MUST apply a default value of 3.
 DEFAULT_MAX_DELEGATION_DEPTH = 3
 
-# A2A spec §4.2: allowed principal_type values.
-VALID_PRINCIPAL_TYPES = frozenset({"human", "agent", "service"})
+# A2A spec §4.2 / agent-manifest spec §3.4: allowed principal_type values.
+# The Pydantic ``PrincipalType`` enum in ``models`` is the single source of
+# truth (it is what the JSON schema gate enforces). We derive the validator's
+# set from that enum rather than duplicating a literal so the two can never
+# drift. The import is deferred because ``models`` imports this module at load
+# time; importing it at module top level here would create a cycle.
+def _valid_principal_types() -> frozenset[str]:
+    """Allowed ``principal_type`` values, derived from ``PrincipalType``."""
+    from .models import PrincipalType
+
+    return frozenset(member.value for member in PrincipalType)
+
+
+def __getattr__(name: str) -> Any:
+    # Expose ``VALID_PRINCIPAL_TYPES`` as a lazily-derived module attribute so
+    # it stays in lockstep with the ``PrincipalType`` enum.
+    if name == "VALID_PRINCIPAL_TYPES":
+        return _valid_principal_types()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 # Required fields per delegation hop (A2A spec §4.2 / agent-manifest spec §3.4).
 _REQUIRED_HOP_FIELDS = frozenset({
@@ -111,10 +128,11 @@ def _validate_hop_structure(hop: dict[str, Any], hop_index: int) -> None:
             f"Delegation hop {hop_index} missing required fields: {sorted(missing)}"
         )
     principal_type = hop["principal_type"]
-    if principal_type not in VALID_PRINCIPAL_TYPES:
+    valid_principal_types = _valid_principal_types()
+    if principal_type not in valid_principal_types:
         raise ValueError(
             f"Delegation hop {hop_index} has invalid principal_type {principal_type!r}; "
-            f"must be one of {sorted(VALID_PRINCIPAL_TYPES)}"
+            f"must be one of {sorted(valid_principal_types)}"
         )
     # principal_id must be non-empty string (SPIFFE URI, DID, or mailto)
     principal_id = hop["principal_id"]
