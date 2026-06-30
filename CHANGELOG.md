@@ -2,7 +2,21 @@
 
 All notable changes to Agent Manifest are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Spec changes are marked **[SPEC]**; SDK changes are marked **[SDK]**.
 
-## [Unreleased]
+## [0.2.0] — 2026-06-30
+
+### Security
+
+**[SDK]** Delegation chain root is now bound to the manifest issuer/agent identity — forged-authority chains are rejected.
+**[SDK]** Scope-narrowing enforces constraint-superset, non-increasing `ttl_seconds`, and non-increasing `max_delegation_depth`.
+**[SDK]** Verification schema-validates the manifest (fail-closed); CLI `verify` no longer prints bare `VALID` when artifact bindings were not checked.
+
+### Changed
+
+**[SPEC]** SNP/TDX attestation field corrections and provider experimental markers (`REPORT_DATA` at `0x50`); threat-model/levels documentation scoped to what TEE attestation provides.
+
+### Fixed
+
+**[SDK]** `PrincipalType` set reconciled (no `service`).
 
 ### Added
 
