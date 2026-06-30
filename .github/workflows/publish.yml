@@ -65,7 +65,7 @@ jobs:
 
       - name: Install package and AGT for governance attestation
         working-directory: python
-        run: pip install -e "." agent-governance-toolkit-core pyyaml
+        run: pip install -e "." "agent-governance-toolkit>=4.1" "agent-governance-toolkit-core>=4.1" pyyaml
 
       - name: Generate evidence file
         run: python scripts/gen_agt_evidence.py
