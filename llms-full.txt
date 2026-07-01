@@ -1,0 +1,478 @@
+# Agent Manifest
+
+> Cryptographic identity and provenance standard for AI agents
+
+Agent Manifest is an open standard for the cryptographic identity and provenance of AI agents. It anchors the 10 artifacts that define an agent at deployment (system prompt, policy bundle, tool manifest, model identity, RAG corpus, memory baseline, decision trace, A2A delegation, supply chain, and HITL approvals) so a verifier who does not trust the operator can prove the agent running in production is the one that was approved. Level 0 is software-only Ed25519 signing; Levels 1 to 3 add TEE attestation (TPM, AMD SEV-SNP, Intel TDX, OPAQUE) and post-quantum profiles.
+
+# Getting started
+
+# Agent Manifest
+
+Agent Manifest is an open standard for the cryptographic identity and provenance of AI agents. It anchors all 10 artifacts that define an agent at deployment, so a verifier who does not trust the operator can prove the agent running in production is the exact agent that was approved.
+
+**Cryptographically anchor all 10 artifacts defining an AI agent at deployment.**
+
+TL;DR
+
+- A signed JWT proves who called an API. An Agent Manifest proves who the agent *was*, what it was *allowed to do*, how it was *built*, what it *decided*, and who *approved* it.
+- Level 0 is software-only Ed25519 signing and runs anywhere with Python 3.11 or later. Hardware attestation (TPM 2.0, AMD SEV-SNP, Intel TDX, OPAQUE) is optional from Level 1 up.
+- Install with `pip install "agent-manifest[cli]"` and verify your first manifest in under 15 minutes.
+
+A signed JWT proves who called an API. An Agent Manifest proves who the agent **was**, what it was **allowed to do**, how it was **built**, what it **decided**, who **approved** it, and whether any of that changed between approval and execution.
+
+```
+pip install "agent-manifest[cli]"
+```
+
+```
+manifest keygen -d ./keys/
+manifest create config.json -o draft.json
+manifest sign draft.json --key keys/private.hex -o signed.json
+manifest verify signed.json   # VALID
+```
+
+## The agent attestation gap
+
+Every entity in a modern enterprise has a verifiable identity. Users have X.509 certificates. Services have SPIFFE SVIDs. Containers have image digests. AI agents have none of these.
+
+An agent calling a tool today presents no unforgeable proof of which system prompt defined its behavior, which model is running, which policy was approved, or whether a human reviewed any of it. This is not an authentication gap - agents can authenticate with tokens. It is an **attestation gap**: the inability to prove, to a third party who does not trust the operator, that the agent running right now is the agent that was approved.
+
+Software-signed manifests do not close this gap. A privileged operator can replace a system prompt in memory after signing, swap a model version between approval and runtime, or forge a human-in-the-loop approval record. Hardware-attested manifests make these attacks impossible - the measurement happens in silicon before any user code runs and the signing key never leaves the TEE.
+
+## How it works
+
+```
+Developer                 TEE                    Verifier
+─────────                 ───                    ────────
+Hash 10 artifacts   →   Measure in hardware  →  Verify against
+Sign manifest       →   Seal signing key     →  attestation report
+Publish to log      →   Return TRACE claim   →  VALID / MISMATCH
+```
+
+A verifying party who holds an Agent Manifest and its accompanying attestation report can prove - without trusting the operator - that a specific agent ran specific code under specific policy with specific tools, produced specific decisions, and received specific human oversight.
+
+## The 10 attested artifacts
+
+| #   | Artifact        | What it proves                                                       |
+| --- | --------------- | -------------------------------------------------------------------- |
+| 1   | System Prompt   | The exact prompt defining the agent's persona and safety constraints |
+| 2   | Policy Bundle   | The Cedar/Rego/YAML governance rules in force                        |
+| 3   | Tool Manifest   | Every tool schema and description the agent was authorized to call   |
+| 4   | Model Identity  | Which model and version ran (binary hash for local, version for API) |
+| 5   | RAG Corpus      | The knowledge base the agent was grounded on (Merkle root)           |
+| 6   | Memory Baseline | Approved agent memory state with TTL-based re-approval               |
+| 7   | Decision Trace  | Hardware-signed audit chain root for all agent decisions             |
+| 8   | A2A Delegation  | Signed delegation chain from human principal to current agent        |
+| 9   | Supply Chain    | Container digest, SLSA provenance, SBOM, MCP server supply chain     |
+| 10  | HITL Approvals  | Hardware-signed human oversight records (EU AI Act Art. 14)          |
+
+## Hardware providers
+
+| Provider    | Platform                                 | Assurance                |
+| ----------- | ---------------------------------------- | ------------------------ |
+| TPM 2.0     | Any Azure/AWS/GCP VM with Trusted Launch | Medium                   |
+| AMD SEV-SNP | Azure DCasv5, AWS C6a Nitro, GCP N2D     | High                     |
+| Intel TDX   | Azure DCedsv5, GCP C3                    | High                     |
+| OPAQUE      | OPAQUE Managed Runtime                   | Managed (chain-verified) |
+
+Provider auto-selects based on available hardware: `OPAQUE → SEV-SNP → TDX → TPM → software`.
+
+## Conformance levels
+
+| Level   | Requirements                                     | Use case                                      |
+| ------- | ------------------------------------------------ | --------------------------------------------- |
+| Level 0 | Software signing, all artifact bindings          | Development, staging                          |
+| Level 1 | + TEE attestation, `audit_key_sealed: true`      | Enterprise production, EU AI Act Art. 15      |
+| Level 2 | + All 10 artifacts, HITL approvals, Phase 2 cMCP | Regulated industries, DORA                    |
+| Level 3 | + ML-DSA-65, ML-KEM-768, SHAKE-256               | Sovereign, classified, long-horizon financial |
+
+## Frequently asked questions
+
+### What is an Agent Manifest?
+
+An Agent Manifest is a cryptographically signed record that anchors the 10 artifacts defining an AI agent at deployment: system prompt, policy bundle, tool manifest, model identity, RAG corpus, memory baseline, decision trace, A2A delegation, supply chain, and HITL approvals. It lets a third party verify that the agent running now is the agent that was approved.
+
+### How is an Agent Manifest different from a signed JWT?
+
+A signed JWT proves who called an API. An Agent Manifest proves who the agent was, what it was allowed to do, how it was built, what it decided, who approved it, and whether any of that changed between approval and execution.
+
+### What is the agent attestation gap?
+
+Users have X.509 certificates, services have SPIFFE SVIDs, and containers have image digests, but AI agents have no unforgeable proof of which prompt, model, or policy defined their behavior. The attestation gap is the inability to prove, to a third party who does not trust the operator, that the running agent matches the approved one.
+
+### Does Agent Manifest require special hardware?
+
+No. Level 0 uses software-only Ed25519 signing and runs anywhere with Python 3.11 or later. Hardware attestation (Level 1 and above) is optional and supports TPM 2.0, AMD SEV-SNP, Intel TDX, and OPAQUE, auto-selected by available hardware.
+
+### What are the conformance levels?
+
+Level 0 is software signing with all artifact bindings. Level 1 adds TEE attestation with a sealed audit key. Level 2 adds all 10 artifacts, HITL approvals, and Phase 2 cMCP. Level 3 adds the post-quantum profile (ML-DSA-65, ML-KEM-768, SHAKE-256).
+
+### Is Agent Manifest free and open source?
+
+Yes. It is published on PyPI (`pip install agent-manifest`) and developed in the open at [github.com/agentrust-io/agent-manifest](https://github.com/agentrust-io/agent-manifest).
+
+## Next steps
+
+- [Getting started](https://manifest.agentrust-io.com/getting-started/index.md) - Level 0 in 15 minutes
+- [Examples](https://github.com/agentrust-io/examples) - complete manifest JSON for Level 0 and Level 1
+- [Specification](https://github.com/agentrust-io/agent-manifest/blob/main/spec/agent-manifest-spec-v0.1.md) - 197 conformance tests across 5 modules
+- [Architecture decisions](https://manifest.agentrust-io.com/adr/index.md) - rationale behind cryptographic design choices
+
+# Getting Started
+
+This guide walks through creating, signing, and verifying an Agent Manifest in under 15 minutes. It covers Level 0 (software-only signing) and Level 1 (TPM-attested).
+
+TL;DR
+
+Install with `pip install "agent-manifest[cli]"`, run `manifest keygen`, `manifest create`, `manifest sign`, then `manifest verify`. Level 0 needs no hardware. For Level 1, run `manifest attest` on a TPM 2.0, AMD SEV-SNP, or Intel TDX host.
+
+## Prerequisites
+
+- Python 3.11 or later
+- For Level 1: a Linux host with TPM 2.0 (`tpm2-tools` installed), an AMD SEV-SNP VM, or an Intel TDX VM
+
+## Installation
+
+```
+# Core SDK
+pip install agent-manifest
+
+# With CLI
+pip install "agent-manifest[cli]"
+
+# With post-quantum profile
+pip install "agent-manifest[pq]"
+```
+
+## Level 0 - Software-only signing
+
+Level 0 is suitable for development, staging, and non-regulated environments. No hardware required.
+
+### Step 1: Generate a signing key
+
+```
+manifest keygen -d ./keys/
+# Creates keys/private.hex and keys/public.hex
+```
+
+Or in Python:
+
+```
+from agent_manifest import generate_ed25519
+
+keypair = generate_ed25519()
+# Store keypair.private_hex and keypair.public_hex securely
+```
+
+### Step 2: Build the manifest
+
+```
+from agent_manifest import (
+    Manifest, ArtifactBindings,
+    SystemPromptBinding, PolicyBundleBinding,
+    ToolManifestBinding, ModelIdentityBinding,
+    CryptoProfile, DeploymentType, EnforcementMode, ModelAttestationType,
+    PolicyLanguage,
+)
+from agent_manifest._types import HashValue, ManifestId
+from datetime import datetime, timedelta, timezone
+import hashlib
+
+now = datetime.now(timezone.utc)
+
+# Hash your actual artifacts
+system_prompt_text = "You are a document summarization assistant..."
+prompt_hash = "sha256:" + hashlib.sha256(
+    system_prompt_text.encode("utf-8")
+).hexdigest()
+
+manifest = Manifest(
+    manifest_id=ManifestId("019236ab-cdef-7000-8000-000000000001"),
+    agent_id="spiffe://trust.acme.co/agent/doc-summarizer/prod",
+    issued_at=now,
+    expires_at=now + timedelta(days=90),
+    issuer="spiffe://trust.acme.co/signing-authority",
+    crypto_profile=CryptoProfile.standard,
+    artifacts=ArtifactBindings(
+        system_prompt=SystemPromptBinding(
+            hash=HashValue(prompt_hash),
+            hash_algorithm="SHA-256",
+            version="1.0.0",
+            classification="internal",
+            bound_at=now,
+        ),
+        policy_bundle=PolicyBundleBinding(
+            hash=HashValue("sha256:" + "b" * 64),
+            policy_language=PolicyLanguage.cedar,
+            version="1.0.0",
+            enforcement_mode=EnforcementMode.enforce,
+            bound_at=now,
+        ),
+        model_identity=ModelIdentityBinding(
+            provider="anthropic",
+            model_id="claude-haiku-4-5-20251001",
+            version="20251001",
+            deployment_type=DeploymentType.api,
+            model_attestation_type=ModelAttestationType.provider_asserted,
+            bound_at=now,
+        ),
+    ),
+)
+```
+
+### Step 3: Sign the manifest
+
+```
+from agent_manifest import Ed25519Signer, generate_ed25519
+
+keypair = generate_ed25519()
+signer = Ed25519Signer(keypair)
+manifest_dict = manifest.model_dump(mode="json", by_alias=True)
+sig_block = signer.sign(manifest_dict)
+
+manifest_dict["signature"] = sig_block
+print(sig_block["algorithm"])  # Ed25519
+```
+
+Or with the CLI:
+
+```
+manifest create my-agent-config.json -o draft.json
+manifest sign draft.json --key keys/private.hex -o signed.json
+```
+
+### Step 4: Verify
+
+```
+from agent_manifest._verify import verify_manifest, VerificationContext, RevocationStore
+
+# Fail-closed: VALID requires the issuer's key in trusted_keys. Without
+# trusted keys the result is UNVERIFIABLE - never VALID.
+result = verify_manifest(
+    manifest_dict,
+    VerificationContext(
+        system_prompt_hash=prompt_hash,
+        policy_bundle_hash="sha256:" + "b" * 64,
+        trusted_keys={keypair.key_id: keypair.public_b64url()},
+    ),
+    RevocationStore(),
+)
+print(result.result)   # VALID
+```
+
+Or with the CLI:
+
+```
+manifest verify signed.json --public-key keys/public.hex
+```
+
+Without `--public-key`, signed manifests fail closed as `UNVERIFIABLE` because the CLI has no trusted issuer key to authenticate the signature. The CLI `--public-key` option accepts the raw Ed25519 public key generated by `manifest keygen`.
+
+## Level 1 - TPM attestation
+
+Level 1 adds hardware attestation, which binds the manifest hash to a TEE measurement that cannot be forged by the operator. Required for EU AI Act Art. 15 (cybersecurity) and enterprise production deployments.
+
+### Prerequisites
+
+On Ubuntu/Debian:
+
+```
+apt install tpm2-tools
+```
+
+On AWS: Nitro Enclaves with `aws-nitro-enclaves-sdk-python` installed.
+
+### Attest the signed manifest
+
+```
+from agent_manifest._auto_provider import select_provider
+
+# Auto-selects: OPAQUE -> SEV-SNP -> TDX -> TPM -> Software
+provider = select_provider(level=1)
+provider.extend_manifest_hash(manifest_dict)
+report = provider.get_attestation_report()
+
+manifest_dict["attestation"] = {
+    "tee_type": report.platform,       # "tpm" | "amd-sev-snp" | "intel-tdx" | "opaque"
+    "manifest_hash_in_report": True,
+    "report_uri": report.report_uri,
+    "bound_at": now.isoformat(),
+}
+```
+
+Or with the CLI:
+
+```
+manifest attest signed.json --provider auto --level 1 -o attested.json
+manifest verify attested.json --public-key keys/public.hex
+```
+
+The verification result for a Level 1 manifest includes `attestation_verified: true` when the TEE measurement matches the manifest hash.
+
+## Revocation
+
+When an artifact changes (new model version, policy update, system prompt revision), revoke the old manifest and issue a new one:
+
+```
+manifest revoke <manifest-id> \
+  --reason "policy bundle updated to v1.1.0" \
+  --revoked-by security@acme.co
+```
+
+In Python:
+
+```
+from agent_manifest._verify import RevocationStore
+
+store = RevocationStore()
+store.revoke(
+    manifest_id="019236ab-cdef-7000-8000-000000000001",
+    reason="policy bundle updated to v1.1.0",
+    revoked_by="security@acme.co",
+)
+```
+
+## Next steps
+
+- Read the [full specification](https://github.com/agentrust-io/agent-manifest/blob/main/spec/agent-manifest-spec-v0.1.md)
+- Browse the [examples](https://manifest.agentrust-io.com/examples/index.md) for complete manifest JSON for each conformance level
+- For hardware attestation setup on Azure, AWS, or GCP, see the platform-specific notes in Section 3.3.1 of the spec
+- For EU AI Act HITL compliance, see Section 9.1 and the Level 2 example in `examples/`
+- For post-quantum signing, install `agent-manifest[pq]` and set `crypto_profile=CryptoProfile.post_quantum`
+# Specification
+
+# Specification Overview
+
+The Agent Manifest Specification v0.1 is a formal RFC 2119 document defining the complete cryptographic identity and provenance standard for AI agents.
+
+TL;DR
+
+The spec has 10 sections covering the problem statement, data model for all 10 artifact bindings, Ed25519 and post-quantum cryptographic protocols, the verification protocol, integration with AGT and cMCP, the threat model, conformance Levels 0 to 3, and regulatory mapping. Conformance is measured by 197 tests across 5 modules.
+
+**Full specification**: [`spec/agent-manifest-spec-v0.1.md`](https://github.com/agentrust-io/agent-manifest/blob/main/spec/agent-manifest-spec-v0.1.md) (1,500+ lines)
+
+## Structure
+
+| Section                      | Content                                                                                      |
+| ---------------------------- | -------------------------------------------------------------------------------------------- |
+| 1 - Problem Statement        | The agent attestation gap; why software attestation is insufficient                          |
+| 2 - Overview                 | Design principles, manifest lifecycle, canonical serialization, version negotiation          |
+| 3 - Data Model               | All 10 artifact bindings, attestation, delegation chain, HITL records, signature, revocation |
+| 4 - Cryptographic Protocols  | Standard (Ed25519) and post-quantum (ML-DSA-65) profiles, Merkle tree construction           |
+| 5 - Verification Protocol    | HTTP endpoint, result schema, evidence pack, revocation protocol                             |
+| 6 - Integration Architecture | AGT, cMCP, and MCP integration with field cross-checks                                       |
+| 7 - Threat Model             | 10 threat classes addressed; explicit out-of-scope threats                                   |
+| 8 - Conformance              | Levels 0–3; 197 conformance tests across 5 modules                                           |
+| 9 - Regulatory Mapping       | EU AI Act, DORA, GDPR, HIPAA, PCI-DSS, FedRAMP                                               |
+| 10 - Roadmap                 | v0.2 targets, v1.0 AAIF submission                                                           |
+
+## Conformance test modules
+
+| Module    | Tests   | Coverage                                                          |
+| --------- | ------- | ----------------------------------------------------------------- |
+| AM-BIND   | 47      | Artifact binding correctness, hash computation, Merkle trees      |
+| AM-CRYPTO | 38      | Signature generation and verification, RFC 8785 canonicalization  |
+| AM-ATTEST | 29      | TEE attestation binding, field cross-checks, per-platform formats |
+| AM-VERIFY | 52      | Verification endpoint, mismatch detection, delegation, revocation |
+| AM-COMPAT | 31      | AGT integration, cMCP integration, MCP protocol extension         |
+| **Total** | **197** |                                                                   |
+
+## Key normative references
+
+| RFC / Standard         | Use in spec                                     |
+| ---------------------- | ----------------------------------------------- |
+| RFC 8785 - JCS         | All canonical JSON serialization                |
+| RFC 8032 - EdDSA       | Ed25519 signature scheme                        |
+| RFC 9162 - CT v2       | Merkle tree construction with domain separation |
+| RFC 9334 - RATS        | Remote attestation architecture                 |
+| RFC 9562 - UUID v7     | Manifest and hop identifiers                    |
+| NIST FIPS 204 - ML-DSA | Post-quantum signature scheme                   |
+| Sigstore / Rekor       | Transparency log integration                    |
+# Guides
+
+# Tutorials
+
+Step-by-step guides for specific agent-manifest features. Each tutorial is self-contained and includes runnable code.
+
+If you are new to agent-manifest, start with [Getting Started](https://manifest.agentrust-io.com/getting-started/index.md) first - it covers creating and signing your first manifest in 15 minutes.
+
+______________________________________________________________________
+
+## Getting started
+
+| Tutorial                                                                                          | What you'll build                                                                     |
+| ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| [Your first manifest](https://manifest.agentrust-io.com/tutorials/your-first-manifest/index.md)   | A signed Agent Manifest from scratch with Ed25519 key generation and CLI verification |
+| [CI/CD signing](https://manifest.agentrust-io.com/tutorials/ci-cd-signing/index.md)               | A GitHub Actions workflow that signs your manifest on every release                   |
+| [cMCP session binding](https://manifest.agentrust-io.com/tutorials/cmcp-session-binding/index.md) | A cMCP gateway configured to verify and bind a signed manifest at session startup     |
+
+## Development
+
+| Tutorial                                                                                                           | What you'll build                                                             |
+| ------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------- |
+| [Server-side manifest verification](https://manifest.agentrust-io.com/tutorials/server-side-verification/index.md) | A FastAPI service that verifies incoming agent manifests and gates requests   |
+| [A2A delegation chains](https://manifest.agentrust-io.com/tutorials/delegation-chains/index.md)                    | A two-hop delegation chain with scope narrowing and chain verification        |
+| [HITL approval workflows](https://manifest.agentrust-io.com/tutorials/hitl-approval-workflows/index.md)            | A manifest with a cryptographically signed human approval record              |
+| [Revocation and key rotation](https://manifest.agentrust-io.com/tutorials/revocation-and-key-rotation/index.md)    | A signed revocation record, a live CRL endpoint, and a key rotation procedure |
+| [Hardware attestation](https://manifest.agentrust-io.com/tutorials/hardware-attestation/index.md)                  | Hardware-bound attestation on SEV-SNP, TDX, and OPAQUE                        |
+
+## Operations
+
+| Tutorial                                                                                                                        | What you'll build                                                           |
+| ------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| [Deploying the verification endpoint](https://manifest.agentrust-io.com/tutorials/deploying-the-verification-endpoint/index.md) | A containerised verifier with health checks, CRL, and Kubernetes deployment |
+# Reference
+
+# Python SDK API reference
+
+This reference is generated from the source code. The public API is organised into four modules.
+
+| Module                                                                                | What it covers                                                                          |
+| ------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| [Core models](https://manifest.agentrust-io.com/api-reference/models/index.md)        | `Manifest`, `ArtifactBindings`, and all nested model types                              |
+| [Signing](https://manifest.agentrust-io.com/api-reference/signing/index.md)           | Key generation, `Ed25519Signer`, `Ed25519Verifier`                                      |
+| [Verification](https://manifest.agentrust-io.com/api-reference/verification/index.md) | `verify_manifest()`, `VerificationContext`, `VerificationResult`, `create_router()`     |
+| [Revocation](https://manifest.agentrust-io.com/api-reference/revocation/index.md)     | `sign_revocation()`, `FileCRL`, `create_crl_router()`                                   |
+| [Delegation](https://manifest.agentrust-io.com/api-reference/delegation/index.md)     | `DelegationHopSigner`, `verify_delegation_chain()`, `HitlApprovalSigner`                |
+| [Attestation](https://manifest.agentrust-io.com/api-reference/attestation/index.md)   | `SEVSNPProvider`, `TDXProvider`, `OPAQUEProvider`, `TPMProvider`, `AttestationProvider` |
+| [CLI](https://manifest.agentrust-io.com/api-reference/cli/index.md)                   | `manifest create`, `sign`, `verify`, `revoke`, `keygen`, `attest` commands              |
+
+## Installation
+
+```
+# Core (signing, verification, models)
+pip install agent-manifest
+
+# With server (FastAPI router, revocation endpoint)
+pip install "agent-manifest[server]"
+
+# With post-quantum signatures (ML-DSA-65)
+pip install "agent-manifest[pq]"
+
+# Full
+pip install "agent-manifest[all]"
+```
+
+# Compliance
+
+Agent-manifest satisfies traceability, accountability, and audit requirements across multiple regulatory frameworks. These one-pagers map specific obligations to agent-manifest capabilities and are written for compliance officers and auditors.
+
+| Framework                                                                    | Jurisdiction                        | Primary obligation addressed                                     |
+| ---------------------------------------------------------------------------- | ----------------------------------- | ---------------------------------------------------------------- |
+| [EU AI Act](https://manifest.agentrust-io.com/compliance/eu-ai-act/index.md) | European Union                      | Risk management, transparency, human oversight for high-risk AI  |
+| [DORA](https://manifest.agentrust-io.com/compliance/dora/index.md)           | European Union (financial services) | ICT risk management, incident reporting, operational resilience  |
+| [GDPR](https://manifest.agentrust-io.com/compliance/gdpr/index.md)           | European Union                      | Accountability, data protection by design, records of processing |
+| [HIPAA](https://manifest.agentrust-io.com/compliance/hipaa/index.md)         | United States (healthcare)          | Access control, audit controls, integrity, human oversight       |
+
+## What agent-manifest provides
+
+Every signed manifest is a tamper-evident record that answers five questions regulators ask about AI systems:
+
+1. **Who is this agent?** - SPIFFE URI identity, signed by an issuer key
+1. **What is it running?** - Model, system prompt, and tool hashes cryptographically bound
+1. **How was it deployed?** - Attestation level (0–3), optional hardware enclave evidence
+1. **Who authorised it?** - Delegation chain with issuer signature at each hop
+1. **Has a human reviewed it?** - HITL approval record signed by a named approver
+
+These five properties map directly to the accountability, transparency, and human oversight requirements in every framework listed above.

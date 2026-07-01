@@ -2,214 +2,214 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
          <loc>https://manifest.agentrust-io.com/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-01</lastmod>
     </url>
     <url>
          <loc>https://manifest.agentrust-io.com/changelog/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-01</lastmod>
     </url>
     <url>
          <loc>https://manifest.agentrust-io.com/contributing/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-01</lastmod>
     </url>
     <url>
          <loc>https://manifest.agentrust-io.com/getting-started/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-01</lastmod>
     </url>
     <url>
          <loc>https://manifest.agentrust-io.com/governance/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-01</lastmod>
     </url>
     <url>
          <loc>https://manifest.agentrust-io.com/limitations/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-01</lastmod>
     </url>
     <url>
          <loc>https://manifest.agentrust-io.com/memory-governance/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-01</lastmod>
     </url>
     <url>
          <loc>https://manifest.agentrust-io.com/roadmap/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-01</lastmod>
     </url>
     <url>
          <loc>https://manifest.agentrust-io.com/spec-overview/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-01</lastmod>
     </url>
     <url>
          <loc>https://manifest.agentrust-io.com/adr/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-01</lastmod>
     </url>
     <url>
          <loc>https://manifest.agentrust-io.com/adr/0000-template/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-01</lastmod>
     </url>
     <url>
          <loc>https://manifest.agentrust-io.com/adr/0001-rfc8785-canonical-json/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-01</lastmod>
     </url>
     <url>
          <loc>https://manifest.agentrust-io.com/adr/0002-ed25519-standard-profile/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-01</lastmod>
     </url>
     <url>
          <loc>https://manifest.agentrust-io.com/adr/0003-rfc9162-merkle-domain-separation/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-01</lastmod>
     </url>
     <url>
          <loc>https://manifest.agentrust-io.com/adr/0004-pydantic-v2-schema-modeling/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-01</lastmod>
     </url>
     <url>
          <loc>https://manifest.agentrust-io.com/adr/0005-ml-dsa-hybrid-signature/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-01</lastmod>
     </url>
     <url>
          <loc>https://manifest.agentrust-io.com/adr/0006-hitl-approval-mechanism/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-01</lastmod>
     </url>
     <url>
          <loc>https://manifest.agentrust-io.com/adr/0007-revocation-json-lines-crl/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-01</lastmod>
     </url>
     <url>
          <loc>https://manifest.agentrust-io.com/adr/0008-conformance-level-design/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-01</lastmod>
     </url>
     <url>
          <loc>https://manifest.agentrust-io.com/adr/0009-spiffe-uri-agent-identity/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-01</lastmod>
     </url>
     <url>
          <loc>https://manifest.agentrust-io.com/adr/0010-runtime-attestation-freshness-proofs/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-01</lastmod>
     </url>
     <url>
          <loc>https://manifest.agentrust-io.com/api-reference/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-01</lastmod>
     </url>
     <url>
          <loc>https://manifest.agentrust-io.com/api-reference/attestation/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-01</lastmod>
     </url>
     <url>
          <loc>https://manifest.agentrust-io.com/api-reference/cli/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-01</lastmod>
     </url>
     <url>
          <loc>https://manifest.agentrust-io.com/api-reference/delegation/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-01</lastmod>
     </url>
     <url>
          <loc>https://manifest.agentrust-io.com/api-reference/models/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-01</lastmod>
     </url>
     <url>
          <loc>https://manifest.agentrust-io.com/api-reference/revocation/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-01</lastmod>
     </url>
     <url>
          <loc>https://manifest.agentrust-io.com/api-reference/signing/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-01</lastmod>
     </url>
     <url>
          <loc>https://manifest.agentrust-io.com/api-reference/verification/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-01</lastmod>
     </url>
     <url>
          <loc>https://manifest.agentrust-io.com/compliance/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-01</lastmod>
     </url>
     <url>
          <loc>https://manifest.agentrust-io.com/compliance/dora/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-01</lastmod>
     </url>
     <url>
          <loc>https://manifest.agentrust-io.com/compliance/eu-ai-act/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-01</lastmod>
     </url>
     <url>
          <loc>https://manifest.agentrust-io.com/compliance/gdpr/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-01</lastmod>
     </url>
     <url>
          <loc>https://manifest.agentrust-io.com/compliance/hipaa/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-01</lastmod>
     </url>
     <url>
          <loc>https://manifest.agentrust-io.com/integrations/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-01</lastmod>
     </url>
     <url>
          <loc>https://manifest.agentrust-io.com/integrations/agt/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-01</lastmod>
     </url>
     <url>
          <loc>https://manifest.agentrust-io.com/integrations/autogen-crewai/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-01</lastmod>
     </url>
     <url>
          <loc>https://manifest.agentrust-io.com/integrations/langchain/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-01</lastmod>
     </url>
     <url>
          <loc>https://manifest.agentrust-io.com/integrations/openai-agents/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-01</lastmod>
     </url>
     <url>
          <loc>https://manifest.agentrust-io.com/operations/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-01</lastmod>
     </url>
     <url>
          <loc>https://manifest.agentrust-io.com/operations/audit-log/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-01</lastmod>
     </url>
     <url>
          <loc>https://manifest.agentrust-io.com/operations/key-rotation/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-01</lastmod>
     </url>
     <url>
          <loc>https://manifest.agentrust-io.com/operations/monitoring/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-01</lastmod>
     </url>
     <url>
          <loc>https://manifest.agentrust-io.com/tutorials/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-01</lastmod>
     </url>
     <url>
          <loc>https://manifest.agentrust-io.com/tutorials/ci-cd-signing/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-01</lastmod>
     </url>
     <url>
          <loc>https://manifest.agentrust-io.com/tutorials/cmcp-session-binding/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-01</lastmod>
     </url>
     <url>
          <loc>https://manifest.agentrust-io.com/tutorials/delegation-chains/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-01</lastmod>
     </url>
     <url>
          <loc>https://manifest.agentrust-io.com/tutorials/deploying-the-verification-endpoint/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-01</lastmod>
     </url>
     <url>
          <loc>https://manifest.agentrust-io.com/tutorials/hardware-attestation/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-01</lastmod>
     </url>
     <url>
          <loc>https://manifest.agentrust-io.com/tutorials/hitl-approval-workflows/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-01</lastmod>
     </url>
     <url>
          <loc>https://manifest.agentrust-io.com/tutorials/revocation-and-key-rotation/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-01</lastmod>
     </url>
     <url>
          <loc>https://manifest.agentrust-io.com/tutorials/server-side-verification/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-01</lastmod>
     </url>
     <url>
          <loc>https://manifest.agentrust-io.com/tutorials/your-first-manifest/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-01</lastmod>
     </url>
 </urlset>
