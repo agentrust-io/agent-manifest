@@ -1,6 +1,13 @@
+---
+description: Create, sign, and verify your first Agent Manifest in under 15 minutes, covering Level 0 software-only signing and Level 1 TPM attestation.
+---
+
 # Getting Started
 
 This guide walks through creating, signing, and verifying an Agent Manifest in under 15 minutes. It covers Level 0 (software-only signing) and Level 1 (TPM-attested).
+
+!!! tip "TL;DR"
+    Install with `pip install "agent-manifest[cli]"`, run `manifest keygen`, `manifest create`, `manifest sign`, then `manifest verify`. Level 0 needs no hardware. For Level 1, run `manifest attest` on a TPM 2.0, AMD SEV-SNP, or Intel TDX host.
 
 ## Prerequisites
 

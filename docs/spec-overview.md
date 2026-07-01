@@ -1,6 +1,13 @@
+---
+description: The Agent Manifest Specification v0.1 is a formal RFC 2119 standard for cryptographic identity and provenance of AI agents, with 197 conformance tests across 5 modules.
+---
+
 # Specification Overview
 
 The Agent Manifest Specification v0.1 is a formal RFC 2119 document defining the complete cryptographic identity and provenance standard for AI agents.
+
+!!! tip "TL;DR"
+    The spec has 10 sections covering the problem statement, data model for all 10 artifact bindings, Ed25519 and post-quantum cryptographic protocols, the verification protocol, integration with AGT and cMCP, the threat model, conformance Levels 0 to 3, and regulatory mapping. Conformance is measured by 197 tests across 5 modules.
 
 **Full specification**: [`spec/agent-manifest-spec-v0.1.md`](https://github.com/agentrust-io/agent-manifest/blob/main/spec/agent-manifest-spec-v0.1.md) (1,500+ lines)
 
