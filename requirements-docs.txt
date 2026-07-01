@@ -4,3 +4,4 @@ mkdocs-minify-plugin>=0.8
 pymdown-extensions>=10.7
 mkdocstrings[python]>=0.25
 griffe>=0.47
+mkdocs-llmstxt>=0.2

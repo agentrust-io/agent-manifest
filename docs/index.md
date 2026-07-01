@@ -1,6 +1,17 @@
+---
+description: Agent Manifest is an open standard that cryptographically anchors the 10 artifacts defining an AI agent, so a third party can verify the agent running in production is the one that was approved.
+---
+
 # Agent Manifest
 
+Agent Manifest is an open standard for the cryptographic identity and provenance of AI agents. It anchors all 10 artifacts that define an agent at deployment, so a verifier who does not trust the operator can prove the agent running in production is the exact agent that was approved.
+
 **Cryptographically anchor all 10 artifacts defining an AI agent at deployment.**
+
+!!! tip "TL;DR"
+    - A signed JWT proves who called an API. An Agent Manifest proves who the agent *was*, what it was *allowed to do*, how it was *built*, what it *decided*, and who *approved* it.
+    - Level 0 is software-only Ed25519 signing and runs anywhere with Python 3.11 or later. Hardware attestation (TPM 2.0, AMD SEV-SNP, Intel TDX, OPAQUE) is optional from Level 1 up.
+    - Install with `pip install "agent-manifest[cli]"` and verify your first manifest in under 15 minutes.
 
 A signed JWT proves who called an API. An Agent Manifest proves who the agent **was**, what it was **allowed to do**, how it was **built**, what it **decided**, who **approved** it, and whether any of that changed between approval and execution.
 
@@ -69,6 +80,89 @@ Provider auto-selects based on available hardware: `OPAQUE → SEV-SNP → TDX �
 | Level 1 | + TEE attestation, `audit_key_sealed: true` | Enterprise production, EU AI Act Art. 15 |
 | Level 2 | + All 10 artifacts, HITL approvals, Phase 2 cMCP | Regulated industries, DORA |
 | Level 3 | + ML-DSA-65, ML-KEM-768, SHAKE-256 | Sovereign, classified, long-horizon financial |
+
+## Frequently asked questions
+
+### What is an Agent Manifest?
+
+An Agent Manifest is a cryptographically signed record that anchors the 10 artifacts defining an AI agent at deployment: system prompt, policy bundle, tool manifest, model identity, RAG corpus, memory baseline, decision trace, A2A delegation, supply chain, and HITL approvals. It lets a third party verify that the agent running now is the agent that was approved.
+
+### How is an Agent Manifest different from a signed JWT?
+
+A signed JWT proves who called an API. An Agent Manifest proves who the agent was, what it was allowed to do, how it was built, what it decided, who approved it, and whether any of that changed between approval and execution.
+
+### What is the agent attestation gap?
+
+Users have X.509 certificates, services have SPIFFE SVIDs, and containers have image digests, but AI agents have no unforgeable proof of which prompt, model, or policy defined their behavior. The attestation gap is the inability to prove, to a third party who does not trust the operator, that the running agent matches the approved one.
+
+### Does Agent Manifest require special hardware?
+
+No. Level 0 uses software-only Ed25519 signing and runs anywhere with Python 3.11 or later. Hardware attestation (Level 1 and above) is optional and supports TPM 2.0, AMD SEV-SNP, Intel TDX, and OPAQUE, auto-selected by available hardware.
+
+### What are the conformance levels?
+
+Level 0 is software signing with all artifact bindings. Level 1 adds TEE attestation with a sealed audit key. Level 2 adds all 10 artifacts, HITL approvals, and Phase 2 cMCP. Level 3 adds the post-quantum profile (ML-DSA-65, ML-KEM-768, SHAKE-256).
+
+### Is Agent Manifest free and open source?
+
+Yes. It is published on PyPI (`pip install agent-manifest`) and developed in the open at [github.com/agentrust-io/agent-manifest](https://github.com/agentrust-io/agent-manifest).
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "What is an Agent Manifest?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "An Agent Manifest is a cryptographically signed record that anchors the 10 artifacts defining an AI agent at deployment: system prompt, policy bundle, tool manifest, model identity, RAG corpus, memory baseline, decision trace, A2A delegation, supply chain, and HITL approvals. It lets a third party verify that the agent running now is the agent that was approved."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How is an Agent Manifest different from a signed JWT?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "A signed JWT proves who called an API. An Agent Manifest proves who the agent was, what it was allowed to do, how it was built, what it decided, who approved it, and whether any of that changed between approval and execution."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "What is the agent attestation gap?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Users have X.509 certificates, services have SPIFFE SVIDs, and containers have image digests, but AI agents have no unforgeable proof of which prompt, model, or policy defined their behavior. The attestation gap is the inability to prove, to a third party who does not trust the operator, that the running agent matches the approved one."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Does Agent Manifest require special hardware?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "No. Level 0 uses software-only Ed25519 signing and runs anywhere with Python 3.11 or later. Hardware attestation (Level 1 and above) is optional and supports TPM 2.0, AMD SEV-SNP, Intel TDX, and OPAQUE, auto-selected by available hardware."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "What are the conformance levels?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Level 0 is software signing with all artifact bindings. Level 1 adds TEE attestation with a sealed audit key. Level 2 adds all 10 artifacts, HITL approvals, and Phase 2 cMCP. Level 3 adds the post-quantum profile (ML-DSA-65, ML-KEM-768, SHAKE-256)."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Is Agent Manifest free and open source?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes. It is published on PyPI (pip install agent-manifest) and developed in the open at github.com/agentrust-io/agent-manifest."
+      }
+    }
+  ]
+}
+</script>
 
 ## Next steps
 

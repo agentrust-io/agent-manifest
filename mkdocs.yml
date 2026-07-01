@@ -8,6 +8,7 @@ docs_dir: docs
 
 theme:
   name: material
+  custom_dir: overrides
   font: false
   logo: assets/icon.svg
   favicon: assets/icon.svg
@@ -49,6 +50,29 @@ theme:
 
 plugins:
   - search
+  - llmstxt:
+      full_output: llms-full.txt
+      markdown_description: >-
+        Agent Manifest is an open standard for the cryptographic identity and
+        provenance of AI agents. It anchors the 10 artifacts that define an
+        agent at deployment (system prompt, policy bundle, tool manifest, model
+        identity, RAG corpus, memory baseline, decision trace, A2A delegation,
+        supply chain, and HITL approvals) so a verifier who does not trust the
+        operator can prove the agent running in production is the one that was
+        approved. Level 0 is software-only Ed25519 signing; Levels 1 to 3 add
+        TEE attestation (TPM, AMD SEV-SNP, Intel TDX, OPAQUE) and post-quantum
+        profiles.
+      sections:
+        Getting started:
+          - index.md
+          - getting-started.md
+        Specification:
+          - spec-overview.md
+        Guides:
+          - tutorials/index.md
+        Reference:
+          - api-reference/index.md
+          - compliance/index.md
   - minify:
       minify_html: true
   - mkdocstrings:

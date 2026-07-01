@@ -1,0 +1,35 @@
+# https://manifest.agentrust-io.com/robots.txt
+# Open documentation. All crawlers, including AI answer engines, are welcome.
+
+User-agent: *
+Allow: /
+
+# AI answer engines and dataset crawlers (explicitly welcomed)
+User-agent: GPTBot
+Allow: /
+
+User-agent: OAI-SearchBot
+Allow: /
+
+User-agent: ChatGPT-User
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: anthropic-ai
+Allow: /
+
+User-agent: Claude-Web
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+User-agent: CCBot
+Allow: /
+
+Sitemap: https://manifest.agentrust-io.com/sitemap.xml
