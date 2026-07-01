@@ -33,6 +33,13 @@ from ._verify import (
     FieldsVerified, MismatchDetail, EvidencePack,
     RevocationStore, RevocationRecord,
 )
+from ._delegation import (
+    verify_delegation_chain,
+    verify_hitl_approval,
+    delegation_depth_exceeded,
+    DelegationHopSigner,
+    HitlApprovalSigner,
+)
 
 __all__ = [
     "Manifest", "ArtifactBindings",
@@ -61,4 +68,6 @@ __all__ = [
     "OverallResult", "FieldResult", "DelegationResult", "HitlResult",
     "FieldsVerified", "MismatchDetail", "EvidencePack",
     "RevocationStore", "RevocationRecord",
+    "verify_delegation_chain", "verify_hitl_approval", "delegation_depth_exceeded",
+    "DelegationHopSigner", "HitlApprovalSigner",
 ]
