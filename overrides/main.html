@@ -20,9 +20,14 @@
   {%- if page and page.canonical_url %}
   <meta property="og:url" content="{{ page.canonical_url }}">
   {%- endif %}
-  <meta name="twitter:card" content="summary">
+  <meta property="og:image" content="https://manifest.agentrust-io.com/assets/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Agent Manifest: an AgenTrust open standard">
+  <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="{{ page_title }}">
   <meta name="twitter:description" content="{{ page_desc }}">
+  <meta name="twitter:image" content="https://manifest.agentrust-io.com/assets/og.png">
 
   <script type="application/ld+json">
   {
@@ -31,7 +36,7 @@
       {
         "@type": "Organization",
         "@id": "https://agentrust-io.com/#org",
-        "name": "AgentTrust",
+        "name": "AgenTrust",
         "url": "https://agentrust-io.com",
         "sameAs": [
           "https://github.com/agentrust-io",
