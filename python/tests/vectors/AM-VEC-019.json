@@ -1,0 +1,88 @@
+{
+  "id": "AM-VEC-019",
+  "description": "Signed single-hop delegation chain bound to the manifest issuer verifies.",
+  "spec_refs": [
+    "3.4.1",
+    "5.2"
+  ],
+  "manifest": {
+    "manifest_id": "018f4a3b-2c1d-7e5f-a8b9-0d1e2f3a4b5c",
+    "agent_id": "spiffe://trust.example/agent/kyc/prod",
+    "version": "0.1",
+    "issued_at": "2025-01-01T00:00:00Z",
+    "expires_at": "2099-12-31T23:59:59Z",
+    "issuer": "spiffe://trust.example/signing-authority",
+    "crypto_profile": "standard",
+    "artifacts": {
+      "system_prompt": {
+        "hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "policy_bundle": {
+        "hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "model_identity": {
+        "model_hash": null,
+        "version": "claude-3",
+        "deployment_type": "api"
+      }
+    },
+    "delegation_chain": [
+      {
+        "hop": 0,
+        "principal_type": "system",
+        "principal_id": "spiffe://trust.example/signing-authority",
+        "delegated_at": "2025-01-01T00:00:00Z",
+        "scope_grant": {
+          "max_delegation_depth": 3,
+          "ttl_seconds": 3600
+        },
+        "delegation_signature": "fktkwRCVbAuZfqvppJ6U_mGreR9n2pOPt88-y2gcLLkns1dttITC1QdHA-T_pwln9Tpi98sysA0GBZX6uLLGBQ"
+      }
+    ],
+    "hitl_record": null,
+    "signature": {
+      "algorithm": "Ed25519",
+      "key_id": "56475aa75463474c0285df5dbf2bcab73da651358839e9b77481b2eab107708c",
+      "key_type": "software",
+      "signed_at": "2025-01-01T00:00:00Z",
+      "signature_value": "BdwgU_xJmnWSbVUijwHoR9VLnFXcesueobZucAB7jZgwga9AGwFkI2F65H1flvzV-rHL90D-igIaotJ5lbmVAQ",
+      "signed_fields": [
+        "@context",
+        "@type",
+        "manifest_id",
+        "previous_manifest_id",
+        "agent_id",
+        "version",
+        "min_verifier_version",
+        "issued_at",
+        "expires_at",
+        "issuer",
+        "crypto_profile",
+        "artifacts",
+        "delegation_chain",
+        "hitl_record",
+        "prior_transparency_log_entry",
+        "log_retention",
+        "data_scope",
+        "operational_lifecycle"
+      ]
+    }
+  },
+  "context": {
+    "system_prompt_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "policy_bundle_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "model_version": "claude-3",
+    "trusted_keys": {
+      "56475aa75463474c0285df5dbf2bcab73da651358839e9b77481b2eab107708c": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+    },
+    "delegation_public_keys": {
+      "spiffe://trust.example/signing-authority": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+    }
+  },
+  "expected": {
+    "result": "VALID",
+    "fields_verified": {
+      "delegation_chain": "VALID"
+    }
+  }
+}

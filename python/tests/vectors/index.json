@@ -1,0 +1,103 @@
+{
+  "suite": "agent-manifest-verification",
+  "spec_version": "0.1",
+  "description": "Language-neutral verification conformance vectors. Each vector: a manifest, a VerificationContext, and the expected VerificationResult.",
+  "signing_key": "keys.json",
+  "vectors": [
+    {
+      "id": "AM-VEC-001",
+      "file": "AM-VEC-001.json",
+      "description": "All bound artifacts match a signed, in-date manifest."
+    },
+    {
+      "id": "AM-VEC-002",
+      "file": "AM-VEC-002.json",
+      "description": "Runtime system_prompt hash differs from the bound hash."
+    },
+    {
+      "id": "AM-VEC-003",
+      "file": "AM-VEC-003.json",
+      "description": "Manifest expires_at is in the past."
+    },
+    {
+      "id": "AM-VEC-004",
+      "file": "AM-VEC-004.json",
+      "description": "Manifest id is present in the revocation store."
+    },
+    {
+      "id": "AM-VEC-005",
+      "file": "AM-VEC-005.json",
+      "description": "Unsigned manifest must never be VALID (fail-closed)."
+    },
+    {
+      "id": "AM-VEC-006",
+      "file": "AM-VEC-006.json",
+      "description": "Signed manifest with no trusted keys is UNVERIFIABLE."
+    },
+    {
+      "id": "AM-VEC-007",
+      "file": "AM-VEC-007.json",
+      "description": "Unsupported manifest version is rejected before verifying."
+    },
+    {
+      "id": "AM-VEC-008",
+      "file": "AM-VEC-008.json",
+      "description": "agent_id altered after signing invalidates the signature."
+    },
+    {
+      "id": "AM-VEC-009",
+      "file": "AM-VEC-009.json",
+      "description": "Required HITL with an unexpired approval passes under enforce_hitl."
+    },
+    {
+      "id": "AM-VEC-010",
+      "file": "AM-VEC-010.json",
+      "description": "enforce_hitl with no hitl_record fails closed."
+    },
+    {
+      "id": "AM-VEC-011",
+      "file": "AM-VEC-011.json",
+      "description": "Expired HITL approval is surfaced regardless of enforcement."
+    },
+    {
+      "id": "AM-VEC-012",
+      "file": "AM-VEC-012.json",
+      "description": "Delegation chain with no public keys is UNVERIFIABLE."
+    },
+    {
+      "id": "AM-VEC-013",
+      "file": "AM-VEC-013.json",
+      "description": "Memory baseline past its TTL is reported EXPIRED."
+    },
+    {
+      "id": "AM-VEC-014",
+      "file": "AM-VEC-014.json",
+      "description": "Decision-trace audit chain root matches the runtime root."
+    },
+    {
+      "id": "AM-VEC-015",
+      "file": "AM-VEC-015.json",
+      "description": "RAG corpus with a flagged poisoning scan fails verification."
+    },
+    {
+      "id": "AM-VEC-016",
+      "file": "AM-VEC-016.json",
+      "description": "Bound tool_manifest with no runtime hash is INCOMPLETE in strict mode."
+    },
+    {
+      "id": "AM-VEC-017",
+      "file": "AM-VEC-017.json",
+      "description": "enforce_attestation with no attestation block is ATTESTATION_UNAVAILABLE."
+    },
+    {
+      "id": "AM-VEC-018",
+      "file": "AM-VEC-018.json",
+      "description": "Attestation report hash matching the canonical manifest hash verifies."
+    },
+    {
+      "id": "AM-VEC-019",
+      "file": "AM-VEC-019.json",
+      "description": "Signed single-hop delegation chain bound to the manifest issuer verifies."
+    }
+  ]
+}
