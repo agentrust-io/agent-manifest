@@ -1,7 +1,9 @@
 """Tests for the verification engine - issue #10."""
+import hashlib
 from datetime import datetime, timedelta, timezone
 
-from agent_manifest._signing import Ed25519Signer, generate_ed25519
+from agent_manifest import _signing
+from agent_manifest._signing import Ed25519Signer, _b64url_encode, generate_ed25519
 from agent_manifest._verify import (
     DelegationResult,
     FieldResult,
@@ -389,6 +391,63 @@ def test_unknown_key_id_is_mismatch():
     result = verify_manifest(base_manifest(), ctx, store())
     assert result.result == OverallResult.MISMATCH
     assert result.signature_verified is False
+
+
+def _hybrid_manifest(key_id: str):
+    m = base_manifest()
+    m["signature"] = {
+        "algorithm": "hybrid-Ed25519-ML-DSA-65",
+        "key_id": key_id,
+        "key_type": "software",
+        "signed_at": NOW.isoformat().replace("+00:00", "Z"),
+        "classical_signature": "AA",
+        "pq_signature": "AA",
+        "signature_value": "",
+    }
+    return m
+
+
+def test_hybrid_signature_uses_combined_trusted_key(monkeypatch):
+    ed_pub = b"e" * 32
+    pq_pub = b"p" * 1952
+    combined_pub = ed_pub + pq_pub
+    key_id = hashlib.sha256(combined_pub).hexdigest()
+    seen = {}
+
+    class FakeHybridVerifier:
+        def __init__(self, ed25519_public_bytes, ml_dsa65_public_bytes):
+            seen["ed"] = ed25519_public_bytes
+            seen["pq"] = ml_dsa65_public_bytes
+
+        def verify(self, manifest_dict, signature_block):
+            seen["verified"] = True
+
+    monkeypatch.setattr(_signing, "HybridVerifier", FakeHybridVerifier)
+    ctx = base_context(trusted_keys={key_id: _b64url_encode(combined_pub)})
+
+    result = verify_manifest(_hybrid_manifest(key_id), ctx, store())
+
+    assert result.result == OverallResult.VALID
+    assert result.signature_verified is True
+    assert seen == {"ed": ed_pub, "pq": pq_pub, "verified": True}
+
+
+def test_hybrid_trusted_key_must_match_combined_key_id():
+    ed_pub = b"e" * 32
+    pq_pub = b"p" * 1952
+    key_id = hashlib.sha256(ed_pub + pq_pub).hexdigest()
+    wrong_combined_pub = ed_pub + (b"q" * 1952)
+    ctx = base_context(trusted_keys={key_id: _b64url_encode(wrong_combined_pub)})
+
+    result = verify_manifest(_hybrid_manifest(key_id), ctx, store())
+
+    assert result.result == OverallResult.MISMATCH
+    assert result.signature_verified is False
+    assert any(
+        d.field == "signature"
+        and "Hybrid public key bytes do not match signature.key_id" in d.actual_hash
+        for d in result.mismatch_details
+    )
 
 
 # ---------------------------------------------------------------------------

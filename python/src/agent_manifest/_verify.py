@@ -189,6 +189,30 @@ class VerificationContext(BaseModel):
 
 # Manifest spec versions this verifier implementation can process (spec 2.4).
 SUPPORTED_MANIFEST_VERSIONS: frozenset[str] = frozenset({"0.1"})
+_HYBRID_ED25519_PUBLIC_KEY_BYTES = 32
+
+
+def _split_hybrid_public_key(
+    key_id: str,
+    public_key_bytes: bytes,
+) -> tuple[bytes, bytes]:
+    """Split and authenticate a combined Ed25519 || ML-DSA-65 public key."""
+    if len(public_key_bytes) <= _HYBRID_ED25519_PUBLIC_KEY_BYTES:
+        raise ValueError(
+            "Hybrid public key must be Ed25519 public key bytes followed by "
+            "ML-DSA-65 public key bytes"
+        )
+
+    actual_key_id = hashlib.sha256(public_key_bytes).hexdigest()
+    if not hmac.compare_digest(actual_key_id, key_id):
+        raise ValueError(
+            "Hybrid public key bytes do not match signature.key_id"
+        )
+
+    return (
+        public_key_bytes[:_HYBRID_ED25519_PUBLIC_KEY_BYTES],
+        public_key_bytes[_HYBRID_ED25519_PUBLIC_KEY_BYTES:],
+    )
 
 
 def _signature_key_issuer_mismatch(
@@ -378,14 +402,11 @@ def verify_manifest(
                         MlDsa65Verifier(pub_bytes).verify(manifest, sig_block.get("signature_value", ""))
                         result.signature_verified = True
                     elif algorithm == "hybrid-Ed25519-ML-DSA-65":
-                        # Hybrid needs both key components - key_id covers combined hash;
-                        # callers must pass both keys in trusted_keys under their individual key_ids.
-                        ed_key_id = sig_block.get("ed25519_key_id", key_id)
-                        pq_key_id = sig_block.get("ml_dsa65_key_id", key_id)
-                        ed_pub_b64 = context.trusted_keys.get(ed_key_id, pub_b64)
-                        pq_pub_b64 = context.trusted_keys.get(pq_key_id, pub_b64)
-                        ed_bytes = _b64url_decode(ed_pub_b64)
-                        pq_bytes = _b64url_decode(pq_pub_b64)
+                        # Hybrid key_id covers the registered combined public key:
+                        # sha256(Ed25519 public bytes || ML-DSA-65 public bytes).
+                        # Component key ids from the unsigned signature block are
+                        # intentionally ignored.
+                        ed_bytes, pq_bytes = _split_hybrid_public_key(key_id, pub_bytes)
                         HybridVerifier(ed_bytes, pq_bytes).verify(manifest, sig_block)
                         result.signature_verified = True
                     else:
