@@ -22,12 +22,19 @@ SHA = "sha256:" + "a" * 64
 # require a signed manifest and the matching trusted key in the context.
 KP = generate_ed25519()
 TRUSTED_KEYS = {KP.key_id: KP.public_b64url()}
+ISSUER_A = "spiffe://trust.example/issuer/a"
+ISSUER_B = "spiffe://trust.example/issuer/b"
+
+
+def sign_with(m, kp):
+    """(Re-)sign a manifest dict with the supplied key in place and return it."""
+    m["signature"] = Ed25519Signer(kp).sign(m)
+    return m
 
 
 def sign(m):
     """(Re-)sign a manifest dict in place and return it."""
-    m["signature"] = Ed25519Signer(KP).sign(m)
-    return m
+    return sign_with(m, KP)
 
 
 def base_manifest(**overrides):
@@ -319,6 +326,53 @@ def test_valid_result_implies_signature_verified():
     result = verify_manifest(base_manifest(), base_context(), store())
     assert result.result == OverallResult.VALID
     assert result.signature_verified is True
+
+
+def test_trusted_key_authorized_for_manifest_issuer_is_valid():
+    ctx = base_context(trusted_key_issuers={KP.key_id: [ISSUER_A]})
+    result = verify_manifest(base_manifest(issuer=ISSUER_A), ctx, store())
+    assert result.result == OverallResult.VALID
+    assert result.signature_verified is True
+
+
+def test_trusted_key_not_authorized_for_claimed_issuer_is_mismatch():
+    other = generate_ed25519()
+    trusted_keys = dict(TRUSTED_KEYS)
+    trusted_keys[other.key_id] = other.public_b64url()
+    ctx = base_context(
+        trusted_keys=trusted_keys,
+        trusted_key_issuers={
+            KP.key_id: [ISSUER_A],
+            other.key_id: [ISSUER_B],
+        },
+    )
+
+    result = verify_manifest(base_manifest(issuer=ISSUER_B), ctx, store())
+
+    assert result.result == OverallResult.MISMATCH
+    assert result.signature_verified is False
+    assert any(d.field == "signature.issuer" for d in result.mismatch_details)
+
+
+def test_trusted_key_without_issuer_authorization_is_mismatch():
+    other = generate_ed25519()
+    ctx = base_context(trusted_key_issuers={other.key_id: [ISSUER_A]})
+
+    result = verify_manifest(base_manifest(issuer=ISSUER_A), ctx, store())
+
+    assert result.result == OverallResult.MISMATCH
+    assert result.signature_verified is False
+    assert any(d.field == "signature.issuer" for d in result.mismatch_details)
+
+
+def test_trusted_key_issuer_authorization_requires_manifest_issuer():
+    ctx = base_context(trusted_key_issuers={KP.key_id: [ISSUER_A]})
+
+    result = verify_manifest(base_manifest(), ctx, store())
+
+    assert result.result == OverallResult.MISMATCH
+    assert result.signature_verified is False
+    assert any(d.field == "signature.issuer" for d in result.mismatch_details)
 
 
 def test_tampered_manifest_signature_is_mismatch():
