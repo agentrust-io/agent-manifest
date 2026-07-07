@@ -33,6 +33,8 @@ MID   = "018f4a3b-2c1d-7e5f-a8b9-0d1e2f3a4b5c"
 # trusted key in the verification context.
 KP = generate_ed25519()
 TRUSTED_KEYS = {KP.key_id: KP.public_b64url()}
+ISSUER_A = "spiffe://trust.example/issuer/a"
+ISSUER_B = "spiffe://trust.example/issuer/b"
 
 
 def sign(m):
@@ -367,6 +369,31 @@ def test_http_post_verify_with_trusted_keys_is_valid():
     assert r.status_code == 200
     assert r.json()["result"] == "VALID"
     assert r.json()["signature_verified"] is True
+
+
+@require_fastapi
+def test_http_post_verify_enforces_trusted_key_issuers():
+    other = generate_ed25519()
+    trusted_keys = dict(TRUSTED_KEYS)
+    trusted_keys[other.key_id] = other.public_b64url()
+    client, _ = _client({MID: manifest(issuer=ISSUER_B)})
+
+    r = client.post("/verify", json={
+        "manifest_id": MID,
+        "trusted_keys": trusted_keys,
+        "trusted_key_issuers": {
+            KP.key_id: [ISSUER_A],
+            other.key_id: [ISSUER_B],
+        },
+    })
+
+    assert r.status_code == 200
+    assert r.json()["result"] == "MISMATCH"
+    assert r.json()["signature_verified"] is False
+    assert any(
+        detail["field"] == "signature.issuer"
+        for detail in r.json()["mismatch_details"]
+    )
 
 
 @require_fastapi

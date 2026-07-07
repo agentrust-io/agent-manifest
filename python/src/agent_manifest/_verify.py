@@ -133,6 +133,10 @@ class VerifyRequest(BaseModel):
     the base64url-encoded public key. Signature verification is fail-closed:
     without trusted keys, a signed manifest yields ``UNVERIFIABLE`` and an
     unsigned manifest yields ``SIGNATURE_MISSING`` - never ``VALID``.
+
+    ``trusted_key_issuers`` maps each trusted key_id to the issuer SPIFFE URIs
+    authorized to sign manifests with that key. When supplied, key-to-issuer
+    authorization is fail-closed.
     """
 
     manifest_id: str
@@ -140,6 +144,8 @@ class VerifyRequest(BaseModel):
     enforce_attestation: bool = False
     # key_id (sha256 hex of pub key bytes) -> base64url-encoded public key bytes
     trusted_keys: dict[str, str] = Field(default_factory=dict)
+    # key_id -> issuer SPIFFE URIs authorized to use that signing key
+    trusted_key_issuers: dict[str, list[str]] = Field(default_factory=dict)
     # principal_id -> base64url-encoded public key bytes (for delegation chain)
     delegation_public_keys: dict[str, str] = Field(default_factory=dict)
     # When True, a manifest without a delegation_chain is a verification failure
@@ -167,6 +173,8 @@ class VerificationContext(BaseModel):
     min_slsa_level: int = 0
     # key_id (sha256 hex of pub key bytes) -> base64url-encoded public key bytes
     trusted_keys: dict[str, str] = Field(default_factory=dict)
+    # key_id -> issuer SPIFFE URIs authorized to use that signing key
+    trusted_key_issuers: dict[str, list[str]] = Field(default_factory=dict)
     # principal_id -> base64url-encoded public key bytes (for delegation chain)
     delegation_public_keys: dict[str, str] = Field(default_factory=dict)
     # When True, bound artifacts without runtime hashes cause INCOMPLETE result
@@ -181,6 +189,41 @@ class VerificationContext(BaseModel):
 
 # Manifest spec versions this verifier implementation can process (spec 2.4).
 SUPPORTED_MANIFEST_VERSIONS: frozenset[str] = frozenset({"0.1"})
+
+
+def _signature_key_issuer_mismatch(
+    manifest: dict[str, Any],
+    key_id: str,
+    trusted_key_issuers: dict[str, list[str]],
+) -> Optional[MismatchDetail]:
+    """Return a mismatch when a trusted key is not authorized for the issuer."""
+    if not trusted_key_issuers:
+        return None
+
+    issuer = manifest.get("issuer")
+    if not isinstance(issuer, str) or not issuer:
+        return MismatchDetail(
+            field="signature.issuer",
+            expected_hash="<manifest issuer authorized for signature key>",
+            actual_hash="<missing manifest issuer>",
+        )
+
+    allowed_issuers = trusted_key_issuers.get(key_id)
+    if not allowed_issuers:
+        return MismatchDetail(
+            field="signature.issuer",
+            expected_hash=f"<key_id={key_id} authorized for issuer={issuer!r}>",
+            actual_hash="<key_id has no issuer authorization>",
+        )
+
+    if issuer not in allowed_issuers:
+        return MismatchDetail(
+            field="signature.issuer",
+            expected_hash=f"<issuer in trusted_key_issuers[{key_id!r}]>",
+            actual_hash=f"<issuer={issuer!r}>",
+        )
+
+    return None
 
 
 def _strict_schema_violations(manifest: dict[str, Any]) -> list[tuple[str, str]]:
@@ -312,49 +355,57 @@ def verify_manifest(
                 actual_hash="<key_id not found in trusted_keys>",
             ))
         else:
-            from ._signing import (
-                Ed25519Verifier,
-                MlDsa65Verifier,
-                HybridVerifier,
-                _b64url_decode,
+            issuer_mismatch = _signature_key_issuer_mismatch(
+                manifest,
+                key_id,
+                context.trusted_key_issuers,
             )
-            try:
-                pub_bytes = _b64url_decode(pub_b64)
-                if algorithm == "Ed25519":
-                    Ed25519Verifier(pub_bytes).verify(manifest, sig_block.get("signature_value", ""))
-                    result.signature_verified = True
-                elif algorithm == "ML-DSA-65":
-                    MlDsa65Verifier(pub_bytes).verify(manifest, sig_block.get("signature_value", ""))
-                    result.signature_verified = True
-                elif algorithm == "hybrid-Ed25519-ML-DSA-65":
-                    # Hybrid needs both key components - key_id covers combined hash;
-                    # callers must pass both keys in trusted_keys under their individual key_ids.
-                    ed_key_id = sig_block.get("ed25519_key_id", key_id)
-                    pq_key_id = sig_block.get("ml_dsa65_key_id", key_id)
-                    ed_pub_b64 = context.trusted_keys.get(ed_key_id, pub_b64)
-                    pq_pub_b64 = context.trusted_keys.get(pq_key_id, pub_b64)
-                    ed_bytes = _b64url_decode(ed_pub_b64)
-                    pq_bytes = _b64url_decode(pq_pub_b64)
-                    HybridVerifier(ed_bytes, pq_bytes).verify(manifest, sig_block)
-                    result.signature_verified = True
-                else:
+            if issuer_mismatch is not None:
+                mismatches.append(issuer_mismatch)
+            else:
+                from ._signing import (
+                    Ed25519Verifier,
+                    MlDsa65Verifier,
+                    HybridVerifier,
+                    _b64url_decode,
+                )
+                try:
+                    pub_bytes = _b64url_decode(pub_b64)
+                    if algorithm == "Ed25519":
+                        Ed25519Verifier(pub_bytes).verify(manifest, sig_block.get("signature_value", ""))
+                        result.signature_verified = True
+                    elif algorithm == "ML-DSA-65":
+                        MlDsa65Verifier(pub_bytes).verify(manifest, sig_block.get("signature_value", ""))
+                        result.signature_verified = True
+                    elif algorithm == "hybrid-Ed25519-ML-DSA-65":
+                        # Hybrid needs both key components - key_id covers combined hash;
+                        # callers must pass both keys in trusted_keys under their individual key_ids.
+                        ed_key_id = sig_block.get("ed25519_key_id", key_id)
+                        pq_key_id = sig_block.get("ml_dsa65_key_id", key_id)
+                        ed_pub_b64 = context.trusted_keys.get(ed_key_id, pub_b64)
+                        pq_pub_b64 = context.trusted_keys.get(pq_key_id, pub_b64)
+                        ed_bytes = _b64url_decode(ed_pub_b64)
+                        pq_bytes = _b64url_decode(pq_pub_b64)
+                        HybridVerifier(ed_bytes, pq_bytes).verify(manifest, sig_block)
+                        result.signature_verified = True
+                    else:
+                        mismatches.append(MismatchDetail(
+                            field="signature",
+                            expected_hash="<known algorithm: Ed25519|ML-DSA-65|hybrid-Ed25519-ML-DSA-65>",
+                            actual_hash=f"<unknown algorithm: {algorithm!r}>",
+                        ))
+                except InvalidSignature:
                     mismatches.append(MismatchDetail(
                         field="signature",
-                        expected_hash="<known algorithm: Ed25519|ML-DSA-65|hybrid-Ed25519-ML-DSA-65>",
-                        actual_hash=f"<unknown algorithm: {algorithm!r}>",
+                        expected_hash="<valid signature>",
+                        actual_hash="<invalid signature>",
                     ))
-            except InvalidSignature:
-                mismatches.append(MismatchDetail(
-                    field="signature",
-                    expected_hash="<valid signature>",
-                    actual_hash="<invalid signature>",
-                ))
-            except ValueError as e:
-                mismatches.append(MismatchDetail(
-                    field="signature",
-                    expected_hash="<valid signature>",
-                    actual_hash=f"<malformed: {e}>",
-                ))
+                except ValueError as e:
+                    mismatches.append(MismatchDetail(
+                        field="signature",
+                        expected_hash="<valid signature>",
+                        actual_hash=f"<malformed: {e}>",
+                    ))
 
     # --- Artifact hash verification
     artifacts = manifest.get("artifacts") or {}
@@ -756,16 +807,18 @@ def create_router(
         """Verify a manifest with caller-supplied trusted keys.
 
         The request body carries ``trusted_keys`` (key_id -> base64url public
-        key) used for manifest signature verification, and optionally
-        ``delegation_public_keys`` (principal_id -> base64url public key) for
-        delegation chain verification. Verification is fail-closed - see
-        :func:`verify_manifest`.
+        key) used for manifest signature verification, optionally
+        ``trusted_key_issuers`` (key_id -> issuer SPIFFE URIs) for key issuer
+        authorization, and optionally ``delegation_public_keys`` (principal_id
+        -> base64url public key) for delegation chain verification.
+        Verification is fail-closed - see :func:`verify_manifest`.
         """
         manifest = _lookup_manifest(request.manifest_id)
         ctx = VerificationContext(
             enforce_hitl=request.enforce_hitl,
             enforce_attestation=request.enforce_attestation,
             trusted_keys=request.trusted_keys,
+            trusted_key_issuers=request.trusted_key_issuers,
             delegation_public_keys=request.delegation_public_keys,
             require_delegation=request.require_delegation,
         )
