@@ -102,8 +102,12 @@ jobs:
       - name: bandit
         working-directory: python
         run: bandit -r src/agent_manifest -c pyproject.toml
-      - name: Upgrade pip before audit
-        run: pip install --upgrade pip
+      - name: Upgrade pip and setuptools before audit
+        # setuptools ships in the runner env; keep it current so a newly
+        # published advisory in the build tooling (e.g. PYSEC-2026-3447,
+        # fixed in 83.0.0) does not fail the audit. hatchling is our build
+        # backend, so this only touches the CI environment, not the package.
+        run: pip install --upgrade pip setuptools
       - name: pip-audit
         working-directory: python
         run: pip-audit
