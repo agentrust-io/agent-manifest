@@ -32,6 +32,13 @@ jobs:
         with:
           languages: python
           queries: security-extended
+          # Deterministic test-vector fixtures use a fixed, published, non-secret
+          # seed (see python/tests/vectors/generate.py) and never persist private
+          # key material. Exclude them so the fixed test seed does not trip the
+          # clear-text-storage query. Production code stays fully scanned.
+          config: |
+            paths-ignore:
+              - python/tests/vectors/**
 
       - name: Autobuild
         uses: github/codeql-action/autobuild@v4
