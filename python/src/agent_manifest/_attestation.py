@@ -6,9 +6,10 @@ verifier has checked three things:
 1. **Signature / quote chain** — the report is signed by genuine platform
    hardware. For AMD SEV-SNP this is implemented (:mod:`._snp_verify`): the
    report's ECDSA-P384 signature is verified against the VCEK, and the
-   VCEK<-ASK<-ARK chain against the AMD root. It was validated against a report
-   captured from real SEV-SNP silicon. Intel TDX Quote verification (via Intel
-   QVL/PCS) is still pending — see :data:`SignatureStatus.NOT_IMPLEMENTED`.
+   VCEK<-ASK<-ARK chain against the AMD root. For Intel TDX the self-contained
+   DCAP quote is verified (ECDSA-P256 signature, QE binding, and the PCK chain
+   to the pinned Intel SGX Root CA) — see :mod:`._tdx_verify`. Both were
+   validated against reports captured from real silicon (SEV-SNP + TDX).
 2. **Launch measurement** — ``MEASUREMENT`` / ``MRTD`` / PCRs match a known-good
    value (or an allow-list of accepted measurements). Implemented below.
 3. **Bound field** — the guest-supplied ``REPORT_DATA`` carries the expected
@@ -120,6 +121,32 @@ def _verify_snp_signature_step(
     return SignatureStatus.VERIFIED
 
 
+def _verify_tdx_signature_step(
+    report: Any, reasons: list[str], trusted_tdx_root_pem: Optional[bytes] = None
+) -> SignatureStatus:
+    """Verify a self-contained Intel TDX DCAP quote (signature + PCK chain).
+
+    The quote carries its own PCK certificate chain, so no external material is
+    needed: the report's ``quote`` blob is verified against the pinned Intel SGX
+    Root CA (or ``trusted_tdx_root_pem`` when supplied). Returns ``VERIFIED`` /
+    ``FAILED`` / ``NOT_IMPLEMENTED`` (no quote).
+    """
+    quote = getattr(report, "quote", None)
+    if not quote:
+        reasons.append("hardware signature not checked: no TDX quote on the report")
+        return SignatureStatus.NOT_IMPLEMENTED
+    from ._tdx_verify import TdxVerificationError, verify_tdx_quote
+
+    try:
+        if verify_tdx_quote(quote, trusted_root_pem=trusted_tdx_root_pem):
+            return SignatureStatus.VERIFIED
+        reasons.append("TDX quote signature did not verify")
+        return SignatureStatus.FAILED
+    except TdxVerificationError as e:
+        reasons.append(f"TDX quote verification failed: {e}")
+        return SignatureStatus.FAILED
+
+
 def verify_attestation_chain(
     report: Any,
     *,
@@ -129,6 +156,7 @@ def verify_attestation_chain(
     vcek_cert_der: Optional[bytes] = None,
     cert_chain_pem: Optional[bytes] = None,
     trusted_ark_der: Optional[bytes] = None,
+    trusted_tdx_root_pem: Optional[bytes] = None,
 ) -> ChainVerificationResult:
     """Verify a boot-time ``AttestationReport`` against expected values.
 
@@ -186,18 +214,23 @@ def verify_attestation_chain(
         if not measurement_matched:
             reasons.append("launch measurement is not in the supplied allow-list")
 
-    # Step 1: hardware signature / quote chain. For AMD SEV-SNP this verifies
-    # the report signature against the VCEK and the VCEK<-ASK<-ARK chain when
-    # certificate material is supplied; otherwise it is reported as not
-    # performed and the result cannot pass.
-    signature = _verify_snp_signature_step(
-        report,
-        snp_report_bytes,
-        vcek_cert_der,
-        cert_chain_pem,
-        trusted_ark_der,
-        reasons,
-    )
+    # Step 1: hardware signature / quote chain, dispatched by platform.
+    # AMD SEV-SNP verifies the report signature + VCEK<-ASK<-ARK chain (needs the
+    # VCEK material). Intel TDX verifies the self-contained DCAP quote + PCK chain
+    # to the pinned Intel SGX Root CA. Either way, without a verifiable signature
+    # the result cannot pass.
+    platform = getattr(report, "platform", "") or ""
+    if platform == "intel-tdx":
+        signature = _verify_tdx_signature_step(report, reasons, trusted_tdx_root_pem)
+    else:
+        signature = _verify_snp_signature_step(
+            report,
+            snp_report_bytes,
+            vcek_cert_der,
+            cert_chain_pem,
+            trusted_ark_der,
+            reasons,
+        )
 
     passed = (
         signature == SignatureStatus.VERIFIED

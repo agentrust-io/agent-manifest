@@ -20,8 +20,11 @@ Pick a provider by deployment environment (``select_provider`` in
   previous ``/dev/sev-guest`` ioctl implementation was incorrect and has been
   removed — see #204/#205.)
 
-* :class:`TDXProvider` — Intel TDX (issue #7). EXPERIMENTAL and not yet
-  hardware-validated; TDX Quote verification via Intel QVL/PCS is still pending.
+* :class:`TDXProvider` — Intel TDX. **Hardware-validated on a non-paravisor TDX
+  guest (GCP C3).** Uses the configfs-TSM ``tdx_guest`` provider, which returns a
+  full DCAP quote; quote signature + Intel PCK-chain verification live in
+  ``_tdx_verify.py``. Azure TDX (paravisor/vTPM-rooted, like Azure SNP) is a
+  separate follow-up.
 
 * :class:`OPAQUEProvider` — OPAQUE managed runtime attestation service (#8).
 
@@ -498,90 +501,99 @@ class AzureCVMProvider(AttestationProvider):
 # Intel TDX Provider
 # ---------------------------------------------------------------------------
 
-_TDX_GUEST_DEV = "/dev/tdx-guest"
-# TDX_CMD_GET_REPORT0 = _IOWR('T', 1, struct tdx_report_req)
-# struct tdx_report_req: reportdata[64] + tdreport[1024] = 1088 bytes
-_TDX_CMD_GET_REPORT = 0xC4405401  # HW-001: corrected from 0xC0A00401
+_TDX_GUEST_DEV = "/dev/tdx_guest"  # note: underscore (the real device node)
 
 
 class TDXProvider(AttestationProvider):
-    """Intel TDX attestation via /dev/tdx-guest (Linux kernel 6.2+).
+    """Intel TDX attestation via the kernel configfs-TSM interface.
 
-    EXPERIMENTAL / not hardware-validated — see the module docstring and #204.
+    **Hardware-validated on a non-paravisor Intel TDX guest (GCP C3, kernel
+    6.17).** On such a guest the configfs-TSM ``tdx_guest`` provider returns a
+    full remotely-verifiable **DCAP quote** (v4, ECDSA-P256) with the PCK
+    certificate chain embedded, not a bare local ``TDREPORT``. The guest
+    controls ``REPORTDATA``, so the manifest hash is bound there: the first 32
+    bytes carry ``sha256(manifest_pre_image)``, the rest is zero.
 
-    This provider binds the manifest hash into the guest-supplied REPORTDATA
-    field of a TDREPORT. It does NOT perform an RTMR extend (despite the
-    historical `RTMR_INDEX` attribute): RTMR[1] extension via TDG.MR.RTMR.EXTEND
-    is not implemented. It also returns a raw TDREPORT, which is local-only and
-    NOT remotely verifiable — converting a TDREPORT into a Quote requires the
-    TDX Quoting Enclave / Quote Generation Service (also not implemented here).
+    Quote parsing and signature/PCK-chain verification live in
+    :mod:`._tdx_verify` and were validated against a real TDX quote. Azure TDX
+    (behind a Hyper-V paravisor, like Azure SNP) surfaces attestation through the
+    vTPM instead and is a separate follow-up.
 
     Requirements:
-      - Intel 4th Gen Xeon (Sapphire Rapids) or later with TDX enabled
-      - Linux kernel 6.2+ with TDX guest driver
-      - Running inside an Intel TDX Trust Domain (Azure DCedsv5, GCP C3)
+      - Intel TDX trust domain, kernel 6.7+ with the tdx-guest driver and the
+        configfs-TSM interface, and an in-guest quote-generation path (GCP C3)
+      - ``/sys/kernel/config/tsm/report`` present with the ``tdx_guest`` provider
+      - root (configfs writes)
 
-    Raises:
-        AttestationUnavailableError: If /dev/tdx-guest is not accessible.
+    Args:
+        require_quote_verification: when True, verify the DCAP quote signature +
+            PCK chain (to the pinned Intel SGX Root CA) at report time; a failure
+            raises.
     """
 
-    RTMR_INDEX = 1  # Application-level measurement register
-
-    def __init__(self, rtmr_index: int = 1) -> None:
-        if not os.path.exists(_TDX_GUEST_DEV):
+    def __init__(self, require_quote_verification: bool = False) -> None:
+        if not os.path.isdir(_TSM_REPORT_DIR):
             raise AttestationUnavailableError(
-                f"Intel TDX not available: {_TDX_GUEST_DEV} not found. "
-                "Requires an Intel TDX Trust Domain (Azure DCedsv5, GCP C3 Confidential)."
+                f"Intel TDX configfs-TSM interface not found at {_TSM_REPORT_DIR}. "
+                "Requires a TDX guest (kernel 6.7+). On Azure use the vTPM-rooted "
+                "path (Azure TDX support is a follow-up)."
             )
-        self._rtmr = rtmr_index
+        self._require_quote = require_quote_verification
         self._manifest_hash: Optional[str] = None
-        self._report_bytes: Optional[bytes] = None
+        self._quote: Optional[bytes] = None
 
     def extend_manifest_hash(self, manifest_json: dict[str, Any]) -> None:
-        """Obtain a TD report with reportdata = sha256(pre_image) || 0x00*32."""
-        import fcntl
+        """Obtain a TDX quote with REPORTDATA = sha256(pre_image) || 0x00*32."""
         pre = self.manifest_pre_image(manifest_json)
         digest = hashlib.sha256(pre).digest()
         self._manifest_hash = f"sha256:{digest.hex()}"
+        outblob, provider, _aux = _tsm_get_report(digest + bytes(32))
+        if provider and provider != "tdx_guest":
+            raise AttestationUnavailableError(
+                f"TSM provider is {provider!r}, not 'tdx_guest'; wrong platform "
+                "for TDXProvider."
+            )
+        self._quote = outblob
 
-        # tdx_report_req layout: reportdata[64] at offset 0, tdreport[1024] at offset 64
-        # Total struct size = 1088 bytes = _IOWR('T', 1, 1088) = 0xC4405401
-        reportdata = digest + bytes(32)  # 32-byte digest zero-padded to 64 bytes
-        buf = bytearray(1088)
-        buf[:64] = reportdata  # place reportdata at the start
-
-        try:
-            with open(_TDX_GUEST_DEV, "rb") as dev:
-                fcntl.ioctl(dev, _TDX_CMD_GET_REPORT, buf)  # type: ignore[attr-defined]
-            self._report_bytes = bytes(buf)
-        except OSError as e:
-            raise AttestationUnavailableError(f"TDX RTMR extend failed: {e}")
-
-    def get_attestation_report(self) -> AttestationReport:
-        if self._report_bytes is None:
+    def _quote_or_raise(self) -> bytes:
+        if self._quote is None:
             raise AttestationUnavailableError(
                 "Call extend_manifest_hash() before get_attestation_report()."
             )
-        # tdreport starts at offset 64; reportdata is at offset 40 within REPORTMACSTRUCT
-        # Full offset in buf: 64 (tdreport start) + 40 (reportdata within REPORTMACSTRUCT) = 104
-        report_data_in_tdreport = self._report_bytes[104:168]
+        return self._quote
+
+    def get_attestation_report(self) -> AttestationReport:
+        from ._tdx_verify import parse_tdx_quote, verify_tdx_quote
+
+        quote = self._quote_or_raise()
+        parsed = parse_tdx_quote(quote)
+        quote_verified = False
+        if self._require_quote:
+            if not verify_tdx_quote(quote):
+                raise AttestationUnavailableError(
+                    "TDX quote signature / PCK chain did not verify."
+                )
+            quote_verified = True
         return AttestationReport(
             platform="intel-tdx",
             manifest_hash=self._manifest_hash or "",
+            quote=quote,  # full DCAP quote — verify_attestation_chain reads this
             raw={
-                "rtmr_index": self._rtmr,
-                "report_data": report_data_in_tdreport.hex(),
+                "report_data": parsed.report_data.hex(),
+                "measurement": parsed.mrtd.hex(),
+                "rtmrs": [r.hex() for r in parsed.rtmrs],
+                "quote_verified": quote_verified,
             },
         )
 
     def verify_manifest_in_report(
         self, report: AttestationReport, manifest_json: dict[str, Any]
     ) -> bool:
-        if self._report_bytes is not None:
-            import hmac as _hmac
-            expected_hex = self.manifest_hash_value(manifest_json).split(":", 1)[-1]
-            # reportdata is at offset 104 in buf; first 32 bytes should be sha256 digest
-            actual = self._report_bytes[104:136].hex()
+        import hmac as _hmac
+        expected_hex = self.manifest_hash_value(manifest_json).split(":", 1)[-1]
+        if self._quote is not None:
+            from ._tdx_verify import parse_tdx_quote
+            actual = parse_tdx_quote(self._quote).report_data[:32].hex()
             return _hmac.compare_digest(actual, expected_hex)
         return report.manifest_hash == self.manifest_hash_value(manifest_json)
 
@@ -590,44 +602,26 @@ class TDXProvider(AttestationProvider):
         nonce: bytes,
         context_hash: str,
     ) -> RuntimeAttestationReport:
-        """Fresh TD report with REPORTDATA = sha256(nonce || context_hash_bytes).
+        """Fresh TDX quote with REPORTDATA = sha256(nonce || context_hash_bytes)."""
+        from ._tdx_verify import parse_tdx_quote
 
-        Issues a new TDX_CMD_GET_REPORT ioctl — no cached state is reused.
-        The returned report carries the same immutable MRTD as the boot-time
-        report, plus a freshly hardware-signed REPORTDATA field that binds
-        the nonce and current context hash.
-        """
-        import fcntl
         context_bytes = bytes.fromhex(context_hash.split(":", 1)[-1])
         qualifying = hashlib.sha256(nonce + context_bytes).digest()
         report_data_hash = f"sha256:{hashlib.sha256(qualifying).hexdigest()}"
-
-        # REPORTDATA: 32-byte digest zero-padded to 64 bytes
-        reportdata = qualifying + bytes(32)
-        buf = bytearray(1088)
-        buf[:64] = reportdata
-
-        try:
-            with open(_TDX_GUEST_DEV, "rb") as dev:
-                fcntl.ioctl(dev, _TDX_CMD_GET_REPORT, buf)  # type: ignore[attr-defined]
-        except OSError as e:
-            raise AttestationUnavailableError(
-                f"TDX_CMD_GET_REPORT failed during runtime re-attestation: {e}"
-            )
-
-        quote_bytes = bytes(buf)
-
+        outblob, _provider, _aux = _tsm_get_report(qualifying + bytes(32))
+        parsed = parse_tdx_quote(outblob)
         return RuntimeAttestationReport(
             platform="intel-tdx",
             report_data_hash=report_data_hash,
             context_hash=context_hash,
             nonce_hex=nonce.hex(),
-            quote=quote_bytes,
+            quote=outblob,
             raw={
-                "rtmr_index": self._rtmr,
-                "report_data": quote_bytes[104:168].hex(),
+                "report_data": parsed.report_data.hex(),
+                "measurement": parsed.mrtd.hex(),
             },
         )
+
 
 
 # ---------------------------------------------------------------------------

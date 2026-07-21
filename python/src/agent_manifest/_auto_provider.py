@@ -125,8 +125,11 @@ def select_provider(level: int = 0) -> AttestationProvider:
         from ._hw_providers import SEVSNPProvider
         return cast(AttestationProvider, SEVSNPProvider())
 
-    # Intel TDX
-    if os.path.exists("/dev/tdx-guest"):
+    # Intel TDX (non-paravisor) via configfs-TSM. Gate on the loaded tdx-guest
+    # driver (the real device node is /dev/tdx_guest, underscore) so the empty
+    # tsm dir on ordinary runners is not mistaken for a TDX guest.
+    if (os.path.exists("/sys/module/tdx_guest") or os.path.exists("/dev/tdx_guest")) \
+            and os.path.isdir(_TSM_REPORT_DIR):
         from ._hw_providers import TDXProvider
         return cast(AttestationProvider, TDXProvider())
 
