@@ -15,10 +15,10 @@ Pick a provider by deployment environment (``select_provider`` in
 * :class:`SEVSNPProvider` — bare-metal / non-paravisor SNP guests that expose
   the report directly through the kernel configfs-TSM interface
   (``/sys/kernel/config/tsm/report``, kernel 6.7+), where the guest DOES control
-  ``REPORT_DATA``. This path is implemented to the configfs-TSM ABI but has not
-  yet been validated on non-Azure SNP hardware; on Azure use
-  :class:`AzureCVMProvider` instead. (The previous ``/dev/sev-guest`` ioctl
-  implementation was incorrect and has been removed — see #204/#205.)
+  ``REPORT_DATA``. Hardware-validated end to end on a non-paravisor SEV-SNP guest
+  (GCP N2D, AMD Milan). On Azure use :class:`AzureCVMProvider` instead. (The
+  previous ``/dev/sev-guest`` ioctl implementation was incorrect and has been
+  removed — see #204/#205.)
 
 * :class:`TDXProvider` — Intel TDX (issue #7). EXPERIMENTAL and not yet
   hardware-validated; TDX Quote verification via Intel QVL/PCS is still pending.
@@ -112,10 +112,12 @@ class SEVSNPProvider(AttestationProvider):
     first 32 bytes carry ``sha256(manifest_pre_image)``, the rest is zero.
 
     Report parsing and signature verification use :mod:`._snp_verify`, which was
-    validated against a real SNP report. This provider's configfs-TSM report
-    *acquisition* path has not yet been validated on non-Azure SNP hardware; on
-    Azure confidential VMs use :class:`AzureCVMProvider` (the guest cannot set
-    ``REPORT_DATA`` there — the paravisor binds the vTPM AK into it).
+    validated against a real SNP report. **Hardware-validated end to end on a
+    non-paravisor SEV-SNP guest (GCP N2D, AMD Milan):** the manifest digest lands
+    in the guest-controlled ``REPORT_DATA`` and the report verifies against the
+    AMD VCEK chain. On Azure confidential VMs use :class:`AzureCVMProvider`
+    instead (the guest cannot set ``REPORT_DATA`` there — the paravisor binds the
+    vTPM AK into it).
 
     Requirements:
       - AMD EPYC (Milan or later) SNP guest, kernel 6.7+ with sev-guest driver
