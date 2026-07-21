@@ -86,18 +86,30 @@ class TdxQuote:
     raw: bytes  # the full quote
 
 
-def parse_tdx_quote(quote: bytes) -> TdxQuote:
-    """Parse an Intel TDX v4 DCAP quote's header + TD report body."""
+def parse_tdx_quote(quote: bytes, *, strict: bool = True) -> TdxQuote:
+    """Parse an Intel TDX v4 DCAP quote's header + TD report body.
+
+    Args:
+        quote: the raw DCAP quote bytes.
+        strict: when ``True`` (default), enforce the production layout —
+            ``version == 4`` and ``tee_type == 0x81`` — raising on anything
+            else. Pass ``strict=False`` to parse the header/body of an
+            otherwise well-formed quote whose version/tee_type differ (e.g.
+            synthetic test vectors), extracting the fields without asserting the
+            production TDX identity. Signature verification
+            (:func:`verify_tdx_quote`) is unaffected and always strict.
+    """
     if len(quote) < _QUOTE_HEADER_LEN + _TD_REPORT_LEN:
         raise TdxVerificationError(
             f"quote too short: {len(quote)} bytes, need "
             f"{_QUOTE_HEADER_LEN + _TD_REPORT_LEN}"
         )
     version, att_key_type, tee_type = struct.unpack_from("<HHI", quote, 0)
-    if version != _TDX_QUOTE_VERSION:
-        raise TdxVerificationError(f"unsupported TDX quote version {version} (expected 4)")
-    if tee_type != _TEE_TYPE_TDX:
-        raise TdxVerificationError(f"not a TDX quote: tee_type {tee_type:#x}")
+    if strict:
+        if version != _TDX_QUOTE_VERSION:
+            raise TdxVerificationError(f"unsupported TDX quote version {version} (expected 4)")
+        if tee_type != _TEE_TYPE_TDX:
+            raise TdxVerificationError(f"not a TDX quote: tee_type {tee_type:#x}")
     body = quote[_QUOTE_HEADER_LEN:_QUOTE_HEADER_LEN + _TD_REPORT_LEN]
     rtmrs = tuple(body[_OFF_RTMR0 + i * 48:_OFF_RTMR0 + i * 48 + 48] for i in range(4))
     return TdxQuote(

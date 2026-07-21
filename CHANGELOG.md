@@ -4,6 +4,18 @@ All notable changes to Agent Manifest are documented here. Format follows [Keep 
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-07-21
+
+Generalizes the verification API so cmcp and ca2a can delegate their full SNP/TDX/TPM crypto to this package (via PyPI) without changing behavior or rewriting their test fixtures. Backward compatible — all existing functions and signatures are unchanged.
+
+### Added
+
+**[SDK]** Generic, algorithm-agnostic certificate-chain verifier `verify_cert_chain(chain, trusted_roots, *, root_fingerprint_hash=SHA256)` (exported, with `CertChainError`). Verifies a leaf-first chain by honoring **each certificate's own** signature algorithm — ECDSA, RSASSA-PSS, or RSA PKCS#1 v1.5 — via `x509.Certificate.verify_directly_issued_by`, then pins the chain root by fingerprint. This is the shared primitive behind AMD VCEK, Intel PCK, and TPM AK chains; it lets both consumers replace their own chain verifiers (cmcp's synthetic RSA-PKCS1v15 ARK/ASK and ca2a's EC chains both verify through it). The AMD-specialized `verify_vcek_chain` is unchanged (kept as its hardware-validated specialization).
+
+### Changed
+
+**[SDK]** `parse_tdx_quote(quote, *, strict=True)` gained a `strict` flag. `strict=True` (default) keeps enforcing the production layout (`version==4`, `tee_type==0x81`); `strict=False` parses the header/body of an otherwise well-formed quote whose version/tee_type differ (e.g. consumers' synthetic vectors) without asserting production TDX identity. `verify_tdx_quote` is unaffected and always strict.
+
 ## [0.4.0] — 2026-07-21
 
 Makes agent-manifest the canonical hardware-verification library for the org: SEV-SNP, TDX, and now TPM quote verification live here and are consumed by cmcp and ca2a via this PyPI package rather than duplicated per repo.
