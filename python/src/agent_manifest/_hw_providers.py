@@ -26,7 +26,9 @@ Pick a provider by deployment environment (``select_provider`` in
   ``_tdx_verify.py``. Azure TDX (paravisor/vTPM-rooted, like Azure SNP) is a
   separate follow-up.
 
-* :class:`OPAQUEProvider` — OPAQUE managed runtime attestation service (#8).
+* :class:`OPAQUEProvider` — OPAQUE managed runtime attestation (#8). NOT
+  IMPLEMENTED: the managed service is not generally available and the SDK does
+  not verify its TRACE claim, so the provider fails closed at construction.
 
 Report parsing and the SNP signature/VCEK-chain verification live in
 ``_snp_verify.py`` and were validated against a report captured from real
@@ -630,181 +632,44 @@ class TDXProvider(AttestationProvider):
 
 
 class OPAQUEProvider(AttestationProvider):
-    """OPAQUE managed runtime attestation.
+    """OPAQUE managed runtime attestation — NOT IMPLEMENTED.
 
-    Delegates to the OPAQUE attestation service running in a managed TEE at
-    OPAQUE_ATTESTATION_URL. The service:
-      1. Accepts the manifest pre-image
-      2. Measures it in silicon (AMD SEV-SNP or Intel TDX, depending on region)
-      3. Returns a TRACE claim with hardware-signed audit_chain_root
+    The OPAQUE managed attestation service is not generally available, and the
+    SDK does not verify the TRACE claim such a service would return (no claim
+    signature check and no verification of the service's own enclave
+    measurement). Rather than ship a path that looks like verification but is
+    not (see issue #201 §5), this provider is explicitly disabled: constructing
+    it raises AttestationUnavailableError.
 
-    The signing key never leaves the TEE — this is the highest assurance level.
-
-    Environment variables:
-      OPAQUE_ATTESTATION_URL: Base URL of the OPAQUE attestation service
-      OPAQUE_API_KEY: API key for the service (or use mTLS)
-
-    Raises:
-        AttestationUnavailableError: If the service is not reachable.
+    It will be implemented when the managed service is available and a real
+    claim-verification path exists (signature verified against a pinned OPAQUE
+    key, plus a service_measurement check per spec §3.3). Until then, use a
+    locally-verifiable provider (SEV-SNP / TDX / Azure CVM) for Level 1+.
     """
 
-    _MAX_RESPONSE_BYTES = 1 * 1024 * 1024  # 1 MB cap on attestation service responses
+    _NOT_IMPLEMENTED = (
+        "OPAQUE managed runtime attestation is not implemented. The managed "
+        "service is not generally available, and the SDK does not verify the "
+        "returned TRACE claim's signature or the service's enclave measurement, "
+        "so it must not be relied upon. Use a locally-verifiable provider "
+        "(SEV-SNP / TDX / Azure CVM) for Level 1+ attestation."
+    )
 
     def __init__(self) -> None:
-        import urllib.parse
-        raw_url = os.environ.get("OPAQUE_ATTESTATION_URL", "").rstrip("/")
-        if not raw_url:
-            raise AttestationUnavailableError(
-                "OPAQUE_ATTESTATION_URL environment variable not set. "
-                "Set it to the OPAQUE attestation service endpoint."
-            )
-        parsed = urllib.parse.urlparse(raw_url)
-        if parsed.scheme != "https":
-            raise AttestationUnavailableError(
-                f"OPAQUE_ATTESTATION_URL must use https:// (got {parsed.scheme!r}). "
-                "Plaintext HTTP would expose manifest pre-images and API keys."
-            )
-        host = parsed.hostname or ""
-        if host in ("localhost", "127.0.0.1", "::1") or host.startswith("169.254.") or \
-                host.startswith("10.") or host.startswith("192.168.") or \
-                (host.startswith("172.") and 16 <= int(host.split(".")[1] or "0", 10) <= 31):
-            raise AttestationUnavailableError(
-                f"OPAQUE_ATTESTATION_URL must not target loopback or private addresses (got {host!r})."
-            )
-        self._url = raw_url
-        self._manifest_hash: Optional[str] = None
-        self._trace_claim: Optional[dict[str, Any]] = None
+        raise AttestationUnavailableError(self._NOT_IMPLEMENTED)
 
     def extend_manifest_hash(self, manifest_json: dict[str, Any]) -> None:
-        """Send manifest pre-image to OPAQUE attestation service."""
-        try:
-            import httpx
-        except ImportError:
-            raise AttestationUnavailableError(
-                'OPAQUEProvider requires httpx: pip install "agent-manifest[server]"'
-            )
-
-        pre = self.manifest_pre_image(manifest_json)
-        digest = hashlib.sha256(pre).hexdigest()
-        self._manifest_hash = f"sha256:{digest}"
-
-        headers = {}
-        api_key = os.environ.get("OPAQUE_API_KEY")
-        if api_key:
-            headers["Authorization"] = f"Bearer {api_key}"
-
-        import base64
-        try:
-            response = httpx.post(
-                f"{self._url}/v1/attest",
-                json={"manifest_pre_image": base64.b64encode(pre).decode()},
-                headers=headers,
-                timeout=30.0,
-            )
-        except (httpx.HTTPError, OSError) as e:
-            raise AttestationUnavailableError(
-                f"OPAQUE attestation service unreachable: {type(e).__name__}"
-            ) from e
-
-        if response.status_code != 200:
-            raise AttestationUnavailableError(
-                f"OPAQUE attestation service returned HTTP {response.status_code}. "
-                "Check service logs."
-            )
-
-        content_length = int(response.headers.get("content-length", "0"))
-        if content_length > self._MAX_RESPONSE_BYTES:
-            raise AttestationUnavailableError(
-                f"OPAQUE attestation service response too large: {content_length} bytes"
-            )
-        try:
-            self._trace_claim = response.json()
-        except ValueError as e:
-            raise AttestationUnavailableError(
-                f"OPAQUE attestation service returned invalid JSON: {type(e).__name__}"
-            ) from e
+        raise NotImplementedError(self._NOT_IMPLEMENTED)
 
     def get_attestation_report(self) -> AttestationReport:
-        if self._trace_claim is None:
-            raise AttestationUnavailableError(
-                "Call extend_manifest_hash() before get_attestation_report()."
-            )
-        return AttestationReport(
-            platform="opaque",
-            manifest_hash=self._manifest_hash or "",
-            raw=self._trace_claim,
-        )
+        raise NotImplementedError(self._NOT_IMPLEMENTED)
 
     def verify_manifest_in_report(
         self, report: AttestationReport, manifest_json: dict[str, Any]
     ) -> bool:
-        return report.manifest_hash == self.manifest_hash_value(manifest_json)
+        raise NotImplementedError(self._NOT_IMPLEMENTED)
 
     def attest_runtime_state(
-        self,
-        nonce: bytes,
-        context_hash: str,
+        self, nonce: bytes, context_hash: str
     ) -> RuntimeAttestationReport:
-        """Delegate runtime re-attestation to the OPAQUE attestation service.
-
-        Calls POST /v1/attest-runtime with the nonce and context_hash.
-        The service measures both inside its managed TEE and returns a
-        hardware-signed TRACE claim covering the nonce and context.
-        """
-        try:
-            import httpx
-        except ImportError:
-            raise AttestationUnavailableError(
-                'OPAQUEProvider requires httpx: pip install "agent-manifest[server]"'
-            )
-
-        context_bytes = bytes.fromhex(context_hash.split(":", 1)[-1])
-        qualifying = hashlib.sha256(nonce + context_bytes).digest()
-        report_data_hash = f"sha256:{hashlib.sha256(qualifying).hexdigest()}"
-
-        import base64
-        headers: dict[str, str] = {}
-        api_key = os.environ.get("OPAQUE_API_KEY")
-        if api_key:
-            headers["Authorization"] = f"Bearer {api_key}"
-
-        try:
-            response = httpx.post(
-                f"{self._url}/v1/attest-runtime",
-                json={
-                    "nonce": base64.b64encode(nonce).decode(),
-                    "context_hash": context_hash,
-                },
-                headers=headers,
-                timeout=30.0,
-            )
-        except (httpx.HTTPError, OSError) as e:
-            raise AttestationUnavailableError(
-                f"OPAQUE runtime attestation service unreachable: {type(e).__name__}"
-            ) from e
-
-        if response.status_code != 200:
-            raise AttestationUnavailableError(
-                f"OPAQUE runtime attestation returned HTTP {response.status_code}"
-            )
-
-        content_length = int(response.headers.get("content-length", "0"))
-        if content_length > self._MAX_RESPONSE_BYTES:
-            raise AttestationUnavailableError(
-                f"OPAQUE runtime attestation response too large: {content_length} bytes"
-            )
-
-        try:
-            raw = response.json()
-        except ValueError as e:
-            raise AttestationUnavailableError(
-                f"OPAQUE runtime attestation returned invalid JSON: {type(e).__name__}"
-            ) from e
-
-        return RuntimeAttestationReport(
-            platform="opaque",
-            report_data_hash=report_data_hash,
-            context_hash=context_hash,
-            nonce_hex=nonce.hex(),
-            raw=raw,
-        )
+        raise NotImplementedError(self._NOT_IMPLEMENTED)

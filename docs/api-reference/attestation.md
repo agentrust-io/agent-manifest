@@ -27,7 +27,15 @@ Hardware attestation providers for Levels 1–3. See [Tutorial: Hardware attesta
 
 ::: agent_manifest._hw_providers.TDXProvider
 
-## Level 3  -  OPAQUE
+## Level 3  -  OPAQUE (not implemented)
+
+!!! warning "Not implemented"
+    OPAQUE managed runtime attestation is **not implemented**. The managed
+    service is not generally available, and the SDK does not verify the TRACE
+    claim such a service would return (no claim-signature check, no
+    `service_measurement` verification). `OPAQUEProvider` therefore fails closed
+    at construction. Use a locally-verifiable provider (SEV-SNP / TDX / Azure
+    CVM) for Level 1+ attestation. Tracked with issue #201 (§5).
 
 ::: agent_manifest._hw_providers.OPAQUEProvider
 

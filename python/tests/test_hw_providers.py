@@ -15,7 +15,6 @@ Strategy:
 import os
 import struct
 import sys
-from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -282,190 +281,16 @@ def test_tdx_wrong_tsm_provider_raises(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# OPAQUEProvider — all platforms (mock httpx)
+# OPAQUEProvider — not implemented (managed service not GA; see issue #201 §5)
 # ---------------------------------------------------------------------------
 
 
-def test_opaque_raises_without_env_var(monkeypatch):
-    monkeypatch.delenv("OPAQUE_ATTESTATION_URL", raising=False)
-    with pytest.raises(AttestationUnavailableError, match="OPAQUE_ATTESTATION_URL"):
+def test_opaque_provider_is_not_implemented():
+    """OPAQUE managed attestation is disabled: the managed service is not
+    generally available and the SDK does not verify its TRACE claim, so the
+    provider fails closed at construction rather than looking verified."""
+    with pytest.raises(AttestationUnavailableError, match="not implemented"):
         OPAQUEProvider()
-
-
-def test_opaque_raises_on_empty_env_var(monkeypatch):
-    monkeypatch.setenv("OPAQUE_ATTESTATION_URL", "")
-    with pytest.raises(AttestationUnavailableError, match="OPAQUE_ATTESTATION_URL"):
-        OPAQUEProvider()
-
-
-def test_opaque_report_before_extend_raises(monkeypatch):
-    monkeypatch.setenv("OPAQUE_ATTESTATION_URL", "https://attest.example.com")
-    provider = OPAQUEProvider()
-    with pytest.raises(AttestationUnavailableError, match="extend_manifest_hash"):
-        provider.get_attestation_report()
-
-
-def test_opaque_extend_success(monkeypatch):
-    monkeypatch.setenv("OPAQUE_ATTESTATION_URL", "https://attest.example.com")
-    provider = OPAQUEProvider()
-
-    fake_trace = {"eat_profile": "tag:agentrust.io,2026:trace-v0.1", "iat": 1234567890}
-    mock_response = MagicMock()
-    mock_response.status_code = 200
-    mock_response.json.return_value = fake_trace
-
-    with patch("httpx.post", return_value=mock_response) as mock_post:
-        provider.extend_manifest_hash(SAMPLE_MANIFEST)
-
-    called_url = mock_post.call_args[0][0]
-    assert called_url == "https://attest.example.com/v1/attest"
-
-    report = provider.get_attestation_report()
-    assert report.platform == "opaque"
-    assert report.manifest_hash.startswith("sha256:")
-    assert report.raw == fake_trace
-
-
-def test_opaque_extend_posts_pre_image(monkeypatch):
-    import base64
-    monkeypatch.setenv("OPAQUE_ATTESTATION_URL", "https://attest.example.com")
-    provider = OPAQUEProvider()
-
-    mock_response = MagicMock()
-    mock_response.status_code = 200
-    mock_response.json.return_value = {}
-
-    with patch("httpx.post", return_value=mock_response) as mock_post:
-        provider.extend_manifest_hash(SAMPLE_MANIFEST)
-
-    body = mock_post.call_args.kwargs["json"]
-    assert "manifest_pre_image" in body
-    decoded = base64.b64decode(body["manifest_pre_image"])
-    assert len(decoded) > 0
-
-
-def test_opaque_extend_pre_image_is_correct(monkeypatch):
-    """The posted pre-image must match manifest_pre_image()."""
-    import base64
-    monkeypatch.setenv("OPAQUE_ATTESTATION_URL", "https://attest.example.com")
-    provider = OPAQUEProvider()
-
-    mock_response = MagicMock()
-    mock_response.status_code = 200
-    mock_response.json.return_value = {}
-
-    with patch("httpx.post", return_value=mock_response) as mock_post:
-        provider.extend_manifest_hash(SAMPLE_MANIFEST)
-
-    body = mock_post.call_args.kwargs["json"]
-    posted = base64.b64decode(body["manifest_pre_image"])
-    expected = provider.manifest_pre_image(SAMPLE_MANIFEST)
-    assert posted == expected
-
-
-def test_opaque_extend_with_api_key(monkeypatch):
-    monkeypatch.setenv("OPAQUE_ATTESTATION_URL", "https://attest.example.com")
-    monkeypatch.setenv("OPAQUE_API_KEY", "secret-key-123")
-    provider = OPAQUEProvider()
-
-    mock_response = MagicMock()
-    mock_response.status_code = 200
-    mock_response.json.return_value = {}
-
-    with patch("httpx.post", return_value=mock_response) as mock_post:
-        provider.extend_manifest_hash(SAMPLE_MANIFEST)
-
-    headers = mock_post.call_args.kwargs["headers"]
-    assert headers.get("Authorization") == "Bearer secret-key-123"
-
-
-def test_opaque_extend_without_api_key_sends_empty_headers(monkeypatch):
-    monkeypatch.setenv("OPAQUE_ATTESTATION_URL", "https://attest.example.com")
-    monkeypatch.delenv("OPAQUE_API_KEY", raising=False)
-    provider = OPAQUEProvider()
-
-    mock_response = MagicMock()
-    mock_response.status_code = 200
-    mock_response.json.return_value = {}
-
-    with patch("httpx.post", return_value=mock_response) as mock_post:
-        provider.extend_manifest_hash(SAMPLE_MANIFEST)
-
-    headers = mock_post.call_args.kwargs["headers"]
-    assert "Authorization" not in headers
-
-
-def test_opaque_extend_http_error_raises(monkeypatch):
-    monkeypatch.setenv("OPAQUE_ATTESTATION_URL", "https://attest.example.com")
-    provider = OPAQUEProvider()
-
-    mock_response = MagicMock()
-    mock_response.status_code = 503
-    mock_response.text = "Service Unavailable"
-
-    with patch("httpx.post", return_value=mock_response):
-        with pytest.raises(AttestationUnavailableError, match="503"):
-            provider.extend_manifest_hash(SAMPLE_MANIFEST)
-
-
-def test_opaque_extend_401_raises(monkeypatch):
-    monkeypatch.setenv("OPAQUE_ATTESTATION_URL", "https://attest.example.com")
-    provider = OPAQUEProvider()
-
-    mock_response = MagicMock()
-    mock_response.status_code = 401
-    mock_response.text = "Unauthorized"
-
-    with patch("httpx.post", return_value=mock_response):
-        with pytest.raises(AttestationUnavailableError, match="401"):
-            provider.extend_manifest_hash(SAMPLE_MANIFEST)
-
-
-def test_opaque_manifest_hash_format(monkeypatch):
-    monkeypatch.setenv("OPAQUE_ATTESTATION_URL", "https://attest.example.com")
-    provider = OPAQUEProvider()
-
-    mock_response = MagicMock()
-    mock_response.status_code = 200
-    mock_response.json.return_value = {}
-
-    with patch("httpx.post", return_value=mock_response):
-        provider.extend_manifest_hash(SAMPLE_MANIFEST)
-
-    report = provider.get_attestation_report()
-    assert report.manifest_hash.startswith("sha256:")
-    assert len(report.manifest_hash) == 7 + 64
-
-
-def test_opaque_verify_manifest_match(monkeypatch):
-    monkeypatch.setenv("OPAQUE_ATTESTATION_URL", "https://attest.example.com")
-    provider = OPAQUEProvider()
-    expected = provider.manifest_hash_value(SAMPLE_MANIFEST)
-    report = AttestationReport(platform="opaque", manifest_hash=expected)
-    assert provider.verify_manifest_in_report(report, SAMPLE_MANIFEST)
-
-
-def test_opaque_verify_manifest_mismatch(monkeypatch):
-    monkeypatch.setenv("OPAQUE_ATTESTATION_URL", "https://attest.example.com")
-    provider = OPAQUEProvider()
-    report = AttestationReport(platform="opaque", manifest_hash="sha256:" + "aa" * 32)
-    assert not provider.verify_manifest_in_report(report, SAMPLE_MANIFEST)
-
-
-def test_opaque_url_trailing_slash_stripped(monkeypatch):
-    monkeypatch.setenv("OPAQUE_ATTESTATION_URL", "https://attest.example.com/")
-    provider = OPAQUEProvider()
-
-    mock_response = MagicMock()
-    mock_response.status_code = 200
-    mock_response.json.return_value = {}
-
-    with patch("httpx.post", return_value=mock_response) as mock_post:
-        provider.extend_manifest_hash(SAMPLE_MANIFEST)
-
-    called_url = mock_post.call_args[0][0]
-    assert not called_url.startswith("https://attest.example.com//")
-    assert called_url == "https://attest.example.com/v1/attest"
 
 
 # ---------------------------------------------------------------------------
@@ -491,11 +316,3 @@ def test_tdx_hardware_roundtrip():
     assert report.platform == "intel-tdx"
     assert provider.verify_manifest_in_report(report, SAMPLE_MANIFEST)
 
-
-@NEEDS_OPAQUE
-def test_opaque_hardware_roundtrip():
-    provider = OPAQUEProvider()
-    provider.extend_manifest_hash(SAMPLE_MANIFEST)
-    report = provider.get_attestation_report()
-    assert report.platform == "opaque"
-    assert provider.verify_manifest_in_report(report, SAMPLE_MANIFEST)
