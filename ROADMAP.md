@@ -22,6 +22,7 @@ Driven by community and early adopter feedback from the CC Summit period. Curren
 - **RAG corpus poisoning precedence** — explicit rule for HITL override of `poisoning_scan.result: flagged`
 - **Memory baseline TTL carve-out** — reconcile artifact-only refresh exception with the immutability rule
 - **Delegation non-Cedar fallback** — static scope narrowing for verifiers without Cedar support
+- **Azure confidential VM attestation** — `AzureCVMProvider` (vTPM-rooted SEV-SNP) with AMD VCEK chain verification, hardware-validated on Azure DCasv5. Intel TDX Quote verification (Intel QVL/PCS) remains pending
 - **TypeScript SDK** — community contribution welcome; see issue tracker for scope
 - **Verification server improvements** — evidence pack format, revocation endpoint
 

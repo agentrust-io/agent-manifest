@@ -1,10 +1,15 @@
 """provider='auto' attestation backend selection.
 
 Auto-selection order (first locally-verifiable silicon wins):
-  1. SEVSNPProvider  — if /dev/sev-guest exists
-  2. TDXProvider     — if /dev/tdx-guest exists
-  3. TPMProvider     — if tpm2_extend is in PATH
-  4. SoftwareProvider — fallback, Level 0 only (no hardware attestation)
+  1. AzureCVMProvider — if the Azure vTPM HCL NV index is present (paravisor
+                        SNP; no /dev/sev-guest). Checked first because Azure
+                        also exposes the configfs-TSM dir but with no provider.
+  2. SEVSNPProvider  — if the sev-guest driver is loaded (/sys/module/sev_guest)
+                        and the configfs-TSM interface is present (bare-metal /
+                        non-paravisor SNP guest)
+  3. TDXProvider     — if /dev/tdx-guest exists
+  4. TPMProvider     — if tpm2_extend is in PATH
+  5. SoftwareProvider — fallback, Level 0 only (no hardware attestation)
 
 OPAQUEProvider is explicit opt-in: selected only when OPAQUE_ATTESTATION_URL
 is set. It is never auto-detected.
@@ -26,6 +31,28 @@ from ._providers import (
     RuntimeAttestationReport,
     TPMProvider,
 )
+
+_TSM_REPORT_DIR = "/sys/kernel/config/tsm/report"
+
+
+def _is_azure_cvm() -> bool:
+    """True if the Azure confidential-VM vTPM HCL report index is readable.
+
+    Cheap, non-raising probe: Azure exposes the SNP/HCL report at vTPM NV index
+    0x01400001. This is absent on bare-metal SNP and on non-confidential VMs.
+    """
+    import subprocess
+
+    exe = shutil.which("tpm2_nvreadpublic")
+    if exe is None:
+        return False
+    try:
+        proc = subprocess.run(
+            [exe, "0x01400001"], capture_output=True, timeout=10
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return proc.returncode == 0
 
 
 class SoftwareProvider(AttestationProvider):
@@ -83,8 +110,18 @@ def select_provider(level: int = 0) -> AttestationProvider:
         from ._hw_providers import OPAQUEProvider
         return cast(AttestationProvider, OPAQUEProvider())
 
-    # AMD SEV-SNP
-    if os.path.exists("/dev/sev-guest"):
+    # Azure confidential VM (paravisor SNP, vTPM-rooted). Checked before the
+    # bare-metal SNP probe because Azure also exposes the configfs-TSM dir but
+    # registers no provider there.
+    if _is_azure_cvm():
+        from ._hw_providers import AzureCVMProvider
+        return cast(AttestationProvider, AzureCVMProvider())
+
+    # Bare-metal / non-paravisor AMD SEV-SNP via configfs-TSM. Gate on the
+    # loaded sev-guest driver, not merely the configfs dir: the tsm report dir
+    # exists whenever tsm.ko is present (e.g. on ordinary CI runners) even with
+    # no provider registered, so dir-existence alone is not proof of an SNP guest.
+    if os.path.exists("/sys/module/sev_guest") and os.path.isdir(_TSM_REPORT_DIR):
         from ._hw_providers import SEVSNPProvider
         return cast(AttestationProvider, SEVSNPProvider())
 
