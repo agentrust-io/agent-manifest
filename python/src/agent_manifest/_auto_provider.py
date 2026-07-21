@@ -4,8 +4,9 @@ Auto-selection order (first locally-verifiable silicon wins):
   1. AzureCVMProvider — if the Azure vTPM HCL NV index is present (paravisor
                         SNP; no /dev/sev-guest). Checked first because Azure
                         also exposes the configfs-TSM dir but with no provider.
-  2. SEVSNPProvider  — if the configfs-TSM report interface is present
-                        (bare-metal / non-paravisor SNP guest)
+  2. SEVSNPProvider  — if the sev-guest driver is loaded (/sys/module/sev_guest)
+                        and the configfs-TSM interface is present (bare-metal /
+                        non-paravisor SNP guest)
   3. TDXProvider     — if /dev/tdx-guest exists
   4. TPMProvider     — if tpm2_extend is in PATH
   5. SoftwareProvider — fallback, Level 0 only (no hardware attestation)
@@ -116,8 +117,11 @@ def select_provider(level: int = 0) -> AttestationProvider:
         from ._hw_providers import AzureCVMProvider
         return cast(AttestationProvider, AzureCVMProvider())
 
-    # Bare-metal / non-paravisor AMD SEV-SNP via configfs-TSM
-    if os.path.isdir(_TSM_REPORT_DIR):
+    # Bare-metal / non-paravisor AMD SEV-SNP via configfs-TSM. Gate on the
+    # loaded sev-guest driver, not merely the configfs dir: the tsm report dir
+    # exists whenever tsm.ko is present (e.g. on ordinary CI runners) even with
+    # no provider registered, so dir-existence alone is not proof of an SNP guest.
+    if os.path.exists("/sys/module/sev_guest") and os.path.isdir(_TSM_REPORT_DIR):
         from ._hw_providers import SEVSNPProvider
         return cast(AttestationProvider, SEVSNPProvider())
 

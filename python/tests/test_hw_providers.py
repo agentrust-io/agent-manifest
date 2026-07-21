@@ -28,8 +28,8 @@ from agent_manifest._providers import AttestationReport, AttestationUnavailableE
 LINUX = sys.platform == "linux"
 
 NEEDS_SEV_SNP = pytest.mark.skipif(
-    not os.path.isdir("/sys/kernel/config/tsm/report"),
-    reason="requires a bare-metal SNP guest with the configfs-TSM interface",
+    not (os.path.exists("/sys/module/sev_guest") and os.path.isdir("/sys/kernel/config/tsm/report")),
+    reason="requires a bare-metal SNP guest with the sev-guest driver + configfs-TSM",
 )
 NEEDS_TDX = pytest.mark.skipif(
     not os.path.exists("/dev/tdx-guest"),
