@@ -187,6 +187,41 @@ def test_full_chain_fails_when_report_signature_tampered():
     assert result.passed is False
 
 
+def test_tdx_full_chain_passes():
+    """A TDX report (self-contained quote) passes when the quote + PCK chain verify."""
+    import os
+    import sys
+    sys.path.insert(0, os.path.dirname(__file__))
+    from test_tdx_verify import _build_quote  # reuse the synthetic quote builder
+
+    quote, root_pem = _build_quote(bytes.fromhex(DIGEST))
+    report = AttestationReport(
+        platform="intel-tdx",
+        manifest_hash=MANIFEST_HASH,
+        quote=quote,
+        raw={"report_data": DIGEST + "00" * 32, "measurement": "ab" * 48},
+    )
+    result = verify_attestation_chain(
+        report,
+        expected_manifest_hash=MANIFEST_HASH,
+        trusted_tdx_root_pem=root_pem,
+    )
+    assert result.signature is SignatureStatus.VERIFIED
+    assert result.report_data_matched is True
+    assert result.passed is True
+
+
+def test_tdx_no_quote_fails_closed():
+    report = AttestationReport(
+        platform="intel-tdx",
+        manifest_hash=MANIFEST_HASH,
+        raw={"report_data": DIGEST + "00" * 32},
+    )
+    result = verify_attestation_chain(report, expected_manifest_hash=MANIFEST_HASH)
+    assert result.signature is SignatureStatus.NOT_IMPLEMENTED
+    assert result.passed is False
+
+
 def test_full_chain_reads_snp_bytes_from_report_quote():
     snp, vcek_der, chain = _synthetic_snp_with_chain(DIGEST, MEASUREMENT)
     report = AttestationReport(

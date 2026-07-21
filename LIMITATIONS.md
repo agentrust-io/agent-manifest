@@ -68,8 +68,12 @@ Hyper-V paravisor. This changes how attestation works, and `AzureCVMProvider`
   interface) applies only to bare-metal / non-paravisor SNP guests.
 
 This provider and every link of the chain above were validated against a report
-captured from a live Azure SEV-SNP VM. Intel TDX support is not yet
-hardware-validated (TDX Quote verification via Intel QVL/PCS is pending).
+captured from a live Azure SEV-SNP VM. Intel TDX is hardware-validated on a
+non-paravisor TDX guest (GCP C3): the configfs-TSM `tdx_guest` provider returns
+a DCAP quote whose ECDSA-P256 signature, QE binding, and PCK certificate chain
+(to the pinned Intel SGX Root CA) are verified. Azure TDX (behind a Hyper-V
+paravisor, like Azure SNP) surfaces attestation through the vTPM and is a
+separate follow-up.
 
 ## Hardware attestation scope: boot-time binding only
 

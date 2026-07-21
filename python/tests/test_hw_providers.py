@@ -13,6 +13,7 @@ Strategy:
   Integration markers: NEEDS_SEV_SNP, NEEDS_TDX, NEEDS_OPAQUE for real hardware.
 """
 import os
+import struct
 import sys
 from unittest.mock import MagicMock, patch
 
@@ -32,8 +33,11 @@ NEEDS_SEV_SNP = pytest.mark.skipif(
     reason="requires a bare-metal SNP guest with the sev-guest driver + configfs-TSM",
 )
 NEEDS_TDX = pytest.mark.skipif(
-    not os.path.exists("/dev/tdx-guest"),
-    reason="requires Intel TDX hardware (/dev/tdx-guest)",
+    not (
+        (os.path.exists("/sys/module/tdx_guest") or os.path.exists("/dev/tdx_guest"))
+        and os.path.isdir("/sys/kernel/config/tsm/report")
+    ),
+    reason="requires an Intel TDX guest with the tdx-guest driver + configfs-TSM",
 )
 NEEDS_OPAQUE = pytest.mark.skipif(
     not os.environ.get("OPAQUE_ATTESTATION_URL"),
@@ -203,33 +207,33 @@ def test_azure_verify_manifest_pcr_replay(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
+def _fake_tdx_quote(report_data: bytes) -> bytes:
+    """Minimal TDX v4 quote (header + TD report body) carrying report_data.
+
+    Enough for parse + verify_manifest_in_report; no signature (the provider only
+    verifies the signature when require_quote_verification=True).
+    """
+    header = struct.pack("<HHI", 4, 2, 0x81) + bytes(40)
+    body = bytearray(584)
+    body[520:520 + len(report_data)] = report_data[:64]
+    return header + bytes(body)
+
+
 def test_tdx_raises_without_device(monkeypatch):
-    monkeypatch.setattr(os.path, "exists", lambda p: False)
+    monkeypatch.setattr(os.path, "isdir", lambda p: False)
     with pytest.raises(AttestationUnavailableError, match="TDX"):
         TDXProvider()
 
 
 def test_tdx_report_before_extend_raises(monkeypatch):
-    monkeypatch.setattr(os.path, "exists", lambda p: p == "/dev/tdx-guest")
+    monkeypatch.setattr(os.path, "isdir", lambda p: p == TSM_DIR)
     provider = TDXProvider()
     with pytest.raises(AttestationUnavailableError, match="extend_manifest_hash"):
         provider.get_attestation_report()
 
 
-def test_tdx_default_rtmr_index(monkeypatch):
-    monkeypatch.setattr(os.path, "exists", lambda p: p == "/dev/tdx-guest")
-    provider = TDXProvider()
-    assert provider._rtmr == 1
-
-
-def test_tdx_custom_rtmr_index(monkeypatch):
-    monkeypatch.setattr(os.path, "exists", lambda p: p == "/dev/tdx-guest")
-    provider = TDXProvider(rtmr_index=2)
-    assert provider._rtmr == 2
-
-
 def test_tdx_verify_manifest_match(monkeypatch):
-    monkeypatch.setattr(os.path, "exists", lambda p: p == "/dev/tdx-guest")
+    monkeypatch.setattr(os.path, "isdir", lambda p: p == TSM_DIR)
     provider = TDXProvider()
     expected = provider.manifest_hash_value(SAMPLE_MANIFEST)
     report = AttestationReport(platform="intel-tdx", manifest_hash=expected)
@@ -237,82 +241,44 @@ def test_tdx_verify_manifest_match(monkeypatch):
 
 
 def test_tdx_verify_manifest_mismatch(monkeypatch):
-    monkeypatch.setattr(os.path, "exists", lambda p: p == "/dev/tdx-guest")
+    monkeypatch.setattr(os.path, "isdir", lambda p: p == TSM_DIR)
     provider = TDXProvider()
     report = AttestationReport(platform="intel-tdx", manifest_hash="sha256:" + "ff" * 32)
     assert not provider.verify_manifest_in_report(report, SAMPLE_MANIFEST)
 
 
-@pytest.mark.skipif(not LINUX, reason="fcntl only available on Linux")
-def test_tdx_extend_with_mocked_ioctl(monkeypatch):
-    monkeypatch.setattr(os.path, "exists", lambda p: p == "/dev/tdx-guest")
-    provider = TDXProvider(rtmr_index=1)
+def test_tdx_extend_with_mocked_tsm(monkeypatch):
+    """extend + get_attestation_report over a mocked configfs-TSM tdx_guest quote."""
+    monkeypatch.setattr(os.path, "isdir", lambda p: p == TSM_DIR)
+    provider = TDXProvider()
 
-    # buf is 1088 bytes (tdx_report_req: reportdata[64] + tdreport[1024])
-    # reportdata in tdreport is at buf offset 104 (64 + 40)
-    mock_response = bytearray(1088)
-    for i in range(64):
-        mock_response[104 + i] = i  # recognizable pattern at reportdata offset
+    import agent_manifest._hw_providers as hw
 
-    import fcntl
+    def fake_tsm(report_data):
+        return _fake_tdx_quote(report_data), "tdx_guest", None
 
-    def mock_ioctl(fd, op, buf):
-        buf[:1088] = mock_response
-
-    mock_dev = MagicMock()
-    mock_dev.__enter__ = lambda s: mock_dev
-    mock_dev.__exit__ = MagicMock(return_value=False)
-
-    monkeypatch.setattr(fcntl, "ioctl", mock_ioctl)
-    with patch("builtins.open", return_value=mock_dev):
-        provider.extend_manifest_hash(SAMPLE_MANIFEST)
+    monkeypatch.setattr(hw, "_tsm_get_report", fake_tsm)
+    provider.extend_manifest_hash(SAMPLE_MANIFEST)
 
     report = provider.get_attestation_report()
     assert report.platform == "intel-tdx"
     assert report.manifest_hash.startswith("sha256:")
-    assert report.raw["rtmr_index"] == 1
-    assert report.raw["report_data"] == bytes(range(64)).hex()
-
-
-@pytest.mark.skipif(not LINUX, reason="fcntl only available on Linux")
-def test_tdx_extend_ioctl_oserror_raises(monkeypatch):
-    monkeypatch.setattr(os.path, "exists", lambda p: p == "/dev/tdx-guest")
-    provider = TDXProvider()
-
-    import fcntl
-
-    monkeypatch.setattr(fcntl, "ioctl", MagicMock(side_effect=OSError("no perm")))
-    mock_dev = MagicMock()
-    mock_dev.__enter__ = lambda s: mock_dev
-    mock_dev.__exit__ = MagicMock(return_value=False)
-    with patch("builtins.open", return_value=mock_dev):
-        with pytest.raises(AttestationUnavailableError, match="TDX"):
-            provider.extend_manifest_hash(SAMPLE_MANIFEST)
-
-
-@pytest.mark.skipif(not LINUX, reason="fcntl only available on Linux")
-def test_tdx_extend_manifest_hash_value_matches(monkeypatch):
-    """verify_manifest_in_report must compare reportdata from hardware bytes (HW-002)."""
-    monkeypatch.setattr(os.path, "exists", lambda p: p == "/dev/tdx-guest")
-    provider = TDXProvider()
-
-    import fcntl
-
-    def mock_ioctl_with_reportdata(fd, op, buf):
-        # Simulate hardware echoing reportdata (buf[0:64]) into REPORTMACSTRUCT.reportdata
-        # tdreport starts at offset 64; reportdata is at offset 40 within REPORTMACSTRUCT
-        buf[104:168] = buf[0:64]  # 64 + 40 = 104
-
-    mock_dev = MagicMock()
-    mock_dev.__enter__ = lambda s: mock_dev
-    mock_dev.__exit__ = MagicMock(return_value=False)
-    monkeypatch.setattr(fcntl, "ioctl", mock_ioctl_with_reportdata)
-    with patch("builtins.open", return_value=mock_dev):
-        provider.extend_manifest_hash(SAMPLE_MANIFEST)
-
-    report = provider.get_attestation_report()
-    assert report.manifest_hash == provider.manifest_hash_value(SAMPLE_MANIFEST)
+    digest = provider.manifest_hash_value(SAMPLE_MANIFEST).split(":", 1)[1]
+    assert report.raw["report_data"][:64] == digest  # REPORTDATA[:32]
     assert provider.verify_manifest_in_report(report, SAMPLE_MANIFEST)
+
+
+def test_tdx_wrong_tsm_provider_raises(monkeypatch):
+    monkeypatch.setattr(os.path, "isdir", lambda p: p == TSM_DIR)
+    provider = TDXProvider()
+
+    import agent_manifest._hw_providers as hw
+
+    monkeypatch.setattr(
+        hw, "_tsm_get_report", lambda rd: (_fake_tdx_quote(rd), "sev_guest", None)
+    )
+    with pytest.raises(AttestationUnavailableError, match="not 'tdx_guest'"):
+        provider.extend_manifest_hash(SAMPLE_MANIFEST)
 
 
 # ---------------------------------------------------------------------------
