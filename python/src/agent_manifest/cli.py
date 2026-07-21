@@ -213,7 +213,7 @@ def keygen(output_dir: str) -> None:
 @manifest.command("attest")
 @click.argument("manifest_file", type=click.Path(exists=True))
 @click.option("--provider", "-p", default="auto",
-              type=click.Choice(["auto", "tpm", "sev-snp", "tdx", "opaque", "software"]),
+              type=click.Choice(["auto", "azure-cvm", "tpm", "sev-snp", "tdx", "opaque", "software"]),
               help="Attestation provider (default: auto)")
 @click.option("--level", default=0, type=int, help="Minimum conformance level (0-3)")
 @click.option("--output", "-o", default=None)
@@ -230,14 +230,26 @@ def attest(manifest_file: str, provider: str, level: int, output: Optional[str])
     try:
         if provider == "auto":
             prov = select_provider(level=level)
+        elif provider == "azure-cvm":
+            from ._hw_providers import AzureCVMProvider
+            prov = AzureCVMProvider()
+        elif provider == "sev-snp":
+            from ._hw_providers import SEVSNPProvider
+            prov = SEVSNPProvider()
+        elif provider == "tdx":
+            from ._hw_providers import TDXProvider
+            prov = TDXProvider()
+        elif provider == "opaque":
+            from ._hw_providers import OPAQUEProvider
+            prov = OPAQUEProvider()
         elif provider == "tpm":
             from ._providers import TPMProvider
             prov = TPMProvider()
         elif provider == "software":
             from ._auto_provider import SoftwareProvider
             prov = SoftwareProvider()
-        else:
-            click.echo(f"Provider {provider!r} not yet implemented. Use 'auto'.", err=True)
+        else:  # pragma: no cover - click.Choice constrains this
+            click.echo(f"Provider {provider!r} not recognized.", err=True)
             sys.exit(1)
 
         prov.extend_manifest_hash(data)

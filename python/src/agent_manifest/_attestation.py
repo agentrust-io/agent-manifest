@@ -1,25 +1,28 @@
 """Attestation-chain verification for boot-time attestation reports (issue #204).
 
-EXPERIMENTAL — the hardware signature step is NOT implemented yet.
-
 A boot-time ``AttestationReport`` is only trustworthy to a third party once a
 verifier has checked three things:
 
 1. **Signature / quote chain** — the report is signed by genuine platform
-   hardware (AMD SEV-SNP: VCEK chain from AMD KDS; Intel TDX: a Quote verified
-   via Intel QVL/PCS; TPM: AK cert + ``tpm2_checkquote``). This requires
-   platform vendor libraries and real-hardware test vectors and is **not
-   implemented here** — see :data:`SignatureStatus.NOT_IMPLEMENTED`.
+   hardware. For AMD SEV-SNP this is implemented (:mod:`._snp_verify`): the
+   report's ECDSA-P384 signature is verified against the VCEK, and the
+   VCEK<-ASK<-ARK chain against the AMD root. It was validated against a report
+   captured from real SEV-SNP silicon. Intel TDX Quote verification (via Intel
+   QVL/PCS) is still pending — see :data:`SignatureStatus.NOT_IMPLEMENTED`.
 2. **Launch measurement** — ``MEASUREMENT`` / ``MRTD`` / PCRs match a known-good
    value (or an allow-list of accepted measurements). Implemented below.
 3. **Bound field** — the guest-supplied ``REPORT_DATA`` carries the expected
-   manifest hash. Implemented below.
+   manifest hash. Implemented below. NOTE: this applies to the *direct* SNP
+   model where the guest controls ``REPORT_DATA``. On Azure confidential VMs
+   the guest does not control ``REPORT_DATA`` (the paravisor binds the vTPM AK
+   there); manifest binding on Azure is via the vTPM quote produced by
+   ``AzureCVMProvider``, not this field.
 
-Because step 1 is unimplemented, :func:`verify_attestation_chain` **fails
-closed**: ``passed`` is never ``True`` today. The per-step results are still
-returned so callers (and tests) can confirm the software-checkable steps, and
-so the remaining work is a drop-in: implement the signature backends and the
-overall verdict starts passing. See #204 for the phased plan.
+:func:`verify_attestation_chain` **fails closed**: ``passed`` is ``True`` only
+when the hardware signature is ``VERIFIED``, the manifest-hash binding matches,
+and the measurement is accepted (or no allow-list was requested). If no VCEK /
+certificate material is supplied, the signature step is reported as
+``NOT_IMPLEMENTED`` (not performed) and the result cannot pass.
 """
 
 from __future__ import annotations
@@ -35,7 +38,9 @@ class SignatureStatus(str, Enum):
 
     VERIFIED = "verified"
     FAILED = "failed"
-    NOT_IMPLEMENTED = "not_implemented"  # vendor-library work tracked in #204
+    # No verification material supplied, or a platform whose backend is not yet
+    # implemented (Intel TDX Quote verification is tracked in #204/#205).
+    NOT_IMPLEMENTED = "not_implemented"
 
 
 @dataclass
@@ -65,11 +70,65 @@ def _report_data_hex(report: Any) -> Optional[str]:
     return value if isinstance(value, str) else None
 
 
+def _verify_snp_signature_step(
+    report: Any,
+    snp_report_bytes: Optional[bytes],
+    vcek_cert_der: Optional[bytes],
+    cert_chain_pem: Optional[bytes],
+    trusted_ark_der: Optional[bytes],
+    reasons: list[str],
+) -> SignatureStatus:
+    """Run the AMD SEV-SNP signature + VCEK-chain check, if material is present.
+
+    Returns ``VERIFIED`` only when the report signature and the VCEK<-ASK<-ARK
+    chain both check out. Returns ``FAILED`` when material is supplied but does
+    not verify, and ``NOT_IMPLEMENTED`` when no VCEK/chain was provided.
+    """
+    if vcek_cert_der is None or cert_chain_pem is None:
+        reasons.append(
+            "hardware signature not checked: no VCEK certificate / chain supplied"
+        )
+        return SignatureStatus.NOT_IMPLEMENTED
+
+    # The raw SNP report bytes come from the explicit argument, else the
+    # report's quote blob (SEVSNPProvider stows the raw report there).
+    raw = snp_report_bytes
+    if raw is None:
+        raw = getattr(report, "quote", None)
+    if not raw:
+        reasons.append(
+            "hardware signature not checked: no raw SNP report bytes on the report"
+        )
+        return SignatureStatus.NOT_IMPLEMENTED
+
+    from ._snp_verify import (
+        SnpVerificationError,
+        parse_snp_report,
+        verify_snp_signature,
+        verify_vcek_chain,
+    )
+
+    try:
+        parsed = parse_snp_report(raw)
+        if not verify_snp_signature(parsed, vcek_cert_der):
+            reasons.append("SNP report signature did not verify against the VCEK")
+            return SignatureStatus.FAILED
+        verify_vcek_chain(vcek_cert_der, cert_chain_pem, trusted_ark_der=trusted_ark_der)
+    except SnpVerificationError as e:
+        reasons.append(f"SNP certificate chain verification failed: {e}")
+        return SignatureStatus.FAILED
+    return SignatureStatus.VERIFIED
+
+
 def verify_attestation_chain(
     report: Any,
     *,
     expected_manifest_hash: str,
     expected_measurements: Optional[set[str]] = None,
+    snp_report_bytes: Optional[bytes] = None,
+    vcek_cert_der: Optional[bytes] = None,
+    cert_chain_pem: Optional[bytes] = None,
+    trusted_ark_der: Optional[bytes] = None,
 ) -> ChainVerificationResult:
     """Verify a boot-time ``AttestationReport`` against expected values.
 
@@ -81,11 +140,22 @@ def verify_attestation_chain(
             measurements (hex). If ``None``, the measurement step is skipped
             (recorded as ``measurement_matched=None``) and does not gate the
             result; pass a set to enforce it.
+        snp_report_bytes: Raw SEV-SNP attestation report (1184 bytes). If
+            omitted, the report's ``quote`` attribute is used.
+        vcek_cert_der: The VCEK leaf certificate (DER) for the report's chip and
+            TCB. Supply this together with ``cert_chain_pem`` to have the
+            hardware signature actually verified. Fetch via
+            :func:`._snp_verify.fetch_vcek`, or read from the report aux blob.
+        cert_chain_pem: The AMD KDS ``cert_chain`` blob (ASK then ARK, PEM).
+        trusted_ark_der: Optional pinned AMD root (ARK) certificate. When given,
+            the chain's ARK public key must match it.
 
     Returns:
-        A :class:`ChainVerificationResult`. ``passed`` is ``False`` until the
-        hardware signature backends are implemented (#204), regardless of the
-        software checks, because an unverified report proves nothing.
+        A :class:`ChainVerificationResult`. ``passed`` is ``True`` only when the
+        hardware signature is ``VERIFIED``, the manifest-hash binding matches,
+        and the measurement is accepted (or no allow-list was requested).
+        Without VCEK material the signature step is not performed and the result
+        cannot pass, because an unverified report proves nothing.
     """
     reasons: list[str] = []
 
@@ -116,11 +186,17 @@ def verify_attestation_chain(
         if not measurement_matched:
             reasons.append("launch measurement is not in the supplied allow-list")
 
-    # Step 1: hardware signature / quote chain (NOT IMPLEMENTED — fails closed).
-    signature = SignatureStatus.NOT_IMPLEMENTED
-    reasons.append(
-        "hardware signature/quote verification is not implemented; full "
-        "verification fails closed until vendor backends land (#204)"
+    # Step 1: hardware signature / quote chain. For AMD SEV-SNP this verifies
+    # the report signature against the VCEK and the VCEK<-ASK<-ARK chain when
+    # certificate material is supplied; otherwise it is reported as not
+    # performed and the result cannot pass.
+    signature = _verify_snp_signature_step(
+        report,
+        snp_report_bytes,
+        vcek_cert_der,
+        cert_chain_pem,
+        trusted_ark_der,
+        reasons,
     )
 
     passed = (
