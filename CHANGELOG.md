@@ -4,7 +4,13 @@ All notable changes to Agent Manifest are documented here. Format follows [Keep 
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-07-21
+
+Makes agent-manifest the canonical hardware-verification library for the org: SEV-SNP, TDX, and now TPM quote verification live here and are consumed by cmcp and ca2a via this PyPI package rather than duplicated per repo.
+
 ### Added
+
+**[SDK]** Shared TPM 2.0 quote verifier (`agent_manifest._tpm_verify`, exported: `parse_tpm_quote`, `verify_tpm_quote`, `TpmQuote`, `TpmVerificationError`). Fail-closed appraisal of a `TPMS_ATTEST` quote: magic/type structural check, AK certificate chain to a caller-pinned trusted root, AK signature (ECDSA-P256 or RSA PKCS#1 v1.5 / SHA-256) over the attest blob, and constant-time qualifying-data (nonce) + PCR-digest binding checks. Wired into `verify_attestation_chain` (dispatch on `platform in {"tpm","aws-nitro"}`). Ported from ca2a's reference implementation so the three repos share one verifier. Caveat: exercised against synthetic self-consistent vectors; unlike the SEV-SNP/TDX paths it is not yet validated against a real TPM quote (follow-up).
 
 **[SDK]** Intel TDX DCAP quote verification (`agent_manifest._tdx_verify`, exported), **hardware-validated on a non-paravisor TDX guest (GCP C3)**. `TDXProvider` now uses the configfs-TSM `tdx_guest` provider, which returns a full remotely-verifiable DCAP quote (v4, ECDSA-P256) instead of a bare local `TDREPORT`. Verification checks the quote's attestation-key signature over the TD report, the QE report binding, the PCK signature over the QE report, and the PCK certificate chain up to the **pinned Intel SGX Root CA** (embedded; offline). Wired into `verify_attestation_chain`, which now returns `passed=True` for a TDX report only when the quote + PCK chain verify. Closes the TDX half of the "shipped the binding without verification" gap (#204/#228); the previous `/dev/tdx-guest` ioctl path (raw TDREPORT, no signature check, RTMR-extend that never happened) has been removed. Azure TDX (paravisor/vTPM-rooted) remains a follow-up.
 **[SDK]** `AzureCVMProvider` — hardware-attested manifest binding on Azure confidential VMs, validated on live SEV-SNP silicon (Azure DCasv5). Azure runs SNP behind a Hyper-V paravisor, so there is no `/dev/sev-guest`; the SNP report is read from the vTPM NV index `0x01400001` and the manifest hash is bound through the vTPM (PCR + AK-signed quote), with the AK rooted in silicon by the SNP report + VCEK chain. Auto-selected by `provider='auto'` on Azure.
