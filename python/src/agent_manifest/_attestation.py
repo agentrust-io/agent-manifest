@@ -147,6 +147,47 @@ def _verify_tdx_signature_step(
         return SignatureStatus.FAILED
 
 
+def _verify_tpm_signature_step(
+    tpm_attest: Optional[bytes],
+    tpm_signature: Optional[bytes],
+    tpm_ak_chain_pem: Optional[bytes],
+    tpm_trusted_roots_pem: Optional[bytes],
+    expected_qualifying_data: Optional[bytes],
+    expected_pcr_digest: Optional[bytes],
+    reasons: list[str],
+) -> SignatureStatus:
+    """Verify a TPM 2.0 quote (AK chain + AK signature + bindings), if supplied.
+
+    Requires the TPMS_ATTEST blob, its AK signature, the AK certificate chain,
+    and the caller's trusted TPM roots (there is no single published TPM root).
+    Returns ``VERIFIED`` / ``FAILED`` / ``NOT_IMPLEMENTED`` (material absent).
+    """
+    if not (tpm_attest and tpm_signature and tpm_ak_chain_pem and tpm_trusted_roots_pem):
+        reasons.append(
+            "hardware signature not checked: TPM attest/signature/AK-chain/"
+            "trusted-roots not all supplied"
+        )
+        return SignatureStatus.NOT_IMPLEMENTED
+    from ._tpm_verify import TpmVerificationError, verify_tpm_quote
+
+    try:
+        ok = verify_tpm_quote(
+            tpm_attest,
+            tpm_signature,
+            tpm_ak_chain_pem,
+            trusted_roots_pem=tpm_trusted_roots_pem,
+            expected_qualifying_data=expected_qualifying_data,
+            expected_pcr_digest=expected_pcr_digest,
+        )
+    except TpmVerificationError as e:
+        reasons.append(f"TPM quote verification failed: {e}")
+        return SignatureStatus.FAILED
+    if ok:
+        return SignatureStatus.VERIFIED
+    reasons.append("TPM quote signature or binding did not verify")
+    return SignatureStatus.FAILED
+
+
 def verify_attestation_chain(
     report: Any,
     *,
@@ -157,6 +198,12 @@ def verify_attestation_chain(
     cert_chain_pem: Optional[bytes] = None,
     trusted_ark_der: Optional[bytes] = None,
     trusted_tdx_root_pem: Optional[bytes] = None,
+    tpm_attest: Optional[bytes] = None,
+    tpm_signature: Optional[bytes] = None,
+    tpm_ak_chain_pem: Optional[bytes] = None,
+    tpm_trusted_roots_pem: Optional[bytes] = None,
+    expected_qualifying_data: Optional[bytes] = None,
+    expected_pcr_digest: Optional[bytes] = None,
 ) -> ChainVerificationResult:
     """Verify a boot-time ``AttestationReport`` against expected values.
 
@@ -222,6 +269,16 @@ def verify_attestation_chain(
     platform = getattr(report, "platform", "") or ""
     if platform == "intel-tdx":
         signature = _verify_tdx_signature_step(report, reasons, trusted_tdx_root_pem)
+    elif platform in ("tpm", "aws-nitro"):
+        signature = _verify_tpm_signature_step(
+            tpm_attest,
+            tpm_signature,
+            tpm_ak_chain_pem,
+            tpm_trusted_roots_pem,
+            expected_qualifying_data,
+            expected_pcr_digest,
+            reasons,
+        )
     else:
         signature = _verify_snp_signature_step(
             report,
