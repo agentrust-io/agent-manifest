@@ -50,9 +50,9 @@ Existing approaches reduce to operator trust. A software-signed manifest proves 
 - Forge a human-in-the-loop approval record
 - Rewrite audit logs and re-sign with a software-held key
 
-> **The Anthropic Design Test - Applied to Agent Identity**
+> The Anthropic Design Test - Applied to Agent Identity
 >
-> Anthropic's Zero Trust for AI Agents framework asks whether a control makes an attack impossible or merely tedious. Software-only manifests are tedious: a privileged operator can rewrite them. Hardware raises the bar in two specific ways, and it is worth being precise about which.
+> Anthropic's Zero Trust for AI Agents framework asks whether a control makes an attack impossible or merely tedious. Software-only manifests are tedious: a privileged operator can rewrite them. Hardware raises the bar in two specific ways.
 >
 > First, the TEE launch measurement (SNP `MEASUREMENT`, TDX `MRTD`, TPM PCRs) is computed in silicon before any guest code runs, so the launch image cannot be altered undetected. Second, a signing key sealed to that measurement exists only inside an attested environment, so valid signatures cannot be produced anywhere else.
 >
@@ -75,7 +75,7 @@ The following table enumerates the complete agent trust surface. Columns indicat
 | 9 | Supply Chain | Container manifest; SLSA provenance; dependency SBOMs | Compromised dependency runs as approved binary | SLSA (build-time only) | Runtime measure |
 | 10 | HITL Approvals | Human oversight records with identity and timestamp | EU AI Act Art. 14 violation; no accountability chain | None - no standard | Full binding |
 
-> **What the "Agent Manifest" column means.** "Binding" in this table is a cryptographic *signature* binding inside an attested environment, not a hardware *measurement* of each artifact. The TEE measures the launch image in silicon; it does not measure individual files, policy documents, or in-memory objects after boot. A binding is therefore only as strong as a verifier who checks the full attestation chain and confirms the signing key is sealed to the launch measurement. Terms like "hardware-sealed" and "TEE-signed" should be read in that sense.
+> What the "Agent Manifest" column means. "Binding" in this table is a cryptographic *signature* binding inside an attested environment, not a hardware *measurement* of each artifact. The TEE measures the launch image in silicon; it does not measure individual files, policy documents, or in-memory objects after boot. A binding is therefore only as strong as a verifier who checks the full attestation chain and confirms the signing key is sealed to the launch measurement. Terms like "hardware-sealed" and "TEE-signed" should be read in that sense.
 
 ## 2. Specification Overview
 
@@ -83,23 +83,23 @@ The following table enumerates the complete agent trust surface. Columns indicat
 
 The Agent Manifest specification is designed around five principles:
 
-**P1 - Tamper-evidence over tamper-resistance**
+P1 - Tamper-evidence over tamper-resistance
 
 The manifest does not prevent tampering by making changes difficult. It makes tampering detectable by a third party who holds the manifest and compares it to a hardware attestation report. Any change to any bound artifact produces a measurement mismatch. Detection is cryptographic, not procedural.
 
-**P2 - Independence from operator trust**
+P2 - Independence from operator trust
 
 A verifying party must be able to confirm manifest integrity without trusting the operator who produced it. This requires hardware-rooted attestation (TEE measurement) for the binding layer, and a trust root that is not controlled by the entity being attested. a TEE-anchored attestation service provides this root; the specification defines the protocol for independent verification.
 
-**P3 - Composability with existing standards**
+P3 - Composability with existing standards
 
 The manifest does not replace SPIFFE/SPIRE, SLSA, SBOMs, or MCP. It composes with them. Agent identity uses SPIFFE SVIDs. Supply chain provenance uses SLSA attestation and CycloneDX SBOMs. Tool identity uses MCP's tool descriptor schema extended with a manifest binding. Policy identity uses AGT's Cedar bundle format. The manifest is the envelope that binds all of these into a single verifiable artifact.
 
-**P4 - Minimal footprint, maximal verifiability**
+P4 - Minimal footprint, maximal verifiability
 
 The manifest stores hashes and identifiers, not content. The system prompt hash is bound; the system prompt itself is not stored in the manifest. This keeps manifests small, portable, and privacy-preserving, while ensuring that any change to any artifact breaks the hash binding and is therefore detectable.
 
-**P5 - Protocol agnosticism with MCP as the reference implementation** <!-- CHANGED: F-04/F-05 - removed claim that A2A tool descriptors "replace" MCP tool descriptors; delegation chain is an original design with no current A2A dependency -->
+P5 - Protocol agnosticism with MCP as the reference implementation <!-- CHANGED: F-04/F-05 - removed claim that A2A tool descriptors "replace" MCP tool descriptors; delegation chain is an original design with no current A2A dependency -->
 
 The manifest is defined for any agent communication protocol. The reference implementation targets MCP because it is currently the dominant agentic wire protocol. The delegation chain cryptographic layer is protocol-agnostic by design. When A2A publishes a stable tool descriptor schema, the `tool_manifest` binding will be extended to support it; until then, field names in section 3.2.3 use MCP terminology as the reference implementation, with protocol-agnostic equivalents noted.
 
@@ -117,20 +117,20 @@ An Agent Manifest is created once per agent deployment, updated when any bound a
 
 <!-- CHANGED: SPEC-01/F-14 - added authoring and update protocol rules, immutability rule, version negotiation -->
 
-**Authoring and Update Protocol**
+Authoring and Update Protocol
 
 The `manifest_id` field is immutable per issuance. Any change to any signed field MUST produce a new manifest document with a new UUID v7 `manifest_id`. A `previous_manifest_id` field MAY be set in the new manifest to establish audit continuity. There is no in-place update mechanism - every change produces a new manifest.
 
 Two update paths are defined:
 
-- **Full re-issuance**: A new UUID v7, a new TEE attestation run, and a new transparency log entry. Required when any artifact binding changes, the signing key rotates, or the manifest expires.
-- **Artifact-only refresh**: Used only for `memory_baseline.snapshot_hash` renewal within the same `ttl_seconds` window. The manifest is re-signed but the TEE attestation need not be re-run if no other artifact has changed. This path is NOT available for any other artifact.
+- Full re-issuance: A new UUID v7, a new TEE attestation run, and a new transparency log entry. Required when any artifact binding changes, the signing key rotates, or the manifest expires.
+- Artifact-only refresh: Used only for `memory_baseline.snapshot_hash` renewal within the same `ttl_seconds` window. The manifest is re-signed but the TEE attestation need not be re-run if no other artifact has changed. This path is NOT available for any other artifact.
 
-**Version Negotiation**
+Version Negotiation
 
 A verifying party MUST inspect the `version` field before processing any other field. If the verifying party does not support the declared version, it MUST return a verification result of `INCOMPATIBLE_VERSION` and MUST NOT return `VALID` or `MISMATCH`. A verifying party that supports version N MUST NOT process a manifest with version greater than N - forward compatibility is not guaranteed across versions. Manifest producers MUST set `version` to the lowest spec version whose features they use. An optional `min_verifier_version` field (type: string, semantic version) MAY be set by the manifest author to signal that a minimum verifier version is required to correctly process the manifest.
 
-**Key Rotation**
+Key Rotation
 
 When a manifest signing key is rotated, the following protocol applies: (1) a new manifest MUST be issued signed by the successor key; (2) the new manifest MUST reference the previous manifest's transparency log entry in a `prior_transparency_log_entry` field; (3) the old manifest MUST be revoked upon rotation completion; (4) a `key_rotation` event type MUST be published to the transparency log. Verifiers traversing the rotation chain confirm continuity by checking that each successor manifest's `prior_transparency_log_entry` references a valid, previously-VALID manifest for the same `agent_id`. <!-- CHANGED: CRYPTO-009 - added key rotation protocol -->
 
@@ -147,26 +147,26 @@ All canonical JSON serialization in this specification uses RFC 8785 (JSON Canon
 
 The `@context` and `@type` JSON-LD fields are treated as ordinary JSON fields for canonicalization purposes. Full JSON-LD RDF dataset normalization (RDNA/GPN-09) is NOT used and MUST NOT be used as a substitute for JCS - the two algorithms produce different canonical forms. Implementations MUST reject manifests where the signature does not verify under RFC 8785 canonicalization.
 
-**Test vector**: The object `{"b":2,"a":1}` canonicalizes under RFC 8785 to the UTF-8 byte sequence `{"a":1,"b":2}` (lexicographic key order, no insignificant whitespace). Its SHA-256 is `43258cff783fe7036d8a43033f830adfc60ec037382473548ac742b888292777`. Implementations MUST reproduce this value.
+Test vector: The object `{"b":2,"a":1}` canonicalizes under RFC 8785 to the UTF-8 byte sequence `{"a":1,"b":2}` (lexicographic key order, no insignificant whitespace). Its SHA-256 is `43258cff783fe7036d8a43033f830adfc60ec037382473548ac742b888292777`. Implementations MUST reproduce this value.
 
-**Null-valued optional fields** MUST be omitted from the canonical form rather than included with a `null` value, unless this specification explicitly states a field is required and may be null (e.g., `model_hash` when `deployment_type` is `api`).
+Null-valued optional fields MUST be omitted from the canonical form rather than included with a `null` value, unless this specification explicitly states a field is required and may be null (e.g., `model_hash` when `deployment_type` is `api`).
 
-**SHAKE-256 output length**: For all artifact hash fields in the post-quantum profile, SHAKE-256 output length MUST be 256 bits (32 bytes), producing a 64-character lowercase hexadecimal string. SHAKE-256 hash values MUST be prefixed with `shake256:` in field values to distinguish them from SHA-256 hashes. <!-- CHANGED: SCHEMA F-05 - fixed SHAKE-256 output length ambiguity -->
+SHAKE-256 output length: For all artifact hash fields in the post-quantum profile, SHAKE-256 output length MUST be 256 bits (32 bytes), producing a 64-character lowercase hexadecimal string. SHAKE-256 hash values MUST be prefixed with `shake256:` in field values to distinguish them from SHA-256 hashes. <!-- CHANGED: SCHEMA F-05 - fixed SHAKE-256 output length ambiguity -->
 
 
 ### 2.4 Version Negotiation <!-- CHANGED: closes #45 -->
 
 Manifest producers and verifiers negotiate spec compatibility using the `version` field in the manifest and the `spec_version` field in VerificationResult.
 
-**Producer requirements:**
+Producer requirements:
 - MUST set `version` to the spec version used for manifest construction (e.g., `"0.1"`).
 - MUST NOT produce fields defined only in later spec versions when targeting an older verifier.
 
-**Verifier requirements:**
+Verifier requirements:
 - MUST check `version` before verifying. If the version is unsupported, MUST return `INCOMPATIBLE_VERSION` rather than silently misinterpreting fields.
 - SHOULD support at least the current and one prior minor version.
 
-**Compatibility matrix:**
+Compatibility matrix:
 
 | Producer version | Verifier supports | Result |
 |-----------------|-------------------|--------|
@@ -206,7 +206,7 @@ An Agent Manifest is a JSON-LD document conforming to the following schema. All 
 }
 ```
 
-**Field cardinality table**
+Field cardinality table
 
 | Field | Type | Cardinality | Constraint |
 |---|---|---|---|
@@ -239,7 +239,7 @@ The `agent_id` path structure `/agent/<name>/<instance>` shown in examples is a 
 The `@context` URL `https://agentmanifest.agentrust.io/v0.1/context.json` is provisional for the v0.1 draft period. The AAIF working group will assign the canonical URL prior to v1.0 ratification. Implementations MUST support the canonical AAIF URL when it is assigned, and SHOULD support the v0.1 draft URL for backward compatibility with pre-ratification manifests.
 
 <!-- CHANGED: SCHEMA F-19 - normative artifact-to-field mapping table -->
-**Artifact-to-field mapping** (for Level 2 "all 10 artifacts bound" conformance):
+Artifact-to-field mapping (for Level 2 "all 10 artifacts bound" conformance):
 
 | Artifact # | Artifact Name | JSON field location |
 |---|---|---|
@@ -302,7 +302,7 @@ AGT policy scope identifiers use the form `<namespace>:<resource-type>:<action>`
 
 <!-- CHANGED: F-05 - renamed MCP-specific fields to protocol-agnostic equivalents with MCP mapping note; CRYPTO-002/SPEC-03 - fixed catalog_hash to commit to both schema and description per tool; SPEC-04 - added dynamic registration enforcement note; SCHEMA F-07 - fixed allow_dynamic_registration boolean type and rug_pull_policy definitions; SCHEMA F-05 - egress_destinations none removed from array -->
 
-> **Protocol note**: Field values in this section use MCP terminology as the reference implementation. For other protocols, `tool_name` maps to the protocol-native tool identifier and `endpoint_id` maps to the protocol-native server identity. The `rug_pull_policy` field describes a class of attack applicable to any protocol mechanism by which a tool endpoint signals a capability change - not only MCP `notifications/tools/list_changed`.
+> Protocol note: Field values in this section use MCP terminology as the reference implementation. For other protocols, `tool_name` maps to the protocol-native tool identifier and `endpoint_id` maps to the protocol-native server identity. The `rug_pull_policy` field describes a class of attack applicable to any protocol mechanism by which a tool endpoint signals a capability change - not only MCP `notifications/tools/list_changed`.
 
 ```json
 "tool_manifest": {
@@ -325,7 +325,7 @@ AGT policy scope identifiers use the form `<namespace>:<resource-type>:<action>`
 }
 ```
 
-**`catalog_hash` construction** <!-- CHANGED: CRYPTO-002/SPEC-03 - catalog_hash now commits to both schema_hash and description_hash -->
+`catalog_hash` construction <!-- CHANGED: CRYPTO-002/SPEC-03 - catalog_hash now commits to both schema_hash and description_hash -->
 
 The `catalog_hash` is a Merkle root over per-tool leaf hashes. Each leaf is computed as:
 
@@ -337,23 +337,23 @@ Tools are sorted lexicographically by `tool_id` before tree construction. Interi
 
 A test vector for a two-tool catalog MUST be published in Appendix D of the reference implementation.
 
-**`allow_dynamic_registration`** MUST be `false` for Level 1+ deployments unless `hitl_record.approvals` contains an approval with `approved_scope.artifacts` including `"tool_manifest"` and an `approval_duration_seconds` covering the dynamic registration window. Any protocol mechanism by which a tool endpoint signals a capability change that adds a tool not in the approved catalog MUST trigger a `rug_pull_policy` action and emit a signed `RUG_PULL_DETECTED` evidence event to the audit log.
+`allow_dynamic_registration` MUST be `false` for Level 1+ deployments unless `hitl_record.approvals` contains an approval with `approved_scope.artifacts` including `"tool_manifest"` and an `approval_duration_seconds` covering the dynamic registration window. Any protocol mechanism by which a tool endpoint signals a capability change that adds a tool not in the approved catalog MUST trigger a `rug_pull_policy` action and emit a signed `RUG_PULL_DETECTED` evidence event to the audit log.
 
-**`rug_pull_policy` action definitions**: <!-- CHANGED: SPEC-04 - defined all three policy actions precisely -->
+`rug_pull_policy` action definitions: <!-- CHANGED: SPEC-04 - defined all three policy actions precisely -->
 - `deny-and-alert`: Reject the new tool registration. Continue serving previously approved tools. Emit a `RUG_PULL_DETECTED` evidence event (see section 3.2.3.1) to the audit log.
 - `deny-and-hold`: Same as `deny-and-alert`, plus suspend all tool calls until an operator explicitly acknowledges the event. Queue depth is implementation-defined; calls that exceed the queue MUST be rejected with an error surfaced to the agent.
 - `require-reapproval`: Same as `deny-and-hold`, plus initiate the HITL re-approval flow defined in section 3.5.
 
 Tool removal events (where a previously approved tool disappears from the catalog) MUST also trigger the configured `rug_pull_policy` action, as removal of a logging or auditing tool is itself a security event.
 
-**`egress_destinations`**: An empty array `[]` is the representation for no external egress permitted. The value `"none"` MUST NOT appear as an array element. <!-- CHANGED: SCHEMA F-07 - removed none from array -->
+`egress_destinations`: An empty array `[]` is the representation for no external egress permitted. The value `"none"` MUST NOT appear as an array element. <!-- CHANGED: SCHEMA F-07 - removed none from array -->
 
 ##### 3.2.3.1 Dynamic Tool Registration Enforcement <!-- CHANGED: SPEC-04 - new normative subsection -->
 
 Enforcement responsibility is assigned as follows:
 
-- **Phase 2 (cMCP Runtime) deployments**: The cMCP Runtime is the enforcement actor for `rug_pull_policy`. It intercepts tool capability change notifications before they reach the agent.
-- **Level 0/1 deployments without cMCP**: The agent SDK is the enforcement actor. SDK implementations MUST intercept tool capability change events from the underlying protocol transport.
+- Phase 2 (cMCP Runtime) deployments: The cMCP Runtime is the enforcement actor for `rug_pull_policy`. It intercepts tool capability change notifications before they reach the agent.
+- Level 0/1 deployments without cMCP: The agent SDK is the enforcement actor. SDK implementations MUST intercept tool capability change events from the underlying protocol transport.
 
 The `RUG_PULL_DETECTED` evidence event is a structured record conforming to a subset of the TRACE envelope (section 6.3.2) with the following additional fields:
 
@@ -435,7 +435,7 @@ node_hash = SHA-256(0x01 || left_child_hash || right_child_hash)
 
 This construction is consistent with RFC 9162 Certificate Transparency (see also section 4.1 on domain separation). The `merkle_root` field value MUST use the `sha256:` prefix format.
 
-**Poisoning scan rules**: <!-- CHANGED: SCHEMA F-17 -->
+Poisoning scan rules: <!-- CHANGED: SCHEMA F-17 -->
 - A manifest with `poisoning_scan.result: flagged` MUST NOT be issued as VALID. The manifest MUST be held in `INCOMPLETE` state until flagged documents are removed and a clean scan completed.
 - For Level 1 conformance and above, `poisoning_scan.result: not-scanned` is NOT permitted. The corpus MUST be scanned before the manifest is signed.
 - For Level 0, `not-scanned` is permitted but MUST surface as a warning in the verification result.
@@ -460,15 +460,15 @@ This construction is consistent with RFC 9162 Certificate Transparency (see also
 }
 ```
 
-**Memory type definitions**:
+Memory type definitions:
 - `none`: The agent has no memory. `ttl_seconds` SHOULD be omitted; `snapshot_hash` MUST be null.
 - `session`: Memory scoped to a single conversation session. Session memory is exempt from drift detection within a session boundary - `snapshot_hash` represents the approved initial state only.
 - `persistent`: Memory that persists across sessions. `snapshot_hash` represents the last approved memory checkpoint.
 - `shared`: Memory state shared across multiple instances of the same agent version, identified by the same `baseline_id`. Each instance MUST reference the same `snapshot_hash`. A designated owner agent MUST hold the authoritative `snapshot_hash`; other agents MUST reference the owner's `manifest_id` in `shared_memory_owner`.
 
-**`ttl_seconds`** MUST be a positive integer when present. Minimum value: 3600 (1 hour). Maximum value: 7776000 (90 days). REQUIRED when `memory_type` is `persistent` or `shared`.
+`ttl_seconds` MUST be a positive integer when present. Minimum value: 3600 (1 hour). Maximum value: 7776000 (90 days). REQUIRED when `memory_type` is `persistent` or `shared`.
 
-**`drift_policy`** conformance: For Level 2 conformance, `drift_policy` MUST be `deny-on-drift` or `alert-on-drift`. `log-only` is permitted only at Level 0 and Level 1.
+`drift_policy` conformance: For Level 2 conformance, `drift_policy` MUST be `deny-on-drift` or `alert-on-drift`. `log-only` is permitted only at Level 0 and Level 1.
 
 ##### 3.2.6.1 Memory Snapshot and Drift Protocol <!-- CHANGED: SPEC-06 - new normative subsection -->
 
@@ -486,21 +486,21 @@ For `drift_policy` action definitions:
 
 v0.1 (Section 3.2.6.1) binds memory as a static set snapshot: any change forces a full
 re-hash and re-approval. v0.2 adds an OPTIONAL incremental path that binds memory as an
-**append-only operation log** — a merkle-log (same model as `decision_trace.trace_type:
-merkle-log`, Section 3.2.7) — so an agent may evolve persistent memory across a session and
+append-only operation log, a merkle-log (same model as `decision_trace.trace_type:
+merkle-log`, Section 3.2.7), so an agent may evolve persistent memory across a session and
 prove the evolution was governed, without re-approving the whole store.
 
-**Memory tree.** Memory mutations are encoded as an ordered sequence of operations. Each
+Memory tree. Memory mutations are encoded as an ordered sequence of operations. Each
 operation is one leaf, appended in sequence order (NOT sorted). The `memory_root` is the
 RFC 9162 Merkle Tree Hash over the operation leaves, in HashValue form. A leaf is
 `H(0x00 || tag || canonical_op)` where `tag` domain-separates the representation and
 `canonical_op` is the RFC 8785 canonical JSON (Section 4.1) of the operation:
 
-- **Key-value** (`tag = "am-mem-kv\x00"`): `PUT` op `{"key","op","value"}`; `DEL` op `{"key","op"}`.
-- **Semantic / vector** (`tag = "am-mem-vec\x00"`): `{"content_hash","embedding","embedding_model_id","id","op"}`,
+- Key-value (`tag = "am-mem-kv\x00"`): `PUT` op `{"key","op","value"}`; `DEL` op `{"key","op"}`.
+- Semantic / vector (`tag = "am-mem-vec\x00"`): `{"content_hash","embedding","embedding_model_id","id","op"}`,
   where `embedding` is the lowercase-hex of the quantized embedding bytes. Binding the
   `embedding_model_id` makes a silent re-embedding or re-quantization change the root.
-- **Graph** (`tag = "am-mem-gnode\x00"` / `"am-mem-gedge\x00"`): node `{"node_id","op","props"}`;
+- Graph (`tag = "am-mem-gnode\x00"` / `"am-mem-gedge\x00"`): node `{"node_id","op","props"}`;
   edge `{"dst","op","props","rel","src"}`.
 
 `DEL`/removal MUST be encoded as an appended operation; a verifier MUST NOT accept a delta
@@ -508,10 +508,10 @@ that rewrites or removes an existing log position. The materialized current memo
 (and hence the v0.1 `snapshot_hash`, Section 3.2.6.1) is the left fold of the operation log
 (last-writer-wins for `PUT`/`DEL`).
 
-**Checkpoint.** A checkpoint binds `{memory_root, tree_size, seq, approved_at, ttl_seconds}`
+Checkpoint. A checkpoint binds `{memory_root, tree_size, seq, approved_at, ttl_seconds}`
 (see `MemoryCheckpointBinding`). `seq` is a strictly monotonic checkpoint counter.
 
-**Delta acceptance.** A verifier presented with a prior checkpoint, a new checkpoint, and an
+Delta acceptance. A verifier presented with a prior checkpoint, a new checkpoint, and an
 RFC 9162 §2.1.2 consistency proof MUST accept the advance as a governed checkpoint (NOT
 drift) if and only if, in this order:
 
@@ -522,11 +522,11 @@ drift) if and only if, in this order:
    (else `expired`);
 4. the delta is within the deployer's declared budget (else `budget`).
 
-If step 1 fails, the change is **drift** and MUST be handled by the existing `drift_policy`
-(Section 3.2.6.1) — `MEMORY_DRIFT_DETECTED`. This preserves the v0.1 fail-closed guarantee:
+If step 1 fails, the change is drift and MUST be handled by the existing `drift_policy`
+(Section 3.2.6.1): `MEMORY_DRIFT_DETECTED`. This preserves the v0.1 fail-closed guarantee:
 absence of a valid consistency proof never grants acceptance.
 
-**Test vector.** The KV operation log `[PUT a=1, PUT b=2]` produces
+Test vector. The KV operation log `[PUT a=1, PUT b=2]` produces
 `memory_root = sha256:9a41dee8ec223727525f8b26685e413664190d2b82cd62d4f7c15180a9e1f5af`.
 The single-operation prefix `[PUT a=1]` has leaf preimage
 `am-mem-kv\x00{"key":"a","op":"PUT","value":1}` and leaf hash
@@ -535,7 +535,7 @@ proof to the 2-operation log is the single node
 `42effb8d6d6bf9904585248b30b039a5ede7a447a5f8fd21cc0a8b0b850c566f`. Implementations MUST
 reproduce these values.
 
-**Limitations (v0.2).** Log compaction / checkpoint re-baseline is not yet defined: a
+Limitations (v0.2). Log compaction / checkpoint re-baseline is not yet defined: a
 deployment MUST re-baseline (full re-approval per Section 3.2.6.1) before the cumulative
 operation count approaches implementation limits. HITL co-signing of a checkpoint advance and
 `shared` memory owner co-signing are deferred to a later revision.
@@ -647,13 +647,13 @@ The attestation block binds the manifest to a specific TEE hardware measurement.
 }
 ```
 
-**`manifest_hash_in_report` pre-image** <!-- CHANGED: SPEC-09 - normative pre-image definition -->
+`manifest_hash_in_report` pre-image <!-- CHANGED: SPEC-09 - normative pre-image definition -->
 
 The `manifest_hash_in_report` pre-image is the RFC 8785 canonical JSON serialization of the full manifest document including the `signature` block and excluding only the `attestation` block. The `attestation` key MUST NOT be present in the pre-image document. The `transparency_log_entry` key MUST also be absent from the pre-image (it is populated after log submission). The hash MUST be computed over the UTF-8 encoding of this canonical form with no BOM.
 
 The `audit_key_sealed` field (JSON boolean) MUST be `true` for production deployments. It indicates that the audit log signing key was generated inside the TEE and has never been exported to operator-readable memory. A manifest with `audit_key_sealed: false` MUST be treated as software-attested and MUST NOT satisfy regulatory requirements that call for hardware-rooted evidence.
 
-**Attestation verification protocol** <!-- CHANGED: CRYPTO-010 - RATS reference -->
+Attestation verification protocol <!-- CHANGED: CRYPTO-010 - RATS reference -->
 
 The attestation service acts as a RATS Verifier in the sense of RFC 9334. For deployments where a third party wishes to verify TEE measurements independently (without trusting the attestation service as intermediary), the service MUST produce a normalized attestation result in the form of an Entity Attestation Token (EAT, per RFC 9528) derived from the raw platform report. The `report_uri` provides the raw platform report for parties wishing to perform independent verification using platform vendor SDKs (AMD `sev-snp-verify`, Intel TDX Attest SDK, etc.).
 
@@ -661,32 +661,32 @@ The attestation service acts as a RATS Verifier in the sense of RFC 9334. For de
 
 The following profiles define, per platform, the measurement field used to carry the `manifest_hash_in_report`, the format of the `measurement` field, and which component performs the extension.
 
-**AMD SEV-SNP**
+AMD SEV-SNP
 - `manifest_hash_in_report` is bound via the `HOST_DATA` field of the SNP attestation report (32 bytes). `HOST_DATA` is host-supplied launch data: it is set by the host/launcher (the Confidential Runtime) at `SNP_LAUNCH_FINISH` and the guest can read but not modify it after launch. This boot-time binding is therefore only as trustworthy as the launcher that measures the manifest. `HOST_DATA` is NOT the guest-controlled field; the guest-controlled field is `REPORT_DATA` (64 bytes), used for the runtime freshness proofs in §3.3.2. Do NOT use a PCR register for this purpose.
 - `measurement` field: SHA-256 of initial guest memory pages (64 bytes, 128 lowercase hex characters).
 - Extension actor: the Confidential Runtime (host/launcher) sets `HOST_DATA` at `SNP_LAUNCH_FINISH`, before the guest runs; the guest cannot alter it.
 
-**Intel TDX**
+Intel TDX
 - `manifest_hash_in_report` is extended into `RTMR[3]` using `TDG.MR.RTMR.EXTEND` before any workload code runs.
 - `measurement` field: MRTD value (SHA-384, 96 bytes, 192 lowercase hex characters). For deployments using multiple RTMRs, the `measurement` field MUST be a JSON object: `{"mrtd": "<hex>", "rtmr0": "<hex>", "rtmr1": "<hex>", "rtmr2": "<hex>", "rtmr3": "<hex>"}`.
 - Extension actor: the Confidential Runtime performs the RTMR extension.
 
-**AWS Nitro**
+AWS Nitro
 - `manifest_hash_in_report` is extended into PCR15 using `tpm2_extend` with SHA-256 bank before instance launch. PCR15 is reserved for custom measurements and MUST be used. <!-- CHANGED: instructions - PCR 15 per spec requirement -->
 - `measurement` field: A JSON object of PCR index to SHA-384 hex values: `{"pcr0": "<hex>", "pcr1": "<hex>", "pcr15": "<hex>"}`. At minimum, PCR0, PCR1, and PCR15 MUST be present.
 - Extension actor: Instance bootloader extends PCR15; the Confidential Runtime verifies the extension before proceeding.
 
-**NVIDIA Blackwell**
+NVIDIA Blackwell
 - `manifest_hash_in_report` is embedded in the SPDM measurements report as custom measurement index `0x05` (implementation-reserved, distinct from NVIDIA firmware indices 0x00-0x04).
 - `measurement` field: SPDM measurement digest as provided by the NVIDIA attestation SDK (format per NVIDIA Hopper/Blackwell attestation documentation).
 - Extension actor: the Confidential Runtime writes the custom measurement index before attestation report generation.
 
-**ARM CCA**
+ARM CCA
 - `manifest_hash_in_report` is extended into the Realm Measurement Register (RMR) at index 1 using `RSI_MEASUREMENT_EXTEND` before workload execution.
 - `measurement` field: Realm measurement register value (SHA-512, 64 bytes, 128 lowercase hex characters).
 - Extension actor: Realm Management Monitor (RMM) applies the extension; the Confidential Runtime initiates via RSI call.
 
-**Google Confidential Space**
+Google Confidential Space
 - Google Confidential Space uses AMD SEV-SNP as the underlying TEE. The AMD SEV-SNP profile applies. Additionally, the `measurement` field MUST include the Confidential Space-specific `sub_mod` claims from the OIDC token issued by the Confidential Space attestation service.
 - Extension actor: As per AMD SEV-SNP profile.
 
@@ -694,17 +694,17 @@ The following profiles define, per platform, the measurement field used to carry
 
 The `attestation` block defined in Section 3.3 is a boot-time artifact. It proves which manifest was active when the TEE was initialised. It does not prove that the agent's runtime state (system prompt, policy bundle, tool catalog) has remained unchanged after launch.
 
-For deployments requiring continuous or challenge-response evidence, the SDK exposes `attest_runtime_state(nonce, context_hash)`, which produces a **Runtime Attestation Report** — a separate evidence artifact that is never appended to the manifest.
+For deployments requiring continuous or challenge-response evidence, the SDK exposes `attest_runtime_state(nonce, context_hash)`, which produces a Runtime Attestation Report, a separate evidence artifact that is never appended to the manifest.
 
-**Scope of the TEE boot measurement**
+Scope of the TEE boot measurement
 
 The TEE boot measurement (`MEASUREMENT` on SNP, `MRTD` on TDX, PCR values on TPM) is hardware-immutable after launch. No re-measurement of the TEE is possible. What `attest_runtime_state()` provides is a fresh hardware-signed quote in which the guest-controlled field (`REPORT_DATA` on SNP, `REPORTDATA` on TDX) is set to a value that binds the nonce and the current runtime context. The hardware signs both the immutable boot measurement and this caller-supplied value, giving the verifier:
 
-1. **TEE identity** — the boot measurement has not changed since the boot-time `attestation` block was produced
-2. **Current state** — the caller-supplied field encodes `sha256(nonce || context_hash_bytes)`
-3. **Freshness** — a verifier-supplied nonce prevents replay of an older quote
+1. TEE identity: the boot measurement has not changed since the boot-time `attestation` block was produced
+2. Current state: the caller-supplied field encodes `sha256(nonce || context_hash_bytes)`
+3. Freshness: a verifier-supplied nonce prevents replay of an older quote
 
-**REPORT_DATA derivation (normative)**
+REPORT_DATA derivation (normative)
 
 The caller-controlled field MUST be set to:
 
@@ -724,7 +724,7 @@ where `context_hash` is a `sha256:<hex>` digest of the RFC 8785 canonical JSON o
 
 Additional fields (`model_version`, `rag_corpus_merkle_root`, `memory_snapshot_hash`) MAY be included. Field names MUST be sorted lexicographically. The hash MUST be over the UTF-8 encoding of the canonical form with no BOM.
 
-**Runtime Attestation Report fields**
+Runtime Attestation Report fields
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -734,22 +734,22 @@ Additional fields (`model_version`, `rag_corpus_merkle_root`, `memory_snapshot_h
 | `nonce_hex` | string | Hex encoding of the verifier-supplied nonce |
 | `quote` | bytes (optional) | Raw platform quote blob for hardware signature verification |
 
-**Verification**
+Verification
 
 A verifier MUST:
 1. Confirm `report_data_hash == sha256(sha256(nonce || context_hash_bytes))` using `verify_runtime_report()` or equivalent. A report that fails this check MUST be rejected.
 2. Confirm that the boot measurement in the raw `quote` blob matches the `measurement` field in the manifest's `attestation` block. A mismatch indicates the runtime report was produced in a different TEE than the one that was originally attested.
 3. Optionally verify the hardware signature in `quote` using the platform vendor SDK (`amd sev-snp-verify`, Intel TDX Attest SDK, `tpm2_checkquote`).
 
-**What runtime attestation does not prove**
+What runtime attestation does not prove
 
-A Runtime Attestation Report does not prove that the values in `context_hash` are correct — it proves only that the agent claimed this context hash in a TEE with the specified boot measurement at the moment the nonce was signed. The verifier is responsible for independently computing the expected `context_hash` from the live artifacts and comparing it against `report.context_hash`.
+A Runtime Attestation Report does not prove that the values in `context_hash` are correct; it proves only that the agent claimed this context hash in a TEE with the specified boot measurement at the moment the nonce was signed. The verifier is responsible for independently computing the expected `context_hash` from the live artifacts and comparing it against `report.context_hash`.
 
-**Scheduling**
+Scheduling
 
 The frequency of `attest_runtime_state()` calls is not mandated by this standard. Verifiers that require freshness guarantees SHOULD supply a new nonce per challenge and require a response within a bounded time window. The SDK provides the primitive; scheduling and enforcement are the responsibility of the caller or a runtime enforcement layer (e.g., cMCP).
 
-**TPM note**
+TPM note
 
 `attest_runtime_state()` on `TPMProvider` requires a pre-provisioned Attestation Key (AK) passed at construction time. See the SDK documentation for provisioning steps. SEV-SNP and TDX do not have this requirement.
 
@@ -757,7 +757,7 @@ The frequency of `attest_runtime_state()` calls is not mandated by this standard
 
 <!-- CHANGED: F-04 - clarified delegation chain is original design with no A2A protocol dependency; SPEC-05 - added normative Scope Grant Semantics subsection; SCHEMA F-10 - added normative max_delegation_depth default and Cedar constraint validation rules -->
 
-> **Standards note**: The delegation chain defined in this section is an original design in this specification with no dependency on any published A2A wire protocol standard. As of the date of this specification, no published A2A standard defines a delegation chain, scope grant format, or inter-agent trust primitive. This specification intends to align the delegation chain with A2A as that standard matures. Section 10.4 notes the relationship accurately.
+> Standards note: The delegation chain defined in this section is an original design in this specification with no dependency on any published A2A wire protocol standard. As of the date of this specification, no published A2A standard defines a delegation chain, scope grant format, or inter-agent trust primitive. This specification intends to align the delegation chain with A2A as that standard matures. Section 10.4 notes the relationship accurately.
 
 When an agent is spawned by another agent in a multi-agent system, the delegating agent's identity and scope grant must be bound in the manifest. The `delegation_chain` array is ordered from root principal (human or system) to the current agent.
 
@@ -836,14 +836,14 @@ For agents operating under EU AI Act Article 14 requirements or any policy that 
 }
 ```
 
-**`approver_id`** MUST be a human-attributable identity. SPIFFE SVIDs MUST NOT be used as `approver_id` values - SPIFFE SVIDs identify machine workloads, not natural persons. The preferred form is an OIDC `sub` claim paired with an `approver_oidc_issuer` URI (e.g., `sub: "1234567890"` + `iss: "https://accounts.google.com"`), an email address as a URI (`mailto:approver@example.com`), or a W3C DID bound to a hardware authenticator. For EU AI Act Art. 14 compliance, the approver identity MUST be traceable to a natural person in the deployer's HR or IAM system.
+`approver_id` MUST be a human-attributable identity. SPIFFE SVIDs MUST NOT be used as `approver_id` values - SPIFFE SVIDs identify machine workloads, not natural persons. The preferred form is an OIDC `sub` claim paired with an `approver_oidc_issuer` URI (e.g., `sub: "1234567890"` + `iss: "https://accounts.google.com"`), an email address as a URI (`mailto:approver@example.com`), or a W3C DID bound to a hardware authenticator. For EU AI Act Art. 14 compliance, the approver identity MUST be traceable to a natural person in the deployer's HR or IAM system.
 
-**`approval_method` trust ordering** for regulatory compliance: <!-- CHANGED: SCHEMA F-11 -->
+`approval_method` trust ordering for regulatory compliance: <!-- CHANGED: SCHEMA F-11 -->
 - `hardware-key` (FIDO2 passkey, HSM, or smartcard): satisfies EU AI Act Art. 14 non-repudiation requirements. REQUIRED for `risk_tier: high` or `critical` at Level 2 conformance.
 - `mfa-backed` (software key protected by MFA): acceptable for medium-risk approvals only.
 - `software-key`: acceptable only for Level 0 non-regulated deployments.
 
-**`hitl_runtime`** block declares the runtime human oversight capabilities required by EU AI Act Art. 14(4) operational oversight obligations. The `hitl_record.approvals` structure satisfies Art. 14 pre-deployment documentation obligations (Art. 14(4)(b)-(e)). The `hitl_runtime` block separately addresses the runtime stop/override capability requirement (Art. 14(4)(a)). Both are required for full Art. 14 compliance. See section 9.1 for the regulatory mapping. <!-- CHANGED: REG-001 -->
+`hitl_runtime` block declares the runtime human oversight capabilities required by EU AI Act Art. 14(4) operational oversight obligations. The `hitl_record.approvals` structure satisfies Art. 14 pre-deployment documentation obligations (Art. 14(4)(b)-(e)). The `hitl_runtime` block separately addresses the runtime stop/override capability requirement (Art. 14(4)(a)). Both are required for full Art. 14 compliance. See section 9.1 for the regulatory mapping. <!-- CHANGED: REG-001 -->
 
 Each `approval_signature` is produced by the approver's hardware-backed key (FIDO2/passkey at minimum, HSM for high-risk approvals).
 
@@ -864,9 +864,9 @@ Each `approval_signature` is produced by the approver's hardware-backed key (FID
 }
 ```
 
-**`signed_fields`** is a fixed normative list and MUST NOT be varied by implementations. <!-- CHANGED: closes #156: replaced contradictory prose with an exhaustive signing coverage table; added hitl_record.approvals normalization rule --> The following table enumerates every top-level manifest field and states whether it is part of the signing pre-image. A field marked "Signed" that is absent from the manifest (an omitted OPTIONAL or CONDITIONALLY REQUIRED field) is simply omitted from the pre-image per the null-omission rule in section 2.3; it MUST NOT be serialized as `null`.
+`signed_fields` is a fixed normative list and MUST NOT be varied by implementations. <!-- CHANGED: closes #156: replaced contradictory prose with an exhaustive signing coverage table; added hitl_record.approvals normalization rule --> The following table enumerates every top-level manifest field and states whether it is part of the signing pre-image. A field marked "Signed" that is absent from the manifest (an omitted OPTIONAL or CONDITIONALLY REQUIRED field) is simply omitted from the pre-image per the null-omission rule in section 2.3; it MUST NOT be serialized as `null`.
 
-**Signing coverage table (normative)**
+Signing coverage table (normative)
 
 | Top-level field | In signing pre-image | Notes |
 |---|---|---|
@@ -894,15 +894,15 @@ Each `approval_signature` is produced by the approver's hardware-backed key (FID
 
 Every top-level field defined by this specification appears in exactly one row of this table. A future spec version that introduces a new top-level field MUST add it to this table.
 
-**`hitl_record.approvals` normalization rule (normative)**: When computing the manifest signing pre-image, the value of `hitl_record.approvals` MUST be normalized to an empty array (`[]`). All other `hitl_record` fields, including `required`, `escalation_policy`, `hitl_runtime`, and any risk-tier metadata, are covered by the issuer signature as-is. This makes the HITL *requirement* tamper-evident (an attacker cannot strip or weaken it without invalidating the issuer signature) while allowing approvals to be attached after the manifest is issued, without re-signing. Approval entries are individually authenticated by their own `approval_signature` and verified separately per section 3.5; they are NOT covered by the issuer signature. Verifiers MUST apply the identical normalization before checking the issuer signature. See ADR-0006 (as amended 2026-06-11).
+`hitl_record.approvals` normalization rule (normative): When computing the manifest signing pre-image, the value of `hitl_record.approvals` MUST be normalized to an empty array (`[]`). All other `hitl_record` fields, including `required`, `escalation_policy`, `hitl_runtime`, and any risk-tier metadata, are covered by the issuer signature as-is. This makes the HITL *requirement* tamper-evident (an attacker cannot strip or weaken it without invalidating the issuer signature) while allowing approvals to be attached after the manifest is issued, without re-signing. Approval entries are individually authenticated by their own `approval_signature` and verified separately per section 3.5; they are NOT covered by the issuer signature. Verifiers MUST apply the identical normalization before checking the issuer signature. See ADR-0006 (as amended 2026-06-11).
 
-**Canonical serialization**: The signature covers the RFC 8785 canonical JSON serialization of the named `signed_fields`, after applying the `hitl_record.approvals` normalization rule above. See section 2.3 for the complete canonicalization specification.
+Canonical serialization: The signature covers the RFC 8785 canonical JSON serialization of the named `signed_fields`, after applying the `hitl_record.approvals` normalization rule above. See section 2.3 for the complete canonicalization specification.
 
-**Ed25519 validation rules** <!-- CHANGED: CRYPTO-007 -->: Ed25519 implementations MUST use the cofactorless verification equation (`[S]B == R + [k]A`). Implementations MUST reject non-canonically encoded points (i.e., reject if the encoding does not round-trip through point decoding). Implementations MUST NOT use batch verification unless the batch verifier enforces the same cofactorless equation with canonical encoding checks. Implementations SHOULD use hedged signing (per draft-irtf-cfrg-det-sigs-with-noise) when signing keys reside in hardware signers subject to fault injection.
+Ed25519 validation rules <!-- CHANGED: CRYPTO-007 -->: Ed25519 implementations MUST use the cofactorless verification equation (`[S]B == R + [k]A`). Implementations MUST reject non-canonically encoded points (i.e., reject if the encoding does not round-trip through point decoding). Implementations MUST NOT use batch verification unless the batch verifier enforces the same cofactorless equation with canonical encoding checks. Implementations SHOULD use hedged signing (per draft-irtf-cfrg-det-sigs-with-noise) when signing keys reside in hardware signers subject to fault injection.
 
-**Hybrid signature envelope** <!-- CHANGED: CRYPTO-006 -->: When `algorithm` is `hybrid-Ed25519-ML-DSA-65`, both `classical_signature` and `pq_signature` MUST be present. Both signatures cover the identical RFC 8785 canonical JSON byte sequence of `signed_fields`. A verifier MUST verify both signatures and MUST reject the manifest if either fails. Reference: draft-ietf-pquip-hybrid-signature-spectrums for the binding model.
+Hybrid signature envelope <!-- CHANGED: CRYPTO-006 -->: When `algorithm` is `hybrid-Ed25519-ML-DSA-65`, both `classical_signature` and `pq_signature` MUST be present. Both signatures cover the identical RFC 8785 canonical JSON byte sequence of `signed_fields`. A verifier MUST verify both signatures and MUST reject the manifest if either fails. Reference: draft-ietf-pquip-hybrid-signature-spectrums for the binding model.
 
-**Transparency log submission ordering** <!-- CHANGED: SPEC-10 -->: The `transparency_log_entry` is a top-level manifest field (see section 3.1) that is NOT part of `signed_fields` and is NOT covered by the `signature`. The correct signing and submission flow is:
+Transparency log submission ordering <!-- CHANGED: SPEC-10 -->: The `transparency_log_entry` is a top-level manifest field (see section 3.1) that is NOT part of `signed_fields` and is NOT covered by the `signature`. The correct signing and submission flow is:
 
 1. Canonicalize and sign the `signed_fields` to produce the `signature` object.
 2. Submit the signed manifest (without `transparency_log_entry`) to the transparency log.
@@ -912,7 +912,7 @@ Every top-level field defined by this specification appears in exactly one row o
 
 In hosted mode, the attestation service is responsible for log submission. In self-hosted mode, the signing CLI is responsible.
 
-**Transparency log entry format** <!-- CHANGED: F-08 - aligned to Sigstore bundle spec -->:
+Transparency log entry format <!-- CHANGED: F-08 - aligned to Sigstore bundle spec -->:
 
 ```json
 "transparency_log_entry": {
@@ -936,7 +936,7 @@ All production Agent Manifest implementations MUST publish to a public or consor
 
 Revocation is distinct from natural expiry. Natural expiry (the `expires_at` timestamp is exceeded) produces an `EXPIRED` verification result. Explicit revocation produces a `REVOKED` verification result. A verifier MUST check the revocation status endpoint before returning `VALID`.
 
-**Revocation record schema**:
+Revocation record schema:
 
 ```json
 {
@@ -952,11 +952,11 @@ Revocation is distinct from natural expiry. Natural expiry (the `expires_at` tim
 }
 ```
 
-**`scope`** values:
+`scope` values:
 - `manifest`: Revokes only the specific `manifest_id`. Prior manifests for the same `agent_id` are unaffected.
 - `agent`: Revokes all current and future manifests for the `agent_id`. Used after key compromise where all historical manifests for the agent are considered untrusted.
 
-**Revocation endpoints**:
+Revocation endpoints:
 
 ```
 POST /revoke
@@ -1008,8 +1008,8 @@ The standard cryptographic profile uses the following primitives:
 
 All Merkle tree constructions in this specification (corpus `merkle_root`, tool `catalog_hash`) MUST use the RFC 9162 / RFC 6962 domain-separated hashing convention:
 
-- **Leaf hash**: `SHA-256(0x00 || leaf_data)` where `leaf_data` is the per-item input bytes as defined in the relevant section (section 3.2.3 for catalog, section 3.2.5.1 for corpus).
-- **Interior node hash**: `SHA-256(0x01 || left_child_hash || right_child_hash)`.
+- Leaf hash: `SHA-256(0x00 || leaf_data)` where `leaf_data` is the per-item input bytes as defined in the relevant section (section 3.2.3 for catalog, section 3.2.5.1 for corpus).
+- Interior node hash: `SHA-256(0x01 || left_child_hash || right_child_hash)`.
 
 The `0x00` and `0x01` domain separation prefixes prevent second-preimage attacks that are possible with plain Merkle-Damgard SHA-256 trees lacking domain separation (as demonstrated in the Certificate Transparency literature). This construction is referenced in RFC 9162 Section 2.1.
 
@@ -1032,12 +1032,12 @@ For deployments requiring post-quantum security (classified government, financia
 
 The `crypto_profile` field in the manifest header MUST be set to `post-quantum` when using this profile. A verifying party that supports only the standard profile MUST reject a post-quantum manifest rather than silently falling back - this prevents downgrade attacks during the transition period.
 
-**Level 3 transparency log note** <!-- CHANGED: CRYPTO-004 -->: As of the date of this specification (June 2026), the public Sigstore/Rekor instance does not yet support ML-DSA-65 signatures. Level 3 deployments MUST use a private Sigstore instance or an equivalent CT-log that supports ML-DSA-65. The parameter set used in the log's dual-signing MUST be documented and pinned by the implementation. As an alternative for the transition period, a separate PQ-signed transparency log entry in DSSE format alongside a classical Rekor entry is acceptable. Level 3 deployments MUST document their transparency log configuration in the `transparency_log_entry.log_id` field.
+Level 3 transparency log note <!-- CHANGED: CRYPTO-004 -->: As of the date of this specification (June 2026), the public Sigstore/Rekor instance does not yet support ML-DSA-65 signatures. Level 3 deployments MUST use a private Sigstore instance or an equivalent CT-log that supports ML-DSA-65. The parameter set used in the log's dual-signing MUST be documented and pinned by the implementation. As an alternative for the transition period, a separate PQ-signed transparency log entry in DSSE format alongside a classical Rekor entry is acceptable. Level 3 deployments MUST document their transparency log configuration in the `transparency_log_entry.log_id` field.
 
 
 ### 4.3 Canonical Serialization <!-- CHANGED: closes #25 - mandates RFC 8785 -->
 
-All canonical JSON serialization in this specification uses **RFC 8785 (JSON Canonicalization Scheme, JCS)**. Implementations MUST NOT use JSON-LD RDNA normalization, ad-hoc sorted-key serialization, or any other canonicalization standard.
+All canonical JSON serialization in this specification uses RFC 8785 (JSON Canonicalization Scheme, JCS). Implementations MUST NOT use JSON-LD RDNA normalization, ad-hoc sorted-key serialization, or any other canonicalization standard.
 
 #### Scope
 
@@ -1053,7 +1053,7 @@ Text artifacts (`system_prompt`, policy content) are hashed as raw UTF-8 NFC byt
 
 #### Null-valued optional fields
 
-Optional fields with a `null` value MUST be **excluded** from the canonical form. Implementations MUST NOT serialize `"field": null` into the signature pre-image.
+Optional fields with a `null` value MUST be excluded from the canonical form. Implementations MUST NOT serialize `"field": null` into the signature pre-image.
 
 #### JSON-LD fields
 
@@ -1063,7 +1063,7 @@ Optional fields with a `null` value MUST be **excluded** from the canonical form
 
 Implementations MUST reject manifests where the manifest signature does not verify under RFC 8785 canonicalization. Fallback to alternative canonicalization on failure is NOT permitted.
 
-**References:** RFC 8785 (https://www.rfc-editor.org/rfc/rfc8785) | Test vector: Appendix D
+References: RFC 8785 (https://www.rfc-editor.org/rfc/rfc8785) | Test vector: Appendix D
 
 ## 5. Verification Protocol
 
@@ -1093,9 +1093,9 @@ Content-Type: application/json
 
 Two conformant hosting models are defined:
 
-**SDK-hosted mode**: The agent SDK exposes the verification endpoint locally within the agent process. The endpoint returns hashes of running artifacts (not the artifacts themselves) computed by a trusted component inside the agent process. Access is restricted by mTLS using the agent's SPIFFE SVID. The "without prior operator-controlled authentication" requirement means that a regulator or third-party auditor must be able to reach the endpoint using their own SPIFFE SVID - the operator MUST NOT be able to gate this access.
+SDK-hosted mode: The agent SDK exposes the verification endpoint locally within the agent process. The endpoint returns hashes of running artifacts (not the artifacts themselves) computed by a trusted component inside the agent process. Access is restricted by mTLS using the agent's SPIFFE SVID. The "without prior operator-controlled authentication" requirement means that a regulator or third-party auditor must be able to reach the endpoint using their own SPIFFE SVID - the operator MUST NOT be able to gate this access.
 
-**hosted mode**: The agent SDK pushes signed hash attestations of running artifacts to the attestation service at startup and on change. The verification endpoint serves verification results using these pushed hashes. The push protocol uses the agent's SPIFFE SVID for authentication to the attestation service. Third-party verifiers access the verification endpoint without prior operator involvement.
+hosted mode: The agent SDK pushes signed hash attestations of running artifacts to the attestation service at startup and on change. The verification endpoint serves verification results using these pushed hashes. The push protocol uses the agent's SPIFFE SVID for authentication to the attestation service. Third-party verifiers access the verification endpoint without prior operator involvement.
 
 Conformance level requirements:
 - Level 0/1: Either hosting model is acceptable.
@@ -1167,7 +1167,7 @@ An evidence pack is a JSON document with the following structure:
 
 `pack_hash` is the SHA-256 of the RFC 8785 canonical JSON of this document. The pack is signed using the TEE-sealed key, with the signature as a detached JWS appended as a top-level `pack_signature` field.
 
-**Access control for confidential payloads**: Tool call payload fields in TRACE envelopes MUST be replaced with their SHA-256 hashes in packs served to unauthenticated verifiers. Full payloads are available only to verifiers presenting a valid SPIFFE SVID with an authorized role declared in the manifest's `policy_bundle`.
+Access control for confidential payloads: Tool call payload fields in TRACE envelopes MUST be replaced with their SHA-256 hashes in packs served to unauthenticated verifiers. Full payloads are available only to verifiers presenting a valid SPIFFE SVID with an authorized role declared in the manifest's `policy_bundle`.
 
 ### 5.3 Verification Semantics
 
@@ -1314,7 +1314,7 @@ At the protocol level, Agent Manifest integration with MCP requires two addition
 
 When an agent's MCP client connects to an MCP server, the client SHOULD signal manifest support using two mechanisms:
 
-**Current implementations** (compatible with MCP 2025-11-25): Use the `_meta` field on the `initialize` request params with a namespaced key, and signal support via the `experimental` capability:
+Current implementations (compatible with MCP 2025-11-25): Use the `_meta` field on the `initialize` request params with a namespaced key, and signal support via the `experimental` capability:
 
 ```json
 {
@@ -1339,7 +1339,7 @@ When an agent's MCP client connects to an MCP server, the client SHOULD signal m
 }
 ```
 
-**Future MCP versions**: This specification will file an AAIF Spec Enhancement Proposal (SEP) to add `agentManifestId` and `agentManifestVerificationEndpoint` as optional fields on the MCP `Implementation` type. When that SEP is accepted, those fields MAY be placed directly on `clientInfo`. Until then, the `_meta` approach above is the conformant mechanism.
+Future MCP versions: This specification will file an AAIF Spec Enhancement Proposal (SEP) to add `agentManifestId` and `agentManifestVerificationEndpoint` as optional fields on the MCP `Implementation` type. When that SEP is accepted, those fields MAY be placed directly on `clientInfo`. Until then, the `_meta` approach above is the conformant mechanism.
 
 An MCP server implementing the Agent Manifest extension SHOULD verify the manifest before servicing any tool calls. For cMCP Phase 2 servers running inside a TEE, this verification is performed inside the TEE and the result is included in the per-call evidence pack.
 
@@ -1370,7 +1370,7 @@ Every tool call evidence record (TRACE envelope) produced by cMCP MUST include t
 }
 ```
 
-**Hash conflict resolution** <!-- CHANGED: SCHEMA F-21 -->: If `policy_hash` in the TRACE envelope differs from `artifacts.policy_bundle.hash` in the agent manifest, the TRACE MUST set `manifest_verification_result: MISMATCH` for that call. The manifest is the authoritative source for approved artifact hashes; the TRACE reflects runtime measurements. A non-empty `mismatch_details` array in the verification result (section 5.2) MUST be generated for every such discrepancy. The `manifest_verification_result` field MUST use the same enum values as the `result` field in section 5.2 - no additional values. Any TRACE with `manifest_verification_result: MISMATCH` or `EXPIRED` MUST NOT be accepted as evidence of a valid tool call for regulatory reporting purposes.
+Hash conflict resolution <!-- CHANGED: SCHEMA F-21 -->: If `policy_hash` in the TRACE envelope differs from `artifacts.policy_bundle.hash` in the agent manifest, the TRACE MUST set `manifest_verification_result: MISMATCH` for that call. The manifest is the authoritative source for approved artifact hashes; the TRACE reflects runtime measurements. A non-empty `mismatch_details` array in the verification result (section 5.2) MUST be generated for every such discrepancy. The `manifest_verification_result` field MUST use the same enum values as the `result` field in section 5.2 - no additional values. Any TRACE with `manifest_verification_result: MISMATCH` or `EXPIRED` MUST NOT be accepted as evidence of a valid tool call for regulatory reporting purposes.
 
 ## 7. Threat Model
 
@@ -1393,11 +1393,11 @@ Every tool call evidence record (TRACE envelope) produced by cMCP MUST include t
 
 The following threats are explicitly out of scope for this specification:
 
-- **Semantic prompt injection at the model layer** - the manifest proves what prompt was approved; it cannot prevent a model from being misled by adversarial inputs within that prompt's scope.
-- **Model weight poisoning** - the `model_identity` binding attests which model is running; it does not attest the model's internal weights for locally-deployed models beyond the binary hash.
-- **Side-channel attacks on the TEE** - hardware vulnerabilities in AMD SEV-SNP, Intel TDX, or NVIDIA Blackwell that allow measurement extraction are out of scope. These are platform-level threats addressed by hardware vendors.
-- **Denial of service against the verification endpoint** - availability of the verification service is an operational concern, not a correctness concern.
-- **Human approver compromise** - if an authorized approver's hardware key is compromised, the HITL record is valid despite the fraudulent approval. Key management and approver identity assurance are out of scope.
+- Semantic prompt injection at the model layer - the manifest proves what prompt was approved; it cannot prevent a model from being misled by adversarial inputs within that prompt's scope.
+- Model weight poisoning - the `model_identity` binding attests which model is running; it does not attest the model's internal weights for locally-deployed models beyond the binary hash.
+- Side-channel attacks on the TEE - hardware vulnerabilities in AMD SEV-SNP, Intel TDX, or NVIDIA Blackwell that allow measurement extraction are out of scope. These are platform-level threats addressed by hardware vendors.
+- Denial of service against the verification endpoint - availability of the verification service is an operational concern, not a correctness concern.
+- Human approver compromise - if an authorized approver's hardware key is compromised, the HITL record is valid despite the fraudulent approval. Key management and approver identity assurance are out of scope.
 
 ## 8. Conformance Requirements
 
@@ -1412,7 +1412,7 @@ The following threats are explicitly out of scope for this specification:
 | Level 2 | Full stack | Level 1 plus: All 10 artifacts bound (per section 3.1 mapping table). HITL approvals present. Delegation chain for multi-agent. Phase 2 cMCP for all MCP servers. `log_retention.minimum_retention_days >= 180`. `drift_policy: deny-on-drift` or `alert-on-drift`. | Regulated industries. Satisfies DORA Art. 9, GDPR Art. 32 (when `data_scope` fields are populated for EU personal data processing). |
 | Level 3 | Post-quantum | Level 2 plus: ML-DSA-65 signatures. ML-KEM-768 key exchange. SHAKE-256 hashing. Private Sigstore instance supporting ML-DSA-65. | Sovereign deployments, classified, financial services with long-horizon sensitivity. |
 
-**Log retention requirement** <!-- CHANGED: REG-002 -->: Level 2 conformance requires a declared and enforced log retention configuration. The `log_retention` top-level manifest field MUST be present:
+Log retention requirement <!-- CHANGED: REG-002 -->: Level 2 conformance requires a declared and enforced log retention configuration. The `log_retention` top-level manifest field MUST be present:
 
 ```json
 "log_retention": {
@@ -1467,9 +1467,9 @@ The obligations mapped in section 9.1 (Arts. 12-15, 26) apply only to high-risk 
 | Point 5 | Access to essential private/public services | Agents performing creditworthiness assessment, risk scoring for insurance, benefits eligibility determination |
 | Point 6 | Law enforcement | Agents used in risk assessment, evidence analysis, or profiling in law enforcement contexts |
 
-**Decision guidance**: If the agent deployment falls within one of the above categories, Arts. 12-15 and 26 obligations apply and Level 2 conformance or above is recommended. If the deployment does not fall within Annex III, the manifest remains a useful provenance and governance primitive but the regulatory obligations in this section are not legally mandated.
+Decision guidance: If the agent deployment falls within one of the above categories, Arts. 12-15 and 26 obligations apply and Level 2 conformance or above is recommended. If the deployment does not fall within Annex III, the manifest remains a useful provenance and governance primitive but the regulatory obligations in this section are not legally mandated.
 
-**GPAI model providers** (Anthropic, OpenAI, Google, etc.) are subject to separate obligations under Arts. 51-53 of the EU AI Act. These are distinct from the high-risk system obligations described here, which apply to operators deploying agents built on top of GPAI models.
+GPAI model providers (Anthropic, OpenAI, Google, etc.) are subject to separate obligations under Arts. 51-53 of the EU AI Act. These are distinct from the high-risk system obligations described here, which apply to operators deploying agents built on top of GPAI models.
 
 Operators in financial services should note that agents performing creditworthiness assessment or risk scoring for life and health insurance (Annex III Point 5(b)) are likely high-risk regardless of the underlying model provider.
 
@@ -1486,7 +1486,7 @@ Operators in financial services should note that agents performing creditworthin
 | NIST AI RMF - GOVERN 1.2 | Organizational teams are committed to transparent and accountable AI risk management policies | `policy_bundle.hash` bound to hardware attestation proves policy implementation, not just documentation. |
 | NIST AI RMF - GOVERN 1.7 | Processes and procedures for decommissioning and phasing out AI systems safely | Revocation records (section 3.7) published to the transparency log serve as the decommissioning artifact. The `decision_trace` records for decommissioned agents are retained per `log_retention` policy. `agent_id` continuity in the rotation chain enables post-decommission audit. |
 
-**OCC AI guidance note** <!-- CHANGED: REG-003 -->: OCC/FDIC/Fed Bulletin 2026-13 (issued 17 April 2026) explicitly excludes generative AI and agentic AI from scope. Financial entities deploying agents MUST apply existing enterprise risk management frameworks (SR 11-7 successor guidance, FDIC FIL-22-2023 model risk principles) until dedicated agentic AI guidance is issued. The Agent Manifest supports general model governance obligations - version tracking, capability declarations, audit trails - that financial entities should document under their existing frameworks pending OCC rulemaking. Section 10.2 (v0.2 roadmap) includes tracking the OCC RFI process.
+OCC AI guidance note <!-- CHANGED: REG-003 -->: OCC/FDIC/Fed Bulletin 2026-13 (issued 17 April 2026) explicitly excludes generative AI and agentic AI from scope. Financial entities deploying agents MUST apply existing enterprise risk management frameworks (SR 11-7 successor guidance, FDIC FIL-22-2023 model risk principles) until dedicated agentic AI guidance is issued. The Agent Manifest supports general model governance obligations - version tracking, capability declarations, audit trails - that financial entities should document under their existing frameworks pending OCC rulemaking. Section 10.2 (v0.2 roadmap) includes tracking the OCC RFI process.
 
 ### 9.3 GDPR, HIPAA, and Additional Regulatory Frameworks <!-- CHANGED: REG-005/REG-008 - new section -->
 
@@ -1567,7 +1567,7 @@ The Art. 13 row in section 9.1 cross-references `operational_lifecycle.expected_
 
 ### 10.2 Version 0.2
 
-Targets: Q3 2026. Driven by community and early adopter feedback collected during the CC Summit period (June–September 2026).
+Targets: Q3 2026. Driven by community and early adopter feedback collected during the CC Summit period (June to September 2026).
 
 - Memory baseline protocol for stateful agents (v0.1 defines the binding; v0.2 defines the checkpoint protocol)
 - RAG corpus incremental update protocol - how to bind a delta without re-hashing the full corpus
@@ -1652,23 +1652,23 @@ This specification builds on architectural work developed across the Agent Gover
 
 ### D. RFC 8785 Canonical JSON Test Vector <!-- CHANGED: closes #25 -->
 
-**Input:**
+Input:
 ```json
 {"version":"0.1","issued_at":"2026-06-23T09:00:00Z","agent_id":"spiffe://trust.example/agent/kyc/prod-001"}
 ```
 
-**RFC 8785 canonical form (UTF-8, no trailing newline):**
+RFC 8785 canonical form (UTF-8, no trailing newline):
 ```
 {"agent_id":"spiffe://trust.example/agent/kyc/prod-001","issued_at":"2026-06-23T09:00:00Z","version":"0.1"}
 ```
 Keys sorted lexicographically. No whitespace.
 
-**SHA-256 of canonical form:**
+SHA-256 of canonical form:
 ```
 b83293348255f4427dc030478f354b83f4f82662223be0926ad9f2db946b5319
 ```
 
-**Verification:**
+Verification:
 ```python
 from jcs import canonicalize  # pip install jcs
 import hashlib
