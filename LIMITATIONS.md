@@ -71,9 +71,20 @@ This provider and every link of the chain above were validated against a report
 captured from a live Azure SEV-SNP VM. Intel TDX is hardware-validated on a
 non-paravisor TDX guest (GCP C3): the configfs-TSM `tdx_guest` provider returns
 a DCAP quote whose ECDSA-P256 signature, QE binding, and PCK certificate chain
-(to the pinned Intel SGX Root CA) are verified. Azure TDX (behind a Hyper-V
-paravisor, like Azure SNP) surfaces attestation through the vTPM and is a
-separate follow-up.
+(to the pinned Intel SGX Root CA) are verified.
+
+**Azure TDX is not supported for offline attestation** (confirmed on real
+Azure TDX hardware). Azure runs TDX behind the Hyper-V paravisor: there is no
+`/dev/tdx-guest` and the configfs-TSM `tdx_guest` provider does not register
+(the guest driver cannot bind), so the guest cannot obtain a signed DCAP quote.
+The only attestation surface is the vTPM/HCL blob, which carries a **MAC'd
+`TDREPORT`**, not a remotely-verifiable quote. Verifying a MAC'd `TDREPORT` as
+genuine silicon requires a networked attestation service (**Azure MAA**) or an
+on-platform Quoting Enclave, neither of which the SDK's offline verifier can
+use. Azure-TDX support would therefore mean a networked MAA integration (a
+different trust model from the offline SNP/TDX paths) and is out of scope; it is
+tracked as a follow-up. Use SEV-SNP (`AzureCVMProvider`) on Azure, or a
+non-paravisor TDX guest (e.g. GCP C3) for offline TDX attestation.
 
 ## Hardware attestation scope: boot-time binding only
 

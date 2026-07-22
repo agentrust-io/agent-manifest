@@ -4,6 +4,10 @@ All notable changes to Agent Manifest are documented here. Format follows [Keep 
 
 ## [Unreleased]
 
+### Documentation
+
+**[SDK]** `LIMITATIONS.md`: document that **Azure TDX is not supported for offline attestation** (hardware-confirmed). Azure runs TDX behind the Hyper-V paravisor, so the guest gets no signed DCAP quote — only a MAC'd `TDREPORT` via the vTPM — and rooting that as genuine silicon needs a networked service (Azure MAA). Offline TDX attestation is supported on non-paravisor guests (e.g. GCP C3); on Azure use SEV-SNP (`AzureCVMProvider`). Azure-MAA TDX support is tracked as a follow-up.
+
 ## [0.5.0] — 2026-07-21
 
 Generalizes the verification API so cmcp and ca2a can delegate their full SNP/TDX/TPM crypto to this package (via PyPI) without changing behavior or rewriting their test fixtures. Backward compatible — all existing functions and signatures are unchanged.
