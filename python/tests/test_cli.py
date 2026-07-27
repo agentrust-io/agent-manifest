@@ -70,7 +70,7 @@ def test_cli_verify_without_public_key_is_unverifiable(tmp_path):
     keypair = generate_ed25519()
     signed_path = _write_signed_manifest(tmp_path, keypair)
 
-    result = CliRunner().invoke(cli, ["manifest", "verify", str(signed_path)])
+    result = CliRunner().invoke(cli, ["verify", str(signed_path)])
 
     payload = _json_stdout(result)
     assert result.exit_code == 1
@@ -85,7 +85,7 @@ def test_cli_verify_with_matching_public_key_is_valid(tmp_path):
 
     result = CliRunner().invoke(
         cli,
-        ["manifest", "verify", str(signed_path), "--public-key", str(public_path)],
+        ["verify", str(signed_path), "--public-key", str(public_path)],
     )
 
     payload = _json_stdout(result)
@@ -102,7 +102,7 @@ def test_cli_verify_with_wrong_public_key_is_mismatch(tmp_path):
 
     result = CliRunner().invoke(
         cli,
-        ["manifest", "verify", str(signed_path), "--public-key", str(public_path)],
+        ["verify", str(signed_path), "--public-key", str(public_path)],
     )
 
     payload = _json_stdout(result)
@@ -119,7 +119,7 @@ def test_cli_verify_with_malformed_public_key_fails_cleanly(tmp_path):
 
     result = CliRunner().invoke(
         cli,
-        ["manifest", "verify", str(signed_path), "--public-key", str(public_path)],
+        ["verify", str(signed_path), "--public-key", str(public_path)],
     )
 
     assert result.exit_code != 0
@@ -134,7 +134,7 @@ def test_cli_verify_with_missing_public_key_file_fails_cleanly(tmp_path):
 
     result = CliRunner().invoke(
         cli,
-        ["manifest", "verify", str(signed_path), "--public-key", str(public_path)],
+        ["verify", str(signed_path), "--public-key", str(public_path)],
     )
 
     assert result.exit_code != 0
@@ -157,7 +157,7 @@ def test_cli_verify_bound_artifacts_without_runtime_hashes_qualifies_valid(tmp_p
 
     result = CliRunner().invoke(
         cli,
-        ["manifest", "verify", str(signed_path), "--public-key", str(public_path)],
+        ["verify", str(signed_path), "--public-key", str(public_path)],
     )
 
     # Signature is genuinely valid (exit 0), but the status must be qualified.
@@ -170,3 +170,44 @@ def test_cli_verify_bound_artifacts_without_runtime_hashes_qualifies_valid(tmp_p
     assert "Result: VALID\n" not in result.output
     # And the result payload carries the machine-readable warning too.
     assert any("artifact bindings NOT verified" in w for w in payload["warnings"])
+
+
+# ---------------------------------------------------------------------------
+# Command surface: the documented invocation must be the real one
+# ---------------------------------------------------------------------------
+
+
+def test_documented_commands_are_top_level():
+    # Releases up to 0.5.0 nested every command under a redundant `manifest`
+    # group, so `manifest verify signed.json` (the form printed in the README,
+    # the docs site, and the PyPI description) exited with "No such command".
+    from agent_manifest.cli import TOP_LEVEL_COMMANDS
+
+    assert set(TOP_LEVEL_COMMANDS) <= set(cli.commands)
+    for name in TOP_LEVEL_COMMANDS:
+        result = CliRunner().invoke(cli, [name, "--help"])
+        assert result.exit_code == 0, f"`manifest {name} --help` failed"
+
+
+def test_deprecated_nested_invocation_still_works(tmp_path):
+    keypair = generate_ed25519()
+    signed_path = _write_signed_manifest(tmp_path, keypair)
+    public_path = _write_public_key(tmp_path, keypair)
+
+    result = CliRunner().invoke(
+        cli,
+        ["manifest", "verify", str(signed_path), "--public-key", str(public_path)],
+    )
+
+    assert result.exit_code == 0
+    assert _json_stdout(result)["result"] == "VALID"
+    assert "deprecated" in result.stderr
+
+
+def test_deprecated_group_is_hidden_from_help():
+    result = CliRunner().invoke(cli, ["--help"])
+
+    assert result.exit_code == 0
+    assert "verify" in result.output
+    # The alias exists for old scripts but must not be advertised.
+    assert "\n  manifest " not in result.output

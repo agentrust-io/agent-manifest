@@ -88,11 +88,6 @@ def cli() -> None:
     """Agent Manifest SDK CLI."""
 
 
-@cli.group()
-def manifest() -> None:
-    """Manage Agent Manifests."""
-
-
 def _make_uuid7() -> str:
     """Generate a UUID v7 (time-ordered) per RFC 9562."""
     import time
@@ -109,7 +104,7 @@ def _make_uuid7() -> str:
     return f"{hex_str[0:8]}-{hex_str[8:12]}-{hex_str[12:16]}-{hex_str[16:20]}-{hex_str[20:32]}"
 
 
-@manifest.command("create")
+@cli.command("create")
 @click.argument("config", type=click.Path(exists=True))
 @click.option("--output", "-o", default=None, help="Write output to file (default: stdout)")
 def create(config: str, output: Optional[str]) -> None:
@@ -118,6 +113,7 @@ def create(config: str, output: Optional[str]) -> None:
     CONFIG must be a JSON file with at minimum: agent_id, issuer,
     issued_at, expires_at, and an artifacts block.
 
+    
     Example:
       manifest create config.json -o draft.json
     """
@@ -134,16 +130,17 @@ def create(config: str, output: Optional[str]) -> None:
     _write(data, output)
 
 
-@manifest.command("sign")
+@cli.command("sign")
 @click.argument("manifest_file", type=click.Path(exists=True))
 @click.option("--key", "-k", required=True, help="Path to raw 32-byte Ed25519 private key (hex file)")
-@click.option("--output", "-o", default=None)
+@click.option("--output", "-o", default=None, help="Write output to file (default: stdout)")
 def sign(manifest_file: str, key: str, output: Optional[str]) -> None:
     """Sign a draft manifest with Ed25519.
 
     KEY must be a file containing the 64-hex-character (32-byte) Ed25519
     private key seed.
 
+    
     Example:
       manifest sign draft.json --key private.hex -o signed.json
     """
@@ -173,15 +170,17 @@ def sign(manifest_file: str, key: str, output: Optional[str]) -> None:
     _write(data, output)
 
 
-@manifest.command("keygen")
+@cli.command("keygen")
 @click.option("--output-dir", "-d", default=".", help="Directory to write key files")
 def keygen(output_dir: str) -> None:
     """Generate a new Ed25519 key pair for manifest signing.
 
+    \b
     Writes:
-      private.hex — 64-hex private key seed (keep secret, mode 0600)
-      public.hex  — 64-hex public key bytes
+      private.hex - 64-hex private key seed (keep secret, mode 0600)
+      public.hex  - 64-hex public key bytes
 
+    
     Example:
       manifest keygen -d ./keys/
     """
@@ -210,19 +209,20 @@ def keygen(output_dir: str) -> None:
     click.echo("Keep private.hex secret.", err=True)
 
 
-@manifest.command("attest")
+@cli.command("attest")
 @click.argument("manifest_file", type=click.Path(exists=True))
 @click.option("--provider", "-p", default="auto",
               type=click.Choice(["auto", "azure-cvm", "tpm", "sev-snp", "tdx", "opaque", "software"]),
               help="Attestation provider (default: auto)")
 @click.option("--level", default=0, type=int, help="Minimum conformance level (0-3)")
-@click.option("--output", "-o", default=None)
+@click.option("--output", "-o", default=None, help="Write output to file (default: stdout)")
 def attest(manifest_file: str, provider: str, level: int, output: Optional[str]) -> None:
     """Extend the manifest hash into hardware and append the attestation block.
 
     For TPM: requires tpm2-tools (apt-get install tpm2-tools).
     For swtpm in CI: set TPM2TOOLS_TCTI=swtpm: before running.
 
+    
     Example:
       manifest attest signed.json --provider tpm --level 1 -o attested.json
     """
@@ -269,13 +269,15 @@ def attest(manifest_file: str, provider: str, level: int, output: Optional[str])
         sys.exit(1)
 
 
-@manifest.command("verify")
+@cli.command("verify")
 @click.argument("manifest_file", type=click.Path(exists=True))
-@click.option("--enforce-hitl", is_flag=True, default=False)
-@click.option("--enforce-attestation", is_flag=True, default=False)
+@click.option("--enforce-hitl", is_flag=True, default=False,
+              help="Fail unless a required HITL approval is present and unexpired")
+@click.option("--enforce-attestation", is_flag=True, default=False,
+              help="Fail unless the attestation report matches the manifest hash")
 @click.option("--crl-path", default=None, help="Path to a FileCRL JSON-Lines file for revocation checks")
 @click.option("--public-key", default=None, help="Path to a trusted raw Ed25519 public key hex file")
-@click.option("--output", "-o", default=None)
+@click.option("--output", "-o", default=None, help="Write output to file (default: stdout)")
 def verify(
     manifest_file: str,
     enforce_hitl: bool,
@@ -291,6 +293,7 @@ def verify(
 
     Use --crl-path to load a revocation list and check for revoked manifests.
 
+    
     Example:
       manifest verify attested.json --crl-path revocations.jsonl
     """
@@ -364,17 +367,18 @@ class _CRLRevocationStore(RevocationStore):
         )
 
 
-@manifest.command("revoke")
+@cli.command("revoke")
 @click.argument("manifest_id")
 @click.option("--reason", "-r", required=True, help="Reason for revocation")
 @click.option("--revoked-by", required=True, help="Identity of revoking authority (DID or email)")
-@click.option("--output", "-o", default=None)
+@click.option("--output", "-o", default=None, help="Write output to file (default: stdout)")
 def revoke(manifest_id: str, reason: str, revoked_by: str, output: Optional[str]) -> None:
     """Generate a revocation record for a manifest ID.
 
     The record JSON can be submitted to your revocation registry or passed
     to a RevocationStore instance in the verification endpoint.
 
+    
     Example:
       manifest revoke 018f4a3b-... --reason "key compromise" --revoked-by security@example.com
     """
@@ -392,6 +396,30 @@ def revoke(manifest_id: str, reason: str, revoked_by: str, output: Optional[str]
     )
     _write(record.model_dump(mode="json"), output)
     click.echo(f"Revocation record created for {manifest_id}", err=True)
+
+
+TOP_LEVEL_COMMANDS = ("create", "sign", "keygen", "attest", "verify", "revoke")
+
+
+@cli.group("manifest", hidden=True)
+def manifest_alias() -> None:
+    """Deprecated: every command is available at the top level.
+
+    Releases up to 0.5.0 nested the commands under a redundant ``manifest``
+    group, so the real invocation was ``manifest manifest verify`` while every
+    document said ``manifest verify``. The documented form is now the real one.
+    This alias keeps the old spelling working for existing scripts.
+    """
+    click.echo(
+        "Warning: 'manifest manifest <command>' is deprecated and will be "
+        "removed in 1.0. Use 'manifest <command>' instead.",
+        err=True,
+    )
+
+
+for _name in TOP_LEVEL_COMMANDS:
+    _command = cli.commands[_name]
+    manifest_alias.add_command(_command, _name)
 
 
 def main() -> None:
