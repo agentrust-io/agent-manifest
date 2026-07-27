@@ -42,8 +42,8 @@ from ._snp_verify import (
 )
 from ._cert_chain import verify_cert_chain, CertChainError
 from ._tdx_verify import (
-    TdxQuote, TdxVerificationError,
-    parse_tdx_quote, verify_tdx_quote,
+    TdxQuote, TdxQuoteSignature, TdxVerificationError,
+    parse_tdx_quote, parse_tdx_quote_signature, verify_tdx_quote,
 )
 from ._tpm_verify import (
     TpmQuote, TpmVerificationError,
@@ -94,7 +94,8 @@ __all__ = [
     "verify_snp_signature", "verify_vcek_chain", "verify_runtime_data_binding",
     "fetch_vcek",
     "verify_cert_chain", "CertChainError",
-    "TdxQuote", "TdxVerificationError", "parse_tdx_quote", "verify_tdx_quote",
+    "TdxQuote", "TdxQuoteSignature", "TdxVerificationError",
+    "parse_tdx_quote", "parse_tdx_quote_signature", "verify_tdx_quote",
     "TpmQuote", "TpmVerificationError", "parse_tpm_quote", "verify_tpm_quote",
     "verify_manifest", "verify_runtime_report",
     "VerificationContext", "VerificationResult",

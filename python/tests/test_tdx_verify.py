@@ -18,6 +18,7 @@ import pytest
 from agent_manifest._tdx_verify import (
     TdxVerificationError,
     parse_tdx_quote,
+    parse_tdx_quote_signature,
     verify_tdx_quote,
 )
 
@@ -157,3 +158,32 @@ def test_verify_default_root_is_intel():
 def test_real_tdx_quote_against_intel_root():
     quote = open(os.environ["AGENT_MANIFEST_TDX_QUOTE"], "rb").read()
     assert verify_tdx_quote(quote) is True
+
+
+def test_signature_section_is_nested_under_a_qe_report_header():
+    """Lock in the nested type-6 layout a flat parse gets wrong.
+
+    A flat parse reads the QE report at ``auth[128]``, six bytes early, and
+    rejects every genuine quote. Assert the de-nested fields line up instead.
+    """
+    quote, _ = _build_quote(hashlib.sha256(b"nested").digest())
+    parsed = parse_tdx_quote_signature(quote)
+    auth = quote[48 + 584 + 4:]
+    cert_type, _cert_size = struct.unpack_from("<HI", auth, 128)
+    assert cert_type == 6  # QE_REPORT_CERTIFICATION_DATA, not the QE report itself
+    assert parsed.attestation_key == auth[64:128]
+    assert parsed.qe_report == auth[134:134 + 384]  # after the 6-byte header
+    assert len(parsed.qe_report) == 384
+    assert parsed.pck_chain_pem.startswith(b"-----BEGIN CERTIFICATE-----")
+    # the QE report binds the attestation key over the de-nested auth data
+    bind = hashlib.sha256(parsed.attestation_key + parsed.qe_auth_data).digest()
+    assert parsed.qe_report[320:352] == bind
+
+
+def test_parse_signature_rejects_wrong_certification_type():
+    quote, _ = _build_quote(hashlib.sha256(b"badtype").digest())
+    off = 48 + 584 + 4 + 128
+    tampered = bytearray(quote)
+    tampered[off:off + 2] = (5).to_bytes(2, "little")  # PCK chain where a QE report belongs
+    with pytest.raises(TdxVerificationError, match="certification data type"):
+        parse_tdx_quote_signature(bytes(tampered))

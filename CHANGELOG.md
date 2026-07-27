@@ -4,6 +4,10 @@ All notable changes to Agent Manifest are documented here. Format follows [Keep 
 
 ## [Unreleased]
 
+### Added
+
+**[SDK]** `parse_tdx_quote_signature()` and `TdxQuoteSignature` expose the validated DCAP v4 signature-section parse (de-nested QE report, QE signature, auth data, PCK chain PEM) so sibling repos can delegate to it instead of reimplementing the offsets. Real quotes nest the QE material under a type-6 `QE_REPORT_CERTIFICATION_DATA` header; a flat parse reads the QE report six bytes early and rejects every genuine quote, which is what happened in cmcp and ca2a. `verify_tdx_quote()` now calls the shared parse, so there is one copy of the layout, and two regression tests pin the nested structure.
+
 ## [0.6.1] — 2026-07-27
 
 Closes a crash in `verify_manifest()` reachable from untrusted input on a default install, and settles the signature-envelope question for v0.2. No change to how manifests are signed or to any existing verification result.

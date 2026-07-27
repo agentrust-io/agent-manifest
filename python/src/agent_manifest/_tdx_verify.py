@@ -86,6 +86,83 @@ class TdxQuote:
     raw: bytes  # the full quote
 
 
+@dataclass
+class TdxQuoteSignature:
+    """The signature section of a TDX v4 DCAP quote, already de-nested.
+
+    Real DCAP v4 quotes nest the Quoting Enclave material: the bytes after the
+    attestation key are a certification-data header of type 6
+    (``QE_REPORT_CERTIFICATION_DATA``), and the QE report, its PCK signature,
+    the QE auth data and the type-5 PCK certificate chain live *inside* that.
+    A flat parse that reads the QE report directly after the attestation key is
+    off by the 6-byte header and rejects every genuine quote, which is why this
+    parse is shared rather than reimplemented per repo.
+    """
+
+    signed_body: bytes  # quote header + TD report body; what the att key signs
+    quote_signature: bytes  # 64 bytes, raw r||s
+    attestation_key: bytes  # 64 bytes, raw P-256 x||y
+    qe_report: bytes  # 384-byte SGX report
+    qe_report_signature: bytes  # 64 bytes, raw r||s, by the PCK leaf
+    qe_auth_data: bytes
+    pck_chain_pem: bytes  # PEM bundle, leaf (PCK) first, Intel root last
+
+
+def parse_tdx_quote_signature(quote: bytes) -> TdxQuoteSignature:
+    """Parse the signature section of a TDX v4 DCAP quote, fail-closed.
+
+    Handles the nested type-6 QE-report certification data described on
+    :class:`TdxQuoteSignature`. Raises :class:`TdxVerificationError` on a
+    malformed or truncated quote. Performs no cryptographic verification;
+    :func:`verify_tdx_quote` does that.
+    """
+    if len(quote) < _QUOTE_HEADER_LEN + _TD_REPORT_LEN + 4:
+        raise TdxVerificationError("quote too short to contain a signature")
+
+    signed = quote[:_QUOTE_HEADER_LEN + _TD_REPORT_LEN]
+    off = _QUOTE_HEADER_LEN + _TD_REPORT_LEN
+    (auth_size,) = struct.unpack_from("<I", quote, off)
+    off += 4
+    auth = quote[off:off + auth_size]
+    if len(auth) < 134:
+        raise TdxVerificationError("truncated quote signature data")
+
+    sig = auth[0:64]
+    att_pub = auth[64:128]
+    cert_type, cert_size = struct.unpack_from("<HI", auth, 128)
+    if cert_type != _CERT_TYPE_QE_REPORT:
+        raise TdxVerificationError(
+            f"unexpected certification data type {cert_type} (expected QE report)"
+        )
+    cert_data = auth[134:134 + cert_size]
+    if len(cert_data) < 448 + 6:
+        raise TdxVerificationError("truncated QE certification data")
+
+    qe_report = cert_data[0:_SGX_REPORT_LEN]
+    qe_report_sig = cert_data[_SGX_REPORT_LEN:_SGX_REPORT_LEN + 64]
+    o2 = _SGX_REPORT_LEN + 64
+    (qe_auth_size,) = struct.unpack_from("<H", cert_data, o2)
+    o2 += 2
+    qe_auth = cert_data[o2:o2 + qe_auth_size]
+    o2 += qe_auth_size
+    pck_cert_type, pck_size = struct.unpack_from("<HI", cert_data, o2)
+    o2 += 6
+    if pck_cert_type != _CERT_TYPE_PCK_CHAIN:
+        raise TdxVerificationError(
+            f"unexpected PCK certification type {pck_cert_type} (expected PEM chain)"
+        )
+
+    return TdxQuoteSignature(
+        signed_body=signed,
+        quote_signature=sig,
+        attestation_key=att_pub,
+        qe_report=qe_report,
+        qe_report_signature=qe_report_sig,
+        qe_auth_data=qe_auth,
+        pck_chain_pem=cert_data[o2:o2 + pck_size],
+    )
+
+
 def parse_tdx_quote(quote: bytes, *, strict: bool = True) -> TdxQuote:
     """Parse an Intel TDX v4 DCAP quote's header + TD report body.
 
@@ -157,58 +234,23 @@ def verify_tdx_quote(quote: bytes, *, trusted_root_pem: Optional[bytes] = None) 
             "TDX quote verification requires the 'cryptography' package"
         ) from e
 
-    if len(quote) < _QUOTE_HEADER_LEN + _TD_REPORT_LEN + 4:
-        raise TdxVerificationError("quote too short to contain a signature")
-
-    signed = quote[:_QUOTE_HEADER_LEN + _TD_REPORT_LEN]
-    off = _QUOTE_HEADER_LEN + _TD_REPORT_LEN
-    (auth_size,) = struct.unpack_from("<I", quote, off)
-    off += 4
-    auth = quote[off:off + auth_size]
-    if len(auth) < 134:
-        raise TdxVerificationError("truncated quote signature data")
-
-    sig = auth[0:64]
-    att_pub = auth[64:128]
-    cert_type, cert_size = struct.unpack_from("<HI", auth, 128)
-    if cert_type != _CERT_TYPE_QE_REPORT:
-        raise TdxVerificationError(
-            f"unexpected certification data type {cert_type} (expected QE report)"
-        )
-    cert_data = auth[134:134 + cert_size]
-    if len(cert_data) < 448 + 6:
-        raise TdxVerificationError("truncated QE certification data")
+    parsed = parse_tdx_quote_signature(quote)
+    qe_report = parsed.qe_report
+    qe_report_sig = parsed.qe_report_signature
 
     # Step 1: attestation key signs the quote header + TD report body.
     try:
-        _verify_raw_ecdsa(_p256(att_pub), sig, signed)
+        _verify_raw_ecdsa(_p256(parsed.attestation_key), parsed.quote_signature, parsed.signed_body)
     except InvalidSignature:
         return False
 
-    # QE report certification data: qe_report[384], qe_report_sig[64],
-    # qe_auth(size u16 + data), then the PCK cert chain (type 5).
-    qe_report = cert_data[0:_SGX_REPORT_LEN]
-    qe_report_sig = cert_data[_SGX_REPORT_LEN:_SGX_REPORT_LEN + 64]
-    o2 = _SGX_REPORT_LEN + 64
-    (qe_auth_size,) = struct.unpack_from("<H", cert_data, o2)
-    o2 += 2
-    qe_auth = cert_data[o2:o2 + qe_auth_size]
-    o2 += qe_auth_size
-    pck_cert_type, pck_size = struct.unpack_from("<HI", cert_data, o2)
-    o2 += 6
-    if pck_cert_type != _CERT_TYPE_PCK_CHAIN:
-        raise TdxVerificationError(
-            f"unexpected PCK certification type {pck_cert_type} (expected PEM chain)"
-        )
-    pem = cert_data[o2:o2 + pck_size]
-
     # Step 2: the QE report binds the attestation key.
-    expected_bind = hashlib.sha256(att_pub + qe_auth).digest()
+    expected_bind = hashlib.sha256(parsed.attestation_key + parsed.qe_auth_data).digest()
     if not hmac.compare_digest(qe_report[_OFF_QE_REPORT_DATA:_OFF_QE_REPORT_DATA + 32], expected_bind):
         return False
 
     # Parse the PCK chain (leaf first).
-    certs = x509.load_pem_x509_certificates(pem)
+    certs = x509.load_pem_x509_certificates(parsed.pck_chain_pem)
     if len(certs) < 2:
         raise TdxVerificationError("PCK chain must contain at least a leaf and the root")
     pck = certs[0]
