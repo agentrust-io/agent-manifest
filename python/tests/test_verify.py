@@ -451,6 +451,60 @@ def test_hybrid_trusted_key_must_match_combined_key_id():
 
 
 # ---------------------------------------------------------------------------
+# Crypto profile downgrade (spec 4.2)
+# ---------------------------------------------------------------------------
+
+
+def test_pq_profile_with_classical_signature_is_mismatch():
+    # crypto_profile is signed, signature.algorithm is not: this manifest carries
+    # a genuine Ed25519 signature over a pre-image declaring the post-quantum
+    # profile. Only the profile-to-algorithm relationship is wrong.
+    m = base_manifest(crypto_profile="post-quantum")
+    result = verify_manifest(m, base_context(), store())
+    assert result.result == OverallResult.MISMATCH
+    assert result.signature_verified is False
+    assert any(d.field == "signature.algorithm" for d in result.mismatch_details)
+
+
+def test_pq_profile_downgrade_detected_without_trusted_keys():
+    # The downgrade is a property of the manifest, not of the verifier's keys.
+    m = base_manifest(crypto_profile="post-quantum")
+    result = verify_manifest(m, base_context(trusted_keys={}), store())
+    assert result.result == OverallResult.MISMATCH
+    assert any(d.field == "signature.algorithm" for d in result.mismatch_details)
+
+
+def test_standard_profile_with_ed25519_is_valid():
+    result = verify_manifest(base_manifest(crypto_profile="standard"), base_context(), store())
+    assert result.result == OverallResult.VALID
+    assert result.mismatch_details == []
+
+
+def test_standard_profile_with_stronger_signature_is_not_a_downgrade(monkeypatch):
+    # Dual-signing ahead of the profile flip provides more than the declared
+    # profile requires, so it must not be reported as a downgrade.
+    ed_pub = b"e" * 32
+    pq_pub = b"p" * 1952
+    combined_pub = ed_pub + pq_pub
+    key_id = hashlib.sha256(combined_pub).hexdigest()
+
+    class FakeHybridVerifier:
+        def __init__(self, ed25519_public_bytes, ml_dsa65_public_bytes):
+            pass
+
+        def verify(self, manifest_dict, signature_block):
+            pass
+
+    monkeypatch.setattr(_signing, "HybridVerifier", FakeHybridVerifier)
+    ctx = base_context(trusted_keys={key_id: _b64url_encode(combined_pub)})
+
+    result = verify_manifest(_hybrid_manifest(key_id), ctx, store())
+
+    assert result.result == OverallResult.VALID
+    assert not any(d.field == "signature.algorithm" for d in result.mismatch_details)
+
+
+# ---------------------------------------------------------------------------
 # Fail-closed HITL enforcement
 # ---------------------------------------------------------------------------
 

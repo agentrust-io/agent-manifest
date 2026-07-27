@@ -71,10 +71,11 @@ The Python reference assertion lives in
 
 ## Coverage
 
-`AM-VEC-001` … `AM-VEC-019` span the full `OverallResult` space:
+`AM-VEC-001` … `AM-VEC-020` span the full `OverallResult` space:
 
 * `VALID` — happy path; valid signed delegation chain; matching attestation report.
-* `MISMATCH` — artifact hash, tampered signature, flagged RAG poisoning scan.
+* `MISMATCH` — artifact hash, tampered signature, flagged RAG poisoning scan,
+  crypto-profile downgrade (post-quantum profile, classical-only signature).
 * `EXPIRED`, `REVOKED`, `INCOMPATIBLE_VERSION`.
 * `SIGNATURE_MISSING` (unsigned) and `UNVERIFIABLE` (no trusted keys; and a
   delegation chain present without keys to verify it).

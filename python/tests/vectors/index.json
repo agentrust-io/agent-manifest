@@ -98,6 +98,11 @@
       "id": "AM-VEC-019",
       "file": "AM-VEC-019.json",
       "description": "Signed single-hop delegation chain bound to the manifest issuer verifies."
+    },
+    {
+      "id": "AM-VEC-020",
+      "file": "AM-VEC-020.json",
+      "description": "Post-quantum crypto_profile with an Ed25519 signature is a downgrade."
     }
   ]
 }

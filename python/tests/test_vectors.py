@@ -6,7 +6,7 @@ This test guards the Python reference implementation against them: for each
 vector it loads the manifest + context, runs :func:`verify_manifest`, and
 asserts the expected overall result and per-field statuses.
 
-Conformance IDs: AM-VEC-001 .. AM-VEC-015.
+Conformance IDs: AM-VEC-001 .. AM-VEC-020.
 """
 from __future__ import annotations
 

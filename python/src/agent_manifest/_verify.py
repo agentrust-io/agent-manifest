@@ -191,6 +191,21 @@ class VerificationContext(BaseModel):
 SUPPORTED_MANIFEST_VERSIONS: frozenset[str] = frozenset({"0.1"})
 _HYBRID_ED25519_PUBLIC_KEY_BYTES = 32
 
+# Signature algorithms that satisfy each declared crypto_profile (spec 4.1 /
+# 4.2). The rule is deliberately one-directional: it rejects a signature that
+# provides less than the declared profile requires, and permits one that
+# provides more. A post-quantum profile carrying a classical-only signature is
+# the downgrade spec 4.2 tells verifiers to reject; a standard profile carrying
+# an ML-DSA-65 or hybrid signature is an issuer moving to dual-signing ahead of
+# the profile flip, which is strictly stronger and not an attack.
+KNOWN_SIGNATURE_ALGORITHMS: frozenset[str] = frozenset(
+    {"Ed25519", "ML-DSA-65", "hybrid-Ed25519-ML-DSA-65"}
+)
+PROFILE_SIGNATURE_ALGORITHMS: dict[str, frozenset[str]] = {
+    "standard": KNOWN_SIGNATURE_ALGORITHMS,
+    "post-quantum": frozenset({"ML-DSA-65", "hybrid-Ed25519-ML-DSA-65"}),
+}
+
 
 def _split_hybrid_public_key(
     key_id: str,
@@ -365,10 +380,44 @@ def verify_manifest(
         except (ValueError, AttributeError):
             pass
 
-    # --- Signature verification (CRYPTO-004, fail-closed per spec 5.3)
+    # --- Crypto profile downgrade check (spec 4.2: a verifier MUST reject
+    # rather than silently fall back, "this prevents downgrade attacks during
+    # the transition period").
+    #
+    # crypto_profile is inside the signing pre-image (SIGNED_FIELDS) but
+    # signature.algorithm is not - the whole signature block is excluded from
+    # the pre-image by section 3.6. An intermediary can therefore rewrite the
+    # algorithm identifier without disturbing the signed bytes. Cross-checking
+    # the unsigned identifier against the signed profile is what binds the two,
+    # and it runs independently of trusted_keys: a post-quantum manifest
+    # presented with a classical-only signature is a downgrade whether or not
+    # this verifier holds the key to check that signature.
     sig_block = manifest.get("signature") or {}
     signature_missing = not sig_block
-    if sig_block and context.trusted_keys:
+    profile_downgrade = False
+    if sig_block:
+        declared_profile = manifest.get("crypto_profile", "standard")
+        permitted = PROFILE_SIGNATURE_ALGORITHMS.get(declared_profile)
+        declared_algorithm = sig_block.get("algorithm", "Ed25519")
+        # An unrecognised algorithm identifier is left to the signature
+        # verification branch below, which reports it as such.
+        if (
+            permitted is not None
+            and declared_algorithm in KNOWN_SIGNATURE_ALGORITHMS
+            and declared_algorithm not in permitted
+        ):
+            profile_downgrade = True
+            mismatches.append(MismatchDetail(
+                field="signature.algorithm",
+                expected_hash=(
+                    f"<crypto_profile={declared_profile} permits "
+                    f"{'|'.join(sorted(permitted))}>"
+                ),
+                actual_hash=f"<algorithm={declared_algorithm}>",
+            ))
+
+    # --- Signature verification (CRYPTO-004, fail-closed per spec 5.3)
+    if sig_block and context.trusted_keys and not profile_downgrade:
         algorithm = sig_block.get("algorithm", "Ed25519")
         key_id = sig_block.get("key_id", "")
         pub_b64 = context.trusted_keys.get(key_id)

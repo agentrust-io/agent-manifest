@@ -349,6 +349,18 @@ def build() -> list[dict[str, Any]]:
         {"result": "VALID", "fields_verified": {"delegation_chain": "VALID"}},
     ))
 
+    # 020 - post-quantum profile presented with a classical-only signature.
+    # The Ed25519 signature here is genuine and covers a pre-image that includes
+    # crypto_profile="post-quantum", so the only defect is the mismatch between
+    # the signed profile and the unsigned signature.algorithm identifier. Spec
+    # 4.2 requires a verifier to reject rather than silently fall back.
+    vectors.append(_vector(
+        "AM-VEC-020",
+        "Post-quantum crypto_profile with an Ed25519 signature is a downgrade.",
+        ["4.2", "3.6"], base_manifest(crypto_profile="post-quantum"), base_context(),
+        {"result": "MISMATCH", "signature_verified": False},
+    ))
+
     return vectors
 
 
