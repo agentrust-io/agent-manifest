@@ -29,11 +29,14 @@ Before starting:
 ## Step 1  -  Generate a new key pair
 
 ```bash
-# Generate a new Ed25519 key pair
-manifest keygen --out /path/to/new-signing-key.b64url --print-pub
+# Generate a new Ed25519 key pair into a directory
+manifest keygen -d /path/to/new-keys/
 
-# The printed public key goes into your trust anchor configuration
-# The private key stays in the secrets manager  -  never in source control
+# Writes new-keys/private.hex (mode 0600) and new-keys/public.hex, and prints
+# the new key_id to stderr.
+#
+# The public key goes into your trust anchor configuration
+# The private key moves to the secrets manager  -  never into source control
 ```
 
 Or in Python:

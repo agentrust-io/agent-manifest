@@ -120,9 +120,12 @@ manifest keygen -d ./keys/
 manifest create config.json -o draft.json
 manifest sign draft.json --key keys/private.hex -o signed.json
 manifest attest signed.json --provider auto --level 1 -o attested.json
-manifest verify attested.json
+manifest verify attested.json --public-key keys/public.hex
 manifest revoke <manifest-id> --reason "key compromise" --revoked-by security@example.com
 ```
+
+Without `--public-key` the verifier has no trusted issuer key, so a signed
+manifest fails closed as `UNVERIFIABLE` and the command exits 1.
 
 ## Cryptography
 

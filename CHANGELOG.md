@@ -4,13 +4,25 @@ All notable changes to Agent Manifest are documented here. Format follows [Keep 
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-07-26
+
+Fixes the CLI that every document described but that nobody could run, and closes a signature-downgrade gap in the verifier.
+
 ### Fixed
+
+**[SDK]** **The documented CLI invocation now works.** Every command was nested under a redundant second `manifest` group, so the real invocation was `manifest manifest verify signed.json` while the README, the docs site, the PyPI description, and the CLI's own module docstring all printed `manifest verify signed.json`. Running the published quickstart failed at the first step with `Error: No such command 'keygen'`. `tests/test_cli.py` used the nested form, so CI never caught it. Commands are now attached to the top-level group as documented; the nested spelling still works, is hidden from `--help`, and prints a deprecation warning (removal in 1.0). `test_documented_commands_are_top_level` guards the surface.
 
 **[SDK]** `verify_manifest()` now cross-checks the signed `crypto_profile` against `signature.algorithm` and fails closed on a downgrade (spec 4.2). `crypto_profile` is inside the signing pre-image, but the whole `signature` block is excluded from it (spec 3.6), so the algorithm identifier could previously be rewritten without disturbing the signed bytes: a manifest declaring the post-quantum profile verified `VALID` on a classical-only Ed25519 signature. The check runs independently of `trusted_keys` (the downgrade is a property of the manifest, not of the verifier's key material) and is one-directional: it rejects a signature weaker than the declared profile requires and permits a stronger one, so an issuer dual-signing ahead of the profile flip is not flagged. New conformance vector `AM-VEC-020`.
 
 ### Documentation
 
 **[SDK]** `docs/getting-started.md`: new "Watch it catch a change" step. Shows the two ways verification fails and how they differ — an edit to the signed record (signature fails, `signature_verified: false`) versus runtime drift against an intact signature (declared-vs-actual binding fails, `system_prompt: MISMATCH`) — and names the boot-time boundary, pointing at `attest_runtime_state()` for freshness. All printed values are copied from real runs.
+
+**[SDK]** `docs/api-reference/cli.md` is now generated from the CLI by `scripts/gen_cli_reference.py` instead of hand-written. The hand-written page had drifted into fiction: it documented `manifest keygen --out/--print-pub`, `manifest verify --revocation-url/--min-slsa-level`, `manifest create --agent-id/--issuer/--model/--ttl-hours`, and `manifest revoke --crl-file/--key-file`, none of which exist, while omitting the options that do. `test_cli_reference.py` fails if the committed page drifts from the CLI again.
+
+**[SDK]** CLI help output is readable: `\b` markers keep the example blocks from being rewrapped into one line, and `-o/--output`, `--enforce-hitl`, and `--enforce-attestation` have help text instead of appearing bare.
+
+**[SDK]** Corrected CLI examples that could not have worked: `docs/operations/key-rotation.md` used the non-existent `manifest keygen --out ... --print-pub`, and `docs/index.md` plus `python/README.md` printed `manifest verify` without `--public-key`, which fails closed as `UNVERIFIABLE` and exits 1 rather than the `VALID` shown.
 
 **[SDK]** `LIMITATIONS.md`: document that **Azure TDX is not supported for offline attestation** (hardware-confirmed). Azure runs TDX behind the Hyper-V paravisor, so the guest gets no signed DCAP quote — only a MAC'd `TDREPORT` via the vTPM — and rooting that as genuine silicon needs a networked service (Azure MAA). Offline TDX attestation is supported on non-paravisor guests (e.g. GCP C3); on Azure use SEV-SNP (`AzureCVMProvider`). Azure-MAA TDX support is tracked as a follow-up.
 
