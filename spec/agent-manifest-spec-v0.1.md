@@ -1574,6 +1574,7 @@ The Art. 13 row in section 9.1 cross-references `operational_lifecycle.expected_
 Targets: Q3 2026. Driven by community and early adopter feedback collected during the CC Summit period (June to September 2026).
 
 - COSE_Sign1 signature envelope, replacing the v0.1 canonical-JSON detached signature and aligning with RFC 9943 (SCITT). Gated on the `version` field: v0.1 manifests continue to verify unchanged. See ADR-0011
+- `model_identity` reference to an OpenSSF Model Signing (OMS) signature bundle, so a verifier can follow the chain from the agent to the model publisher's signature instead of trusting an operator-asserted hash. See section 10.5
 - Memory baseline protocol for stateful agents (v0.1 defines the binding; v0.2 defines the checkpoint protocol)
 - RAG corpus incremental update protocol - how to bind a delta without re-hashing the full corpus
 - Multi-model manifest - binding for agents that use different models for different subtasks
@@ -1613,8 +1614,38 @@ Target: Q1 2027. Submission to AAIF alongside the AGT donation.
 | RFC 9162 (Certificate Transparency v2) | Merkle tree construction and transparency log structures follow RFC 9162. |
 | RFC 9334 (RATS Architecture) | The attestation service plays the RATS Verifier role. Platform-native attestation reports are normalized to EAT (RFC 9711) for third-party verification. |
 | RFC 9711 (EAT) | EAT is the attestation-token format for evidence about a running environment. Agent Manifest consumes an EAT as an input to the `attestation` block; it does not compete with it. The manifest itself is a signed document, not a token. See ADR-0011. |
-| RFC 9943 (SCITT) | The closest analog to Agent Manifest: signed statements plus a transparency log with receipts. Agent Manifest is intended as the agent-layer profile of this model, and the envelope alignment question is tracked in ADR-0011. |
+| RFC 9943 (SCITT) | The closest analog to Agent Manifest: signed statements plus a transparency log with receipts. Agent Manifest is the agent-layer profile of this model; see section 10.5 for the term-by-term mapping. The envelope moves to COSE_Sign1 in v0.2 per ADR-0011. |
+| OpenSSF Model Signing (OMS) | OMS signs the model as an artifact: a detached signature bundle in Sigstore Bundle Format listing every model file by digest. Agent Manifest binds `model_identity` to the deployed model and does not re-specify model signing. Where a model ships with an OMS bundle, `model_hash` should be the digest that bundle binds, so the two agree by construction rather than by coincidence. See section 10.5. |
 | RFC 9562 (UUID v7) | All UUID fields in the manifest use UUID v7 per RFC 9562. |
+
+### 10.5 SCITT Profile Mapping
+
+Agent Manifest is not a new transparency architecture. It is the agent-layer profile of the one the IETF standardized in RFC 9943 (SCITT), and every structural piece of this specification already has a SCITT name. Stating the correspondence explicitly is what makes "profile of SCITT" a claim rather than a slogan, and it tells an implementer which parts of this document are agent-specific and which are inherited.
+
+| SCITT term (RFC 9943) | Agent Manifest equivalent |
+|---|---|
+| Artifact | The deployed agent, as configured at a point in time |
+| Subject | `agent_id`, a SPIFFE URI (section 3.1) |
+| Statement | The manifest document: the ten artifact bindings plus identity, lifetime, and issuer metadata |
+| Issuer | `issuer`, the SPIFFE URI of the signing authority (section 3.1) |
+| Signed Statement | The signed manifest (section 3.6). COSE_Sign1 from v0.2 per ADR-0011, which is what RFC 9943 requires of a Signed Statement |
+| Transparency Service | The Rekor or consortium log the manifest is submitted to (section 3.6) |
+| Receipt | The inclusion proof carried in `transparency_log_entry` |
+| Transparent Statement | A signed manifest whose `transparency_log_entry` is populated. This specification already requires production deployments to reach this state: a signature alone is explicitly declared insufficient for regulatory purposes (section 3.6) |
+| Registration Policy | What a Transparency Service checks before registering a manifest, for example the declared conformance level (section 8.1) and whether the signing key is authorized for the claimed issuer (section 5.3) |
+| Auditor | Any third party reconstructing an agent's history from the log without trusting the operator, which is the premise of section 1.1 and the threat model of section 7 |
+
+The agent-specific contribution is the Statement payload: what it means to describe an *agent* completely enough that a third party can tell whether the one running is the one approved. That is sections 3.2 through 3.5. Everything around it (signing, registration, receipts, auditing) is SCITT, and should be read as such rather than as a parallel invention.
+
+#### What this specification deliberately does not restate
+
+Composition is the point. Three adjacent efforts already solve problems that Agent Manifest binds rather than re-solves:
+
+- **The model artifact: OpenSSF Model Signing (OMS).** OMS produces a detached signature bundle, in Sigstore Bundle Format, listing every file of a model by digest, covering weights, configuration, and tokenizer as one unit. Agent Manifest does not define a competing model-signing scheme. `model_identity.model_hash` (section 3.2.4) binds the model a specific agent is approved to run; where the model publisher ships an OMS bundle, that hash should be the digest OMS binds, and a future revision will add an explicit field for the bundle reference so a verifier can follow the chain from agent to model publisher without an out-of-band lookup.
+- **Build provenance: SLSA and in-toto.** `supply_chain` references SLSA attestations (section 3.2.8) rather than re-encoding build steps.
+- **Transparency: SCITT and Sigstore.** The log, its receipts, and the auditing model are SCITT's, as mapped above.
+
+The consequence for implementers is that an Agent Manifest deployment inherits the tooling and the review history of these efforts, and the gap Agent Manifest fills is the one none of them addresses: no existing standard binds a system prompt, a policy bundle, a tool catalog, a memory baseline, a delegation chain, and a human approval into a single artifact that hardware can attest to.
 
 ## 11. Appendix
 
