@@ -898,7 +898,7 @@ Every top-level field defined by this specification appears in exactly one row o
 
 Canonical serialization: The signature covers the RFC 8785 canonical JSON serialization of the named `signed_fields`, after applying the `hitl_record.approvals` normalization rule above. See section 2.3 for the complete canonicalization specification.
 
-Envelope note: this is a detached signature over a canonical-JSON pre-image, not a JWS or COSE structure. Per ADR-0011 the envelope moves to COSE_Sign1 in v0.2, for alignment with RFC 9943 (SCITT). That change is gated on the manifest `version` field: this section stays normative for v0.1 manifests, which continue to verify unchanged after v0.2 ships.
+Envelope note: this is a detached signature over a canonical-JSON pre-image, not a JWS or COSE structure. Per ADR-0011 the envelope moves to COSE_Sign1 in v0.2, for alignment with RFC 9943 (SCITT); that envelope is specified in [agent-manifest-cose-envelope-v0.2.md](agent-manifest-cose-envelope-v0.2.md). The change is gated on the manifest `version` field: this section stays normative for v0.1 manifests, which continue to verify unchanged after v0.2 ships.
 
 Algorithm binding (normative): the `signature` block is not part of the pre-image, so `signature.algorithm` is not covered by the signature. A verifier MUST therefore check the declared algorithm against the signed `crypto_profile` and MUST reject a manifest whose signature is weaker than the declared profile requires: a `post-quantum` manifest presented with a classical-only Ed25519 signature is a downgrade and MUST NOT verify (section 4.2). A signature stronger than the declared profile requires (for example ML-DSA-65 or hybrid under a `standard` profile) is permitted. A verifier MUST reject an unrecognized algorithm identifier rather than defaulting to Ed25519.
 
@@ -1575,7 +1575,7 @@ The Art. 13 row in section 9.1 cross-references `operational_lifecycle.expected_
 
 Targets: Q3 2026. Driven by community and early adopter feedback collected during the CC Summit period (June to September 2026).
 
-- COSE_Sign1 signature envelope, replacing the v0.1 canonical-JSON detached signature and aligning with RFC 9943 (SCITT). Gated on the `version` field: v0.1 manifests continue to verify unchanged. See ADR-0011
+- COSE_Sign1 signature envelope, replacing the v0.1 canonical-JSON detached signature and aligning with RFC 9943 (SCITT). Gated on the `version` field: v0.1 manifests continue to verify unchanged. Specified in [agent-manifest-cose-envelope-v0.2.md](agent-manifest-cose-envelope-v0.2.md); see ADR-0011 for the decision
 - `model_identity` reference to an OpenSSF Model Signing (OMS) signature bundle, so a verifier can follow the chain from the agent to the model publisher's signature instead of trusting an operator-asserted hash. See section 10.5
 - Memory baseline protocol for stateful agents (v0.1 defines the binding; v0.2 defines the checkpoint protocol)
 - RAG corpus incremental update protocol - how to bind a delta without re-hashing the full corpus
