@@ -110,7 +110,7 @@ An Agent Manifest is created once per agent deployment, updated when any bound a
 | Phase | Trigger | Actor | Output |
 |---|---|---|---|
 | 1. Authoring | Agent deployment configuration complete | Agent developer / platform team | Unsigned draft manifest (JSON-LD) |
-| 2. Signing | Human security reviewer approves configuration | Security officer / CISO delegate | Signed manifest (JWS with Ed25519 or ML-DSA-65) |
+| 2. Signing | Human security reviewer approves configuration | Security officer / CISO delegate | Signed manifest (detached Ed25519 or ML-DSA-65 signature over the RFC 8785 pre-image, section 3.6) |
 | 3. Attestation | Agent workload launches inside TEE | the Confidential Runtime | TEE attestation report binding manifest hash to hardware measurements |
 | 4. Verification | Agent crosses a trust boundary (tool call, delegation, audit) | Relying party (MCP server, auditor, regulator) | Verification result: VALID \| MISMATCH \| EXPIRED \| REVOKED \| INCOMPATIBLE_VERSION |
 | 5. Revocation | Any bound artifact changes, compromise detected, or TTL expires | Agent owner or the revocation service | Revocation record published to transparency log |
@@ -898,6 +898,10 @@ Every top-level field defined by this specification appears in exactly one row o
 
 Canonical serialization: The signature covers the RFC 8785 canonical JSON serialization of the named `signed_fields`, after applying the `hitl_record.approvals` normalization rule above. See section 2.3 for the complete canonicalization specification.
 
+Envelope note: this is a detached signature over a canonical-JSON pre-image, not a JWS or COSE structure. Whether v0.2 moves the envelope to COSE_Sign1 for alignment with RFC 9943 (SCITT) is an open decision recorded in ADR-0011; this section is normative until that decision lands.
+
+Algorithm binding (normative): the `signature` block is not part of the pre-image, so `signature.algorithm` is not covered by the signature. A verifier MUST therefore check the declared algorithm against the signed `crypto_profile` and MUST reject a manifest whose signature is weaker than the declared profile requires: a `post-quantum` manifest presented with a classical-only Ed25519 signature is a downgrade and MUST NOT verify (section 4.2). A signature stronger than the declared profile requires (for example ML-DSA-65 or hybrid under a `standard` profile) is permitted. A verifier MUST reject an unrecognized algorithm identifier rather than defaulting to Ed25519.
+
 Ed25519 validation rules <!-- CHANGED: CRYPTO-007 -->: Ed25519 implementations MUST use the cofactorless verification equation (`[S]B == R + [k]A`). Implementations MUST reject non-canonically encoded points (i.e., reject if the encoding does not round-trip through point decoding). Implementations MUST NOT use batch verification unless the batch verifier enforces the same cofactorless equation with canonical encoding checks. Implementations SHOULD use hedged signing (per draft-irtf-cfrg-det-sigs-with-noise) when signing keys reside in hardware signers subject to fault injection.
 
 Hybrid signature envelope <!-- CHANGED: CRYPTO-006 -->: When `algorithm` is `hybrid-Ed25519-ML-DSA-65`, both `classical_signature` and `pq_signature` MUST be present. Both signatures cover the identical RFC 8785 canonical JSON byte sequence of `signed_fields`. A verifier MUST verify both signatures and MUST reject the manifest if either fails. Reference: draft-ietf-pquip-hybrid-signature-spectrums for the binding model.
@@ -1165,7 +1169,7 @@ An evidence pack is a JSON document with the following structure:
 }
 ```
 
-`pack_hash` is the SHA-256 of the RFC 8785 canonical JSON of this document. The pack is signed using the TEE-sealed key, with the signature as a detached JWS appended as a top-level `pack_signature` field.
+`pack_hash` is the SHA-256 of the RFC 8785 canonical JSON of this document. The pack is signed using the TEE-sealed key, with the signature appended as a top-level `pack_signature` field in the same detached form as the manifest `signature` object (section 3.6).
 
 Access control for confidential payloads: Tool call payload fields in TRACE envelopes MUST be replaced with their SHA-256 hashes in packs served to unauthenticated verifiers. Full payloads are available only to verifiers presenting a valid SPIFFE SVID with an authorized role declared in the manifest's `policy_bundle`.
 
@@ -1606,7 +1610,9 @@ Target: Q1 2027. Submission to AAIF alongside the AGT donation.
 | CoSAI WS1 | `supply_chain` provenance aligns with CoSAI Working Stream 1 (AI supply chain security). Agent Manifest is a candidate for CoSAI WS1 recommendation. |
 | RFC 8785 (JCS) | All canonical JSON serialization uses RFC 8785. This is a normative dependency. |
 | RFC 9162 (Certificate Transparency v2) | Merkle tree construction and transparency log structures follow RFC 9162. |
-| RFC 9334 (RATS Architecture) | The attestation service plays the RATS Verifier role. Platform-native attestation reports are normalized to EAT (RFC 9528) for third-party verification. |
+| RFC 9334 (RATS Architecture) | The attestation service plays the RATS Verifier role. Platform-native attestation reports are normalized to EAT (RFC 9711) for third-party verification. |
+| RFC 9711 (EAT) | EAT is the attestation-token format for evidence about a running environment. Agent Manifest consumes an EAT as an input to the `attestation` block; it does not compete with it. The manifest itself is a signed document, not a token. See ADR-0011. |
+| RFC 9943 (SCITT) | The closest analog to Agent Manifest: signed statements plus a transparency log with receipts. Agent Manifest is intended as the agent-layer profile of this model, and the envelope alignment question is tracked in ADR-0011. |
 | RFC 9562 (UUID v7) | All UUID fields in the manifest use UUID v7 per RFC 9562. |
 
 ## 11. Appendix

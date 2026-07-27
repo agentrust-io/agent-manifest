@@ -91,6 +91,14 @@ An Agent Manifest is a cryptographically signed record that anchors the 10 artif
 
 A signed JWT proves who called an API. An Agent Manifest proves who the agent was, what it was allowed to do, how it was built, what it decided, who approved it, and whether any of that changed between approval and execution.
 
+### Why not specify it as a JWT or JOSE profile?
+
+Because of what comparable standards chose, not because JWT is incapable. The IETF already picked the JWT/CWT route for attestation *tokens*: EAT ([RFC 9711](https://www.rfc-editor.org/rfc/rfc9711.html)) even supports nested tokens and detached claim sets. That is the right shape for "who is calling, right now," and an EAT is a valid input to a manifest's attestation block.
+
+Every multi-artifact provenance standard with a transparency log went the other way. SCITT ([RFC 9943](https://www.rfc-editor.org/rfc/rfc9943.html)), the closest analog to Agent Manifest, mandates COSE_Sign1 signed statements. DSSE, the envelope behind in-toto and SLSA, rejected a JWS profile in writing, citing implementation hazards and canonicalization as attack surface. C2PA uses COSE_Sign1 inside a JUMBF container.
+
+An Agent Manifest is that second kind of object: ten artifacts, several independent signers, hardware-report binding, a 90-day life, and a log receipt attached after signing. So the layering is EAT and JWT for the attestation-token input, and a signed document for the manifest. The two compose. See [ADR-0011](adr/0011-signature-envelope.md) for the full argument and the open question about which document envelope to standardize on.
+
 ### What is the agent attestation gap?
 
 Users have X.509 certificates, services have SPIFFE SVIDs, and containers have image digests, but AI agents have no unforgeable proof of which prompt, model, or policy defined their behavior. The attestation gap is the inability to prove, to a third party who does not trust the operator, that the running agent matches the approved one.

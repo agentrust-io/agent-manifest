@@ -4,6 +4,20 @@ All notable changes to Agent Manifest are documented here. Format follows [Keep 
 
 ## [Unreleased]
 
+### Fixed
+
+**[SDK]** A `signature` block with no `algorithm` field no longer falls back to Ed25519. The field is REQUIRED by spec 3.6 but sits outside the signing pre-image, and the verifier defaulted a missing identifier to the classical algorithm; it is now a `signature.algorithm` mismatch. Completes the 0.6.0 downgrade check, which only covered a present-but-weaker identifier.
+
+### Documentation
+
+**[SPEC]** New **ADR-0011: the manifest is a signed document, not a JWT/JOSE profile** (status: Proposed). Answers the recurring "why not just a JWT extension?" question on precedent rather than on capability, steelmanning EAT ([RFC 9711](https://www.rfc-editor.org/rfc/rfc9711.html)) rather than dismissing it, and setting against it the choice every comparable multi-artifact provenance standard made: SCITT ([RFC 9943](https://www.rfc-editor.org/rfc/rfc9943.html)) mandates COSE_Sign1, DSSE rejected a JWS profile in writing, C2PA signs with `COSE_Sign1_Tagged`. The ADR also records a decision this project had never actually made: the envelope is neither JOSE nor COSE but a bespoke canonical-JSON detached signature. Migrating to COSE_Sign1 is recommended; Section 3.6 is unchanged until that is signed off.
+
+**[SPEC]** Corrected three factual errors in the spec. Section 2.2 and Section 5 described the manifest signature as "JWS", which it has never been (there is no JOSE dependency in the SDK; the signature is a detached Ed25519 or ML-DSA-65 signature over an RFC 8785 pre-image). Section 10.4 cited EAT as RFC 9528, which is EDHOC; EAT is RFC 9711.
+
+**[SPEC]** Section 3.6 gained a normative algorithm-binding rule making the 0.6.0 verifier behaviour part of the specification: because the `signature` block sits outside the pre-image, a verifier MUST cross-check the declared algorithm against the signed `crypto_profile`, MUST reject a downgrade, and MUST reject an unrecognized algorithm identifier rather than defaulting to Ed25519. Section 10.4 adds rows for RFC 9711 and RFC 9943 positioning Agent Manifest as the agent-layer profile of the SCITT model.
+
+**[SDK]** `docs/index.md` FAQ answers "why not specify it as a JWT or JOSE profile?" with the short form of the ADR-0011 argument.
+
 ## [0.6.0] — 2026-07-26
 
 Fixes the CLI that every document described but that nobody could run, and closes a signature-downgrade gap in the verifier.
