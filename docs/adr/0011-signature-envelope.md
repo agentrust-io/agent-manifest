@@ -1,7 +1,7 @@
 # ADR-0011: The manifest is a signed document, not a JWT/JOSE profile
 
-**Status**: Proposed
-**Date**: 2026-07-26
+**Status**: Accepted
+**Date**: 2026-07-26 (part 2 decided 2026-07-27)
 **Spec section**: Section 2.3 (Canonical Serialization), Section 3.6 (Manifest Signature)
 
 ## Context
@@ -56,7 +56,21 @@ Two parts. The first is settled; the second is what this ADR asks for a decision
 
 **1. Agent Manifest is a signed document, not a bearer token, and it composes with the token layer rather than competing with it.** EAT is the right answer for "who is calling, right now, and what is their attestation evidence." An EAT (or any platform attestation token) is a valid *input* to a manifest's attestation block. The manifest itself is the durable, multi-signer, hardware-bound record of what the agent *was*. We will not profile JWS as the manifest envelope.
 
-**2. The envelope encoding is open, with a recommendation.** Migrate to **COSE_Sign1** (Option A below), aligning with SCITT and inheriting its documented safety properties, rather than continuing to specify a bespoke canonical-JSON envelope. This is a breaking change and needs explicit sign-off before it is written into the spec; until that happens the status of this ADR stays *Proposed* and Section 3.6 is unchanged.
+**2. The envelope moves to COSE_Sign1** (Option A below), aligning with SCITT rather than continuing to specify a bespoke canonical-JSON envelope. Decided 2026-07-27. This is a breaking change, lands in spec v0.2, and is sequenced in "Migration" below. Section 3.6 of v0.1 remains normative for the current envelope until v0.2 ships.
+
+### What COSE_Sign1 actually buys
+
+Three concrete properties, not just alignment for its own sake:
+
+1. **The signed bytes travel with the signature.** COSE_Sign1 signs a payload as-is, so a verifier never re-serializes anything to check a signature. RFC 8785 stays as the *producer-side* determinism rule and as the basis of the manifest hash bound into hardware `REPORT_DATA`, but it stops being an input to verification. That removes canonicalize-before-verify, which is the specific attack surface DSSE cites.
+2. **`alg` is in the protected header, covered by the signature.** The bug we shipped and fixed in 0.6.0, where `signature.algorithm` sat outside the pre-image and could be rewritten, cannot be expressed in this envelope.
+3. **Receipts attach where SCITT puts them.** A COSE Receipt in the unprotected header is exactly the `transparency_log_entry`-after-signing ordering that Section 3.6 already describes in prose.
+
+### The post-quantum profile is not a blocker
+
+This was the main technical risk when the migration was first considered, and it has since cleared. [RFC 9964](https://www.rfc-editor.org/rfc/rfc9964.html) (Standards Track, May 2026) registers ML-DSA for both JOSE and COSE with final IANA code points: **ML-DSA-65 is COSE `alg` -49**, and the AKP key type is COSE key type 7. Ed25519 uses the long-established `EdDSA` (-8). Both profiles therefore have stable, registered identifiers, and there is no need to pin provisional code points or hold the post-quantum profile back on the old envelope.
+
+The one construction with no standard answer is **hybrid**. COSE has no single-signature hybrid mode, so `hybrid-Ed25519-ML-DSA-65` becomes either two COSE_Sign1 structures over the same payload or one `COSE_Sign` with two signers. That choice is deferred to the v0.2 spec work and should follow whatever draft-ietf-pquip guidance exists at the time.
 
 ## Rationale
 
@@ -68,7 +82,7 @@ The counter-consideration is real: the canonical-JSON envelope is shipped, hardw
 
 ## Alternatives considered
 
-**Option A: COSE_Sign1 (recommended).** Aligns with SCITT, C2PA, and the direction of RATS. `alg` moves into the protected header and is covered by the signature. Receipts attach in the unprotected header, matching what we already do with `transparency_log_entry`. Cost: a CBOR dependency, a second signing and verification path, new conformance vectors, and a spec version bump. Consumers on 0.x break unless we support both envelopes through a deprecation window.
+**Option A: COSE_Sign1 (chosen).** Aligns with SCITT, C2PA, and the direction of RATS. `alg` moves into the protected header and is covered by the signature. Receipts attach in the unprotected header, matching what we already do with `transparency_log_entry`. Cost: a CBOR dependency, a second signing and verification path, new conformance vectors, and a spec version bump. Consumers on 0.x break unless we support both envelopes through a deprecation window.
 
 **Option B: keep the canonical-JSON envelope and close the DSSE-cited gaps normatively.** Specify in Section 3.6 that the algorithm identifier is bound (either inside the pre-image or by a mandatory cross-check against `crypto_profile`, which 0.6.0 now implements), that an authenticated payload-type indicator is part of the pre-image, and that verifiers must reject unknown or absent algorithm identifiers rather than defaulting. Cheapest path, keeps every current consumer working, and is defensible as long as it is written down. Cost: SCITT profiling later becomes a second migration, and we carry the burden of arguing for a bespoke format in every standards conversation.
 
@@ -78,12 +92,27 @@ The counter-consideration is real: the canonical-JSON envelope is shipped, hardw
 
 **Option E: status quo, undocumented.** Rejected. The current state is a bespoke envelope described in the spec by the wrong name.
 
+## Migration
+
+Sequenced so that nothing breaks before there is something to migrate to. Tracked as a GitHub issue; each phase is its own PR.
+
+**Phase 1 - specify (spec v0.2, no code).** Define the COSE_Sign1 envelope in Section 3.6: protected header carries `alg` (`EdDSA` -8, `ML-DSA-65` -49 per RFC 9964), `kid`, and a content type for the payload; the payload is the manifest document bytes; the transparency receipt attaches in the unprotected header. Decide the hybrid construction. Register or select a media type for the payload rather than leaving it implicit. Keep v0.1 Section 3.6 normative and unchanged.
+
+**Phase 2 - implement behind a version gate.** Add COSE signing and verification alongside the existing path, selected by manifest `version`, not by a flag. A v0.1 manifest keeps verifying exactly as it does today; there is no reinterpretation of existing records. New dependency: a CBOR/COSE library, which is the first non-`cryptography` crypto dependency the SDK has taken and should be reviewed as such.
+
+**Phase 3 - conformance.** COSE variants of the `AM-VEC-*` vectors, including negative cases that only this envelope can express (tampered protected header, `alg` substitution). The vectors are the portable contract, so they gate any other-language SDK.
+
+**Phase 4 - consumers.** cmcp and ca2a consume the verifier through the published package; they move when v0.2 verification is released, not before. The TypeScript SDK is written against COSE from the start rather than ported to the v0.1 envelope and migrated twice.
+
+**Phase 5 - deprecation.** Announce an end date for issuing v0.1 manifests. Verification of v0.1 records stays supported through the retention window, because manifests are audit records with a 90-day life and regulated retention beyond it.
+
 ## Consequences
 
-- Section 2.2 and Section 5 no longer describe the manifest signature as "JWS." That correction lands with this ADR regardless of which option is chosen.
-- If Option A is chosen: a spec version bump, a dual-envelope support window with a stated end, COSE variants of the `AM-VEC-*` conformance vectors, and coordination with cmcp and ca2a, which consume the verifier through the published package. The TypeScript SDK should then be written against the new envelope rather than ported to the old one and migrated twice.
-- If Option B is chosen: the hardening rules become normative text in Section 3.6, with negative conformance vectors for each (unbound algorithm, absent algorithm, payload-type substitution). `AM-VEC-020` is the first of these.
-- Either way, the answer to the standards question becomes: EAT and JWT for the attestation-token input, a signed document for the manifest, and no competition between the two layers.
+- Sections 2.2 and 5 no longer describe the manifest signature as "JWS." That correction landed with this ADR.
+- The SDK takes a CBOR dependency it has so far avoided, and carries two signing paths for the length of the deprecation window. That is the price of the alignment and it is paid in maintenance, not in verification risk, since the paths are selected by manifest version.
+- RFC 8785 is not going away. It remains the producer-side determinism rule (ADR-0001) and the basis of the manifest hash bound into hardware attestation. What changes is that it stops being something a verifier must reproduce byte-for-byte to check a signature.
+- Positioning follows the envelope: Agent Manifest becomes describable as the agent-layer profile of SCITT, referencing OpenSSF Model Signing for the model artifact and SCITT receipts for transparency instead of restating them. Adjacent efforts become dependencies rather than competitors.
+- The standards answer is now: EAT and JWT for the attestation-token input, a COSE_Sign1 document for the manifest, and no competition between the layers.
 
 ## References
 
@@ -91,5 +120,6 @@ The counter-consideration is real: the canonical-JSON envelope is shipped, hardw
 - [RFC 9943](https://www.rfc-editor.org/rfc/rfc9943.html) - An Architecture for Trustworthy and Transparent Digital Supply Chains (SCITT), Standards Track, June 2026.
 - [DSSE background](https://github.com/secure-systems-lab/dsse/blob/master/background.md) - reasons against a JWS profile, and the Pre-Authentication Encoding rationale.
 - [C2PA Specification](https://spec.c2pa.org/) - JUMBF container with `COSE_Sign1_Tagged` claim signatures.
+- [RFC 9964](https://www.rfc-editor.org/rfc/rfc9964.html) - ML-DSA for JOSE and COSE, Standards Track, May 2026. Final IANA code points: ML-DSA-65 = COSE `alg` -49, AKP key type = 7.
 - [RFC 8785](https://www.rfc-editor.org/rfc/rfc8785.html) - JSON Canonicalization Scheme, the basis of the current pre-image. See ADR-0001.
 - ADR-0001 (RFC 8785 canonical JSON), ADR-0005 (ML-DSA-65 and hybrid signatures), spec Section 3.6.
