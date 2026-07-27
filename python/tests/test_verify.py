@@ -474,6 +474,15 @@ def test_pq_profile_downgrade_detected_without_trusted_keys():
     assert any(d.field == "signature.algorithm" for d in result.mismatch_details)
 
 
+def test_absent_algorithm_does_not_default_to_ed25519():
+    m = base_manifest()
+    del m["signature"]["algorithm"]
+    result = verify_manifest(m, base_context(), store())
+    assert result.result == OverallResult.MISMATCH
+    assert result.signature_verified is False
+    assert any(d.field == "signature.algorithm" for d in result.mismatch_details)
+
+
 def test_standard_profile_with_ed25519_is_valid():
     result = verify_manifest(base_manifest(crypto_profile="standard"), base_context(), store())
     assert result.result == OverallResult.VALID

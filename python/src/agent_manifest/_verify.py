@@ -398,10 +398,19 @@ def verify_manifest(
     if sig_block:
         declared_profile = manifest.get("crypto_profile", "standard")
         permitted = PROFILE_SIGNATURE_ALGORITHMS.get(declared_profile)
-        declared_algorithm = sig_block.get("algorithm", "Ed25519")
+        declared_algorithm = sig_block.get("algorithm")
+        if declared_algorithm is None:
+            # spec 3.6: algorithm is REQUIRED and unauthenticated, so an absent
+            # identifier must not fall back to the classical default.
+            profile_downgrade = True
+            mismatches.append(MismatchDetail(
+                field="signature.algorithm",
+                expected_hash="<algorithm declared>",
+                actual_hash="<algorithm absent>",
+            ))
         # An unrecognised algorithm identifier is left to the signature
         # verification branch below, which reports it as such.
-        if (
+        elif (
             permitted is not None
             and declared_algorithm in KNOWN_SIGNATURE_ALGORITHMS
             and declared_algorithm not in permitted
