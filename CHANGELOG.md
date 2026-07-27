@@ -4,6 +4,10 @@ All notable changes to Agent Manifest are documented here. Format follows [Keep 
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-07-27
+
+Shares the hardware-validated TDX quote-signature parse so the sibling repos can stop carrying their own copies of the offsets, and specifies the v0.2 COSE envelope. No change to manifest signing or verification behaviour.
+
 ### Added
 
 **[SPEC]** **COSE envelope specified for manifest version 0.2**: [`spec/agent-manifest-cose-envelope-v0.2.md`](spec/agent-manifest-cose-envelope-v0.2.md), phase 1 of the ADR-0011 migration ([#243](https://github.com/agentrust-io/agent-manifest/issues/243)). `COSE_Sign1` (tag 18), or `COSE_Sign` (tag 98) with two signers for a hybrid Ed25519 + ML-DSA-65 signature so that both entries covering one payload is structural rather than an application rule. Protected header carries `alg` (`-8` / `-49`, RFC 9053 and RFC 9964), `kid`, `content type` (3), and `typ` (16, RFC 9596); the payload is the RFC 8785 canonical JSON of the manifest, carried inline; the SCITT receipt attaches as `receipts` (unprotected label 394, RFC 9942 receipts). Media types `application/agent-manifest+json` (payload) and `application/agent-manifest+cose` (object), standards-tree, registration pending.
