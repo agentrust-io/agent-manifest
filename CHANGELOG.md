@@ -4,7 +4,13 @@ All notable changes to Agent Manifest are documented here. Format follows [Keep 
 
 ## [Unreleased]
 
+### Fixed
+
+**[SDK]** `verify_manifest()` now cross-checks the signed `crypto_profile` against `signature.algorithm` and fails closed on a downgrade (spec 4.2). `crypto_profile` is inside the signing pre-image, but the whole `signature` block is excluded from it (spec 3.6), so the algorithm identifier could previously be rewritten without disturbing the signed bytes: a manifest declaring the post-quantum profile verified `VALID` on a classical-only Ed25519 signature. The check runs independently of `trusted_keys` (the downgrade is a property of the manifest, not of the verifier's key material) and is one-directional: it rejects a signature weaker than the declared profile requires and permits a stronger one, so an issuer dual-signing ahead of the profile flip is not flagged. New conformance vector `AM-VEC-020`.
+
 ### Documentation
+
+**[SDK]** `docs/getting-started.md`: new "Watch it catch a change" step. Shows the two ways verification fails and how they differ — an edit to the signed record (signature fails, `signature_verified: false`) versus runtime drift against an intact signature (declared-vs-actual binding fails, `system_prompt: MISMATCH`) — and names the boot-time boundary, pointing at `attest_runtime_state()` for freshness. All printed values are copied from real runs.
 
 **[SDK]** `LIMITATIONS.md`: document that **Azure TDX is not supported for offline attestation** (hardware-confirmed). Azure runs TDX behind the Hyper-V paravisor, so the guest gets no signed DCAP quote — only a MAC'd `TDREPORT` via the vTPM — and rooting that as genuine silicon needs a networked service (Azure MAA). Offline TDX attestation is supported on non-paravisor guests (e.g. GCP C3); on Azure use SEV-SNP (`AzureCVMProvider`). Azure-MAA TDX support is tracked as a follow-up.
 
