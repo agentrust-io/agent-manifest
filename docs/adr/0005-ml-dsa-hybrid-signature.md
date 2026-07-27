@@ -75,3 +75,24 @@ The spec defines exactly three named profiles. Arbitrary algorithm negotiation b
 - [CISA Post-Quantum Cryptography Initiative](https://www.cisa.gov/quantum)
 - ADR-0002: Ed25519 as the standard cryptographic profile
 - Spec Section 4.2: Signature algorithm identifiers and profile definitions
+
+## Amendment  -  2026-07-27: profile values, conformance level, and the unsupported-algorithm result
+
+**Resolved by:** a spec-versus-implementation audit while writing ADR-0011.
+
+Three statements in the original Decision and Consequences sections do not match the shipped specification or the SDK. In each case the spec is authoritative and the ADR text was wrong; this amendment records the correction rather than editing the original.
+
+**1. There are two `crypto_profile` values, not three.** The original text defines `standard`, `post_quantum`, and `hybrid` as profile values. The spec (section 3.1 field table, section 4.2) and `CryptoProfile` in the SDK define exactly two: `standard` and `post-quantum`, hyphenated, not underscored. Hybrid is not a profile. It is a *signature algorithm*, `hybrid-Ed25519-ML-DSA-65`, one of three values of `signature.algorithm` alongside `Ed25519` and `ML-DSA-65` (section 3.6). This is the better factoring: the profile states the security posture the issuer claims, and the algorithm states how that claim was met, which is what lets a single profile admit both a pure and a hybrid signature during a transition.
+
+**2. The post-quantum profile is required at conformance Level 3, not "Level 2 and above."** Section 8.1 places ML-DSA-65, ML-KEM-768, and SHAKE-256 at Level 3. Level 2 requires all ten artifacts, HITL approvals, and Phase 2 cMCP, with no post-quantum requirement.
+
+**3. A verifier that cannot appraise a post-quantum signature returns `UNVERIFIABLE`, not `INCOMPATIBLE_VERSION`.** The original Consequences section said such a verifier "must raise `INCOMPATIBLE_VERSION`". The instinct was right and the mechanism was wrong, in two ways:
+
+- `INCOMPATIBLE_VERSION` is defined in section 2.4 for an unsupported *specification version*. Reusing it for an unsupported algorithm conflates "I do not understand this document format" with "I understand it but cannot run this primitive", and a relying party cannot tell from the result which happened.
+- "Raise" is wrong for a verifier. A manifest is untrusted input, so `verify_manifest()` must return a verdict rather than propagate an exception. Until this amendment it did propagate one: `pyoqs` is an optional extra, so on a default install any manifest declaring `ML-DSA-65` or hybrid crashed the verifier with `RuntimeError` from `_require_oqs()`, which the engine did not catch. A verification endpoint would answer 500 to an attacker-supplied manifest instead of returning a result.
+
+The correct result is `UNVERIFIABLE`, whose existing definition already fits: a signature is present but this verifier lacks what it needs to appraise it, and it MUST NOT be treated as valid. `MISMATCH` would be actively wrong, because it asserts a defect the verifier has not observed in a manifest that may be entirely valid. The one thing the original text got exactly right is preserved: silent pass is not permitted.
+
+Resolution in code: `_require_oqs()` raises `AlgorithmUnavailableError` (a `RuntimeError` subclass, so existing callers are unaffected), the verification engine catches it, records the reason as a warning, and leaves `signature_verified` false so the fail-closed chain yields `UNVERIFIABLE`. Spec section 4.2 now states this normatively, including that `INCOMPATIBLE_VERSION` must not be used for this case.
+
+Note also that an algorithm identifier outside the registry is a different case and stays a `MISMATCH`: the schema enum rejects it before signature verification runs, because a manifest naming an unregistered algorithm is malformed rather than unappraisable.

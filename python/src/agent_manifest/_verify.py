@@ -446,6 +446,7 @@ def verify_manifest(
                 mismatches.append(issuer_mismatch)
             else:
                 from ._signing import (
+                    AlgorithmUnavailableError,
                     Ed25519Verifier,
                     MlDsa65Verifier,
                     HybridVerifier,
@@ -473,6 +474,21 @@ def verify_manifest(
                             expected_hash="<known algorithm: Ed25519|ML-DSA-65|hybrid-Ed25519-ML-DSA-65>",
                             actual_hash=f"<unknown algorithm: {algorithm!r}>",
                         ))
+                except AlgorithmUnavailableError as e:
+                    # The post-quantum profile needs the optional [pq] extra.
+                    # Without it this build cannot appraise an ML-DSA-65 or
+                    # hybrid signature at all. That is a capability gap, not a
+                    # bad manifest, so it must not be reported as MISMATCH -
+                    # and it must not escape as an exception either, since a
+                    # manifest is untrusted input and verify_manifest() is
+                    # expected to return a verdict. signature_verified stays
+                    # False, so the fail-closed chain below yields UNVERIFIABLE
+                    # (spec 4.2: a verifier that does not support the profile
+                    # rejects rather than silently falling back).
+                    result.warnings.append(
+                        f"signature algorithm {algorithm} is not supported by this "
+                        f"build, so the signature could not be appraised: {e}"
+                    )
                 except InvalidSignature:
                     mismatches.append(MismatchDetail(
                         field="signature",

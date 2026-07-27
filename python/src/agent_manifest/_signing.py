@@ -53,6 +53,19 @@ except ImportError:
     _ML_DSA_ALGO = "ML-DSA-65"
 
 
+class AlgorithmUnavailableError(RuntimeError):
+    """This build cannot perform the requested algorithm.
+
+    Distinct from a verification failure: the manifest may be perfectly
+    valid, this verifier simply lacks the capability to appraise it. The
+    verification engine translates this into ``UNVERIFIABLE`` rather than
+    ``MISMATCH`` so a capability gap is never reported as a bad manifest.
+
+    Subclasses ``RuntimeError``, which is what ``_require_oqs()`` raised
+    before this type existed, so existing callers keep working.
+    """
+
+
 # Signed fields per the spec Section 3.6 normative signing coverage table
 # (PR #160). Excludes attestation, signature, and transparency_log_entry,
 # which are appended post-signing. This list is fixed and normative - it
@@ -285,7 +298,7 @@ class MlDsa65KeyPair:
 
 def _require_oqs() -> None:
     if not _OQS_AVAILABLE:
-        raise RuntimeError(
+        raise AlgorithmUnavailableError(
             "ML-DSA-65 requires pyoqs. "
             'Install with: pip install "agent-manifest[pq]"'
         )

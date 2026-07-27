@@ -451,6 +451,73 @@ def test_hybrid_trusted_key_must_match_combined_key_id():
 
 
 # ---------------------------------------------------------------------------
+# Unsupported algorithm: capability gap, not a bad manifest (spec 4.2)
+# ---------------------------------------------------------------------------
+
+
+def _pq_manifest_with_algorithm(algorithm):
+    m = base_manifest(crypto_profile="post-quantum")
+    m["signature"]["algorithm"] = algorithm
+    return m
+
+
+def _raise_unavailable(*args, **kwargs):
+    from agent_manifest._signing import AlgorithmUnavailableError
+
+    raise AlgorithmUnavailableError(
+        'ML-DSA-65 requires pyoqs. Install with: pip install "agent-manifest[pq]"'
+    )
+
+
+def test_ml_dsa_without_pq_extra_is_unverifiable_not_an_exception(monkeypatch):
+    # pyoqs is an optional extra, so the default install cannot appraise an
+    # ML-DSA-65 signature. A manifest is untrusted input: verify_manifest must
+    # return a verdict rather than raise, and the verdict must not be MISMATCH,
+    # which would accuse a manifest that may be perfectly valid.
+    monkeypatch.setattr(_signing, "MlDsa65Verifier", _raise_unavailable)
+
+    result = verify_manifest(
+        _pq_manifest_with_algorithm("ML-DSA-65"), base_context(), store()
+    )
+
+    assert result.result == OverallResult.UNVERIFIABLE
+    assert result.signature_verified is False
+    assert not any(d.field.startswith("signature") for d in result.mismatch_details)
+    assert any("not supported by this build" in w for w in result.warnings)
+
+
+def test_hybrid_without_pq_extra_is_unverifiable(monkeypatch):
+    ed_pub = b"e" * 32
+    pq_pub = b"p" * 1952
+    combined_pub = ed_pub + pq_pub
+    key_id = hashlib.sha256(combined_pub).hexdigest()
+    monkeypatch.setattr(_signing, "HybridVerifier", _raise_unavailable)
+
+    m = _hybrid_manifest(key_id)
+    ctx = base_context(trusted_keys={key_id: _b64url_encode(combined_pub)})
+    result = verify_manifest(m, ctx, store())
+
+    assert result.result == OverallResult.UNVERIFIABLE
+    assert result.signature_verified is False
+    assert any("not supported by this build" in w for w in result.warnings)
+
+
+def test_unavailable_algorithm_is_distinct_from_unknown_algorithm():
+    # An algorithm outside the registry is a malformed manifest: the schema
+    # enum rejects it before signature verification runs. A registered
+    # algorithm this build cannot run is UNVERIFIABLE. The two must not
+    # collapse into one result, because only the first accuses the manifest.
+    m = base_manifest()
+    m["signature"]["algorithm"] = "Ed25519-but-made-up"
+    result = verify_manifest(m, base_context(), store())
+
+    assert result.result == OverallResult.MISMATCH
+    assert any(
+        d.field == "schema:signature.algorithm" for d in result.mismatch_details
+    )
+
+
+# ---------------------------------------------------------------------------
 # Crypto profile downgrade (spec 4.2)
 # ---------------------------------------------------------------------------
 
