@@ -28,7 +28,7 @@ pip install "agent-manifest[cli]"
 manifest keygen -d ./keys/
 manifest create config.json -o draft.json
 manifest sign draft.json --key keys/private.hex -o signed.json
-manifest verify signed.json   # VALID
+manifest verify signed.json --public-key keys/public.hex   # VALID
 ```
 
 ## The agent attestation gap
