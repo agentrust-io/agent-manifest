@@ -8,6 +8,8 @@ The spec has 10 sections covering the problem statement, data model for all 10 a
 
 **Full specification**: [`spec/agent-manifest-spec-v0.1.md`](https://github.com/agentrust-io/agent-manifest/blob/main/spec/agent-manifest-spec-v0.1.md) (1,500+ lines)
 
+**In progress for v0.2**: [`spec/agent-manifest-cose-envelope-v0.2.md`](https://github.com/agentrust-io/agent-manifest/blob/main/spec/agent-manifest-cose-envelope-v0.2.md) specifies the COSE_Sign1 signature envelope that replaces the v0.1 canonical-JSON detached signature, aligning with RFC 9943 (SCITT). It is gated on the manifest `version` field, so v0.1 manifests keep verifying unchanged. See [ADR-0011](https://manifest.agentrust-io.com/adr/0011-signature-envelope/index.md) for why.
+
 ## Structure
 
 | Section                      | Content                                                                                      |
