@@ -176,7 +176,7 @@ assert provider.verify_manifest_in_report(report, manifest)
 
 ```json
 {
-  "eat_profile": "tag:agentrust.io,2026:trace-v0.1",
+  "eat_profile": "tag:agentrust-io.com,2026:trace-v0.2",
   "iat": 1749120000,
   "manifest_hash": "sha256:e3b0c44...",
   "audit_chain_root": "sha256:a1b2c3...",
