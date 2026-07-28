@@ -123,6 +123,17 @@ def parse_tdx_quote_signature(quote: bytes) -> TdxQuoteSignature:
     off = _QUOTE_HEADER_LEN + _TD_REPORT_LEN
     (auth_size,) = struct.unpack_from("<I", quote, off)
     off += 4
+    # Every length below is declared by the quote, which is untrusted input.
+    # Python slicing clamps instead of overreading, so an overstated length
+    # yields a short value rather than an error unless it is checked. A parser
+    # that fails closed must reject the mismatch: silently accepting 300 bytes
+    # where the quote declared 400 means verifying something other than what
+    # the producer said it signed.
+    if off + auth_size > len(quote):
+        raise TdxVerificationError(
+            f"quote declares {auth_size} bytes of signature data, "
+            f"{len(quote) - off} available"
+        )
     auth = quote[off:off + auth_size]
     if len(auth) < 134:
         raise TdxVerificationError("truncated quote signature data")
@@ -134,6 +145,11 @@ def parse_tdx_quote_signature(quote: bytes) -> TdxQuoteSignature:
         raise TdxVerificationError(
             f"unexpected certification data type {cert_type} (expected QE report)"
         )
+    if 134 + cert_size > len(auth):
+        raise TdxVerificationError(
+            f"quote declares {cert_size} bytes of QE certification data, "
+            f"{len(auth) - 134} available"
+        )
     cert_data = auth[134:134 + cert_size]
     if len(cert_data) < 448 + 6:
         raise TdxVerificationError("truncated QE certification data")
@@ -143,6 +159,11 @@ def parse_tdx_quote_signature(quote: bytes) -> TdxQuoteSignature:
     o2 = _SGX_REPORT_LEN + 64
     (qe_auth_size,) = struct.unpack_from("<H", cert_data, o2)
     o2 += 2
+    if o2 + qe_auth_size + 6 > len(cert_data):
+        raise TdxVerificationError(
+            f"quote declares {qe_auth_size} bytes of QE auth data, "
+            f"{max(0, len(cert_data) - o2 - 6)} available before the PCK header"
+        )
     qe_auth = cert_data[o2:o2 + qe_auth_size]
     o2 += qe_auth_size
     pck_cert_type, pck_size = struct.unpack_from("<HI", cert_data, o2)
@@ -150,6 +171,11 @@ def parse_tdx_quote_signature(quote: bytes) -> TdxQuoteSignature:
     if pck_cert_type != _CERT_TYPE_PCK_CHAIN:
         raise TdxVerificationError(
             f"unexpected PCK certification type {pck_cert_type} (expected PEM chain)"
+        )
+    if o2 + pck_size > len(cert_data):
+        raise TdxVerificationError(
+            f"quote declares {pck_size} bytes of PCK chain, "
+            f"{len(cert_data) - o2} available"
         )
 
     return TdxQuoteSignature(

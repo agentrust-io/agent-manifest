@@ -187,3 +187,38 @@ def test_parse_signature_rejects_wrong_certification_type():
     tampered[off:off + 2] = (5).to_bytes(2, "little")  # PCK chain where a QE report belongs
     with pytest.raises(TdxVerificationError, match="certification data type"):
         parse_tdx_quote_signature(bytes(tampered))
+
+
+def test_parse_signature_rejects_overstated_cert_size():
+    """A declared length longer than the buffer must fail, not silently shorten.
+
+    Python slicing clamps rather than overreading, so an inflated `cert_size`
+    used to yield a short `cert_data` and parsing continued against whatever
+    fit. A fail-closed parser rejects the mismatch: verifying 300 bytes where
+    the quote declared 400 is verifying something other than what the producer
+    said it signed.
+    """
+    quote, _ = _build_quote(hashlib.sha256(b"certsize").digest())
+    off = 48 + 584 + 4 + 130  # cert_size, just after the 2-byte cert_type
+    tampered = bytearray(quote)
+    tampered[off:off + 4] = (0xFFFF).to_bytes(4, "little")
+    with pytest.raises(TdxVerificationError, match="QE certification data"):
+        parse_tdx_quote_signature(bytes(tampered))
+
+
+def test_parse_signature_rejects_overstated_auth_size():
+    quote, _ = _build_quote(hashlib.sha256(b"authsize").digest())
+    off = 48 + 584  # the uint32 signature-data length
+    tampered = bytearray(quote)
+    tampered[off:off + 4] = (0xFFFFF).to_bytes(4, "little")
+    with pytest.raises(TdxVerificationError, match="signature data"):
+        parse_tdx_quote_signature(bytes(tampered))
+
+
+def test_parse_signature_rejects_overstated_qe_auth_size():
+    quote, _ = _build_quote(hashlib.sha256(b"qeauth").digest())
+    off = 48 + 584 + 4 + 134 + 384 + 64  # qe_auth_size, inside the cert data
+    tampered = bytearray(quote)
+    tampered[off:off + 2] = (0xFFFF).to_bytes(2, "little")
+    with pytest.raises(TdxVerificationError, match="QE auth data"):
+        parse_tdx_quote_signature(bytes(tampered))

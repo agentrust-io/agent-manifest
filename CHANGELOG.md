@@ -4,6 +4,10 @@ All notable changes to Agent Manifest are documented here. Format follows [Keep 
 
 ## [Unreleased]
 
+### Fixed
+
+**[SDK]** `parse_tdx_quote_signature()` now rejects a quote whose declared lengths overrun the buffer instead of silently parsing a shorter value. Four lengths come from the quote, which is untrusted input: the signature-data size, `cert_size`, `qe_auth_size`, and `pck_size`. Python slicing clamps rather than overreading, so an inflated length previously yielded a short slice and parsing continued against whatever fit. No read was ever out of bounds and the downstream signature check would fail, so this is fail-closed hardening rather than a memory-safety fix, but a verifier should reject a quote that declares 400 bytes and supplies 300 rather than appraise the 300. Found while reviewing the same parse in cmcp#420, which shares the derivation.
+
 ## [0.7.0] — 2026-07-27
 
 Shares the hardware-validated TDX quote-signature parse so the sibling repos can stop carrying their own copies of the offsets, and specifies the v0.2 COSE envelope. No change to manifest signing or verification behaviour.
