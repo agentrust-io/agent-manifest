@@ -4,6 +4,10 @@ All notable changes to Agent Manifest are documented here. Format follows [Keep 
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-08-01
+
+Shares the `TPMT_SIGNATURE` parse and teaches the quote parser both attest framings, so cmcp and ca2a can delete their copies rather than keep three implementations of the same wire formats in step by hand. Phase A1 of consolidating TEE verification into this package. No change to manifest signing or verification behaviour.
+
 ### Added
 
 **[SDK]** **`parse_tpmt_signature()` and `ParsedSignature` are now public**, so cmcp and ca2a can stop carrying a copy each. Both had byte-identical implementations of the `TPMT_SIGNATURE` unwrap that `tpm2_quote -s` and `tpm2-pytss`'s `signature.marshal()` produce, differing only in which exception they raised; cmcp's comment already named this as "the piece agent-manifest does not model". It raises `TpmVerificationError` rather than `ValueError`, so a downstream migrating off its own copy needs to widen its `except` clause. `struct.error` on a truncated buffer is now caught and re-raised as `TpmVerificationError`, which ca2a handled and cmcp did not.
