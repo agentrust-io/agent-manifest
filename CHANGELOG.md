@@ -4,6 +4,14 @@ All notable changes to Agent Manifest are documented here. Format follows [Keep 
 
 ## [Unreleased]
 
+### Added
+
+**[SDK]** **`parse_tpmt_signature()` and `ParsedSignature` are now public**, so cmcp and ca2a can stop carrying a copy each. Both had byte-identical implementations of the `TPMT_SIGNATURE` unwrap that `tpm2_quote -s` and `tpm2-pytss`'s `signature.marshal()` produce, differing only in which exception they raised; cmcp's comment already named this as "the piece agent-manifest does not model". It raises `TpmVerificationError` rather than `ValueError`, so a downstream migrating off its own copy needs to widen its `except` clause. `struct.error` on a truncated buffer is now caught and re-raised as `TpmVerificationError`, which ca2a handled and cmcp did not.
+
+**[SDK]** **`parse_tpm_quote()` accepts a size-prefixed `TPM2B_ATTEST` as well as a bare `TPMS_ATTEST`.** `tpm2_quote -m` writes the bare form and other producers write the wrapped one, so a verifier that accepts only one rejects genuine quotes from standard tooling. `TpmQuote.raw` is now always the inner `TPMS_ATTEST`, and `verify_tpm_quote()` checks the AK signature over that rather than over its argument — verifying over the outer bytes would have failed a real wrapped quote. For bare input, which is everything the suite previously exercised, both are the same bytes and behaviour is unchanged.
+
+Framing is decided by requiring the magic to appear under one reading or the other, not by the leading bytes alone. The obvious implementation, "magic at offset 0 means bare, otherwise treat the first two bytes as a length", silently reinterprets a blob with a corrupt magic as a framing fault and reports `TPM2B_ATTEST size field invalid`, which sends whoever is debugging a one-bit corruption to the wrong problem. Two tests caught this and both are kept as regression guards.
+
 ### Changed
 
 **[SPEC]** **Target standards body retargeted from AAIF to CoSAI Working Stream 4**, an OASIS Open Project, following the Phase 1 RFC in [cosai-oasis/ws4-secure-design-agentic-systems#149](https://github.com/cosai-oasis/ws4-secure-design-agentic-systems/issues/149). Affects the spec header, section 3.1 (who assigns the canonical `@context` URL), section 3.2.5 (scanner registry), section 10.1 through 10.3, and the governance set: `CHARTER.md`, `GOVERNANCE.md`, `MAINTAINERS.md`, `ANTITRUST.md`, `CONTRIBUTING.md`, `ROADMAP.md`, `README.md`. No normative data-model, cryptographic, or conformance change; nothing about how a manifest is signed or verified moves.

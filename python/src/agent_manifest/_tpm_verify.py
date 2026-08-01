@@ -22,14 +22,32 @@ Unlike SEV-SNP/TDX there is no single published TPM root — AK certs chain to
 per-vendor EK roots — so the caller supplies the vendor roots it trusts. Only
 the ``cryptography`` package is required; no external tools run at verify time.
 
-Note: the parsing and signature/chain logic are exercised against synthetic
-self-consistent vectors (see ``tests/test_tpm_verify.py``). Unlike the SEV-SNP
-and TDX paths, this verifier has not yet been validated against a quote from a
-real TPM; that is tracked as follow-up hardware validation.
+Two wire-format details exist because real tooling emits them, and both were
+found by running against a TPM rather than by reading the TCG structures spec:
+
+* **Quote framing.** ``tpm2_quote -m`` writes a bare ``TPMS_ATTEST``, while other
+  producers write a ``TPM2B_ATTEST`` with a two-byte big-endian size prefix.
+  :func:`parse_tpm_quote` accepts both and tells them apart by the magic, because
+  a verifier that rejects the framing the standard tooling produces is a verifier
+  nobody can use. It returns the inner ``TPMS_ATTEST`` as ``raw``, which is the
+  byte range the AK actually signed.
+* **Signature framing.** ``tpm2_quote -s`` and ``tpm2-pytss``'s
+  ``signature.marshal()`` write a ``TPMT_SIGNATURE``, not a bare DER/PKCS#1
+  signature. :func:`parse_tpmt_signature` unwraps it.
+
+Hardware validation: exercised end to end against an AK-signed quote captured on
+2026-07-31 from an Azure Trusted Launch vTPM (``Standard_D2s_v5``, Ubuntu 24.04,
+``TPM2_PT_MANUFACTURER`` = ``MSFT``, RSASSA/SHA-256 AK, PCRs 0-7 under a fresh
+32-byte nonce), with tampered attest blobs, tampered signatures and a wrong key
+all rejected. That vector is committed in ``tests/test_tpm_hardware_vector.py``
+because it carries no per-CPU identifier, so the signature path runs on every PR.
+What remains unvalidated on Azure is the AK *certificate chain*: see
+``LIMITATIONS.md`` and cmcp#431.
 """
 from __future__ import annotations
 
 import hmac
+import struct
 from dataclasses import dataclass
 from typing import Optional
 
@@ -37,6 +55,11 @@ TPM_GENERATED_VALUE = 0xFF544347
 TPM_ST_ATTEST_QUOTE = 0x8018
 _CLOCK_INFO_LEN = 17
 _FIRMWARE_VERSION_LEN = 8
+
+# TPM2_ALG_ID values for the signing schemes a quote can use.
+_ALG_RSASSA = 0x0014
+_ALG_RSAPSS = 0x0016
+_ALG_ECDSA = 0x0018
 
 
 class TpmVerificationError(Exception):
@@ -67,8 +90,39 @@ class TpmQuote:
     raw: bytes
 
 
+def _unwrap_attest(data: bytes) -> bytes:
+    """Return the inner ``TPMS_ATTEST``, accepting either framing.
+
+    A bare ``TPMS_ATTEST`` starts with ``TPM_GENERATED_VALUE``; a ``TPM2B_ATTEST``
+    starts with a two-byte big-endian size. Framing is decided by requiring the
+    magic to appear in the resulting blob under one reading or the other, not by
+    the leading bytes alone. A blob whose magic is corrupt would otherwise be
+    silently reinterpreted as a size prefix and reported as a framing fault,
+    which sends whoever is debugging it to the wrong problem.
+    """
+    if len(data) < 6:
+        raise TpmVerificationError("TPM quote too short")
+    if int.from_bytes(data[0:4], "big") == TPM_GENERATED_VALUE:
+        return data
+    size = int.from_bytes(data[0:2], "big")
+    if 0 < size <= len(data) - 2:
+        inner = data[2:2 + size]
+        if len(inner) >= 4 and int.from_bytes(inner[0:4], "big") == TPM_GENERATED_VALUE:
+            return inner
+    raise TpmVerificationError(
+        "not a TPM quote: no TPM_GENERATED magic as either a bare TPMS_ATTEST or "
+        f"a size-prefixed TPM2B_ATTEST (leading bytes {data[:4].hex()})"
+    )
+
+
 def parse_tpm_quote(attest: bytes) -> TpmQuote:
-    """Parse a ``TPMS_ATTEST`` quote blob into its appraised fields."""
+    """Parse a quote blob into its appraised fields.
+
+    Accepts a bare ``TPMS_ATTEST`` or a size-prefixed ``TPM2B_ATTEST``. The
+    returned ``raw`` is always the inner ``TPMS_ATTEST``, which is the byte range
+    the attestation key signed and therefore what a signature check must cover.
+    """
+    attest = _unwrap_attest(attest)
     if len(attest) < 6:
         raise TpmVerificationError("TPM quote too short")
     magic = int.from_bytes(attest[0:4], "big")
@@ -94,6 +148,69 @@ def parse_tpm_quote(attest: bytes) -> TpmQuote:
         pcr_digest=pcr_digest,
         raw=bytes(attest),
     )
+
+
+@dataclass(frozen=True)
+class ParsedSignature:
+    """A parsed ``TPMT_SIGNATURE``: the algorithm ids and the bare signature.
+
+    ``signature`` is in the form ``cryptography`` verifies against: PKCS#1 for
+    RSA, and a DER-encoded sequence for ECDSA (the TPM emits R and S as two
+    size-prefixed integers, which are re-encoded here).
+    """
+
+    sig_alg: int
+    hash_alg: int
+    signature: bytes
+
+
+def parse_tpmt_signature(blob: bytes) -> ParsedSignature:
+    """Unwrap a ``TPMT_SIGNATURE`` into a bare signature.
+
+    Layout: ``sigAlg`` (2), ``hashAlg`` (2), then the algorithm-specific body. For
+    RSA that is a size-prefixed ``TPM2B_PUBLIC_KEY_RSA``. For ECDSA it is two
+    size-prefixed integers, R then S.
+
+    Raises :class:`TpmVerificationError` on anything malformed, so a caller
+    cannot mistake a truncated blob for a signature that failed to verify.
+    """
+    if len(blob) < 6:
+        raise TpmVerificationError("TPMT_SIGNATURE too short")
+    try:
+        sig_alg, hash_alg = struct.unpack_from(">HH", blob, 0)
+        offset = 4
+
+        if sig_alg in (_ALG_RSASSA, _ALG_RSAPSS):
+            (size,) = struct.unpack_from(">H", blob, offset)
+            offset += 2
+            if len(blob) < offset + size:
+                raise TpmVerificationError("TPMT_SIGNATURE truncated inside the RSA signature")
+            return ParsedSignature(sig_alg, hash_alg, blob[offset:offset + size])
+
+        if sig_alg == _ALG_ECDSA:
+            from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
+
+            parts: list[bytes] = []
+            for _ in range(2):
+                (size,) = struct.unpack_from(">H", blob, offset)
+                offset += 2
+                if len(blob) < offset + size:
+                    raise TpmVerificationError(
+                        "TPMT_SIGNATURE truncated inside the ECDSA signature"
+                    )
+                parts.append(blob[offset:offset + size])
+                offset += size
+            return ParsedSignature(
+                sig_alg,
+                hash_alg,
+                encode_dss_signature(
+                    int.from_bytes(parts[0], "big"), int.from_bytes(parts[1], "big")
+                ),
+            )
+    except struct.error as exc:
+        raise TpmVerificationError(f"TPMT_SIGNATURE is malformed: {exc}") from exc
+
+    raise TpmVerificationError(f"unsupported signature algorithm 0x{sig_alg:04x}")
 
 
 def _verify_ak_chain(ak_chain_pem: bytes, trusted_roots_pem: bytes) -> "object":
@@ -181,12 +298,16 @@ def verify_tpm_quote(
     ak = _verify_ak_chain(ak_chain_pem, trusted_roots_pem)
     ak_key = ak.public_key()  # type: ignore[attr-defined]
 
-    # Step 3: AK signature over the TPMS_ATTEST blob.
+    # Step 3: AK signature over the TPMS_ATTEST blob. Use quote.raw rather than
+    # the argument: when the caller passes a size-prefixed TPM2B_ATTEST, the TPM
+    # signed the inner structure, so verifying over the outer bytes would fail a
+    # genuine quote.
+    signed = quote.raw
     try:
         if isinstance(ak_key, ec.EllipticCurvePublicKey):
-            ak_key.verify(signature, attest, ec.ECDSA(SHA256()))
+            ak_key.verify(signature, signed, ec.ECDSA(SHA256()))
         elif isinstance(ak_key, rsa.RSAPublicKey):
-            ak_key.verify(signature, attest, padding.PKCS1v15(), SHA256())
+            ak_key.verify(signature, signed, padding.PKCS1v15(), SHA256())
         else:
             raise TpmVerificationError("unsupported AK public-key type for TPM quote")
     except InvalidSignature:
