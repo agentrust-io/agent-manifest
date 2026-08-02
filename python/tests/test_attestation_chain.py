@@ -116,6 +116,7 @@ def _synthetic_snp_with_chain(report_data_digest_hex: str, measurement_hex: str)
     ec_key = ec.generate_private_key(ec.SECP384R1())  # the "VCEK" signing key
     body = bytearray(_OFF_SIGNATURE)
     body[0:4] = (3).to_bytes(4, "little")
+    body[0x34:0x38] = (1).to_bytes(4, "little")  # sig_algo, as real silicon sets
     body[0x50:0x50 + 32] = bytes.fromhex(report_data_digest_hex)
     body[0x90:0x90 + 48] = bytes.fromhex(measurement_hex)
     der = ec_key.sign(bytes(body), ec.ECDSA(hashes.SHA384()))

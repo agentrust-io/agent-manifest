@@ -42,7 +42,10 @@ from typing import Optional
 
 # Raw SNP attestation report field offsets (AMD SEV-SNP ABI, Table 22).
 _OFF_VERSION = 0x00
+_OFF_GUEST_SVN = 0x04
 _OFF_POLICY = 0x08
+_OFF_VMPL = 0x30
+_OFF_SIG_ALGO = 0x34
 _OFF_REPORT_DATA = 0x50
 _OFF_MEASUREMENT = 0x90
 _OFF_HOST_DATA = 0xC0
@@ -55,6 +58,11 @@ _SNP_REPORT_LEN = 0x4A0  # 1184 bytes
 # each right-padded to 72 bytes (AMD stores 48 significant bytes of each).
 _SIG_COMPONENT_STRIDE = 72
 _SIG_COMPONENT_BYTES = 48
+
+# sig_algo values from the AMD SEV-SNP ABI. 1 is ECDSA P-384 with SHA-384, which
+# is the only scheme AMD has defined; the field exists so a future one can be
+# distinguished, which is exactly why it must be checked rather than assumed.
+SIG_ALGO_ECDSA_P384_SHA384 = 1
 
 _HCL_MAGIC = b"HCLA"
 _HCL_SNP_REPORT_OFFSET = 0x20
@@ -69,7 +77,10 @@ class SnpReport:
     """Parsed fields of a raw SEV-SNP attestation report."""
 
     version: int
+    guest_svn: int
     policy: int
+    vmpl: int
+    signature_algo: int
     report_data: bytes  # 64 bytes
     measurement: bytes  # 48 bytes
     host_data: bytes  # 32 bytes
@@ -94,7 +105,10 @@ def parse_snp_report(report: bytes) -> SnpReport:
         )
     return SnpReport(
         version=struct.unpack_from("<I", report, _OFF_VERSION)[0],
+        guest_svn=struct.unpack_from("<I", report, _OFF_GUEST_SVN)[0],
         policy=struct.unpack_from("<Q", report, _OFF_POLICY)[0],
+        vmpl=struct.unpack_from("<I", report, _OFF_VMPL)[0],
+        signature_algo=struct.unpack_from("<I", report, _OFF_SIG_ALGO)[0],
         report_data=report[_OFF_REPORT_DATA:_OFF_REPORT_DATA + 64],
         measurement=report[_OFF_MEASUREMENT:_OFF_MEASUREMENT + 48],
         host_data=report[_OFF_HOST_DATA:_OFF_HOST_DATA + 32],
@@ -148,12 +162,53 @@ def verify_runtime_data_binding(report: SnpReport, runtime_data: bytes) -> bool:
     return hmac.compare_digest(report.report_data[:32], digest)
 
 
+def load_snp_cert_chain(pem_bundle: bytes) -> tuple[object, object, object]:
+    """Split a PEM bundle into ``(vcek, ask, ark)`` certificates.
+
+    The AMD KDS and most capture tooling hand out one concatenated PEM. The three
+    are told apart by shape rather than by order, which varies: the VCEK is the
+    only EC leaf, and of the two RSA certificates the self-signed one is the ARK.
+
+    Raises :class:`SnpVerificationError` if the bundle is not a well-formed SNP
+    chain, so a caller cannot proceed with two of the three.
+    """
+    try:
+        from cryptography import x509
+        from cryptography.hazmat.primitives.asymmetric import ec, rsa
+    except ImportError as e:  # pragma: no cover - exercised via install extra
+        raise SnpVerificationError(
+            "loading an SNP certificate chain requires the 'cryptography' package"
+        ) from e
+
+    try:
+        certs = x509.load_pem_x509_certificates(pem_bundle)
+    except Exception as exc:  # noqa: BLE001 - any parse failure is a bad bundle
+        raise SnpVerificationError(f"could not parse the PEM bundle: {exc}") from exc
+
+    vcek = next((c for c in certs if isinstance(c.public_key(), ec.EllipticCurvePublicKey)), None)
+    rsa_certs = [c for c in certs if isinstance(c.public_key(), rsa.RSAPublicKey)]
+    ark = next((c for c in rsa_certs if c.subject == c.issuer), None)
+    ask = next((c for c in rsa_certs if c is not ark), None)
+
+    if vcek is None or ask is None or ark is None:
+        raise SnpVerificationError(
+            "bundle must contain a VCEK (EC), an ASK and a self-signed ARK (RSA)"
+        )
+    return vcek, ask, ark
+
+
 def verify_snp_signature(report: SnpReport, vcek_cert_der: bytes) -> bool:
     """Verify the report's ECDSA-P384 signature against the VCEK public key.
 
+    The report's own ``sig_algo`` field is checked first. Verifying with
+    ECDSA-P384/SHA-384 because that is what AMD defines today, without confirming
+    the report says so, would silently appraise a report that declares something
+    else under the wrong scheme. Both downstream copies of this check enforced it;
+    this one did not, so it is enforced here now.
+
     Returns True on success; raises :class:`SnpVerificationError` if the
-    ``cryptography`` package is unavailable. A wrong or tampered report returns
-    False rather than raising.
+    ``cryptography`` package is unavailable or the report declares an unsupported
+    algorithm. A wrong or tampered report returns False rather than raising.
     """
     try:
         from typing import cast
@@ -166,6 +221,12 @@ def verify_snp_signature(report: SnpReport, vcek_cert_der: bytes) -> bool:
         raise SnpVerificationError(
             "SNP signature verification requires the 'cryptography' package"
         ) from e
+
+    if report.signature_algo != SIG_ALGO_ECDSA_P384_SHA384:
+        raise SnpVerificationError(
+            f"unsupported SNP signature algorithm {report.signature_algo} "
+            f"(expected {SIG_ALGO_ECDSA_P384_SHA384}, ECDSA-P384/SHA-384)"
+        )
 
     vcek = x509.load_der_x509_certificate(vcek_cert_der)
     r = int.from_bytes(report.signature[0:_SIG_COMPONENT_BYTES], "little")

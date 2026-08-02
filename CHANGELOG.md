@@ -4,6 +4,18 @@ All notable changes to Agent Manifest are documented here. Format follows [Keep 
 
 ## [Unreleased]
 
+### Added
+
+**[SDK]** **`SnpReport` now carries `guest_svn`, `vmpl` and `signature_algo`**, and `load_snp_cert_chain()` is public. Phase A2 of the TEE consolidation: cmcp and ca2a carried four copies of the SEV-SNP report layout between them (two inside cmcp alone), and all four agreed on every offset, so this is a union rather than a reconciliation. The three fields were parsed by the downstream copies and not by this one, which meant a consumer of agent-manifest could not enforce checks those copies enforced.
+
+`load_snp_cert_chain()` splits a concatenated PEM into `(vcek, ask, ark)` by shape rather than order: the VCEK is the only EC leaf, and of the two RSA certificates the self-signed one is the ARK. It came from cmcp, which had it and this package did not.
+
+### Fixed
+
+**[SDK]** **`verify_snp_signature()` now checks the report's declared `sig_algo` before verifying.** It assumed ECDSA-P384/SHA-384 because that is the only scheme AMD has defined, and verified under it without confirming the report said so. Both downstream copies checked this field; the shared implementation did not, so consolidating onto it would have silently dropped a check. A report declaring anything other than `SIG_ALGO_ECDSA_P384_SHA384` now raises rather than being appraised under the wrong scheme.
+
+This surfaced two synthetic fixtures in this repo that left `sig_algo` at zero, which no AMD processor emits — the genuine capture in `tests/vectors/snp/azure_snp_report_redacted.bin` carries 1. Both fixtures described a report that cannot exist and are corrected. Same shape of defect as the cmcp TPM fixture found in 0.8.0.
+
 ## [0.8.0] — 2026-08-01
 
 Shares the `TPMT_SIGNATURE` parse and teaches the quote parser both attest framings, so cmcp and ca2a can delete their copies rather than keep three implementations of the same wire formats in step by hand. Phase A1 of consolidating TEE verification into this package. No change to manifest signing or verification behaviour.

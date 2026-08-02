@@ -35,8 +35,9 @@ from ._attestation import (
     verify_attestation_chain, ChainVerificationResult, SignatureStatus,
 )
 from ._snp_verify import (
+    SIG_ALGO_ECDSA_P384_SHA384,
     SnpReport, SnpVerificationError,
-    parse_snp_report, parse_hcl_report,
+    parse_snp_report, parse_hcl_report, load_snp_cert_chain,
     verify_snp_signature, verify_vcek_chain, verify_runtime_data_binding,
     fetch_vcek,
 )
@@ -89,8 +90,9 @@ __all__ = [
     "AttestationReport", "AttestationUnavailableError", "RuntimeAttestationReport",
     "TPMProvider", "AzureCVMProvider", "SEVSNPProvider", "TDXProvider", "OPAQUEProvider",
     "verify_attestation_chain", "ChainVerificationResult", "SignatureStatus",
+    "SIG_ALGO_ECDSA_P384_SHA384",
     "SnpReport", "SnpVerificationError",
-    "parse_snp_report", "parse_hcl_report",
+    "parse_snp_report", "parse_hcl_report", "load_snp_cert_chain",
     "verify_snp_signature", "verify_vcek_chain", "verify_runtime_data_binding",
     "fetch_vcek",
     "verify_cert_chain", "CertChainError",
