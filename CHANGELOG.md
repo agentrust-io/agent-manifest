@@ -4,6 +4,10 @@ All notable changes to Agent Manifest are documented here. Format follows [Keep 
 
 ## [Unreleased]
 
+## [0.9.0] — 2026-08-01
+
+Shares the SEV-SNP report union so cmcp and ca2a can delete four copies of the layout between them, and restores a check that existed only in the copies being deleted: the report's declared `sig_algo` is now verified before the signature is checked under it. Phase A2 of consolidating TEE verification into this package.
+
 ### Added
 
 **[SDK]** **`SnpReport` now carries `guest_svn`, `vmpl` and `signature_algo`**, and `load_snp_cert_chain()` is public. Phase A2 of the TEE consolidation: cmcp and ca2a carried four copies of the SEV-SNP report layout between them (two inside cmcp alone), and all four agreed on every offset, so this is a union rather than a reconciliation. The three fields were parsed by the downstream copies and not by this one, which meant a consumer of agent-manifest could not enforce checks those copies enforced.
