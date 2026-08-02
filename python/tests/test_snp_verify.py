@@ -346,3 +346,18 @@ def test_load_snp_cert_chain_rejects_unparseable_input():
 
     with pytest.raises(SnpVerificationError, match="could not parse"):
         load_snp_cert_chain(b"-----BEGIN CERTIFICATE-----\nnot a cert\n-----END CERTIFICATE-----\n")
+
+
+def test_public_offsets_match_the_genuine_capture():
+    """The exported table is the contract downstreams build reports against, so
+    it is checked against real silicon rather than against itself."""
+    from agent_manifest import SNP_OFFSETS, SNP_REPORT_LEN
+
+    raw = SNP.read_bytes()
+    rep = parse_snp_report(raw)
+
+    assert SNP_REPORT_LEN == len(rep.raw) == 0x4A0
+    assert raw[SNP_OFFSETS["measurement"]:SNP_OFFSETS["measurement"] + 48] == rep.measurement
+    assert raw[SNP_OFFSETS["report_data"]:SNP_OFFSETS["report_data"] + 64] == rep.report_data
+    assert raw[SNP_OFFSETS["chip_id"]:SNP_OFFSETS["chip_id"] + 64] == rep.chip_id
+    assert int.from_bytes(raw[SNP_OFFSETS["sig_algo"]:SNP_OFFSETS["sig_algo"] + 4], "little") == 1

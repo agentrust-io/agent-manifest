@@ -64,6 +64,25 @@ _SIG_COMPONENT_BYTES = 48
 # distinguished, which is exactly why it must be checked rather than assumed.
 SIG_ALGO_ECDSA_P384_SHA384 = 1
 
+# The ABI offsets, public because they are the contract consumers build and
+# appraise reports against. Downstreams previously kept their own ctypes mirror
+# of this layout purely to read offsets off it; four copies of one table is four
+# chances for them to disagree, so the table is exported instead.
+SNP_REPORT_LEN = _SNP_REPORT_LEN
+SNP_OFFSETS: dict[str, int] = {
+    "version": _OFF_VERSION,
+    "guest_svn": _OFF_GUEST_SVN,
+    "policy": _OFF_POLICY,
+    "vmpl": _OFF_VMPL,
+    "sig_algo": _OFF_SIG_ALGO,
+    "report_data": _OFF_REPORT_DATA,
+    "measurement": _OFF_MEASUREMENT,
+    "host_data": _OFF_HOST_DATA,
+    "reported_tcb": _OFF_REPORTED_TCB,
+    "chip_id": _OFF_CHIP_ID,
+    "signature": _OFF_SIGNATURE,
+}
+
 _HCL_MAGIC = b"HCLA"
 _HCL_SNP_REPORT_OFFSET = 0x20
 

@@ -4,6 +4,14 @@ All notable changes to Agent Manifest are documented here. Format follows [Keep 
 
 ## [Unreleased]
 
+## [0.10.0] — 2026-08-01
+
+Exports the SEV-SNP ABI offset table so downstreams can delete the ctypes mirrors they kept solely to read offsets from. Completes what 0.9.0 started: cmcp used its struct as an offset oracle across seven test files, so sharing the parse without sharing the table would only have moved the duplication into test scaffolding, where it would drift silently.
+
+### Added
+
+**[SDK]** **`SNP_OFFSETS` and `SNP_REPORT_LEN` are public.** The offsets are the contract consumers build and appraise reports against, and they are now checked against the genuine Azure capture rather than against themselves.
+
 ## [0.9.0] — 2026-08-01
 
 Shares the SEV-SNP report union so cmcp and ca2a can delete four copies of the layout between them, and restores a check that existed only in the copies being deleted: the report's declared `sig_algo` is now verified before the signature is checked under it. Phase A2 of consolidating TEE verification into this package.
