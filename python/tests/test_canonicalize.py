@@ -208,7 +208,7 @@ def test_float_infinity_raises():
 
 def test_context_type_ordinary():
     obj = {
-        "@context": "https://agentmanifest.agentrust.io/v0.1/context.json",
+        "@context": "https://manifest.agentrust-io.com/v0.2/context.json",
         "@type": "AgentManifest",
         "manifest_id": "test",
     }

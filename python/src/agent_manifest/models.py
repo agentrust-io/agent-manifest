@@ -676,7 +676,7 @@ class Manifest(SpecModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     context: str = Field(
-        default="https://agentmanifest.agentrust.io/v0.1/context.json",
+        default="https://manifest.agentrust-io.com/v0.2/context.json",
         alias="@context",
     )
     type: str = Field(default="AgentManifest", alias="@type")

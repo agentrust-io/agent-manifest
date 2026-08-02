@@ -15,6 +15,7 @@ Each major design decision in the Agent Manifest Specification is recorded here 
 | [0009](0009-spiffe-uri-agent-identity.md) | SPIFFE URIs as the canonical identity format for agent_id and issuer | Accepted |
 | [0010](0010-runtime-attestation-freshness-proofs.md) | Runtime attestation freshness proofs via caller-controlled REPORT_DATA | Accepted |
 | [0011](0011-signature-envelope.md) | The manifest is a signed document, not a JWT/JOSE profile; envelope moves to COSE_Sign1 | Accepted |
+| [0012](0012-context-uri-moved-to-controlled-domain.md) | `@context` URI moves to a domain we control; v0.1 URL withdrawn, consumers cut over | Accepted |
 
 To propose a new ADR, open a GitHub issue using the [spec change template](https://github.com/agentrust-io/agent-manifest/issues/new?template=spec_change.md) and follow the [ADR template](0000-template.md).
 

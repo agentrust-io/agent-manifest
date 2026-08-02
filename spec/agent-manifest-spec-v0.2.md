@@ -2,11 +2,12 @@
 
 | Field | Value |
 |---|---|
-| Version | 0.1 - Draft for Review |
+| Version | 0.2 - Draft for Review |
 | Subtitle | A cryptographic identity and provenance standard for AI agents |
-| Authors | Imran Siddique (AgentTrust) |
-| Status | Draft v0.1 - Proposed Open Standard |
-| Date | June 2026 |
+| Authors | Imran Siddique (AgenTrust) |
+| Status | Draft v0.2 - Proposed Open Standard |
+| Date | August 2026 |
+| Changes in 0.2 | `@context` URI moved to a controlled domain. Manifest format unchanged. See ADR 0012. |
 | Relationship | Extends: OWASP ASI 2026 \| Aligns: CoSAI WS1, EU AI Act Art. 14/15 |
 | Target Standards Body | Coalition for Secure AI (CoSAI) WS4 - OASIS Open |
 
@@ -186,7 +187,7 @@ An Agent Manifest is a JSON-LD document conforming to the following schema. All 
 
 ```json
 {
-  "@context": "https://agentmanifest.agentrust.io/v0.1/context.json",
+  "@context": "https://manifest.agentrust-io.com/v0.2/context.json",
   "@type": "AgentManifest",
   "manifest_id": "<string, UUID v7 per RFC 9562 - REQUIRED>",
   "previous_manifest_id": "<string, UUID v7 - OPTIONAL, set on re-issuance>",
@@ -236,7 +237,9 @@ All fields annotated as UUID v7 MUST conform to RFC 9562 Section 5.7. The string
 The `agent_id` path structure `/agent/<name>/<instance>` shown in examples is a convention, not a requirement. Trust domain must be lowercase `[a-z0-9._-]`; path segments may use `[a-zA-Z0-9._-]`. UUID v7 instance identifiers (hyphens permitted in path segments) are valid. Example: `spiffe://trust.example/agent/payments-processor/01926b4c-1234-7abc-9def-000000000001`.
 
 <!-- CHANGED: SCHEMA F-15/@context - normative note on provisional URL -->
-The `@context` URL `https://agentmanifest.agentrust.io/v0.1/context.json` is provisional for the v0.1 draft period. The CoSAI WS4 working stream will assign the canonical URL prior to v1.0 ratification. Implementations MUST support the canonical CoSAI-assigned URL when it is assigned, and SHOULD support the v0.1 draft URL for backward compatibility with pre-ratification manifests.
+The `@context` URL `https://manifest.agentrust-io.com/v0.2/context.json` is provisional for the v0.2 draft period. The CoSAI WS4 working stream will assign the canonical URL prior to v1.0 ratification, and implementations MUST support the canonical CoSAI-assigned URL when it is assigned.
+
+The v0.1 context URL `https://agentmanifest.agentrust.io/v0.1/context.json` is **withdrawn and MUST NOT be accepted**. Its authority component named a domain this project has never controlled, so it identified manifests under a name belonging to a third party and never resolved. Implementations cut over rather than accepting both: an implementation that honoured the v0.1 URL would keep validating manifests named on a domain we do not own. Manifests already issued under v0.1 remain checkable against the v0.1 specification, which stays published.
 
 <!-- CHANGED: SCHEMA F-19 - normative artifact-to-field mapping table -->
 Artifact-to-field mapping (for Level 2 "all 10 artifacts bound" conformance):
@@ -1597,7 +1600,7 @@ Target: Q1 2027. Contribution to CoSAI Working Stream 4 (Secure Design Patterns 
 - CoSAI WS4 review and endorsement
 - Reference implementation contributed as a CoSAI Open Project deliverable
 - Conformance certification program defined
-- Transfer of `agentmanifest.agentrust.io` (or successor provisional domain) to CoSAI/OASIS-controlled infrastructure as a condition of v1.0 acceptance. The canonical `@context` URL will be updated to a CoSAI-controlled namespace at this point.
+- Transfer of `manifest.agentrust-io.com` (or successor provisional domain) to CoSAI/OASIS-controlled infrastructure as a condition of v1.0 acceptance. The canonical `@context` URL will be updated to a CoSAI-controlled namespace at this point.
 - Opaque's participation terms under the OASIS Open Projects IPR Policy, including the CLA and the patent non-assert covering non-trivial contributions, reviewed and signed off by counsel before any contribution is filed. See [CHARTER.md](../CHARTER.md) section 4.
 
 ### 10.4 Relationship to Existing Standards

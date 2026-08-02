@@ -4,6 +4,14 @@ All notable changes to Agent Manifest are documented here. Format follows [Keep 
 
 ## [Unreleased]
 
+### Changed
+
+**[SPEC][SDK] BREAKING: the `@context` URI moves to `https://manifest.agentrust-io.com/v0.2/context.json`**, and the specification is republished as v0.2 ([`spec/agent-manifest-spec-v0.2.md`](spec/agent-manifest-spec-v0.2.md), [ADR-0012](docs/adr/0012-context-uri-moved-to-controlled-domain.md)). The v0.1 URI `https://agentmanifest.agentrust.io/v0.1/context.json` named `agentrust.io`, a domain this project has never controlled: registered to a third party behind Domains By Proxy, paid through mid-2027, and it has never resolved. Every manifest issued to date was therefore identified under somebody else's name, which is untenable in an identity specification.
+
+Consumers **cut over rather than dual-accepting**, matching the TRACE v0.2 profile migration (`agentrust-io/trace-spec#107`) that fixed the identical defect. An implementation that kept honouring the v0.1 URI would keep validating manifests named on a domain we do not own. Manifests already issued under v0.1 stay checkable against the v0.1 specification, which remains published.
+
+**Nothing else about the manifest format changed.** No field is added, removed or re-typed; v0.2 differs from v0.1 in the `@context` value alone. The version bump exists to force the cut-over. Serving the context document at the new URL is follow-up work; what changes today is that the domain is ours to serve from.
+
 ## [0.10.0] — 2026-08-01
 
 Exports the SEV-SNP ABI offset table so downstreams can delete the ctypes mirrors they kept solely to read offsets from. Completes what 0.9.0 started: cmcp used its struct as an offset oracle across seven test files, so sharing the parse without sharing the table would only have moved the duplication into test scaffolding, where it would drift silently.
@@ -45,7 +53,6 @@ Framing is decided by requiring the magic to appear under one reading or the oth
 **[SPEC]** **Target standards body retargeted from AAIF to CoSAI Working Stream 4**, an OASIS Open Project, following the Phase 1 RFC in [cosai-oasis/ws4-secure-design-agentic-systems#149](https://github.com/cosai-oasis/ws4-secure-design-agentic-systems/issues/149). Affects the spec header, section 3.1 (who assigns the canonical `@context` URL), section 3.2.5 (scanner registry), section 10.1 through 10.3, and the governance set: `CHARTER.md`, `GOVERNANCE.md`, `MAINTAINERS.md`, `ANTITRUST.md`, `CONTRIBUTING.md`, `ROADMAP.md`, `README.md`. No normative data-model, cryptographic, or conformance change; nothing about how a manifest is signed or verified moves.
 
 Three things did not change mechanically with the rest. The conformance test suite in section 8.2 was described as shipping "alongside the AGT donation to AAIF" and is now decoupled, because AGT's standards destination is governed separately and is not set by this charter. Two AAIF references are retained deliberately: the `AAIF Spec Enhancement Proposal (SEP)` route in section 6.3 and the `MCP (Anthropic / AAIF)` row in section 10.4 both describe MCP's own governance home, not this specification's target. And the IP terms are stated as consequences rather than commitments: the OASIS Open Projects IPR Policy requires a CLA plus a patent non-assert on non-trivial contributions, which is stricter than the DCO-only regime in force today, so `CHARTER.md` section 4 records that it takes effect only on WS4 acceptance and that the founding maintainer's terms under it need counsel sign-off first. Trademark transfer terms are marked to be determined rather than asserted.
-
 ### Fixed
 
 **[SDK]** `parse_tdx_quote_signature()` now rejects a quote whose declared lengths overrun the buffer instead of silently parsing a shorter value. Four lengths come from the quote, which is untrusted input: the signature-data size, `cert_size`, `qe_auth_size`, and `pck_size`. Python slicing clamps rather than overreading, so an inflated length previously yielded a short slice and parsing continued against whatever fit. No read was ever out of bounds and the downstream signature check would fail, so this is fail-closed hardening rather than a memory-safety fix, but a verifier should reject a quote that declares 400 bytes and supplies 300 rather than appraise the 300. Found while reviewing the same parse in cmcp#420, which shares the derivation.

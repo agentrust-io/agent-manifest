@@ -1,5 +1,5 @@
 {
-  "@context": "https://agentmanifest.agentrust.io/v0.1/context.json",
+  "@context": "https://manifest.agentrust-io.com/v0.2/context.json",
   "@type": "AgentManifest",
   "manifest_id": "019236ab-cdef-7001-8000-000000000002",
   "agent_id": "spiffe://trust.acme.co/agent/payment-authorizer/prod",
