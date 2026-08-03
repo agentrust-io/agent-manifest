@@ -1,0 +1,120 @@
+{
+  "@context": {
+    "@version": 1.1,
+    "@protected": true,
+
+    "am": "https://manifest.agentrust-io.com/v0.2/vocab#",
+    "xsd": "http://www.w3.org/2001/XMLSchema#",
+
+    "AgentManifest": "am:AgentManifest",
+
+    "manifest_id": {
+      "@id": "am:manifestId",
+      "@type": "xsd:string"
+    },
+    "agent_id": {
+      "@id": "am:agentId",
+      "@type": "@id",
+      "@context": {"@base": null}
+    },
+    "version": {
+      "@id": "am:version",
+      "@type": "xsd:string"
+    },
+    "issued_at": {
+      "@id": "am:issuedAt",
+      "@type": "xsd:dateTime"
+    },
+    "expires_at": {
+      "@id": "am:expiresAt",
+      "@type": "xsd:dateTime"
+    },
+    "issuer": {
+      "@id": "am:issuer",
+      "@type": "@id",
+      "@context": {"@base": null}
+    },
+    "crypto_profile": {
+      "@id": "am:cryptoProfile",
+      "@type": "xsd:string"
+    },
+
+    "artifacts": {
+      "@id": "am:artifacts",
+      "@container": "@id",
+      "@context": {
+        "system_prompt": "am:systemPrompt",
+        "policy_bundle": "am:policyBundle",
+        "tool_manifest": "am:toolManifest",
+        "model_identity": "am:modelIdentity",
+        "decision_trace": "am:decisionTrace",
+        "supply_chain": "am:supplyChain",
+        "rag_corpus": "am:ragCorpus"
+      }
+    },
+
+    "delegation_chain": {
+      "@id": "am:delegationChain",
+      "@container": "@list",
+      "@context": {
+        "hop": {"@id": "am:hop", "@type": "xsd:integer"},
+        "principal_id": {"@id": "am:principalId", "@type": "@id", "@context": {"@base": null}},
+        "principal_type": {"@id": "am:principalType", "@type": "xsd:string"},
+        "delegated_at": {"@id": "am:delegatedAt", "@type": "xsd:dateTime"},
+        "scope_grant": {"@id": "am:scopeGrant"},
+        "principal_manifest_id": {"@id": "am:principalManifestId", "@type": "xsd:string"},
+        "delegation_signature": {"@id": "am:delegationSignature", "@type": "xsd:string"}
+      }
+    },
+
+    "hitl_record": {
+      "@id": "am:hitlRecord",
+      "@context": {
+        "required": {"@id": "am:hitlRequired", "@type": "xsd:boolean"},
+        "approvals": {"@id": "am:hitlApprovals", "@container": "@list"}
+      }
+    },
+
+    "attestation": {
+      "@id": "am:attestation",
+      "@context": {
+        "platform": {"@id": "am:attestationPlatform", "@type": "xsd:string"},
+        "tee_version": {"@id": "am:teeVersion", "@type": "xsd:string"},
+        "measurement": {"@id": "am:measurement", "@type": "xsd:string"},
+        "manifest_hash_in_report": {"@id": "am:manifestHashInReport", "@type": "xsd:string"},
+        "audit_chain_root": {"@id": "am:auditChainRoot", "@type": "xsd:string"},
+        "report_timestamp": {"@id": "am:reportTimestamp", "@type": "xsd:dateTime"},
+        "report_uri": {"@id": "am:reportUri", "@type": "@id", "@context": {"@base": null}}
+      }
+    },
+
+    "transparency_log_entry": {
+      "@id": "am:transparencyLogEntry",
+      "@context": {
+        "log_id": {"@id": "am:logId", "@type": "xsd:string"},
+        "log_index": {"@id": "am:logIndex", "@type": "xsd:integer"},
+        "entry_uuid": {"@id": "am:entryUuid", "@type": "xsd:string"},
+        "integrated_time": {"@id": "am:integratedTime", "@type": "xsd:integer"},
+        "inclusion_proof": {
+          "@id": "am:inclusionProof",
+          "@context": {
+            "checkpoint": {"@id": "am:checkpoint", "@type": "xsd:string"},
+            "hashes": {"@id": "am:proofHashes", "@container": "@list"},
+            "tree_size": {"@id": "am:treeSize", "@type": "xsd:integer"}
+          }
+        }
+      }
+    },
+
+    "signature": {
+      "@id": "am:signature",
+      "@context": {
+        "algorithm": {"@id": "am:signatureAlgorithm", "@type": "xsd:string"},
+        "key_id": {"@id": "am:keyId", "@type": "xsd:string"},
+        "key_type": {"@id": "am:keyType", "@type": "xsd:string"},
+        "signed_at": {"@id": "am:signedAt", "@type": "xsd:dateTime"},
+        "signature_value": {"@id": "am:signatureValue", "@type": "xsd:string"}
+      }
+    }
+  }
+}
