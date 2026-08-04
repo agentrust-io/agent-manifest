@@ -7,7 +7,7 @@
 | Authors | Imran Siddique (AgenTrust) |
 | Status | Draft v0.2 - Proposed Open Standard |
 | Date | August 2026 |
-| Changes in 0.2 | `@context` URI moved to a controlled domain. Manifest format unchanged. See ADR 0012. |
+| Changes in 0.2 | `@context` URI moved to a controlled domain (ADR-0012). Signature envelope moves to COSE_Sign1, specified in [agent-manifest-cose-envelope-v0.2.md](agent-manifest-cose-envelope-v0.2.md) (ADR-0011); Ed25519 is identified by `-19` (ADR-0014). `version` is `"0.2"`. Field definitions are otherwise unchanged from 0.1. |
 | Relationship | Extends: OWASP ASI 2026 \| Aligns: CoSAI WS1, EU AI Act Art. 14/15 |
 | Target Standards Body | Coalition for Secure AI (CoSAI) WS4 - OASIS Open |
 
@@ -160,7 +160,7 @@ SHAKE-256 output length: For all artifact hash fields in the post-quantum profil
 Manifest producers and verifiers negotiate spec compatibility using the `version` field in the manifest and the `spec_version` field in VerificationResult.
 
 Producer requirements:
-- MUST set `version` to the spec version used for manifest construction (e.g., `"0.1"`).
+- MUST set `version` to the spec version used for manifest construction (`"0.2"` for this specification, `"0.1"` for the previous one).
 - MUST NOT produce fields defined only in later spec versions when targeting an older verifier.
 
 Verifier requirements:
@@ -214,7 +214,7 @@ Field cardinality table
 | `manifest_id` | string (UUID v7, RFC 9562) | REQUIRED | Version nibble MUST be 7. Canonical 8-4-4-4-12 hyphenated lowercase hex. |
 | `previous_manifest_id` | string (UUID v7, RFC 9562) | OPTIONAL | Set on re-issuance to establish audit chain continuity. |
 | `agent_id` | string (SPIFFE URI) | REQUIRED | Trust domain lowercase `[a-z0-9._-]`; path segments `[a-zA-Z0-9._-]`. URI MUST NOT exceed 2048 bytes. |
-| `version` | string | REQUIRED | MUST be `"0.1"` for this specification version. |
+| `version` | string | REQUIRED | MUST be `"0.2"` for this specification version. `"0.1"` identifies a manifest issued under the v0.1 specification, which stays verifiable; see section 2.4 and the [COSE envelope](agent-manifest-cose-envelope-v0.2.md). |
 | `min_verifier_version` | string (semver) | OPTIONAL | Minimum verifier version required to correctly process this manifest. |
 | `issued_at` | string (ISO 8601 UTC) | REQUIRED | |
 | `expires_at` | string (ISO 8601 UTC) | REQUIRED | Default: `issued_at` + 90 days. MUST NOT be more than 365 days after `issued_at` for Level 1+. MUST NOT be less than 1 hour after `issued_at`. |

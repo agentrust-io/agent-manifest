@@ -1,6 +1,6 @@
 """Tests for Ed25519 and ML-DSA-65 signing - issue #2.
 
-ML-DSA-65 tests are skipped when pyoqs is not installed.
+ML-DSA-65 tests are skipped when no ML-DSA-65 backend is available.
 """
 import pytest
 from cryptography.exceptions import InvalidSignature
@@ -23,12 +23,14 @@ try:
         generate_ml_dsa65,
         generate_hybrid,
     )
-    import oqs  # noqa: F401
-    OQS_AVAILABLE = True
+    from agent_manifest._signing import ml_dsa65_available
+    OQS_AVAILABLE = ml_dsa65_available()
 except (ImportError, RuntimeError):
     OQS_AVAILABLE = False
 
-require_oqs = pytest.mark.skipif(not OQS_AVAILABLE, reason="pyoqs not installed")
+require_oqs = pytest.mark.skipif(
+    not OQS_AVAILABLE, reason="no ML-DSA-65 backend available"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -211,7 +213,7 @@ def test_ed25519_public_key_roundtrip_b64url():
 
 
 # ---------------------------------------------------------------------------
-# ML-DSA-65 (skipped without pyoqs)
+# ML-DSA-65 (skipped without an ML-DSA-65 backend)
 # ---------------------------------------------------------------------------
 
 
@@ -238,7 +240,7 @@ def test_ml_dsa65_wrong_message_fails():
 
 
 # ---------------------------------------------------------------------------
-# Hybrid mode (skipped without pyoqs)
+# Hybrid mode (skipped without an ML-DSA-65 backend)
 # ---------------------------------------------------------------------------
 
 

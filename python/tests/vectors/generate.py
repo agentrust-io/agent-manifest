@@ -35,6 +35,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+import cbor2
+
 from agent_manifest._canonicalize import canonicalize
 from agent_manifest._delegation import DelegationHopSigner
 from agent_manifest._signing import Ed25519Signer, ed25519_from_private_bytes
@@ -119,6 +121,76 @@ def base_context(**overrides: Any) -> dict[str, Any]:
     return ctx
 
 
+def cose_manifest(**overrides: Any) -> dict[str, Any]:
+    """A version 0.2 manifest: no signature field, because the COSE object is
+    the signature (envelope spec section 4)."""
+    m: dict[str, Any] = {
+        "manifest_id": MANIFEST_ID,
+        "agent_id": "spiffe://trust.example/agent/kyc/prod",
+        "version": "0.2",
+        "issued_at": ISSUED_AT,
+        "expires_at": FAR_FUTURE,
+        "issuer": ISSUER,
+        "crypto_profile": "standard",
+        "artifacts": {
+            "system_prompt": {"hash": SP_HASH},
+            "policy_bundle": {"hash": PB_HASH},
+            "model_identity": {
+                "model_hash": None,
+                "version": "claude-3",
+                "deployment_type": "api",
+            },
+        },
+    }
+    m.update(overrides)
+    return m
+
+
+def cose_encoding_vector() -> dict[str, Any]:
+    """Pin the COSE_Sign1 encoding byte-for-byte (issue #243 phase 2, ADR-0013).
+
+    The open item this closes is whether an envelope with no receipt attached
+    yet carries a zero-length unprotected header map or omits it. It carries
+    one - ``a0`` below - and an implementation in another language has to
+    produce these exact bytes, not merely something self-consistent.
+
+    Reproducible because the key is the fixed seed and Ed25519 is
+    deterministic (RFC 8032). The post-quantum and hybrid envelopes cannot be
+    pinned this way: ML-DSA-65 signing is hedged, so the signature bytes
+    differ per run and only the structure is stable.
+    """
+    from agent_manifest._cose import payload_hash, sign_cose_sign1
+
+    manifest = cose_manifest()
+    envelope = sign_cose_sign1(manifest, KP)
+    protected, unprotected, payload, signature = cbor2.loads(envelope).value
+    assert unprotected == {}, "the unprotected header must be a zero-length map"
+
+    return {
+        "id": "AM-VEC-COSE-001",
+        "description": (
+            "COSE_Sign1 encoding is pinned byte-for-byte: CBOR tag 18, a "
+            "four-element array, and a zero-length unprotected header map "
+            "before any receipt is attached."
+        ),
+        "spec_refs": ["cose-envelope-v0.2 2", "cose-envelope-v0.2 3"],
+        "envelope_hex": envelope.hex(),
+        "context": base_context(),
+        "expected": {
+            "result": "VALID",
+            "signature_verified": True,
+            "cose": {
+                "tag": 18,
+                "protected_hex": protected.hex(),
+                "unprotected_hex": cbor2.dumps(dict(unprotected)).hex(),
+                "payload_hex": payload.hex(),
+                "signature_hex": signature.hex(),
+                "manifest_hash": payload_hash(payload),
+            },
+        },
+    }
+
+
 def _vector(
     vid: str,
     description: str,
@@ -196,7 +268,9 @@ def build() -> list[dict[str, Any]]:
     # 007 - unsupported version
     vectors.append(_vector(
         "AM-VEC-007", "Unsupported manifest version is rejected before verifying.",
-        ["2.4"], base_manifest(version="0.2"), base_context(),
+        # 0.2 is the COSE envelope and is supported; 0.3 does not exist, which
+        # is what makes it the right stand-in for "a version from the future".
+        ["2.4"], base_manifest(version="0.3"), base_context(),
         {"result": "INCOMPATIBLE_VERSION"},
     ))
 
@@ -361,6 +435,9 @@ def build() -> list[dict[str, Any]]:
         {"result": "MISMATCH", "signature_verified": False},
     ))
 
+    # --- version 0.2, COSE envelope (ADR-0011, issue #243) -----------------
+    vectors.append(cose_encoding_vector())
+
     return vectors
 
 
@@ -384,6 +461,14 @@ def main() -> None:
         "description": "Language-neutral verification conformance vectors. "
                        "Each vector: a manifest, a VerificationContext, and the "
                        "expected VerificationResult.",
+        # A vector carries either `manifest` (a version 0.1 document with a
+        # detached signature block) or `envelope_hex` (a version 0.2 COSE
+        # object). The envelope follows the manifest version, so a consumer
+        # selects the procedure by which key is present.
+        "envelopes": {
+            "manifest": "v0.1 detached signature over an RFC 8785 pre-image",
+            "envelope_hex": "v0.2 COSE_Sign1 / COSE_Sign, CBOR",
+        },
         "signing_key": "keys.json",
         "vectors": [
             {"id": v["id"], "file": f"{v['id']}.json", "description": v["description"]}
