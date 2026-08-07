@@ -1,4 +1,5 @@
 ---
+title: Verifiable identity and permissions for AI agents
 description: Agent Manifest is an open standard that cryptographically anchors the 10 artifacts defining an AI agent, so a third party can verify the agent running in production is the one that was approved.
 ---
 
