@@ -1,6 +1,6 @@
 # HITL Approval Workflows
 
-Human-in-the-loop (HITL) approval lets an agent record that a human explicitly authorised a high-risk action and cryptographically binds that authorisation to the manifest. The EU AI Act Article 14 requires "appropriate human oversight measures" for high-risk AI systems; a signed HITL record is one concrete way to demonstrate compliance.
+Human-in-the-loop (HITL) approval lets an agent record that a human explicitly authorised a high-risk action and cryptographically binds that authorisation to the manifest. The EU AI Act Article 14 requires "appropriate human oversight measures" for high-risk AI systems; a signed HITL record is one concrete way to demonstrate compliance. That obligation applies from around December 2027 for Annex III systems under the current provisional timeline (see the [EU AI Act mapping](../compliance/eu-ai-act.md)); HIPAA § 164.308(a)(5) documented human review is in force today and the same record satisfies it.
 
 After this tutorial you will be able to:
 
@@ -244,7 +244,7 @@ if result.fields_verified.hitl_record == HitlResult.APPROVED:
 | Multiple approvers | Add one entry per approver to `approvals`; each is independently signed and verified |
 | Approval duration | 1-4 hours; require re-approval for long-running jobs rather than extending the window |
 | Audit trail | Log each `approval_signature` and `evidence_uri` in your SIEM alongside the manifest ID |
-| EU AI Act Art. 14 | Document that `approved_scope` maps to the specific AI system output that was reviewed |
+| EU AI Act Art. 14 (from ~Dec 2027) | Document that `approved_scope` maps to the specific AI system output that was reviewed |
 
 ---
 
