@@ -71,12 +71,12 @@ Provider auto-selects based on available hardware: `OPAQUE → SEV-SNP → TDX �
 
 ## Conformance levels
 
-| Level   | Requirements                                     | Use case                                      |
-| ------- | ------------------------------------------------ | --------------------------------------------- |
-| Level 0 | Software signing, all artifact bindings          | Development, staging                          |
-| Level 1 | + TEE attestation, `audit_key_sealed: true`      | Enterprise production, EU AI Act Art. 15      |
-| Level 2 | + All 10 artifacts, HITL approvals, Phase 2 cMCP | Regulated industries, DORA                    |
-| Level 3 | + ML-DSA-65, ML-KEM-768, SHAKE-256               | Sovereign, classified, long-horizon financial |
+| Level   | Requirements                                     | Use case                                                |
+| ------- | ------------------------------------------------ | ------------------------------------------------------- |
+| Level 0 | Software signing, all artifact bindings          | Development, staging                                    |
+| Level 1 | + TEE attestation, `audit_key_sealed: true`      | Enterprise production; EU AI Act Art. 15 from ~Dec 2027 |
+| Level 2 | + All 10 artifacts, HITL approvals, Phase 2 cMCP | Regulated industries, DORA                              |
+| Level 3 | + ML-DSA-65, ML-KEM-768, SHAKE-256               | Sovereign, classified, long-horizon financial           |
 
 ## Frequently asked questions
 

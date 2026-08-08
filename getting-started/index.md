@@ -198,7 +198,7 @@ Both checks answer "is this the agent that was approved" at the moment you verif
 
 ## Level 1 - TPM attestation
 
-Level 1 adds hardware attestation, which binds the manifest hash to a TEE measurement that cannot be forged by the operator. Required for EU AI Act Art. 15 (cybersecurity) and enterprise production deployments.
+Level 1 adds hardware attestation, which binds the manifest hash to a TEE measurement that cannot be forged by the operator. Required for enterprise production deployments, and for EU AI Act Art. 15 (cybersecurity) when that obligation applies from around December 2027.
 
 ### Prerequisites
 
