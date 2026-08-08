@@ -30,13 +30,24 @@ classifiers = [
 dependencies = [
   "pydantic>=2.7,<3",
   "cryptography>=42,<51",
+  # COSE envelope for manifest version 0.2 (ADR-0011, ADR-0013). Serialization
+  # only - the COSE structures are built in _cose.py and every signature stays
+  # on cryptography (and optionally the liboqs bindings for ML-DSA-65).
+  "cbor2>=5.6,<7",
 ]
 
 [project.optional-dependencies]
-pq      = ["pyoqs>=0.10"]
+# ML-DSA-65 comes from cryptography, which gained it in 47.0.0. The extra
+# exists to raise the floor for callers who need the post-quantum profile;
+# it no longer names a liboqs package, because the `pyoqs` distribution this
+# previously required is not published on PyPI and the `oqs` module name
+# there belongs to an unrelated project. Deployments already carrying the
+# liboqs bindings keep working: _signing detects them and dispatches on the
+# key material.
+pq      = ["cryptography>=47"]
 server  = ["fastapi>=0.111", "uvicorn[standard]>=0.29", "httpx>=0.27"]
 cli     = ["click>=8.1"]
-all     = ["pyoqs>=0.10", "fastapi>=0.111", "uvicorn[standard]>=0.29", "httpx>=0.27", "click>=8.1"]
+all     = ["cryptography>=47", "fastapi>=0.111", "uvicorn[standard]>=0.29", "httpx>=0.27", "click>=8.1"]
 dev     = ["pytest>=8", "pytest-asyncio>=0.23", "pytest-cov>=5", "httpx>=0.27",
            "jcs>=0.2", "fastapi>=0.111", "uvicorn[standard]>=0.29",
            "click>=8.1", "mypy>=1.10", "bandit[toml]>=1.7", "pip-audit>=2.7"]

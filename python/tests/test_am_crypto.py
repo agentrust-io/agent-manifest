@@ -27,12 +27,14 @@ try:
         HybridVerifier,
         generate_hybrid,
     )
-    import oqs  # noqa: F401
-    OQS_AVAILABLE = True
+    from agent_manifest._signing import ml_dsa65_available
+    OQS_AVAILABLE = ml_dsa65_available()
 except (ImportError, RuntimeError):
     OQS_AVAILABLE = False
 
-require_oqs = pytest.mark.skipif(not OQS_AVAILABLE, reason="pyoqs not installed")
+require_oqs = pytest.mark.skipif(
+    not OQS_AVAILABLE, reason="no ML-DSA-65 backend available"
+)
 
 NOW = datetime.now(timezone.utc)
 SHA = "sha256:" + "a" * 64

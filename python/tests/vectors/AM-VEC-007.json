@@ -7,7 +7,7 @@
   "manifest": {
     "manifest_id": "018f4a3b-2c1d-7e5f-a8b9-0d1e2f3a4b5c",
     "agent_id": "spiffe://trust.example/agent/kyc/prod",
-    "version": "0.2",
+    "version": "0.3",
     "issued_at": "2025-01-01T00:00:00Z",
     "expires_at": "2099-12-31T23:59:59Z",
     "issuer": "spiffe://trust.example/signing-authority",
@@ -32,7 +32,7 @@
       "key_id": "56475aa75463474c0285df5dbf2bcab73da651358839e9b77481b2eab107708c",
       "key_type": "software",
       "signed_at": "2025-01-01T00:00:00Z",
-      "signature_value": "DyP2zkq1nN-cS9ZofxjorGNzuomwKhNtV8f4KV7RCjZCAg_GAeQu2xVDw16-fp__L93fPLR3AwT1W6tCJmQpCg",
+      "signature_value": "mVMfp3Rk4iPzy4ry106W4cx774CBni_h7pd3zTGI95Y2pfqUTSTk-460M0_Pyftdsz5LT8wh8lb4BdHbBAlxDQ",
       "signed_fields": [
         "@context",
         "@type",

@@ -2,6 +2,10 @@
   "suite": "agent-manifest-verification",
   "spec_version": "0.1",
   "description": "Language-neutral verification conformance vectors. Each vector: a manifest, a VerificationContext, and the expected VerificationResult.",
+  "envelopes": {
+    "manifest": "v0.1 detached signature over an RFC 8785 pre-image",
+    "envelope_hex": "v0.2 COSE_Sign1 / COSE_Sign, CBOR"
+  },
   "signing_key": "keys.json",
   "vectors": [
     {
@@ -103,6 +107,11 @@
       "id": "AM-VEC-020",
       "file": "AM-VEC-020.json",
       "description": "Post-quantum crypto_profile with an Ed25519 signature is a downgrade."
+    },
+    {
+      "id": "AM-VEC-COSE-001",
+      "file": "AM-VEC-COSE-001.json",
+      "description": "COSE_Sign1 encoding is pinned byte-for-byte: CBOR tag 18, a four-element array, and a zero-length unprotected header map before any receipt is attached."
     }
   ]
 }
