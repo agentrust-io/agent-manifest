@@ -4,6 +4,10 @@ All notable changes to Agent Manifest are documented here. Format follows [Keep 
 
 ## [Unreleased]
 
+### Added
+
+**[SPEC]** **`agent_id` is now the normative correlation key for OCSF `ai_agent.instance_uid`** (section 3.1), and verification results carry it back as `runtime_correlation_key` (section 5.2). Closes #269. Section 5.3.1 already bound `agent_id` to "the authenticated workload subject for the current session" for gateway runtime binding; this extends the same scope to OCSF-emitting runtime-evidence producers (e.g. the `agent-state` KV-fingerprint chain, `rabbidave/ws4-secure-design-agentic-systems@1e35ab5`) so a verifier can join runtime evidence to a manifest without a second identity mechanism. Does not change `fields_verified`, which stays boot-time-only per section 7.2; does not split `agent_id` into separate stable/instance fields, though a future revision may if the current overload proves to be a problem in practice.
+
 ### Changed
 
 **[SPEC][SDK] BREAKING: the `@context` URI moves to `https://manifest.agentrust-io.com/v0.2/context.json`**, and the specification is republished as v0.2 ([`spec/agent-manifest-spec-v0.2.md`](spec/agent-manifest-spec-v0.2.md), [ADR-0012](docs/adr/0012-context-uri-moved-to-controlled-domain.md)). The v0.1 URI `https://agentmanifest.agentrust.io/v0.1/context.json` named `agentrust.io`, a domain this project has never controlled: registered to a third party behind Domains By Proxy, paid through mid-2027, and it has never resolved. Every manifest issued to date was therefore identified under somebody else's name, which is untenable in an identity specification.

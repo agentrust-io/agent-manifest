@@ -236,6 +236,11 @@ All fields annotated as UUID v7 MUST conform to RFC 9562 Section 5.7. The string
 <!-- CHANGED: F-01 - SPIFFE URI path note -->
 The `agent_id` path structure `/agent/<name>/<instance>` shown in examples is a convention, not a requirement. Trust domain must be lowercase `[a-z0-9._-]`; path segments may use `[a-zA-Z0-9._-]`. UUID v7 instance identifiers (hyphens permitted in path segments) are valid. Example: `spiffe://trust.example/agent/payments-processor/01926b4c-1234-7abc-9def-000000000001`.
 
+<!-- CHANGED: #269 - normative agent_id / OCSF ai_agent.instance_uid correlation -->
+`agent_id` already serves as the runtime-session subject-binding value in section 5.3.1 item 3 ("the authenticated workload subject for the current session equals the manifest `agent_id`"). This section makes that same binding explicit for OCSF-emitting runtime-evidence producers: when such a producer emits an `ai_agent`-bearing OCSF event (e.g. `Agent Inventory Info [5050]`) for a session governed by this manifest, the value populated into `ai_agent.instance_uid` MUST equal this manifest's `agent_id`. `ai_agent.instance_uid` is scoped to "a specific running instance or session" (OCSF `objects/ai_agent.json`) — the same scope `agent_id` already carries per 5.3.1, not a new concept. `ai_agent.version`/`ai_agent.charter`, if present, are not part of this binding: both are static across a session and are not suitable join keys for per-event correlation.
+
+This section does not require `agent_id`'s optional `/agent/<name>/<instance>` path segment (above) to itself carry the instance scope — only that the resolved `agent_id` string, however structured, equals the emitted `instance_uid`. A future revision MAY split `agent_id` into a stable and an instance-scoped field if implementation experience shows the overload is a problem; this section does not propose that split.
+
 <!-- CHANGED: SCHEMA F-15/@context - normative note on provisional URL -->
 The `@context` URL `https://manifest.agentrust-io.com/v0.2/context.json` is provisional for the v0.2 draft period. The CoSAI WS4 working stream will assign the canonical URL prior to v1.0 ratification, and implementations MUST support the canonical CoSAI-assigned URL when it is assigned.
 
@@ -1147,6 +1152,7 @@ Conformance level requirements:
     "pack_hash": "sha256:<64-hex-chars>",
     "pack_uri": "<URI to full evidence pack>"
   },
+  "runtime_correlation_key": "<string, equals manifest agent_id -- OPTIONAL, see section 3.1>",
   "verification_signature": "<Ed25519 | ML-DSA-65 signature by the attestation service>"
 }
 ```
@@ -1160,6 +1166,64 @@ Conformance level requirements:
 `ATTESTATION_UNAVAILABLE` is returned when the hardware attestation service cannot be reached and the verification cannot be completed. Verifiers receiving this result MUST NOT treat it as `VALID`.
 
 `INCOMPATIBLE_VERSION` is returned when the verifier does not support the manifest's declared `version`. See section 2.2 for version negotiation rules.
+
+<!-- CHANGED: #269 - runtime_correlation_key -->
+`runtime_correlation_key` echoes `agent_id` back in the verification result so a runtime-evidence consumer does not need to re-parse the manifest just to obtain the join key defined in section 3.1. It is set whenever `agent_id` is present (i.e. always, since `agent_id` is REQUIRED) and is otherwise informational — it does not affect `result` or any `fields_verified` entry, since runtime evidence is out of scope for what this verification call attests (section 7.2). A verifier that has no runtime-evidence consumers MAY omit populating downstream consumption of this field, but the field itself is always present given `agent_id` always is.
+
+Worked example — a manifest, the OCSF runtime evidence a producer emits against it (per the correlation rule in section 3.1), and the resulting verification result:
+
+```jsonc
+// Manifest excerpt (section 3.1)
+{
+  "manifest_id": "01926b4c-79a0-7f3e-9c21-4e0f0a1b2c3d",
+  "agent_id": "spiffe://trust.example/agent/payments-processor/01926b4c-1234-7abc-9def-000000000001",
+  "version": "0.1",
+  "issuer": "spiffe://trust.example/manifest-authority",
+  "issued_at": "2026-08-03T14:00:00Z",
+  "expires_at": "2026-11-01T14:00:00Z"
+}
+
+// Runtime evidence: an OCSF Agent Inventory Info [5050] event, unmodified
+// output of the reference implementation at
+// rabbidave/ws4-secure-design-agentic-systems@1e35ab5 (ocsf_mapping.to_ocsf_event)
+{
+  "class_uid": 5050,
+  "class_name": "Agent Inventory Info",
+  "ai_agent": {
+    "uid": "spiffe://trust.example/agent/payments-processor/01926b4c-1234-7abc-9def-000000000001",
+    "instance_uid": "spiffe://trust.example/agent/payments-processor/01926b4c-1234-7abc-9def-000000000001",
+    // ^ MUST equal manifest.agent_id above -- the binding section 3.1 defines.
+    "version": "2.3.1",
+    "charter": null,
+    "token_fingerprint": {
+      "algorithm_id": 3, "algorithm": "SHA-256",
+      "value": "e7a0585389f573fcfc3b744a81cb791b2a325240066731cd8a8c10fb710c28ea"
+    }
+  },
+  "session_uid": "spiffe://trust.example/agent/payments-processor/01926b4c-1234-7abc-9def-000000000001",
+  "context": {
+    "kv_state_fingerprint": {
+      "algorithm_id": 3, "algorithm": "SHA-256",
+      "value": "c96021ce1c548d3723ffe318e1167d5b85d9901f0a3dd4439eed090ba75ddc08"
+    }
+  },
+  "prev_inventory": { "algorithm_id": 3, "algorithm": "SHA-256", "value": "00...00" },
+  "inventory":      { "algorithm_id": 3, "algorithm": "SHA-256", "value": "a877499302eef959999656c486b081a5a5f977c03d6876a295de0e89b15dce72" }
+}
+
+// Verification result (section 5.2), with the correlation key surfaced
+{
+  "verification_id": "01926b4d-0001-7000-8000-000000000001",
+  "manifest_id": "01926b4c-79a0-7f3e-9c21-4e0f0a1b2c3d",
+  "result": "VALID",
+  "attestation_verified": false,
+  "fields_verified": { "...": "unchanged -- boot-time artifacts only, per section 7.2" },
+  "runtime_correlation_key": "spiffe://trust.example/agent/payments-processor/01926b4c-1234-7abc-9def-000000000001"
+  // A runtime-evidence consumer joins this manifest's evidence stream by
+  // matching Agent Inventory Info events where ai_agent.instance_uid
+  // equals this value -- no re-derivation from the manifest needed.
+}
+```
 
 ##### 5.2.1 Evidence Pack Format <!-- CHANGED: SPEC-12 - new normative subsection -->
 
