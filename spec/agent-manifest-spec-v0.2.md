@@ -1417,7 +1417,7 @@ The following threats are explicitly out of scope for this specification:
 | Level | Name | Requirements | Use Case |
 |---|---|---|---|
 | Level 0 | Software-only | All artifact bindings. Standard crypto profile. Transparency log publication. No TEE requirement. | Development, staging, non-regulated environments. |
-| Level 1 | TEE-attested | Level 0 plus: TEE attestation block. `audit_key_sealed: true`. `container_image_digest` verified by hardware. | Enterprise production. Satisfies EU AI Act Art. 15 (cybersecurity). |
+| Level 1 | TEE-attested | Level 0 plus: TEE attestation block. `audit_key_sealed: true`. `container_image_digest` verified by hardware. | Enterprise production. Satisfies EU AI Act Art. 15 (cybersecurity), which applies from around December 2027 (section 9.1). |
 | Level 2 | Full stack | Level 1 plus: All 10 artifacts bound (per section 3.1 mapping table). HITL approvals present. Delegation chain for multi-agent. Phase 2 cMCP for all MCP servers. `log_retention.minimum_retention_days >= 180`. `drift_policy: deny-on-drift` or `alert-on-drift`. | Regulated industries. Satisfies DORA Art. 9, GDPR Art. 32 (when `data_scope` fields are populated for EU personal data processing). |
 | Level 3 | Post-quantum | Level 2 plus: ML-DSA-65 signatures. ML-KEM-768 key exchange. SHAKE-256 hashing. Private Sigstore instance supporting ML-DSA-65. | Sovereign deployments, classified, financial services with long-horizon sensitivity. |
 
@@ -1431,7 +1431,7 @@ Log retention requirement <!-- CHANGED: REG-002 -->: Level 2 conformance require
 }
 ```
 
-The EU AI Act (Art. 26 via Art. 12 and recital obligations) requires a minimum of 180 days (six months) log retention. Financial entities subject to DORA Art. 25(1) may require up to 1825 days (five years). `minimum_retention_days` MUST be at least 180 for EU AI Act compliance.
+The EU AI Act (Art. 26 via Art. 12 and recital obligations) requires a minimum of 180 days (six months) log retention; that obligation applies from around December 2027 (section 9.1). Financial entities subject to DORA Art. 25(1) may require up to 1825 days (five years), and DORA is in force today. `minimum_retention_days` MUST be at least 180 for EU AI Act compliance and SHOULD be set from the strictest framework the deployment is actually subject to now.
 
 ### 8.2 Conformance Test Suite
 
@@ -1451,7 +1451,9 @@ Total: 197 conformance tests. The test suite is published as an open-source repo
 
 ### 9.1 EU AI Act
 
-<!-- CHANGED: REG-001 - corrected Art. 14 mapping to distinguish pre-deployment and runtime obligations; CRYPTO-008/REG-006 - added model attestation type note; REG-009 - added Art. 13(3)(c)(e) operational lifecycle fields; REG-005 - added Art. 22 note; REG-006 - added Annex III classification guidance subsection -->
+<!-- CHANGED: REG-001 - corrected Art. 14 mapping to distinguish pre-deployment and runtime obligations; CRYPTO-008/REG-006 - added model attestation type note; REG-009 - added Art. 13(3)(c)(e) operational lifecycle fields; REG-005 - added Art. 22 note; REG-006 - added Annex III classification guidance subsection; REG-010 - added applicability dates and Art. 50 subsection -->
+
+**When these obligations apply.** GPAI model-provider obligations (Arts. 51-53) have applied since 2 August 2025. Article 50 transparency duties have applied since 2 August 2026 (see section 9.1.2). The high-risk obligations mapped in the table below (Arts. 12-15, 26) are deferred under the current provisional legislative timeline (the Digital Omnibus amendments): Annex III systems from around 2 December 2027, and Annex I systems (AI embedded in regulated products) from around August 2028. These dates remain subject to the legislative process; implementers MUST verify against the [official implementation timeline](https://artificialintelligenceact.eu/implementation-timeline/) before asserting a compliance deadline. The mappings themselves are unaffected by the deferral. Obligations already in force under other frameworks - DORA for financial entities (section 9.2), HIPAA for US healthcare (section 9.3) - are unaffected.
 
 | Article | Requirement | Agent Manifest Satisfaction |
 |---|---|---|
@@ -1481,6 +1483,21 @@ Decision guidance: If the agent deployment falls within one of the above categor
 GPAI model providers (Anthropic, OpenAI, Google, etc.) are subject to separate obligations under Arts. 51-53 of the EU AI Act. These are distinct from the high-risk system obligations described here, which apply to operators deploying agents built on top of GPAI models.
 
 Operators in financial services should note that agents performing creditworthiness assessment or risk scoring for life and health insurance (Annex III Point 5(b)) are likely high-risk regardless of the underlying model provider.
+
+Article 50 is the exception to this subsection: its transparency duties attach to the interaction and the output, not to an Annex III classification, so they apply to agent deployments that are not high-risk. See section 9.1.2.
+
+#### 9.1.2 EU AI Act Article 50 - Transparency Obligations <!-- CHANGED: REG-010 - new subsection -->
+
+Article 50 applies from **2 August 2026** and is the only EU AI Act obligation in force against agent deployments today. It is independent of the Annex III high-risk classification in section 9.1.1: an operator whose agent is out of Annex III scope is still subject to it.
+
+| Article 50 paragraph | Obligation | Agent Manifest Satisfaction |
+|---|---|---|
+| Art. 50(1) | Natural persons must be informed they are interacting with an AI system, unless obvious | **Not satisfied.** The manifest has no field declaring the disclosure or binding it to the agent. Disclosure delivery is a runtime concern; AGT's `agent_os.transparency` interceptor enforces it at the tool-call boundary and is the current answer. |
+| Art. 50(2) | Providers of systems generating synthetic audio, image, video or text must mark outputs as artificially generated, in a machine-readable form | **Not satisfied.** No marking field exists. A marking that any party can strip does not survive the obligation's machine-readable requirement, which is why binding the mark to the attested agent that produced the output is the intended design rather than a metadata field. Tracked for a future revision. |
+| Art. 50(3) | Deployers of emotion recognition or biometric categorisation systems must inform exposed persons | **Not satisfied** in the manifest. Enforced at runtime by AGT's `agent_os.transparency` interceptor. Note that a manifest whose `hitl_record.approvals[].approved_scope` covers biometric tooling is evidence the deployment is in Art. 50(3) scope. |
+| Art. 50(4) | Deepfake and public-interest text disclosure | **Not satisfied.** Same gap as Art. 50(2). |
+
+Implementers MUST NOT read the manifest as evidence of Article 50 compliance. Where the deployment is in Article 50 scope, the disclosure and marking controls are separate and must be documented separately.
 
 ### 9.2 DORA (EU) and Financial Sector Guidance
 

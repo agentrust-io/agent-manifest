@@ -195,7 +195,7 @@ The `audit_chain_root` anchors every decision the agent made to a Merkle chain h
 |----------|------------------|---------|
 | Development and local testing | 0 | `SoftwareProvider` |
 | Enterprise internal deployment | 1 | `TPMProvider` |
-| EU AI Act Art. 15 (cybersecurity) | 2 | `SEVSNPProvider` or `TDXProvider` |
+| EU AI Act Art. 15 (cybersecurity, from ~Dec 2027) | 2 | `SEVSNPProvider` or `TDXProvider` |
 | Financial services, regulated workloads | 2+ | `SEVSNPProvider` / `TDXProvider` |
 | Full audit chain, OPAQUE-managed trust | 3 | `OPAQUEProvider` |
 | Unknown environment, pick best available | any | `select_provider(level=N)` |
