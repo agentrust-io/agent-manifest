@@ -29,7 +29,7 @@ classifiers = [
 ]
 dependencies = [
   "pydantic>=2.7,<3",
-  "cryptography>=42,<50",
+  "cryptography>=42,<51",
   # COSE envelope for manifest version 0.2 (ADR-0011, ADR-0013). Serialization
   # only - the COSE structures are built in _cose.py and every signature stays
   # on cryptography (and optionally the liboqs bindings for ML-DSA-65).
