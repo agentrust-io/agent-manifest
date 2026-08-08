@@ -4,6 +4,16 @@ All notable changes to Agent Manifest are documented here. Format follows [Keep 
 
 ## [Unreleased]
 
+## [0.10.1] — 2026-08-08
+
+Dependency-only patch, cut from the `0.10.0` tag rather than from `main`, so it carries no other change. `main` holds a breaking `@context` move that is not ready to ship as a patch.
+
+### Fixed
+
+**[SDK]** **`cryptography` may now resolve to 50.x** (`>=42,<51`, was `<50`). PYSEC-2026-3552 affects 49.0.0 and is fixed in 50.0.0, which the old cap excluded, so any environment resolving this package's dependency set installed a version with a known advisory and `pip-audit` failed. That reached downstreams: `ca2a` pins its own `cryptography` floor open and still resolved 49.0.0 through this package, which turned every ca2a pull request red.
+
+The floor stays at 42. Raising it forces the bump on every consumer for an advisory whose impact on this package has not been assessed; that is a separate and deliberate change if it turns out to matter here.
+
 ## [0.10.0] — 2026-08-01
 
 Exports the SEV-SNP ABI offset table so downstreams can delete the ctypes mirrors they kept solely to read offsets from. Completes what 0.9.0 started: cmcp used its struct as an offset oracle across seven test files, so sharing the parse without sharing the table would only have moved the duplication into test scaffolding, where it would drift silently.
