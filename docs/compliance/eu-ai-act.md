@@ -141,14 +141,18 @@ The issuer key rotation procedure (see [Tutorial: Revocation and key rotation](.
 
 ## Conformance level guidance for high-risk AI
 
-| Conformance level | Hardware root of trust | Recommended for |
-|-------------------|----------------------|-----------------|
-| 0  -  Software only | None | Development, low-risk systems |
-| 1  -  TPM | TPM 2.0 | General enterprise deployment |
-| 2  -  SEV-SNP / TDX | AMD SEV-SNP or Intel TDX | High-risk AI under Article 6 |
-| 3  -  Managed TEE | OPAQUE / Cloud HSM | Critical infrastructure, financial services |
+The levels are defined in section 8.1 of the specification. They are not a hardware ladder: the level says what is bound and attested, and the choice of TEE sits inside Level 1.
 
-For high-risk AI systems under Article 6(2), Annex III, **Level 2 or above is recommended**. Level 1 is acceptable where hardware TEE deployment is not yet feasible, provided a compensating HITL control is in place.
+| Conformance level | What it requires | Recommended for |
+|-------------------|------------------|-----------------|
+| 0  -  Software-only | All artifact bindings, standard crypto, transparency log publication. No TEE. | Development, staging, non-regulated systems |
+| 1  -  TEE-attested | Level 0 plus a TEE attestation block, `audit_key_sealed: true`, and a hardware-verified `container_image_digest`. TPM 2.0, AMD SEV-SNP and Intel TDX all satisfy this; they differ in the strength of the root, not in the level. | Enterprise production |
+| 2  -  Full stack | Level 1 plus all 10 artifacts bound, HITL approvals present, delegation chain for multi-agent, Phase 2 cMCP, `minimum_retention_days >= 180`, and a declared drift policy. | High-risk AI under Article 6(2), Annex III |
+| 3  -  Post-quantum | Level 2 plus ML-DSA-65, ML-KEM-768, SHAKE-256, and a private Sigstore instance supporting ML-DSA-65. | Sovereign, classified, long-horizon financial |
+
+For high-risk AI systems under Article 6(2), Annex III, **Level 2 or above is recommended**, because Article 12 record-keeping and Article 14 human oversight need the artifacts that Level 2 requires to be bound rather than merely present. Level 1 is a reasonable interim where the full artifact set is not yet in place, provided a compensating HITL control is documented.
+
+Within Level 1, the root of trust still matters for what a verifier can conclude: SEV-SNP and TDX attest a confidential VM directly, while a TPM 2.0 quote attests the boot chain of a VM the host can still see into. Azure confidential VMs are a third case, vTPM-rooted rather than direct-silicon, and are documented in `LIMITATIONS.md`.
 
 ---
 
