@@ -4,7 +4,14 @@ All notable changes to Agent Manifest are documented here. Format follows [Keep 
 
 ## [Unreleased]
 
+### Added
+
+**[SPEC] Section 9.1.2 maps EU AI Act Article 50, and maps it as a gap.** Article 50 transparency duties have applied since 2 August 2026: chatbot disclosure, machine-readable marking of synthetic output, emotion-recognition notice. It is the only AI Act obligation in force against an agent deployment today, and no document in this repository mentioned it. The manifest satisfies none of the four paragraphs, so the new subsection says that in those words, notes that Article 50 applies regardless of Annex III classification, and states that a manifest MUST NOT be read as Article 50 evidence. `docs/compliance/eu-ai-act.md` carries the same mapping for auditors. Marking that binds to the attested agent that produced the output, rather than to a strippable metadata field, is the design being pursued; it is not built.
+
 ### Changed
+
+**[SPEC] EU AI Act mappings now carry the date each obligation applies from.** The mappings were written as if the high-risk obligations bind today. Under the current provisional timeline the Digital Omnibus amendments defer Annex III systems to around 2 December 2027 and Annex I to around August 2028, which `docs/compliance/eu-ai-act.md` already recorded and nothing else did. The mappings are correct and unchanged; only the applicability date is added, in section 9.1 (authoritative note), the section 8.1 conformance-level table, the section 8.1 log-retention requirement, `LIMITATIONS.md`, the HITL tutorial and example, `docs/index.md`, `docs/getting-started.md`, and the hardware-attestation tutorial. Where a deployment has an obligation in force today, the docs now lead with it: DORA for financial entities, HIPAA § 164.308(a)(5) for the HITL record.
+
 
 **[SPEC][SDK] BREAKING: the `@context` URI moves to `https://manifest.agentrust-io.com/v0.2/context.json`**, and the specification is republished as v0.2 ([`spec/agent-manifest-spec-v0.2.md`](spec/agent-manifest-spec-v0.2.md), [ADR-0012](docs/adr/0012-context-uri-moved-to-controlled-domain.md)). The v0.1 URI `https://agentmanifest.agentrust.io/v0.1/context.json` named `agentrust.io`, a domain this project has never controlled: registered to a third party behind Domains By Proxy, paid through mid-2027, and it has never resolved. Every manifest issued to date was therefore identified under somebody else's name, which is untenable in an identity specification.
 

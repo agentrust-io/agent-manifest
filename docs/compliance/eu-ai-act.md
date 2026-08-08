@@ -2,7 +2,26 @@
 
 This page maps agent-manifest capabilities to EU AI Act obligations for high-risk AI systems. It is written for compliance officers and auditors, not developers.
 
-**Status:** GPAI model obligations apply since **August 2025**. Under the current provisional legislative timeline (the digital omnibus amendments), high-risk AI system obligations are expected to apply from around **December 2027**, and AI systems embedded in regulated products from around **August 2028**. These dates remain subject to the legislative process - verify against the [official AI Act timeline](https://artificialintelligenceact.eu/implementation-timeline/) before relying on them. Obligations already in force today (e.g. DORA for financial entities, HIPAA for US healthcare) are unaffected by this timeline.
+**Status:** GPAI model obligations apply since **August 2025**, and **Article 50 transparency duties since 2 August 2026** (see below - the manifest does not satisfy them). Under the current provisional legislative timeline (the digital omnibus amendments), high-risk AI system obligations are expected to apply from around **December 2027**, and AI systems embedded in regulated products from around **August 2028**. These dates remain subject to the legislative process - verify against the [official AI Act timeline](https://artificialintelligenceact.eu/implementation-timeline/) before relying on them. Obligations already in force today (e.g. DORA for financial entities, HIPAA for US healthcare) are unaffected by this timeline.
+
+Everything on this page below Article 50 maps to the **high-risk** obligations, which are the deferred ones. Article 50 is the one in force now.
+
+---
+
+## Article 50  -  Transparency obligations *(in force since 2 August 2026)*
+
+> *AI systems intended to interact directly with natural persons shall be designed so that the person is informed they are interacting with an AI system, unless obvious. Providers of systems generating synthetic content shall mark the output in a machine-readable form.*
+
+**What agent-manifest provides: nothing yet.** This is stated plainly because Article 50 is the obligation an auditor can hold a deployment to today, and a mapping page that quietly omits it reads as coverage.
+
+| Article 50 paragraph | Obligation | Status |
+|----------------------|------------|--------|
+| 50(1) | Inform persons they are interacting with an AI system | No manifest field. Disclosure is delivered at runtime; AGT's `agent_os.transparency` interceptor enforces it at the tool-call boundary. |
+| 50(2) | Mark synthetic output as artificially generated, machine-readably | No manifest field. A mark any party can strip does not meet the requirement, so binding the mark to the attested agent that produced the output is the intended design. Not built. |
+| 50(3) | Inform persons exposed to emotion recognition or biometric categorisation | No manifest field. Enforced at runtime by the same AGT interceptor. A manifest whose approved scope covers biometric tooling is evidence the deployment is in scope. |
+| 50(4) | Deepfake and public-interest text disclosure | No manifest field. Same gap as 50(2). |
+
+Article 50 applies regardless of whether the system is high-risk under Annex III. Do not present a manifest as Article 50 evidence.
 
 ---
 
@@ -137,6 +156,7 @@ For high-risk AI systems under Article 6(2), Annex III, **Level 2 or above is re
 
 | EU AI Act Article | Obligation | agent-manifest capability |
 |-------------------|------------|---------------------------|
+| Article 50 *(in force)* | Transparency and synthetic-content marking | **None.** Runtime disclosure via AGT; marking not built |
 | Article 9 | Risk management record | `approved_scope.risk_tier` (approver-signed) |
 | Article 12 | Automatic logging | Merkle `audit_chain_root` |
 | Article 13 | Transparency to deployers | Signed identity + artifact hashes |

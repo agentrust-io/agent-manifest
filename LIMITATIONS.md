@@ -29,8 +29,8 @@ The container image digest is measured at TEE startup. Attacks that compromise t
 
 Level 0 (software-only signing) is suitable for development and staging. It does not satisfy:
 
-- EU AI Act Art. 15 (cybersecurity) — requires Level 1+
-- DORA Art. 9 — requires Level 1+ with HITL records
+- DORA Art. 9 (in force today) — requires Level 1+ with HITL records
+- EU AI Act Art. 15 (cybersecurity; applies from around December 2027) — requires Level 1+
 - Any claim of hardware-rooted trust — the signing key is held in software and can be extracted by a privileged operator
 
 ## What the SDK does not do

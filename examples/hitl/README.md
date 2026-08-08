@@ -52,8 +52,8 @@ The `approval_expiry` in `approved_scope` is an additional bound within the mani
 ## For auditors
 
 This record satisfies:
-- EU AI Act Article 14 (human oversight)
-- HIPAA § 164.308(a)(5) (documented human review)
-- GDPR Article 25 (data protection by design)
+- HIPAA § 164.308(a)(5) (documented human review) — in force today
+- GDPR Article 25 (data protection by design) — in force today
+- EU AI Act Article 14 (human oversight) — applies to Annex III high-risk systems from around December 2027 under the current provisional timeline
 
 See [Compliance: EU AI Act](../../docs/compliance/eu-ai-act.md) for the full mapping.
