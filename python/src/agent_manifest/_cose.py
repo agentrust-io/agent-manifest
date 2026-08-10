@@ -842,6 +842,10 @@ def _appraise(
                 raise CoseStructureError(
                     f"COSE_Signature {index} unprotected header must be a map"
                 )
+            if not isinstance(signature, bytes):
+                raise CoseStructureError(
+                    f"COSE_Signature {index} signature must be a byte string"
+                )
             what = f"COSE_Signature {index}"
             sign_header = _decode_protected(sign_protected_bytes, what=what)
             _check_crit(sign_header, what=what)
