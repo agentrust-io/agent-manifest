@@ -6,6 +6,16 @@ All notable changes to Agent Manifest are documented here. Format follows [Keep 
 
 ### Added
 
+**[SPEC] Section 6.5 states the boundary with Agent Plugins** (#281). Agent Plugins 1.0.0 shipped as a packaging format for Agent Skills and MCP server configuration, backed by a multi-vendor steering committee, and the obvious reading from outside is that this project is a second format for the same job. It is not, and the specification had nowhere that said so.
+
+The boundary in one sentence: Agent Plugins describes what a client should install, a manifest describes what actually ran. A plugin bundle is an input to a manifest.
+
+The section argues that from the format's own documents rather than by assertion. `plugin.json` requires two fields, `$schema` and `name`, `version` is an unconstrained string, and there is no integrity, signature or provenance field in the 1.0.0 schema. `FUTURE_CONSIDERATIONS.md` states that v1.0.0 "does not define a trust model, permission system, or sandboxing requirements for plugins" and "does not specify how clients or users can verify the origin or integrity of a plugin", and lists attestation chains linking a published plugin to its source repository and build as possible future work.
+
+Of the ten artifacts, Agent Plugins carries two, and carries both as declarations rather than as resolutions: `skills/*/SKILL.md` holds instruction material, and `mcp.json` declares which servers to start without enumerating the tools those servers exposed. That declared-versus-resolved gap is the boundary in miniature.
+
+It stays informative for the same reason 6.4 does. Binding to `plugin.json` now would fix a field layout in a 1.0.0 format whose own roadmap anticipates adding provenance, so it would have to be revised rather than refined once that lands. The `extensions` object, keyed by reverse-domain namespace, is noted as sufficient to carry a manifest reference without any change to the format.
+
 **[SPEC] Section 6.4 is an informative crosswalk to OCSF runtime evidence** (#269). There was no defined join key between a manifest and the OCSF events emitted under it, so a consumer holding both could not tell they described the same agent without an out-of-band convention, and implementers were left to invent a second identity mechanism for a job this specification already does. The new section records the intended correspondence and deliberately requires nothing.
 
 Three things it gets right that a normative version could not yet: it is written against the **`ai_operation` profile**, which is what actually contributes `ai_agent`, rather than against an event class (the `Agent Inventory Info [5050]` class proposed for this does not exist in OCSF — there is no `agent_inventory_info.json` and no occurrence of `5050` anywhere in `ocsf-schema`); it maps `ai_agent.uid` to the durable identity and `instance_uid` to the session-scoped one, which is what OCSF's own definitions ask for, instead of collapsing both onto `agent_id`; and it notes that `session_uid` is not an `ai_agent` attribute at all.
@@ -15,6 +25,10 @@ It stays informative because `agent_id` is one field serving both roles, and sec
 The section also records a correspondence worth more than the identity one: OCSF's `delegation` object (`uid`, `parent_uid`, forming a re-delegation DAG) is structurally the delegation chain of section 3.4. It does not map today, because a section 3.4 hop has no per-hop durable identifier to populate `delegation.uid`, and OCSF wants that identifier issued by a trusted authority rather than self-asserted by the delegator. Closing that is a data-model change, not a crosswalk, and is not proposed here.
 
 **[SPEC] Section 9.1.2 maps EU AI Act Article 50, and maps it as a gap.** Article 50 transparency duties have applied since 2 August 2026: chatbot disclosure, machine-readable marking of synthetic output, emotion-recognition notice. It is the only AI Act obligation in force against an agent deployment today, and no document in this repository mentioned it. The manifest satisfies none of the four paragraphs, so the new subsection says that in those words, notes that Article 50 applies regardless of Annex III classification, and states that a manifest MUST NOT be read as Article 50 evidence. `docs/compliance/eu-ai-act.md` carries the same mapping for auditors. Marking that binds to the attested agent that produced the output, rather than to a strippable metadata field, is the design being pursued; it is not built.
+
+### Fixed
+
+**[SPEC] The README pointed at a specification file that does not exist.** Three links and the spec badge referenced `spec/agent-manifest-spec-v0.1.md`, superseded by v0.2. All four now resolve.
 
 ### Changed
 

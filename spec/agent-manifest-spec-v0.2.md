@@ -1423,6 +1423,49 @@ The resolution is to decide whether `agent_id` splits into a stable identifier a
 
 Per section 3.1, the CoSAI WS4 working stream already owns the canonical `@context` URL for this specification. An OCSF correlation mapping belongs in the same venue, alongside the `agent_id` question above, rather than being settled here first.
 
+### 6.5 Relationship to Agent Plugins <!-- CHANGED: #281 - informative boundary statement, no normative binding -->
+
+> **This section is informative.** It defines no conformance requirement and uses no MUST. It states where this specification stops and where a packaging format starts, so that implementers do not read the two as competing descriptions of the same thing.
+
+[Agent Plugins 1.0.0](https://agent-plugins.org) is a packaging format for Agent Skills and MCP server configuration, maintained by a technical steering committee drawn from several client vendors. It is not a competitor to this specification and this specification is not a package format.
+
+The distinction in one sentence: **Agent Plugins describes what a client should install, and a manifest describes what actually ran.** Packaging is design time and portable across clients. A manifest is deployment time and bound to the environment that loaded it. A plugin bundle is therefore an input to a manifest rather than an alternative to one.
+
+#### 6.5.1 What Agent Plugins 1.0.0 leaves open
+
+The boundary is not an interpretation. It is stated in the format's own documents.
+
+`plugin.json` requires two fields, `$schema` and `name`. `version` is an unconstrained string. There is no integrity, signature or provenance field in the 1.0.0 schema.
+
+`FUTURE_CONSIDERATIONS.md` records, as non-normative future work rather than as conformance requirements:
+
+| Area | Status in 1.0.0, as stated by the format |
+|---|---|
+| Permission and approval | "v1.0.0 does not define a trust model, permission system, or sandboxing requirements for plugins." |
+| Provenance verification | "v1.0.0 does not specify how clients or users can verify the origin or integrity of a plugin." Listed future work includes signature verification and attestation chains linking a published plugin to its source repository and build. |
+| Enterprise controls | Allowlists by publisher or signature, organisation-scoped registries and compliance reporting are unspecified. |
+| Audit trail | A lifecycle event schema covering actor, action and outcome is unspecified. |
+
+The specification text further states that distribution, installation, permissions and client-specific capabilities remain under each client's control.
+
+#### 6.5.2 Artifact overlap
+
+Of the ten artifacts in section 3, Agent Plugins carries two, and carries both as declarations rather than as resolutions.
+
+| Artifact | Agent Plugins 1.0.0 |
+|---|---|
+| System prompt | Partly. `skills/*/SKILL.md` carries instruction material. |
+| Tool schemas | Partly. `mcp.json` declares which servers to start. It does not enumerate the tools those servers exposed. |
+| Policy bundle, model identity, RAG corpus, memory state, decision trace, delegation chain, supply chain provenance, human-in-the-loop approvals | Not addressed. |
+
+The declared-versus-resolved distinction is the boundary in miniature. A bundle states an intended composition. A manifest attests the composition that was actually loaded, which is the only one an incident is ever about.
+
+#### 6.5.3 Why this is not normative
+
+Binding this specification to `plugin.json` would fix a field layout in a format at 1.0.0 whose own roadmap anticipates adding provenance. A binding written now would have to be revised rather than refined once that lands.
+
+`plugin.json` carries an `extensions` object keyed by reverse-domain namespace for client-specific data, which is sufficient to carry a manifest reference without any change to the format. Whether such a reference becomes a defined profile here, or is proposed to the format's own governance process, is deferred.
+
 ## 7. Threat Model
 
 ### 7.1 Threat Classes Addressed
