@@ -65,6 +65,16 @@ from ._delegation import (
     DelegationHopSigner,
     HitlApprovalSigner,
 )
+from ._plugins import (
+    PluginBundleError,
+    PluginSkill,
+    DeclaredMcpServer,
+    PluginBundle,
+    load_plugin_bundle,
+    bundle_digest,
+    system_prompt_binding_from_bundle,
+    SUPPORTED_PLUGIN_SCHEMAS,
+)
 
 __all__ = [
     "Manifest", "ArtifactBindings",
@@ -107,4 +117,7 @@ __all__ = [
     "RevocationStore", "RevocationRecord",
     "verify_delegation_chain", "verify_hitl_approval", "delegation_depth_exceeded",
     "DelegationHopSigner", "HitlApprovalSigner",
+    "PluginBundleError", "PluginSkill", "DeclaredMcpServer", "PluginBundle",
+    "load_plugin_bundle", "bundle_digest", "system_prompt_binding_from_bundle",
+    "SUPPORTED_PLUGIN_SCHEMAS",
 ]

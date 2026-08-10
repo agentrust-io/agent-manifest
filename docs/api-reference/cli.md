@@ -146,6 +146,28 @@ Options:
   --help             Show this message and exit.
 ```
 
+### manifest from-plugin
+
+Read an Agent Plugins 1.0.0 bundle and report what it can bind.
+
+```
+Usage: manifest from-plugin [OPTIONS] BUNDLE_DIR
+
+  Read an Agent Plugins 1.0.0 bundle and report what it can bind.
+
+  Emits the whole-bundle digest, the skills found, and the MCP servers the bundle
+  declares. It does not emit a tool manifest: mcp.json declares which servers to start
+  and never enumerates their tools, so the per-tool schema and description hashes a tool
+  manifest binds are not in a bundle to be read. Resolving those means starting the
+  servers and asking them.
+
+  Example:   manifest from-plugin ./my-plugin
+
+Options:
+  -o, --output TEXT  Write output to file (default: stdout)
+  --help             Show this message and exit.
+```
+
 ## Source
 
 ::: agent_manifest.cli

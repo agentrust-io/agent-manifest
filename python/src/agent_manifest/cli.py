@@ -398,7 +398,65 @@ def revoke(manifest_id: str, reason: str, revoked_by: str, output: Optional[str]
     click.echo(f"Revocation record created for {manifest_id}", err=True)
 
 
-TOP_LEVEL_COMMANDS = ("create", "sign", "keygen", "attest", "verify", "revoke")
+@cli.command("from-plugin")
+@click.argument("bundle_dir", type=click.Path(exists=True))
+@click.option("--output", "-o", default=None, help="Write output to file (default: stdout)")
+def from_plugin(bundle_dir: str, output: Optional[str]) -> None:
+    """Read an Agent Plugins 1.0.0 bundle and report what it can bind.
+
+    Emits the whole-bundle digest, the skills found, and the MCP servers the
+    bundle declares. It does not emit a tool manifest: mcp.json declares which
+    servers to start and never enumerates their tools, so the per-tool schema
+    and description hashes a tool manifest binds are not in a bundle to be read.
+    Resolving those means starting the servers and asking them.
+
+    Example:
+      manifest from-plugin ./my-plugin
+    """
+    from ._plugins import PluginBundleError, load_plugin_bundle
+
+    try:
+        bundle = load_plugin_bundle(bundle_dir)
+    except PluginBundleError as exc:
+        click.echo(f"Not a usable Agent Plugins bundle: {exc}", err=True)
+        sys.exit(1)
+
+    payload: dict[str, Any] = {
+        "bundle": {
+            "name": bundle.name,
+            "version": bundle.version,
+            "schema": bundle.schema,
+            "digest": bundle.digest,
+        },
+        "skills": [
+            {"name": s.name, "path": s.relative_path, "content_hash": s.content_hash}
+            for s in bundle.skills
+        ],
+        "declared_mcp_servers": [
+            {"name": s.name, "declaration_hash": s.declaration_hash}
+            for s in bundle.declared_mcp_servers
+        ],
+        "tool_manifest": None,
+        "tool_manifest_note": (
+            "A bundle declares MCP servers, not tools. A tool manifest binds a "
+            "schema_hash and description_hash per tool, neither of which a bundle "
+            "carries. Resolve the declared servers at runtime and bind what they "
+            "actually exposed."
+        ),
+    }
+    _write(payload, output)
+
+    if bundle.has_resolvable_tools:
+        click.echo(
+            f"{len(bundle.declared_mcp_servers)} declared MCP server(s) still need "
+            "resolving before a tool manifest can be bound.",
+            err=True,
+        )
+
+
+TOP_LEVEL_COMMANDS = (
+    "create", "sign", "keygen", "attest", "verify", "revoke", "from-plugin",
+)
 
 
 @cli.group("manifest", hidden=True)
