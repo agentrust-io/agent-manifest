@@ -4,6 +4,8 @@ All notable changes to Agent Manifest are documented here. Format follows [Keep 
 
 ## [Unreleased]
 
+## [0.11.0] — 2026-08-11
+
 ### Added
 
 **[SPEC][SDK] Section 3.9 adds an OPTIONAL `intent` field, declared by the issuer.** Runtime governance frameworks (AARM R2/R3 among them) ask that an action be evaluated against the agent's stated intent, and this specification had no such input. The field is one string, `intent.statement`.

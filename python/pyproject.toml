@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "agent-manifest"
-version = "0.10.0"
+version = "0.11.0"
 description = "Agent Manifest SDK — cryptographically anchor all 10 artifacts defining an AI agent at deployment"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -71,9 +71,6 @@ include = ["src/", "tests/", "README.md", "LICENSE"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-
-[tool.hatch.version]
-path = "src/agent_manifest/__init__.py"
 
 [tool.mypy]
 python_version = "3.11"
