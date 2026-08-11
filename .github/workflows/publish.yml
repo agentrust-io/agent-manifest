@@ -27,6 +27,29 @@ jobs:
       - name: Verify dist
         working-directory: python
         run: twine check dist/*
+      - name: Install and smoke-test wheel and sdist
+        shell: bash
+        run: |
+          expected_version=$(python -c 'import tomllib; print(tomllib.load(open("python/pyproject.toml", "rb"))["project"]["version"])')
+          if [[ "$GITHUB_REF" == refs/tags/python-v* ]] && [[ "${GITHUB_REF_NAME#python-v}" != "$expected_version" ]]; then
+            echo "tag version ${GITHUB_REF_NAME#python-v} does not match package version $expected_version" >&2
+            exit 1
+          fi
+          index=0
+          for artifact in python/dist/*.whl python/dist/*.tar.gz; do
+            index=$((index + 1))
+            venv="$RUNNER_TEMP/agent-manifest-dist-$index"
+            python -m venv "$venv"
+            "$venv/bin/python" -m pip install --disable-pip-version-check "${artifact}[cli]"
+            (
+              cd "$RUNNER_TEMP"
+              "$venv/bin/python" "$GITHUB_WORKSPACE/scripts/verify_python_distribution.py" \
+                --expected-version "$expected_version" \
+                --forbidden-source-root "$GITHUB_WORKSPACE/python/src"
+              "$venv/bin/manifest" --help >/dev/null
+            )
+          done
+          test "$index" -eq 2
       - uses: actions/upload-artifact@v7
         with:
           name: dist

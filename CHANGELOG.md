@@ -4,6 +4,10 @@ All notable changes to Agent Manifest are documented here. Format follows [Keep 
 
 ## [Unreleased]
 
+### Security
+
+- The PyPI release workflow now installs and smoke-tests both the exact wheel and source distribution before upload, including version/tag agreement, import provenance, a public cryptographic verification roundtrip, and the packaged CLI entry point.
+
 ## [0.11.0] — 2026-08-11
 
 ### Added
