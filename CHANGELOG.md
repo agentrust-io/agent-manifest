@@ -4,6 +4,10 @@ All notable changes to Agent Manifest are documented here. Format follows [Keep 
 
 ## [Unreleased]
 
+### Security
+
+- `FileCRL.revoke()` now verifies a record's signature and signer key ID before mutating its cache or append-only file whenever `trusted_signer_key` is configured. This closes an append-time bypass of the existing load-time trust check.
+
 ## [0.11.0] — 2026-08-11
 
 ### Added
