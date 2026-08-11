@@ -19,6 +19,7 @@ each carrying their own chain verifier; the AMD-specific
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Optional, Sequence
 
 if TYPE_CHECKING:
@@ -35,6 +36,7 @@ def verify_cert_chain(
     trusted_roots: "Sequence[x509.Certificate]",
     *,
     root_fingerprint_hash: "Optional[HashAlgorithm]" = None,
+    verification_time: Optional[datetime] = None,
 ) -> bool:
     """Verify a leaf-first certificate chain up to a fingerprint-pinned root.
 
@@ -47,6 +49,8 @@ def verify_cert_chain(
         root_fingerprint_hash: hash used to compare root fingerprints
             (default SHA-256). The pin is on identity, so any collision-
             resistant hash works as long as it is used consistently.
+        verification_time: UTC-aware time used for certificate validity checks
+            (default: current UTC time). Primarily useful for deterministic tests.
 
     Returns:
         ``True`` when every link verifies (honoring each child's own signature
@@ -55,11 +59,13 @@ def verify_cert_chain(
 
     Raises:
         CertChainError: on an empty chain, no trusted roots, a link that is not
-            validly issued by the next, an unpinned root, or missing
-            ``cryptography``.
+            validly issued by the next, an expired or not-yet-valid certificate,
+            an issuer that is not a CA, an issuer whose key usage forbids
+            certificate signing, an unpinned root, or missing ``cryptography``.
     """
     try:
         from cryptography.exceptions import InvalidSignature
+        from cryptography import x509
         from cryptography.hazmat.primitives.hashes import SHA256
     except ImportError as e:  # pragma: no cover - exercised via install extra
         raise CertChainError(
@@ -70,6 +76,36 @@ def verify_cert_chain(
         raise CertChainError("empty certificate chain")
     if not trusted_roots:
         raise CertChainError("no trusted roots supplied")
+
+    now = verification_time or datetime.now(timezone.utc)
+    if now.tzinfo is None or now.utcoffset() is None:
+        raise CertChainError("verification_time must be timezone-aware")
+    now = now.astimezone(timezone.utc)
+
+    for i, cert in enumerate(chain):
+        if not (cert.not_valid_before_utc <= now < cert.not_valid_after_utc):
+            raise CertChainError(f"certificate at position {i} is outside its validity period")
+
+    for i, issuer in enumerate(chain[1:], start=1):
+        try:
+            constraints = issuer.extensions.get_extension_for_class(
+                x509.BasicConstraints
+            ).value
+        except x509.ExtensionNotFound as exc:
+            raise CertChainError(
+                f"issuer certificate at position {i} has no BasicConstraints"
+            ) from exc
+        if not constraints.ca:
+            raise CertChainError(f"issuer certificate at position {i} is not a CA")
+        try:
+            key_usage = issuer.extensions.get_extension_for_class(x509.KeyUsage).value
+        except x509.ExtensionNotFound:
+            pass
+        else:
+            if not key_usage.key_cert_sign:
+                raise CertChainError(
+                    f"issuer certificate at position {i} cannot sign certificates"
+                )
 
     for i in range(len(chain) - 1):
         try:

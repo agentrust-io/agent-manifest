@@ -37,16 +37,43 @@ def _sign(builder, issuer_key, *, pss=False):
     return builder.sign(issuer_key, hashes.SHA384())
 
 
-def _cert(subject_cn, issuer_cn, subject_pub, issuer_key, *, pss=False):
+def _cert(
+    subject_cn,
+    issuer_cn,
+    subject_pub,
+    issuer_key,
+    *,
+    pss=False,
+    ca=False,
+    key_cert_sign=None,
+    not_before=_T0,
+    not_after=_T0 + timedelta(days=3650),
+):
     b = (
         x509.CertificateBuilder()
         .subject_name(_name(subject_cn))
         .issuer_name(_name(issuer_cn))
         .public_key(subject_pub)
         .serial_number(x509.random_serial_number())
-        .not_valid_before(_T0)
-        .not_valid_after(_T0 + timedelta(days=3650))
+        .not_valid_before(not_before)
+        .not_valid_after(not_after)
+        .add_extension(x509.BasicConstraints(ca=ca, path_length=None), critical=True)
     )
+    if key_cert_sign is not None:
+        b = b.add_extension(
+            x509.KeyUsage(
+                digital_signature=True,
+                content_commitment=False,
+                key_encipherment=False,
+                data_encipherment=False,
+                key_agreement=False,
+                key_cert_sign=key_cert_sign,
+                crl_sign=key_cert_sign,
+                encipher_only=None,
+                decipher_only=None,
+            ),
+            critical=True,
+        )
     return _sign(b, issuer_key, pss=pss)
 
 
@@ -61,8 +88,8 @@ def _rsa():
 def _ec_chain():
     """All-ECDSA chain (Intel PCK / ca2a shape): leaf <- inter <- root."""
     rk, ik, lk = _ec(), _ec(), _ec()
-    root = _cert("root", "root", rk.public_key(), rk)
-    inter = _cert("inter", "root", ik.public_key(), rk)
+    root = _cert("root", "root", rk.public_key(), rk, ca=True)
+    inter = _cert("inter", "root", ik.public_key(), rk, ca=True)
     leaf = _cert("leaf", "inter", lk.public_key(), ik)
     return [leaf, inter, root], root
 
@@ -70,8 +97,8 @@ def _ec_chain():
 def _amd_pss_chain():
     """Real-AMD shape: EC VCEK leaf, RSA-PSS ASK/ARK."""
     ark_k, ask_k, vcek_k = _rsa(), _rsa(), _ec()
-    ark = _cert("ARK", "ARK", ark_k.public_key(), ark_k, pss=True)
-    ask = _cert("ASK", "ARK", ask_k.public_key(), ark_k, pss=True)
+    ark = _cert("ARK", "ARK", ark_k.public_key(), ark_k, pss=True, ca=True)
+    ask = _cert("ASK", "ARK", ask_k.public_key(), ark_k, pss=True, ca=True)
     vcek = _cert("VCEK", "ASK", vcek_k.public_key(), ask_k, pss=True)
     return [vcek, ask, ark], ark
 
@@ -79,8 +106,8 @@ def _amd_pss_chain():
 def _pkcs1v15_chain():
     """cmcp synthetic shape: EC VCEK leaf, RSA PKCS#1 v1.5 ASK/ARK."""
     ark_k, ask_k, vcek_k = _rsa(), _rsa(), _ec()
-    ark = _cert("ARK", "ARK", ark_k.public_key(), ark_k)  # default = PKCS1v15
-    ask = _cert("ASK", "ARK", ask_k.public_key(), ark_k)
+    ark = _cert("ARK", "ARK", ark_k.public_key(), ark_k, ca=True)  # default = PKCS1v15
+    ask = _cert("ASK", "ARK", ask_k.public_key(), ark_k, ca=True)
     vcek = _cert("VCEK", "ASK", vcek_k.public_key(), ask_k)
     return [vcek, ask, ark], ark
 
@@ -127,9 +154,49 @@ def test_no_trusted_roots_rejected():
 def test_two_cert_chain_leaf_and_root():
     # A minimal [leaf, root] chain (self-signed root) also verifies + pins.
     rk, lk = _ec(), _ec()
-    root = _cert("root", "root", rk.public_key(), rk)
+    root = _cert("root", "root", rk.public_key(), rk, ca=True)
     leaf = _cert("leaf", "root", lk.public_key(), rk)
     assert verify_cert_chain([leaf, root], [root]) is True
+
+
+def test_expired_leaf_rejected():
+    rk, lk = _ec(), _ec()
+    root = _cert("root", "root", rk.public_key(), rk, ca=True)
+    leaf = _cert(
+        "leaf",
+        "root",
+        lk.public_key(),
+        rk,
+        not_before=_T0,
+        not_after=_T0 + timedelta(days=1),
+    )
+    with pytest.raises(CertChainError, match="outside its validity period"):
+        verify_cert_chain([leaf, root], [root])
+
+
+def test_non_ca_issuer_rejected():
+    rk, ik, lk = _ec(), _ec(), _ec()
+    root = _cert("root", "root", rk.public_key(), rk, ca=True)
+    inter = _cert("inter", "root", ik.public_key(), rk, ca=False)
+    leaf = _cert("leaf", "inter", lk.public_key(), ik)
+    with pytest.raises(CertChainError, match="is not a CA"):
+        verify_cert_chain([leaf, inter, root], [root])
+
+
+def test_naive_verification_time_rejected():
+    chain, root = _ec_chain()
+    with pytest.raises(CertChainError, match="timezone-aware"):
+        verify_cert_chain(chain, [root], verification_time=datetime(2026, 1, 1))
+
+
+def test_issuer_key_usage_must_allow_certificate_signing():
+    rk, lk = _ec(), _ec()
+    root = _cert(
+        "root", "root", rk.public_key(), rk, ca=True, key_cert_sign=False
+    )
+    leaf = _cert("leaf", "root", lk.public_key(), rk)
+    with pytest.raises(CertChainError, match="cannot sign certificates"):
+        verify_cert_chain([leaf, root], [root])
 
 
 # --- parse_tdx_quote strict vs lenient -------------------------------------

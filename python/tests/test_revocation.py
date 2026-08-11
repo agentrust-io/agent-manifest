@@ -200,6 +200,32 @@ def test_file_crl_signature_survives_roundtrip(tmp_path):
     verify_revocation_signature(loaded, kp.public_bytes)  # must not raise
 
 
+def test_file_crl_rejects_untrusted_record_before_append(tmp_path):
+    trusted = generate_ed25519()
+    untrusted = generate_ed25519()
+    path = tmp_path / "crl.jsonl"
+    crl = FileCRL(path, trusted_signer_key=trusted.public_bytes)
+
+    with pytest.raises(InvalidSignature):
+        crl.revoke(sign_revocation(MID, "untrusted", "attacker", untrusted))
+
+    assert not crl.is_revoked(MID)
+    assert not path.exists()
+
+
+def test_revocation_rejects_mismatched_signer_key_id(tmp_path):
+    trusted = generate_ed25519()
+    record = sign_revocation(MID, "test", "admin", trusted).model_copy(
+        update={"signer_key_id": "sha256:" + "0" * 64}
+    )
+    crl = FileCRL(tmp_path / "crl.jsonl", trusted_signer_key=trusted.public_bytes)
+
+    with pytest.raises(InvalidSignature):
+        crl.revoke(record)
+
+    assert not crl.is_revoked(MID)
+
+
 # ---------------------------------------------------------------------------
 # FastAPI CRL router
 # ---------------------------------------------------------------------------
