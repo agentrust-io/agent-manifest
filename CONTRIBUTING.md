@@ -56,6 +56,8 @@ with the declared `cli` extra into a separate clean virtual environment, and run
 the installed metadata version, proves imports do not resolve to `python/src`,
 exercises the public signing and verification API, and invokes the packaged
 `manifest` console entry point. Neither artifact is uploaded unless both pass.
+The main CI path filters include release scripts and workflow definitions so
+changes to this gate cannot bypass the repository's normal review checks.
 
 ## Submitting a PR
 

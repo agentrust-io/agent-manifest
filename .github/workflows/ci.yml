@@ -7,13 +7,16 @@ on:
       - "python/**"
       - "spec/**"
       - "examples/**"
-      - ".github/workflows/ci.yml"
+      - "scripts/**"
+      - ".github/workflows/*.yml"
   pull_request:
     branches: [main]
     paths:
       - "python/**"
       - "spec/**"
       - "examples/**"
+      - "scripts/**"
+      - ".github/workflows/*.yml"
 
 permissions:
   contents: read
