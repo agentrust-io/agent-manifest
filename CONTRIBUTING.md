@@ -58,6 +58,8 @@ bandit -r src/agent_manifest
 
 ## Spec changes
 
+Read [who may author normative text](GOVERNANCE.md#who-may-author-normative-text) first. Normative changes, meaning anything with an uppercase RFC 2119 keyword, need an organizational sponsor accountable for the requirement. Anyone may propose one, and a Maintainer carries the PR for an accepted proposal that has no sponsor. Everything else, including informative crosswalks and mappings to external schemas such as OCSF, needs no sponsor.
+
 Spec changes follow this process:
 
 1. Open a GitHub issue describing the problem and proposed change. Reference the spec section.

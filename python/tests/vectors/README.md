@@ -39,6 +39,42 @@ MUST produce the expected `result` and the listed `fields_verified` statuses.
 }                                  // manifest_id before verifying
 ```
 
+### COSE vectors (manifest version 0.2)
+
+A vector carries **either** `manifest` or `envelope_hex`, never both. The
+envelope follows the manifest `version` (ADR-0011), so which key is present
+tells a consumer which verification procedure applies: `manifest` is a v0.1
+document with a detached signature block, `envelope_hex` is a v0.2 COSE object
+as hex-encoded CBOR.
+
+```jsonc
+{
+  "id": "AM-VEC-COSE-001",
+  "envelope_hex": "d284586aa401270378...",   // tagged COSE_Sign1, CBOR
+  "context": { ... },
+  "expected": {
+    "result": "VALID",
+    "signature_verified": true,
+    "cose": {                      // the encoding, pinned element by element
+      "tag": 18,                   // COSE_Sign1; 98 would be COSE_Sign
+      "protected_hex": "a4012703...",
+      "unprotected_hex": "a0",     // zero-length map, never omitted
+      "payload_hex": "7b2261...",  // RFC 8785 canonical JSON of the manifest
+      "signature_hex": "...",
+      "manifest_hash": "sha256:..." // what hardware attestation binds
+    }
+  }
+}
+```
+
+The `cose` block is the point of these vectors: an implementation must produce
+**these exact bytes**, not merely something its own verifier accepts. Decode
+`payload_hex` as JSON to read the manifest under test.
+
+Only Ed25519 envelopes can be pinned this way. ML-DSA-65 signing is hedged, so
+a post-quantum or hybrid envelope differs on every run and only its structure
+is stable.
+
 `context` maps field-for-field onto the SDK's `VerificationContext`, so a Python
 consumer is just `VerificationContext(**vector["context"])`. Other languages
 should treat each key as a named verification input.
@@ -48,7 +84,8 @@ should treat each key as a named verification input.
 1. Read `keys.json` for the issuer public key (`public_key_b64url`, `key_id`).
 2. For each vector: build your verification context from `context`; if
    `revoke` is set, mark `manifest.manifest_id` revoked first.
-3. Run your verifier over `manifest`.
+3. Run your verifier over `manifest`, or over the CBOR bytes of
+   `envelope_hex` when that key is present instead.
 4. Assert your overall result equals `expected.result`, and every entry in
    `expected.fields_verified` matches.
 

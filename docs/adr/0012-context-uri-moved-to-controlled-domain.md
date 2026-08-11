@@ -52,9 +52,17 @@ the same: an implementation that continued honouring the v0.1 URL would keep val
 manifests named under a domain we do not own, which is precisely the condition being
 fixed. A permissive migration would leave the defect in place indefinitely.
 
-**The manifest format itself does not change.** No field is added, removed or
-re-typed. v0.2 differs from v0.1 in the `@context` value alone. The version bump exists
-to force the cut-over, not to signal a schema change.
+**The manifest schema itself does not change.** No field is added, removed or
+re-typed. The version bump exists to force the cut-over, not to signal a schema change.
+
+*Amended 2026-08-05:* as written, this section said v0.2 "differs from v0.1 in the
+`@context` value alone". That was true of this change in isolation and is not true of
+v0.2 as a release. ADR-0011 had already assigned the COSE envelope to manifest version
+`0.2`, so the two changes share a version number: v0.2 carries the new `@context` **and**
+the COSE signature envelope. Leaving the claim unqualified produced a contradiction
+inside the specification - section 2.4 planned for `0.2` manifests while the section 3
+field table still required `"0.1"` - which is corrected in the same change as this note.
+The schema statement stands; the "value alone" statement does not.
 
 ## Consequences
 

@@ -7,7 +7,7 @@
 | Authors | Imran Siddique (AgenTrust) |
 | Status | Draft v0.2 - Proposed Open Standard |
 | Date | August 2026 |
-| Changes in 0.2 | `@context` URI moved to a controlled domain. Manifest format unchanged. See ADR 0012. |
+| Changes in 0.2 | `@context` URI moved to a controlled domain (ADR-0012). Signature envelope moves to COSE_Sign1, specified in [agent-manifest-cose-envelope-v0.2.md](agent-manifest-cose-envelope-v0.2.md) (ADR-0011); Ed25519 is identified by `-19` (ADR-0014). `version` is `"0.2"`. Field definitions are otherwise unchanged from 0.1. |
 | Relationship | Extends: OWASP ASI 2026 \| Aligns: CoSAI WS1, EU AI Act Art. 14/15 |
 | Target Standards Body | Coalition for Secure AI (CoSAI) WS4 - OASIS Open |
 
@@ -160,7 +160,7 @@ SHAKE-256 output length: For all artifact hash fields in the post-quantum profil
 Manifest producers and verifiers negotiate spec compatibility using the `version` field in the manifest and the `spec_version` field in VerificationResult.
 
 Producer requirements:
-- MUST set `version` to the spec version used for manifest construction (e.g., `"0.1"`).
+- MUST set `version` to the spec version used for manifest construction (`"0.2"` for this specification, `"0.1"` for the previous one).
 - MUST NOT produce fields defined only in later spec versions when targeting an older verifier.
 
 Verifier requirements:
@@ -214,7 +214,7 @@ Field cardinality table
 | `manifest_id` | string (UUID v7, RFC 9562) | REQUIRED | Version nibble MUST be 7. Canonical 8-4-4-4-12 hyphenated lowercase hex. |
 | `previous_manifest_id` | string (UUID v7, RFC 9562) | OPTIONAL | Set on re-issuance to establish audit chain continuity. |
 | `agent_id` | string (SPIFFE URI) | REQUIRED | Trust domain lowercase `[a-z0-9._-]`; path segments `[a-zA-Z0-9._-]`. URI MUST NOT exceed 2048 bytes. |
-| `version` | string | REQUIRED | MUST be `"0.1"` for this specification version. |
+| `version` | string | REQUIRED | MUST be `"0.2"` for this specification version. `"0.1"` identifies a manifest issued under the v0.1 specification, which stays verifiable; see section 2.4 and the [COSE envelope](agent-manifest-cose-envelope-v0.2.md). |
 | `min_verifier_version` | string (semver) | OPTIONAL | Minimum verifier version required to correctly process this manifest. |
 | `issued_at` | string (ISO 8601 UTC) | REQUIRED | |
 | `expires_at` | string (ISO 8601 UTC) | REQUIRED | Default: `issued_at` + 90 days. MUST NOT be more than 365 days after `issued_at` for Level 1+. MUST NOT be less than 1 hour after `issued_at`. |
@@ -897,6 +897,7 @@ Signing coverage table (normative)
 | `log_retention` | Signed | Prevents post-signing weakening of the declared retention policy (section 8.1). |
 | `data_scope` | Signed | Prevents post-signing alteration of declared GDPR processing scope (section 9.3). |
 | `operational_lifecycle` | Signed | Prevents post-signing alteration of Art. 13 lifecycle disclosures (section 9.4). |
+| `intent` | Signed | The declared intent must be the issuer's, not the running agent's (section 3.9). An intent outside the signature is one any downstream party can rewrite, which would make the field decorative. |
 | `signature` | NOT signed | The signing object itself. |
 | `transparency_log_entry` | NOT signed | Populated after log submission (see ordering rules below). |
 
@@ -996,6 +997,32 @@ Key rotation procedure:
 7. Revoke the old signing key in the key management system
 
 Implementations MUST NOT re-use the old `manifest_id` for the rotated manifest - a new UUID v7 MUST be generated. The old manifest_id MAY be referenced in the new manifest's metadata for continuity tracing.
+
+### 3.9 Declared Intent <!-- CHANGED: new OPTIONAL top-level field; AARM R2/R3 input -->
+
+An OPTIONAL top-level `intent` object states what the agent is for.
+
+```json
+"intent": {
+  "statement": "<what this agent is for>  -- REQUIRED, non-empty>"
+}
+```
+
+**The issuer declares it, and that is the entire point.** Runtime governance frameworks increasingly ask that an action be evaluated against the agent's stated intent. An intent the governed agent asserts about itself cannot support that: an agent that intends to do X declares X, and the check becomes a formality. Because `intent` is inside the signing pre-image (section 3.6), it is fixed by the issuing authority before the agent runs, and the running agent can neither choose nor revise it. A verifier that finds an intent which does not match the issuer's signature has found tampering, not a change of plan.
+
+`intent` MUST be covered by the issuer signature. An implementation MUST NOT accept an `intent` supplied outside the signed manifest — for example on a per-call request field — as satisfying this section, because such a value is self-asserted by the party being governed.
+
+**One field, and no stored digest.** A consumer that needs a stable reference to the intent, such as a runtime binding it into a per-call receipt, derives it as the `sha256:` digest of the RFC 8785 canonical form of the whole `intent` object. That digest is computed on demand and MUST NOT be stored inside the manifest beside the statement: two representations of one value can be made to disagree, and the signature already makes the statement tamper-evident.
+
+**Compatibility.** `intent` is OPTIONAL, and a manifest that omits it is unaffected. Per the null-omission rule in section 2.3 and the signing coverage table in section 3.6, a signed field absent from the manifest is omitted from the pre-image rather than serialized as `null`, so every signature issued before this section existed verifies unchanged.
+
+#### 3.9.1 What this does not provide
+
+This section defines an input, not an analysis. It specifies no way to measure whether an action is *semantically* consistent with the declared intent, and an implementation MUST NOT present the presence of `intent` as evidence that such a measurement was performed.
+
+Measuring semantic distance from a stated intent requires comparing meaning, which needs a model, and the trustworthiness of that comparison then depends on which model ran and whether its execution was itself attested. That is out of scope here and is deliberately left unclaimed rather than approximated. A structural proxy — scope overlap, tool category distance — is not a semantic measure and MUST NOT be labelled as one.
+
+What the field does give is a signed, pre-execution statement of purpose that a verifier can read, bind to a receipt, and compare across manifests for the same agent.
 
 ## 4. Cryptographic Protocols
 
@@ -1445,6 +1472,91 @@ Every tool call evidence record (TRACE envelope) produced by cMCP MUST include t
 
 Hash conflict resolution <!-- CHANGED: SCHEMA F-21 -->: If `policy_hash` in the TRACE envelope differs from `artifacts.policy_bundle.hash` in the agent manifest, the TRACE MUST set `manifest_verification_result: MISMATCH` for that call. The manifest is the authoritative source for approved artifact hashes; the TRACE reflects runtime measurements. A non-empty `mismatch_details` array in the verification result (section 5.2) MUST be generated for every such discrepancy. The `manifest_verification_result` field MUST use the same enum values as the `result` field in section 5.2 - no additional values. Any TRACE with `manifest_verification_result: MISMATCH` or `EXPIRED` MUST NOT be accepted as evidence of a valid tool call for regulatory reporting purposes.
 
+### 6.4 Crosswalk: OCSF Runtime Evidence <!-- CHANGED: #269 - informative crosswalk, no normative binding -->
+
+> **This section is informative.** It defines no conformance requirement and uses no MUST. It records how a producer emitting OCSF events for a manifest-governed session is *intended* to line up with this specification, so implementers stop inventing a second identity mechanism for the same job. A normative binding is deferred; see "Why this is not normative yet" below.
+
+A manifest attests an agent's identity surface at approval time. OCSF carries the runtime events that agent then produces. Nothing has connected the two: there is no defined join key between a manifest and the OCSF evidence emitted under it, so a consumer holding both cannot tell that they describe the same agent without an out-of-band convention.
+
+#### 6.4.1 Where `ai_agent` lives
+
+The `ai_agent` object is contributed by the **`ai_operation` profile**, not by a single event class. Any OCSF class that applies that profile can carry it, and `ai_agent.ai_model` carries model identity for agent-mediated operations. A crosswalk should therefore be written against the profile, because naming one class would bind this specification to a class assignment OCSF has not made.
+
+#### 6.4.2 Identity
+
+| OCSF (`ai_agent`) | OCSF's own definition | Intended manifest counterpart |
+|---|---|---|
+| `uid` | "The stable logical identifier for the agent... Persists across restarts and instances." | The manifest's durable agent identity. Stable across sessions, which is what `agent_id` looks like when it carries no instance segment. |
+| `instance_uid` | "Identifier for a specific running instance or session of the agent, **distinct from the stable logical uid**. An instance is a single materialization of the agent: a conversation, session, or run." | The session-scoped value, and the per-event join key. This is what `agent_id` looks like when its optional `/agent/<name>/<instance>` path carries a UUID v7 instance segment. |
+| `version` | "the agent's own code or configuration revision... distinct from the version of the model backing it" | Not a join key. Static across a session. |
+| `charter` | "A document that defines an AI agent's durable role, responsibilities, constraints, and operating boundaries." | Closest to the manifest itself, though the manifest is signed and scoped more narrowly. Not a join key. |
+
+`session_uid` is **not** an attribute of `ai_agent`; where an event carries a session identifier it comes from elsewhere in the event, so it is not part of this crosswalk.
+
+#### 6.4.3 Delegation
+
+The `ai_operation` profile also carries a `delegation` object, and it is structurally the same idea as the delegation chain in section 3.4: `delegation.uid` identifies a durable authorization context, `parent_uid` references the delegation it was re-delegated from, and the result is "a directed acyclic graph (DAG) of re-delegations that supports lineage queries across the chain of authority."
+
+That is a closer correspondence than the identity fields, and it is the more useful one for an auditor, because it survives across events rather than describing one. It does not map cleanly today:
+
+- Section 3.4 identifies a hop by its `hop` index, `principal_id`, and `principal_manifest_id`. **There is no per-hop durable identifier** in the manifest chain, so nothing in a manifest can currently populate `delegation.uid` for a specific hop.
+- OCSF requires `delegation.uid` to be "generated by a trusted issuing authority... rather than self-asserted by the delegate". Section 3.4 hops are signed by the delegating principal, which is a different trust model: strong, but self-asserted by the delegator rather than issued by a broker.
+
+Closing that gap is a data-model change to section 3.4, not a crosswalk, and it is not proposed here.
+
+#### 6.4.4 Why this is not normative yet
+
+Making the identity mapping a requirement would mean choosing what `agent_id` is, and that is not yet settled:
+
+`agent_id` is one field currently serving both roles in the table above. Section 3.1 states that the `/agent/<name>/<instance>` path structure "is a convention, not a requirement", so a conformant `agent_id` may legitimately be stable and carry no instance scope at all. OCSF makes `uid` and `instance_uid` explicitly distinct. A requirement binding `agent_id` to `instance_uid` would therefore force a stable identifier into the field OCSF defines as the non-stable one whenever a deployment takes the convention at its word — and a consumer would lose the ability to separate "every run of this agent" from "this run", which is the distinction `instance_uid` exists to express.
+
+The resolution is to decide whether `agent_id` splits into a stable identifier and a session-scoped one. Until it does, a normative binding would have to be revised rather than refined, and revising a MUST is a breaking change where revising this section is not.
+
+Per section 3.1, the CoSAI WS4 working stream already owns the canonical `@context` URL for this specification. An OCSF correlation mapping belongs in the same venue, alongside the `agent_id` question above, rather than being settled here first.
+
+### 6.5 Relationship to Agent Plugins <!-- CHANGED: #281 - informative boundary statement, no normative binding -->
+
+> **This section is informative.** It defines no conformance requirement and uses no MUST. It states where this specification stops and where a packaging format starts, so that implementers do not read the two as competing descriptions of the same thing.
+
+[Agent Plugins 1.0.0](https://agent-plugins.org) is a packaging format for Agent Skills and MCP server configuration, maintained by a technical steering committee drawn from several client vendors. It is not a competitor to this specification and this specification is not a package format.
+
+The distinction in one sentence: **Agent Plugins describes what a client should install, and a manifest describes what actually ran.** Packaging is design time and portable across clients. A manifest is deployment time and bound to the environment that loaded it. A plugin bundle is therefore an input to a manifest rather than an alternative to one.
+
+#### 6.5.1 What Agent Plugins 1.0.0 leaves open
+
+The boundary is not an interpretation. It is stated in the format's own documents.
+
+`plugin.json` requires two fields, `$schema` and `name`. `version` is an unconstrained string. There is no integrity, signature or provenance field in the 1.0.0 schema.
+
+`FUTURE_CONSIDERATIONS.md` records, as non-normative future work rather than as conformance requirements:
+
+| Area | Status in 1.0.0, as stated by the format |
+|---|---|
+| Permission and approval | "v1.0.0 does not define a trust model, permission system, or sandboxing requirements for plugins." |
+| Provenance verification | "v1.0.0 does not specify how clients or users can verify the origin or integrity of a plugin." Listed future work includes signature verification and attestation chains linking a published plugin to its source repository and build. |
+| Enterprise controls | Allowlists by publisher or signature, organisation-scoped registries and compliance reporting are unspecified. |
+| Audit trail | A lifecycle event schema covering actor, action and outcome is unspecified. |
+
+The specification text further states that distribution, installation, permissions and client-specific capabilities remain under each client's control.
+
+#### 6.5.2 Artifact overlap
+
+Of the ten artifacts in section 3, Agent Plugins carries two, and carries both as declarations rather than as resolutions.
+
+| Artifact | Agent Plugins 1.0.0 |
+|---|---|
+| System prompt | Partly. `skills/*/SKILL.md` carries instruction material. |
+| Tool schemas | Partly. `mcp.json` declares which servers to start. It does not enumerate the tools those servers exposed. |
+| Policy bundle, model identity, RAG corpus, memory state, decision trace, delegation chain, supply chain provenance, human-in-the-loop approvals | Not addressed. |
+
+The declared-versus-resolved distinction is the boundary in miniature. A bundle states an intended composition. A manifest attests the composition that was actually loaded, which is the only one an incident is ever about.
+
+#### 6.5.3 Why this is not normative
+
+Binding this specification to `plugin.json` would fix a field layout in a format at 1.0.0 whose own roadmap anticipates adding provenance. A binding written now would have to be revised rather than refined once that lands.
+
+`plugin.json` carries an `extensions` object keyed by reverse-domain namespace for client-specific data, which is sufficient to carry a manifest reference without any change to the format. Whether such a reference becomes a defined profile here, or is proposed to the format's own governance process, is deferred.
+
 ## 7. Threat Model
 
 ### 7.1 Threat Classes Addressed
@@ -1481,7 +1593,7 @@ The following threats are explicitly out of scope for this specification:
 | Level | Name | Requirements | Use Case |
 |---|---|---|---|
 | Level 0 | Software-only | All artifact bindings. Standard crypto profile. Transparency log publication. No TEE requirement. | Development, staging, non-regulated environments. |
-| Level 1 | TEE-attested | Level 0 plus: TEE attestation block. `audit_key_sealed: true`. `container_image_digest` verified by hardware. | Enterprise production. Satisfies EU AI Act Art. 15 (cybersecurity). |
+| Level 1 | TEE-attested | Level 0 plus: TEE attestation block. `audit_key_sealed: true`. `container_image_digest` verified by hardware. | Enterprise production. Satisfies EU AI Act Art. 15 (cybersecurity), which applies from around December 2027 (section 9.1). |
 | Level 2 | Full stack | Level 1 plus: All 10 artifacts bound (per section 3.1 mapping table). HITL approvals present. Delegation chain for multi-agent. Phase 2 cMCP for all MCP servers. `log_retention.minimum_retention_days >= 180`. `drift_policy: deny-on-drift` or `alert-on-drift`. | Regulated industries. Satisfies DORA Art. 9, GDPR Art. 32 (when `data_scope` fields are populated for EU personal data processing). |
 | Level 3 | Post-quantum | Level 2 plus: ML-DSA-65 signatures. ML-KEM-768 key exchange. SHAKE-256 hashing. Private Sigstore instance supporting ML-DSA-65. | Sovereign deployments, classified, financial services with long-horizon sensitivity. |
 
@@ -1495,7 +1607,7 @@ Log retention requirement <!-- CHANGED: REG-002 -->: Level 2 conformance require
 }
 ```
 
-The EU AI Act (Art. 26 via Art. 12 and recital obligations) requires a minimum of 180 days (six months) log retention. Financial entities subject to DORA Art. 25(1) may require up to 1825 days (five years). `minimum_retention_days` MUST be at least 180 for EU AI Act compliance.
+The EU AI Act (Art. 26 via Art. 12 and recital obligations) requires a minimum of 180 days (six months) log retention; that obligation applies from around December 2027 (section 9.1). Financial entities subject to DORA Art. 25(1) may require up to 1825 days (five years), and DORA is in force today. `minimum_retention_days` MUST be at least 180 for EU AI Act compliance and SHOULD be set from the strictest framework the deployment is actually subject to now.
 
 ### 8.2 Conformance Test Suite
 
@@ -1515,7 +1627,9 @@ Total: 197 conformance tests. The test suite is published as an open-source repo
 
 ### 9.1 EU AI Act
 
-<!-- CHANGED: REG-001 - corrected Art. 14 mapping to distinguish pre-deployment and runtime obligations; CRYPTO-008/REG-006 - added model attestation type note; REG-009 - added Art. 13(3)(c)(e) operational lifecycle fields; REG-005 - added Art. 22 note; REG-006 - added Annex III classification guidance subsection -->
+<!-- CHANGED: REG-001 - corrected Art. 14 mapping to distinguish pre-deployment and runtime obligations; CRYPTO-008/REG-006 - added model attestation type note; REG-009 - added Art. 13(3)(c)(e) operational lifecycle fields; REG-005 - added Art. 22 note; REG-006 - added Annex III classification guidance subsection; REG-010 - added applicability dates and Art. 50 subsection -->
+
+**When these obligations apply.** GPAI model-provider obligations (Arts. 51-53) have applied since 2 August 2025. Article 50 transparency duties have applied since 2 August 2026 (see section 9.1.2). The high-risk obligations mapped in the table below (Arts. 12-15, 26) are deferred under the current provisional legislative timeline (the Digital Omnibus amendments): Annex III systems from around 2 December 2027, and Annex I systems (AI embedded in regulated products) from around August 2028. These dates remain subject to the legislative process; implementers MUST verify against the [official implementation timeline](https://artificialintelligenceact.eu/implementation-timeline/) before asserting a compliance deadline. The mappings themselves are unaffected by the deferral. Obligations already in force under other frameworks - DORA for financial entities (section 9.2), HIPAA for US healthcare (section 9.3) - are unaffected.
 
 | Article | Requirement | Agent Manifest Satisfaction |
 |---|---|---|
@@ -1545,6 +1659,21 @@ Decision guidance: If the agent deployment falls within one of the above categor
 GPAI model providers (Anthropic, OpenAI, Google, etc.) are subject to separate obligations under Arts. 51-53 of the EU AI Act. These are distinct from the high-risk system obligations described here, which apply to operators deploying agents built on top of GPAI models.
 
 Operators in financial services should note that agents performing creditworthiness assessment or risk scoring for life and health insurance (Annex III Point 5(b)) are likely high-risk regardless of the underlying model provider.
+
+Article 50 is the exception to this subsection: its transparency duties attach to the interaction and the output, not to an Annex III classification, so they apply to agent deployments that are not high-risk. See section 9.1.2.
+
+#### 9.1.2 EU AI Act Article 50 - Transparency Obligations <!-- CHANGED: REG-010 - new subsection -->
+
+Article 50 applies from **2 August 2026** and is the only EU AI Act obligation in force against agent deployments today. It is independent of the Annex III high-risk classification in section 9.1.1: an operator whose agent is out of Annex III scope is still subject to it.
+
+| Article 50 paragraph | Obligation | Agent Manifest Satisfaction |
+|---|---|---|
+| Art. 50(1) | Natural persons must be informed they are interacting with an AI system, unless obvious | **Not satisfied.** The manifest has no field declaring the disclosure or binding it to the agent. Disclosure delivery is a runtime concern; AGT's `agent_os.transparency` interceptor enforces it at the tool-call boundary and is the current answer. |
+| Art. 50(2) | Providers of systems generating synthetic audio, image, video or text must mark outputs as artificially generated, in a machine-readable form | **Not satisfied.** No marking field exists. A marking that any party can strip does not survive the obligation's machine-readable requirement, which is why binding the mark to the attested agent that produced the output is the intended design rather than a metadata field. Tracked for a future revision. |
+| Art. 50(3) | Deployers of emotion recognition or biometric categorisation systems must inform exposed persons | **Not satisfied** in the manifest. Enforced at runtime by AGT's `agent_os.transparency` interceptor. Note that a manifest whose `hitl_record.approvals[].approved_scope` covers biometric tooling is evidence the deployment is in Art. 50(3) scope. |
+| Art. 50(4) | Deepfake and public-interest text disclosure | **Not satisfied.** Same gap as Art. 50(2). |
+
+Implementers MUST NOT read the manifest as evidence of Article 50 compliance. Where the deployment is in Article 50 scope, the disclosure and marking controls are separate and must be documented separately.
 
 ### 9.2 DORA (EU) and Financial Sector Guidance
 

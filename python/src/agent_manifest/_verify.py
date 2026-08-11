@@ -18,9 +18,15 @@ import hmac
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 from pydantic import BaseModel, Field
+
+from ._cose import (
+    COSE_MANIFEST_VERSION,
+    MEDIA_TYPE_MANIFEST_COSE,
+    CoseVerification,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -188,7 +194,11 @@ class VerificationContext(BaseModel):
 
 
 # Manifest spec versions this verifier implementation can process (spec 2.4).
-SUPPORTED_MANIFEST_VERSIONS: frozenset[str] = frozenset({"0.1"})
+# The envelope follows the version, not a flag (ADR-0011): 0.1 is the detached
+# canonical-JSON signature block, 0.2 is COSE. A 0.2 manifest presented as a
+# bare dict has no signature at all - the COSE structure is the signature - so
+# it is reported SIGNATURE_MISSING rather than reinterpreted.
+SUPPORTED_MANIFEST_VERSIONS: frozenset[str] = frozenset({"0.1", "0.2"})
 _HYBRID_ED25519_PUBLIC_KEY_BYTES = 32
 
 # Signature algorithms that satisfy each declared crypto_profile (spec 4.1 /
@@ -302,15 +312,26 @@ def _strict_schema_violations(manifest: dict[str, Any]) -> list[tuple[str, str]]
 
 
 def verify_manifest(
-    manifest: dict[str, Any],
+    manifest: Union[dict[str, Any], bytes],
     context: VerificationContext,
     revocation_store: "RevocationStore",
+    *,
+    _envelope: Optional[CoseVerification] = None,
 ) -> VerificationResult:
     """Core verification engine - hosting-model agnostic and fail-closed.
 
     Checks version compatibility, signature, expiry, revocation, artifact
     hashes, delegation chain, and HITL. Returns a VerificationResult with
     per-field status and mismatch details.
+
+    Accepts either envelope, selected by what it is given (ADR-0011):
+
+    - A ``dict`` is a version 0.1 manifest carrying a detached ``signature``
+      block, verified over the RFC 8785 pre-image exactly as it always has been.
+    - ``bytes`` are a version 0.2 COSE envelope (``COSE_Sign1`` or
+      ``COSE_Sign``). The signature is checked over the payload as received,
+      and receipts, attestation, and approvals are read from the unprotected
+      header after the signature is settled.
 
     Fail-closed semantics (spec 5.3 - VALID requires a valid signature):
 
@@ -324,8 +345,14 @@ def verify_manifest(
       result is ``UNVERIFIABLE`` (spec 3.4.1 / 5.2).
     - ``enforce_hitl=True`` with no ``hitl_record`` in the manifest is a
       failure (``HitlResult.MISSING`` and a non-VALID overall result).
+
+    The ``_envelope`` parameter is internal: it carries an already-appraised
+    COSE envelope into the shared pipeline and is not part of the public API.
     """
     from cryptography.exceptions import InvalidSignature
+
+    if isinstance(manifest, (bytes, bytearray)):
+        return _verify_cose_envelope(bytes(manifest), context, revocation_store)
 
     manifest_id = manifest.get("manifest_id", "unknown")
     result = VerificationResult(manifest_id=manifest_id, result=OverallResult.VALID)
@@ -392,8 +419,49 @@ def verify_manifest(
     # and it runs independently of trusted_keys: a post-quantum manifest
     # presented with a classical-only signature is a downgrade whether or not
     # this verifier holds the key to check that signature.
-    sig_block = manifest.get("signature") or {}
-    signature_missing = not sig_block
+    #
+    # None of this applies to a COSE envelope. There ``alg`` is in the
+    # protected header, covered by the signature, so there is no unsigned
+    # identifier to cross-check; the profile check ran during envelope
+    # appraisal, and the signature was verified over the payload as received.
+    # An empty sig_block skips both branches below.
+    if _envelope is not None:
+        sig_block: dict[str, Any] = {}
+        signature_missing = False
+        result.signature_verified = _envelope.verified
+        # The key-to-issuer authorization is NOT part of envelope appraisal -
+        # it is this engine's policy check, and skipping it on the COSE path
+        # would let any trusted key sign for any issuer, which the v0.1 path
+        # rejects. Every signer must be authorized, so a hybrid manifest
+        # cannot smuggle an unauthorized component key alongside a valid one.
+        for _signature in _envelope.signatures:
+            _issuer_mismatch = _signature_key_issuer_mismatch(
+                manifest, _signature.key_id, context.trusted_key_issuers
+            )
+            if _issuer_mismatch is not None:
+                mismatches.append(_issuer_mismatch)
+    else:
+        sig_block = manifest.get("signature") or {}
+        signature_missing = not sig_block
+        if sig_block and manifest.get("version") == COSE_MANIFEST_VERSION:
+            # The envelope follows the version (ADR-0011), and for 0.2 that is
+            # COSE. `signature` is not a v0.2 field at all - the COSE structure
+            # is the signature - so a 0.2 manifest carrying a detached block is
+            # claiming the new version while using the old envelope, with the
+            # unauthenticated algorithm identifier and the canonicalize-before-
+            # verify step that ADR-0011 moved away from. Verifying it under v0.1
+            # rules would make the version gate advisory and leave the phase 5
+            # deprecation unenforceable, so it is rejected rather than accepted.
+            mismatches.append(MismatchDetail(
+                field="signature",
+                expected_hash=(
+                    f"<COSE envelope for manifest version "
+                    f"{COSE_MANIFEST_VERSION}>"
+                ),
+                actual_hash="<v0.1 detached signature block>",
+            ))
+            sig_block = {}
+            signature_missing = False
     profile_downgrade = False
     if sig_block:
         declared_profile = manifest.get("crypto_profile", "standard")
@@ -707,20 +775,29 @@ def verify_manifest(
 
     # --- Attestation block verification (HW-010)
     # Check that manifest_hash_in_report matches the computed manifest hash.
-    attestation_block = manifest.get("attestation") or {}
+    # In a COSE envelope the report is in the unprotected header, and what it
+    # binds is sha256 of the payload bytes (envelope spec 5) - there is no
+    # field subset to reconstruct and nothing to keep in sync.
+    if _envelope is not None:
+        attestation_block = _envelope.attestation or {}
+    else:
+        attestation_block = manifest.get("attestation") or {}
     if attestation_block:
         reported_hash = attestation_block.get("manifest_hash_in_report", "")
         if reported_hash:
             from ._canonicalize import canonicalize as _canonicalize
             import hashlib as _hashlib
-            # Spec 3.3: the pre-image excludes the attestation block AND the
-            # top-level transparency_log_entry (populated after log submission).
-            subset = {
-                k: v
-                for k, v in manifest.items()
-                if k not in ("attestation", "transparency_log_entry")
-            }
-            expected_attest_hash = "sha256:" + _hashlib.sha256(_canonicalize(subset)).hexdigest()
+            if _envelope is not None:
+                expected_attest_hash = _envelope.manifest_hash
+            else:
+                # Spec 3.3: the pre-image excludes the attestation block AND the
+                # top-level transparency_log_entry (populated after log submission).
+                subset = {
+                    k: v
+                    for k, v in manifest.items()
+                    if k not in ("attestation", "transparency_log_entry")
+                }
+                expected_attest_hash = "sha256:" + _hashlib.sha256(_canonicalize(subset)).hexdigest()
             if hmac.compare_digest(reported_hash, expected_attest_hash):
                 result.attestation_verified = True
             elif context.enforce_attestation:
@@ -761,6 +838,106 @@ def verify_manifest(
             + "); VALID reflects signature only"
         )
 
+    return result
+
+
+def _cose_manifest_id(cose_bytes: bytes) -> str:
+    """Best-effort manifest_id for reporting a failed envelope.
+
+    Reads the payload without appraising anything. Used only to label a
+    result that has already been decided against the manifest.
+    """
+    from ._cose import read_payload_manifest
+
+    try:
+        manifest_id = read_payload_manifest(cose_bytes).get("manifest_id")
+    except Exception:
+        return "unknown"
+    return manifest_id if isinstance(manifest_id, str) else "unknown"
+
+
+def _verify_cose_envelope(
+    cose_bytes: bytes,
+    context: VerificationContext,
+    revocation_store: "RevocationStore",
+) -> VerificationResult:
+    """Appraise a version 0.2 COSE envelope, then run the shared pipeline.
+
+    The envelope is settled first and in full (envelope spec section 6): the
+    structure, the protected header, the version, the profile, and the
+    signature. Only then is the unprotected header read, and what it carries
+    is evaluated by the same engine that evaluates a v0.1 manifest - approvals
+    against the signed HITL requirement, the attestation report against the
+    payload hash - so a v0.2 manifest gets the identical set of checks.
+    """
+    from cryptography.exceptions import InvalidSignature
+
+    from ._cose import (
+        CoseDowngradeError,
+        CoseKeyError,
+        CoseStructureError,
+        CoseVersionError,
+        verify_cose_manifest,
+    )
+    from ._signing import AlgorithmUnavailableError
+
+    try:
+        envelope = verify_cose_manifest(cose_bytes, context.trusted_keys)
+    except CoseVersionError:
+        # spec 2.4: an unsupported version is never silently misinterpreted.
+        return VerificationResult(
+            manifest_id=_cose_manifest_id(cose_bytes),
+            result=OverallResult.INCOMPATIBLE_VERSION,
+        )
+    except AlgorithmUnavailableError as exc:
+        # A capability gap, not a bad manifest, and never a fallback to a
+        # weaker signature entry (envelope spec 2.1 and 6 step 6).
+        return VerificationResult(
+            manifest_id=_cose_manifest_id(cose_bytes),
+            result=OverallResult.UNVERIFIABLE,
+            warnings=[
+                f"the COSE signature could not be appraised by this build: {exc}"
+            ],
+        )
+    except (
+        CoseStructureError,
+        CoseKeyError,
+        CoseDowngradeError,
+        InvalidSignature,
+        ValueError,
+    ) as exc:
+        return VerificationResult(
+            manifest_id=_cose_manifest_id(cose_bytes),
+            result=OverallResult.MISMATCH,
+            mismatch_details=[
+                MismatchDetail(
+                    field="signature",
+                    expected_hash="<valid COSE manifest envelope>",
+                    actual_hash=f"<{exc}>",
+                )
+            ],
+        )
+
+    # Step 7. Approvals attach after signing, so they are merged back onto the
+    # signed HITL requirement for evaluation. The requirement itself came out
+    # of the payload and is covered by the signature; the approvals are not,
+    # and each carries its own approval_signature (v0.1 section 3.5).
+    payload_manifest = dict(envelope.manifest)
+    approvals = envelope.approvals
+    if approvals is not None:
+        hitl_record = payload_manifest.get("hitl_record")
+        if isinstance(hitl_record, dict):
+            payload_manifest["hitl_record"] = {**hitl_record, "approvals": approvals}
+
+    result = verify_manifest(
+        payload_manifest, context, revocation_store, _envelope=envelope
+    )
+
+    if not envelope.receipts:
+        result.warnings.append(
+            "no transparency receipt in the unprotected header (label 394); "
+            "a production manifest is expected to carry one"
+        )
     return result
 
 
@@ -830,18 +1007,30 @@ class RevocationStore:
 # ---------------------------------------------------------------------------
 
 
+# A manifest is a few kilobytes (envelope spec section 4, which cites size as
+# the reason payloads are inline rather than detached). The cap is generous
+# against that and small enough that a body is bounded before anything parses
+# it - the decoder is never handed an unbounded allocation.
+MAX_COSE_ENVELOPE_BYTES = 1 << 20  # 1 MiB
+
+
 def create_router(
     manifest_store: dict[str, dict[str, Any]],
     revocation_store: RevocationStore,
+    cose_context: Optional[VerificationContext] = None,
 ) -> Any:
     """Return a FastAPI APIRouter with /verify and /revocation-status endpoints.
 
     Args:
         manifest_store: Dict mapping manifest_id -> manifest dict.
         revocation_store: Revocation store instance.
+        cose_context: Trust configuration for ``POST /verify/cose``, held by
+            the server rather than accepted from the caller. Omit it and that
+            endpoint is fail-closed: every result is ``UNVERIFIABLE``, never
+            ``VALID``, exactly as ``GET /verify`` behaves without keys.
     """
     try:
-        from fastapi import APIRouter, HTTPException, Query
+        from fastapi import APIRouter, HTTPException, Query, Request, Response
         from fastapi.responses import JSONResponse  # noqa: F401
     except ImportError:
         raise ImportError(
@@ -918,6 +1107,127 @@ def create_router(
             require_delegation=request.require_delegation,
         )
         return verify_manifest(manifest, ctx, revocation_store)
+
+    async def verify_cose(
+        request: "Request",
+        response: "Response",
+        enforce_hitl: bool = Query(False),
+        enforce_attestation: bool = Query(False),
+    ) -> VerificationResult:
+        """Verify a version 0.2 COSE manifest submitted as raw CBOR.
+
+        The body is the ``COSE_Sign1`` or ``COSE_Sign`` object itself, sent as
+        ``Content-Type: application/agent-manifest+cose``. The manifest is
+        self-contained - the payload travels inside the signature - so unlike
+        the other endpoints there is nothing to look up and no
+        ``manifest_id`` to trust from the caller.
+
+        Three deliberate choices, each of which is a security property rather
+        than a convenience:
+
+        **The media type is the gate.** Only the exact registered type is
+        accepted. A vendor-tree alias is refused (envelope spec section 7:
+        two valid type values for one object is the ambiguity ``typ`` exists
+        to remove), and so is an absent or guessed type - the server never
+        sniffs the body to decide what it is.
+
+        **No key material crosses the wire.** Trust comes from
+        ``cose_context``, configured server-side when the router is built.
+        A verification service that accepts caller-supplied trusted keys is
+        only as trustworthy as its caller, and public keys in a URL or header
+        end up in proxy logs and access logs. Without a configured trust
+        store this endpoint returns ``UNVERIFIABLE``, never ``VALID``.
+
+        **The body is bounded before it is parsed.** ``Content-Length`` is
+        checked when present and the stream is capped regardless, because a
+        declared length is attacker-controlled and may lie.
+
+        A malformed or unverifiable envelope is a *verdict*, not a transport
+        error: the response is 200 with a non-``VALID`` result. Parser detail
+        is not reflected back, so this endpoint cannot be used as an oracle
+        for how the decoder behaves.
+
+        Authentication, authorization and rate limiting are deployment
+        concerns and are deliberately not implemented here; mount this router
+        behind them (spec 5.1: mTLS with the agent's SPIFFE SVID).
+        """
+        media_type = (request.headers.get("content-type") or "").split(";")[0]
+        if media_type.strip().lower() != MEDIA_TYPE_MANIFEST_COSE:
+            raise HTTPException(
+                status_code=415,
+                detail=ErrorResponse(
+                    error_code="UNSUPPORTED_MEDIA_TYPE",
+                    error_message=(
+                        f"This endpoint accepts {MEDIA_TYPE_MANIFEST_COSE} only."
+                    ),
+                ).model_dump(),
+            )
+
+        declared_length = request.headers.get("content-length")
+        if declared_length is not None:
+            try:
+                if int(declared_length) > MAX_COSE_ENVELOPE_BYTES:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=ErrorResponse(
+                            error_code="ENVELOPE_TOO_LARGE",
+                            error_message=(
+                                f"A COSE manifest may not exceed "
+                                f"{MAX_COSE_ENVELOPE_BYTES} bytes."
+                            ),
+                        ).model_dump(),
+                    )
+            except ValueError:
+                raise HTTPException(
+                    status_code=400,
+                    detail=ErrorResponse(
+                        error_code="INVALID_CONTENT_LENGTH",
+                        error_message="Content-Length is not an integer.",
+                    ).model_dump(),
+                )
+
+        # Cap the stream too: Content-Length is a claim, not a guarantee.
+        body = bytearray()
+        async for chunk in request.stream():
+            body.extend(chunk)
+            if len(body) > MAX_COSE_ENVELOPE_BYTES:
+                raise HTTPException(
+                    status_code=413,
+                    detail=ErrorResponse(
+                        error_code="ENVELOPE_TOO_LARGE",
+                        error_message=(
+                            f"A COSE manifest may not exceed "
+                            f"{MAX_COSE_ENVELOPE_BYTES} bytes."
+                        ),
+                    ).model_dump(),
+                )
+
+        ctx = (cose_context or VerificationContext()).model_copy(
+            update={
+                "enforce_hitl": enforce_hitl,
+                "enforce_attestation": enforce_attestation,
+            }
+        )
+        # A verification result is a security decision about a specific set of
+        # bytes at a point in time. It must not be cached or content-sniffed.
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        return verify_manifest(bytes(body), ctx, revocation_store)
+
+    # This module uses `from __future__ import annotations`, so annotations are
+    # strings, and FastAPI resolves them against the module globals - where
+    # `Request` and `Response` do not appear, because fastapi is an optional
+    # extra imported inside this function. Binding the real classes before
+    # registering the route keeps the import lazy without FastAPI mistaking
+    # the two parameters for query parameters.
+    verify_cose.__annotations__["request"] = Request
+    verify_cose.__annotations__["response"] = Response
+    router.add_api_route(
+        "/verify/cose",
+        verify_cose,
+        methods=["POST"],
+        response_model=VerificationResult,
+    )
 
     @router.get("/revocation-status")
     async def revocation_status(

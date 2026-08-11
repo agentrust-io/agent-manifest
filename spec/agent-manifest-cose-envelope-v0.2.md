@@ -33,7 +33,7 @@ A verifier MUST accept both tags. A verifier MUST reject an untagged COSE struct
 
 Hybrid is carried as a single `COSE_Sign` over one payload with two `COSE_Signature` entries, one per algorithm. It is not two `COSE_Sign1` objects.
 
-Each signature entry carries its own `alg` in its own protected header (`-8` for Ed25519, `-49` for ML-DSA-65) and its own `kid`. Both entries cover the identical payload bytes, which the structure guarantees rather than an application rule.
+Each signature entry carries its own `alg` in its own protected header (`-19` for Ed25519, `-49` for ML-DSA-65) and its own `kid`. Both entries cover the identical payload bytes, which the structure guarantees rather than an application rule.
 
 A verifier operating under a policy that requires post-quantum protection MUST verify both entries and MUST reject the manifest if either fails. A verifier that cannot perform ML-DSA-65 MUST return `UNVERIFIABLE` and MUST NOT fall back to the Ed25519 entry alone, which would be a downgrade (v0.1 section 4.2, carried forward).
 
@@ -43,12 +43,16 @@ The protected header is covered by the signature. For `COSE_Sign1` these paramet
 
 | Parameter | Label | Value | Presence |
 |---|---|---|---|
-| `alg` | 1 | `-8` (EdDSA / Ed25519) or `-49` (ML-DSA-65) | REQUIRED |
+| `alg` | 1 | `-19` (Ed25519) or `-49` (ML-DSA-65) | REQUIRED |
 | `kid` | 4 | Key identifier, byte string. The SHA-256 of the public key bytes, as in v0.1 | REQUIRED |
 | `content type` | 3 | `application/agent-manifest+json` | REQUIRED |
 | `typ` | 16 | `application/agent-manifest+cose` | REQUIRED |
 
-`alg` values are the IANA-registered COSE code points: EdDSA from RFC 9053, and ML-DSA-65 from RFC 9964, which also registers the AKP key type (COSE key type `7`). No provisional or draft code points are used.
+`alg` values are the IANA-registered COSE code points: Ed25519 from [RFC 9864](https://www.rfc-editor.org/rfc/rfc9864.html), and ML-DSA-65 from RFC 9964, which also registers the AKP key type (COSE key type `7`). No provisional or draft code points are used.
+
+A producer MUST sign with `-19` and MUST NOT sign with `-8`. A verifier MUST accept `-8` on an existing manifest and MUST treat it as Ed25519 (ADR-0014). RFC 9864 (Standards Track, October 2025) deprecated the polymorphic `EdDSA` identifier `-8`, which named a family and left the curve to be inferred from the key, and registered fully-specified identifiers in its place. Inferring an algorithm from a key is the same class of ambiguity that ADR-0011 gives as a reason to move off the v0.1 envelope, so this profile takes the fully-specified identifier. `-8` remains verifiable because manifests are audit records with a retention window that outlives the identifier they were signed under.
+
+`-8` and `-19` name one algorithm, not two. Anything reasoning about *which* algorithm signed - the `crypto_profile` check of section 6, and the two-signer rule of section 2.1 - MUST compare algorithms rather than code points, so that a `COSE_Sign` carrying one entry of each is rejected as a single algorithm signed twice rather than accepted as a hybrid signature.
 
 `typ` (RFC 9596) declares the type of the complete COSE object; `content type` declares the type of the payload. They are deliberately different values: the object is CBOR, the payload is JSON. A verifier MUST reject an object whose `typ` is absent or is any value other than `application/agent-manifest+cose`, which prevents a manifest signature from being reinterpreted as a signature over some other kind of document.
 
@@ -95,7 +99,7 @@ A verifier MUST perform these steps in order and MUST fail closed at the first f
 1. Parse the CBOR. Reject anything that is not a tagged `COSE_Sign1` (18) or `COSE_Sign` (98).
 2. Read the protected header. Reject an absent or unexpected `typ`; reject an unknown `crit` entry; reject an absent `alg`.
 3. Extract the payload and parse it as JSON. Reject a `version` this verifier does not support, returning `INCOMPATIBLE_VERSION` (v0.1 section 2.4 semantics carried forward). Route a `0.1` payload to the v0.1 envelope rules; this document applies to `0.2`.
-4. Check the signed `crypto_profile` in the payload against the `alg` in the protected header. Reject a signature weaker than the declared profile requires: a `post-quantum` profile with only `-8` is a downgrade. A signature stronger than the profile requires is permitted. This is the v0.1 section 4.2 rule, retained because the profile is a claim about posture that the algorithm alone does not express.
+4. Check the signed `crypto_profile` in the payload against the `alg` in the protected header. Reject a signature weaker than the declared profile requires: a `post-quantum` profile with only Ed25519 (`-19`, or `-8` on an existing manifest) is a downgrade. A signature stronger than the profile requires is permitted. This is the v0.1 section 4.2 rule, retained because the profile is a claim about posture that the algorithm alone does not express.
 5. Verify the signature over the COSE `Sig_structure`. For `COSE_Sign`, verify every signature entry the governing policy requires.
 6. Return `UNVERIFIABLE`, not `MISMATCH`, if the algorithm is registered but this verifier cannot perform it. The verifier has established nothing about a manifest that may be entirely valid (v0.1 section 4.2, as amended).
 7. Only then evaluate the unprotected header: receipt inclusion proof, attestation report, approvals. A failure in any of these is reported against that element, not as a signature failure.
@@ -144,16 +148,17 @@ The same manifest after registration and hardware attestation, showing only the 
 
 ## 9. Open items for phase 2
 
-These are implementation decisions, not envelope decisions, and are listed so phase 2 does not rediscover them:
+These are implementation decisions, not envelope decisions, and are listed so phase 2 does not rediscover them. The first two are now settled in [ADR-0013](../docs/adr/0013-cbor-library-for-cose.md):
 
-- Which CBOR and COSE library the Python SDK takes. This is the first crypto dependency beyond `cryptography`, so it needs review for maintenance, audit history, and wheel availability across the supported Python matrix.
-- Whether the SDK emits `COSE_Sign1` with a zero-length unprotected header map or omits it before registration. Both are valid CBOR; pick one and pin it in a conformance vector so implementations agree byte-for-byte.
+- ~~Which CBOR and COSE library the Python SDK takes.~~ **Decided:** `cbor2` only, with the COSE structures built in the SDK. No COSE library is taken, so the crypto surface stays `cryptography` plus optional `pyoqs`.
+- ~~Whether the SDK emits `COSE_Sign1` with a zero-length unprotected header map or omits it before registration.~~ **Decided:** always a zero-length map. Only one of the two is a valid `COSE_Sign1` — omitting the element yields a three-element array, which RFC 9052 section 4.2 does not define. Pinned byte-for-byte in `AM-VEC-COSE-001` (`unprotected_hex` is `a0`).
 - `AM-VEC-*` conformance vectors for negative cases only this envelope can express: a tampered protected header, an `alg` substituted between the protected and unprotected headers, a `typ` mismatch, and an unprotected header injected before signature verification.
 - Whether the `agent-manifest-attestation` and `agent-manifest-approvals` string labels are worth converting to IANA integer labels before v1.0, which is a wire-size argument only.
 
 ## 10. References
 
-- [RFC 9052](https://www.rfc-editor.org/rfc/rfc9052.html), [RFC 9053](https://www.rfc-editor.org/rfc/rfc9053.html) - COSE structures and algorithms, including EdDSA (`-8`)
+- [RFC 9052](https://www.rfc-editor.org/rfc/rfc9052.html), [RFC 9053](https://www.rfc-editor.org/rfc/rfc9053.html) - COSE structures and algorithms, including the now-deprecated polymorphic `EdDSA` (`-8`)
+- [RFC 9864](https://www.rfc-editor.org/rfc/rfc9864.html) - Fully-specified algorithms for JOSE and COSE, Standards Track, October 2025. Deprecates `EdDSA` (`-8`); registers Ed25519 = `-19` and Ed448 = `-53`. See ADR-0014
 - [RFC 9596](https://www.rfc-editor.org/rfc/rfc9596.html) - COSE `typ` header parameter (label 16), Standards Track, June 2024
 - [RFC 9964](https://www.rfc-editor.org/rfc/rfc9964.html) - ML-DSA for JOSE and COSE, Standards Track, May 2026. ML-DSA-65 = `alg` `-49`, AKP key type `7`
 - [RFC 9943](https://www.rfc-editor.org/rfc/rfc9943.html) - SCITT architecture. Signed Statements are COSE_Sign1; `receipts` is unprotected header label 394

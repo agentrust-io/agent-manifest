@@ -31,17 +31,20 @@ Hardware providers require the VM types listed in the table below. The `Software
 
 ---
 
-## Conformance levels
+## Providers and conformance levels
 
-| Level | Provider | Infrastructure requirement |
-|-------|----------|--------------------------|
-| 0 | *(none)* | Any  -  software signing only |
-| 1 | `TPMProvider` | Linux host with TPM 2.0 |
-| 2 | `SEVSNPProvider` | AMD EPYC (Milan+): Azure DCasv5, AWS C6a Nitro, GCP N2D |
-| 2 | `TDXProvider` | Intel Xeon (Sapphire Rapids+): Azure DCedsv5, GCP C3 |
-| 3 | `OPAQUEProvider` | Any  -  delegates to OPAQUE's managed TEE |
+Choosing a provider is not the same as choosing a conformance level. **Any of these providers satisfies the TEE-attestation requirement of Level 1** (spec section 8.1); Level 2 and Level 3 are reached by binding all ten artifacts and by the post-quantum crypto profile respectively, not by swapping the silicon.
 
-Level 2 roots the binding in a confidential VM (SEV-SNP/TDX); its strength depends on the verifier checking the full attestation chain and the signing key being sealed to the launch measurement. Level 3 is the operationally-managed option: the agent runs inside OPAQUE's managed TEE, with OPAQUE handling provisioning and key lifecycle and producing a hardware-signed audit chain. Level 3 is not inherently higher assurance than a correctly-verified Level 2, and verifiers must still check the returned claim's signature.
+| Provider | Infrastructure requirement | Root of trust |
+|----------|--------------------------|---------------|
+| *(none)* | Any  -  software signing only, Level 0 | None |
+| `TPMProvider` | Linux host with TPM 2.0 | AK-signed quote over the boot chain; the host can still see into the VM |
+| `SEVSNPProvider` | AMD EPYC (Milan+): Azure DCasv5, AWS C6a Nitro, GCP N2D | SNP report to the AMD root (VCEK, ASK, ARK) |
+| `TDXProvider` | Intel Xeon (Sapphire Rapids+): Azure DCedsv5, GCP C3 | DCAP quote to the Intel SGX Root CA |
+| `AzureCVMProvider` | Azure confidential VMs | SNP behind a Hyper-V paravisor, read through the vTPM: vTPM-rooted, not direct-silicon. See `LIMITATIONS.md` |
+| `OPAQUEProvider` | Any  -  delegates to OPAQUE's managed TEE | OPAQUE-signed TRACE claim; explicit opt-in, never auto-detected |
+
+The providers differ in what a verifier can conclude, not in the level they unlock. SEV-SNP and TDX attest a confidential VM directly. A managed TEE is the operationally-simpler option and is not inherently higher assurance than a correctly-verified SEV-SNP or TDX deployment; a verifier must still check the returned claim's signature and the full attestation chain, and the signing key must be sealed to the launch measurement.
 
 ---
 
@@ -191,13 +194,14 @@ The `audit_chain_root` anchors every decision the agent made to a Merkle chain h
 
 ## Choosing the right level
 
-| Use case | Recommended level | Provider |
-|----------|------------------|---------|
+| Use case | Level | Provider |
+|----------|-------|---------|
 | Development and local testing | 0 | `SoftwareProvider` |
-| Enterprise internal deployment | 1 | `TPMProvider` |
-| EU AI Act Art. 15 (cybersecurity) | 2 | `SEVSNPProvider` or `TDXProvider` |
-| Financial services, regulated workloads | 2+ | `SEVSNPProvider` / `TDXProvider` |
-| Full audit chain, OPAQUE-managed trust | 3 | `OPAQUEProvider` |
+| Enterprise internal deployment | 1 | any TEE provider available on the host |
+| EU AI Act Art. 15 (cybersecurity, from ~Dec 2027) | 1 | `SEVSNPProvider`, `TDXProvider`, or `AzureCVMProvider` |
+| Financial services, regulated workloads (DORA, in force) | 2 | `SEVSNPProvider` or `TDXProvider`, plus all 10 artifacts bound |
+| Sovereign, classified, long-horizon sensitivity | 3 | Level 2 provider plus the post-quantum crypto profile |
+| Operationally-managed TEE, no local hardware | 1 or 2 | `OPAQUEProvider` (explicit opt-in) |
 | Unknown environment, pick best available | any | `select_provider(level=N)` |
 
 ---

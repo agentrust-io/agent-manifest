@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <a href="spec/agent-manifest-spec-v0.1.md">Specification</a> &nbsp;|&nbsp;
+  <a href="spec/agent-manifest-spec-v0.2.md">Specification</a> &nbsp;|&nbsp;
   <a href="docs/getting-started.md">Getting Started</a> &nbsp;|&nbsp;
   <a href="examples/">Examples</a> &nbsp;|&nbsp;
   <a href="CHANGELOG.md">Changelog</a>
@@ -22,7 +22,7 @@
 [![CI](https://github.com/agentrust-io/agent-manifest/actions/workflows/ci.yml/badge.svg)](https://github.com/agentrust-io/agent-manifest/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![PyPI](https://img.shields.io/pypi/v/agent-manifest?label=PyPI)](https://pypi.org/project/agent-manifest/)
-[![Spec](https://img.shields.io/badge/Spec-v0.1_·_197_tests-0ea5e9)](spec/agent-manifest-spec-v0.1.md)
+[![Spec](https://img.shields.io/badge/Spec-v0.2_·_197_tests-0ea5e9)](spec/agent-manifest-spec-v0.2.md)
 [![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white&style=flat)](https://discord.gg/9JWNpH7E)
 
 > **Developer Preview.** Launched at Confidential Computing Summit, June 23 2026.
@@ -70,11 +70,19 @@ signed = sign_manifest(manifest, key=signing_key)
 | | |
 |---|---|
 | 📖 Full documentation | [manifest.agentrust-io.com](https://manifest.agentrust-io.com) |
-| 📄 Specification | [spec/agent-manifest-spec-v0.1.md](spec/agent-manifest-spec-v0.1.md) |
+| 📄 Specification | [spec/agent-manifest-spec-v0.2.md](spec/agent-manifest-spec-v0.2.md) |
 | 📦 PyPI | [agent-manifest](https://pypi.org/project/agent-manifest/) |
 | 🔗 TRACE integration | [trace-spec](https://github.com/agentrust-io/trace-spec) |
 | 💬 Discussions | [GitHub Discussions](https://github.com/orgs/agentrust-io/discussions) |
 | 📋 Changelog | [CHANGELOG.md](CHANGELOG.md) |
+
+## Relationship to Agent Plugins
+
+Agent Manifest is not a package format and does not compete with one.
+
+[Agent Plugins 1.0](https://agent-plugins.org) defines how Agent Skills and MCP server configuration are packaged and moved between clients. Its `FUTURE_CONSIDERATIONS.md` leaves provenance verification, trust model and permissions to future versions. Agent Manifest starts where that stops: it binds what was actually loaded at deployment, including the resolved tool schemas rather than the declared servers, to hardware, so a third party can check that the agent that ran is the agent that was published.
+
+Put briefly, Agent Plugins describes what a client should install and a manifest describes what actually ran. A plugin bundle is an input to a manifest. See [specification section 6.5](spec/agent-manifest-spec-v0.2.md#65-relationship-to-agent-plugins).
 
 ## Standards alignment
 

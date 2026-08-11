@@ -173,6 +173,9 @@ nav:
       - ADR-0009 - SPIFFE URI for Agent Identity: adr/0009-spiffe-uri-agent-identity.md
       - ADR-0010 - Runtime Attestation Freshness Proofs: adr/0010-runtime-attestation-freshness-proofs.md
       - ADR-0011 - Signed Document, Not a JWT Profile: adr/0011-signature-envelope.md
+      - ADR-0012 - Context URI on a Controlled Domain: adr/0012-context-uri-moved-to-controlled-domain.md
+      - ADR-0013 - CBOR Library, Not a COSE Library: adr/0013-cbor-library-for-cose.md
+      - ADR-0014 - Fully-Specified Ed25519 Code Point: adr/0014-fully-specified-ed25519-code-point.md
   - Compliance:
       - Overview: compliance/index.md
       - EU AI Act: compliance/eu-ai-act.md
@@ -183,6 +186,7 @@ nav:
       - Overview: api-reference/index.md
       - Core models: api-reference/models.md
       - Signing: api-reference/signing.md
+      - COSE envelope (v0.2): api-reference/cose.md
       - Verification: api-reference/verification.md
       - Revocation: api-reference/revocation.md
       - Delegation: api-reference/delegation.md

@@ -1,4 +1,5 @@
 ---
+title: Verifiable identity and permissions for AI agents
 description: Agent Manifest is an open standard that cryptographically anchors the 10 artifacts defining an AI agent, so a third party can verify the agent running in production is the one that was approved.
 ---
 
@@ -77,7 +78,7 @@ Provider auto-selects based on available hardware: `OPAQUE → SEV-SNP → TDX �
 | Level | Requirements | Use case |
 |-------|-------------|---------|
 | Level 0 | Software signing, all artifact bindings | Development, staging |
-| Level 1 | + TEE attestation, `audit_key_sealed: true` | Enterprise production, EU AI Act Art. 15 |
+| Level 1 | + TEE attestation, `audit_key_sealed: true` | Enterprise production; EU AI Act Art. 15 from ~Dec 2027 |
 | Level 2 | + All 10 artifacts, HITL approvals, Phase 2 cMCP | Regulated industries, DORA |
 | Level 3 | + ML-DSA-65, ML-KEM-768, SHAKE-256 | Sovereign, classified, long-horizon financial |
 

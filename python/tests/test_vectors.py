@@ -59,7 +59,14 @@ def test_vector(file_name: str) -> None:
         ))
 
     ctx = VerificationContext(**vector["context"])
-    result = verify_manifest(vector["manifest"], ctx, store)
+    # A vector carries either a v0.1 manifest document or a v0.2 COSE
+    # envelope. The engine selects the procedure from what it is handed, so
+    # both kinds go through the same call (ADR-0011).
+    if "envelope_hex" in vector:
+        subject: Any = bytes.fromhex(vector["envelope_hex"])
+    else:
+        subject = vector["manifest"]
+    result = verify_manifest(subject, ctx, store)
 
     expected = vector["expected"]
     assert result.result.value == expected["result"], (
@@ -74,3 +81,51 @@ def test_vector(file_name: str) -> None:
     for field, want in expected.get("fields_verified", {}).items():
         got = getattr(result.fields_verified, field).value
         assert got == want, f"{vector['id']}: fields_verified.{field} expected {want}, got {got}"
+
+
+COSE_VECTOR_FILES = [
+    f for f in VECTOR_FILES if "envelope_hex" in _load_vector(f)
+]
+
+
+@pytest.mark.parametrize(
+    "file_name", COSE_VECTOR_FILES, ids=[f.removesuffix(".json") for f in COSE_VECTOR_FILES]
+)
+def test_cose_vector_encoding_is_pinned(file_name: str) -> None:
+    """The COSE object must be these exact bytes, not merely self-consistent.
+
+    This is what makes the vectors a portable contract: an implementation in
+    another language, using a COSE library, has to agree with the reference
+    SDK element by element. It also pins the phase 2 decision (ADR-0013) that
+    an envelope with no receipt yet carries a zero-length unprotected header
+    map rather than omitting it - ``unprotected_hex`` is ``a0``.
+    """
+    import cbor2
+
+    from agent_manifest._cose import payload_hash
+
+    vector = _load_vector(file_name)
+    pinned = vector["expected"]["cose"]
+    envelope = bytes.fromhex(vector["envelope_hex"])
+
+    tagged = cbor2.loads(envelope)
+    assert tagged.tag == pinned["tag"]
+    protected, unprotected, payload, signature = tagged.value
+
+    assert protected.hex() == pinned["protected_hex"]
+    assert cbor2.dumps(dict(unprotected)).hex() == pinned["unprotected_hex"]
+    assert payload.hex() == pinned["payload_hex"]
+    assert signature.hex() == pinned["signature_hex"]
+    assert payload_hash(payload) == pinned["manifest_hash"]
+
+    # And the SDK reproduces the whole object from the manifest and the fixed
+    # key, so the vector is a regression test on the encoder, not a snapshot
+    # of whatever it happened to emit on the day it was written.
+    import json
+
+    from agent_manifest._cose import sign_cose_sign1
+    from agent_manifest._signing import ed25519_from_private_bytes
+
+    keypair = ed25519_from_private_bytes(bytes(range(32)))
+    regenerated = sign_cose_sign1(json.loads(payload.decode()), keypair)
+    assert regenerated == envelope

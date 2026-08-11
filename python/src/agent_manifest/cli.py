@@ -28,6 +28,7 @@ except ImportError:
     )
 
 from ._auto_provider import select_provider
+from ._cose import COSE_MANIFEST_VERSION
 from ._providers import AttestationUnavailableError
 from ._revocation import FileCRL
 from ._signing import Ed25519Signer, ed25519_from_private_bytes, generate_ed25519
@@ -44,6 +45,28 @@ from ._verify import (
 def _load_json(path: str) -> dict[str, Any]:
     with open(path) as f:
         return cast(dict[str, Any], json.load(f))
+
+
+def _load_manifest_or_envelope(path: str) -> "dict[str, Any] | bytes":
+    """Return a v0.1 manifest dict, or the bytes of a v0.2 COSE envelope.
+
+    The envelope is detected from the CBOR tag that opens the file, not from
+    the file extension. A manifest carries its own type, and guessing a format
+    from a filename is the ambiguity the media-type rules exist to remove
+    (envelope spec section 7).
+    """
+    raw = Path(path).read_bytes()
+    # d2 = tag(18) COSE_Sign1, d8 62 = tag(98) COSE_Sign. Neither can begin a
+    # JSON document, so this is a decision, not a guess.
+    if raw[:1] == b"\xd2" or raw[:2] == b"\xd8\x62":
+        return raw
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise click.ClickException(f"{path} is neither JSON nor a COSE envelope: {exc}")
+    if not isinstance(data, dict):
+        raise click.ClickException(f"{path} does not contain a manifest object.")
+    return data
 
 
 def _write(data: dict[str, Any], output: Optional[str]) -> None:
@@ -161,6 +184,27 @@ def sign(manifest_file: str, key: str, output: Optional[str]) -> None:
         del key_hex  # prevent key material from lingering in locals
 
     kp = ed25519_from_private_bytes(key_bytes)
+
+    # The envelope follows the manifest version, never a flag (ADR-0011). A
+    # 0.2 manifest is signed as COSE and written as binary CBOR; a 0.1
+    # manifest gets the detached signature block exactly as before.
+    if data.get("version") == COSE_MANIFEST_VERSION:
+        from ._cose import sign_cose_sign1
+
+        envelope = sign_cose_sign1(data, kp)
+        click.echo(
+            f"Signed with key_id={kp.key_id} (COSE_Sign1, manifest version "
+            f"{COSE_MANIFEST_VERSION})",
+            err=True,
+        )
+        if output is None:
+            raise click.ClickException(
+                "A COSE envelope is binary CBOR. Use --output to write it to a "
+                "file rather than to the terminal."
+            )
+        Path(output).write_bytes(envelope)
+        return
+
     signer = Ed25519Signer(kp)
     sig_block = signer.sign(data)
     sig_block["signed_at"] = datetime.now(timezone.utc).isoformat()
@@ -297,7 +341,7 @@ def verify(
     Example:
       manifest verify attested.json --crl-path revocations.jsonl
     """
-    data = _load_json(manifest_file)
+    subject = _load_manifest_or_envelope(manifest_file)
     trusted_keys = _trusted_key_from_public_hex(public_key) if public_key else {}
     ctx = VerificationContext(
         enforce_hitl=enforce_hitl,
@@ -312,7 +356,7 @@ def verify(
     else:
         store = RevocationStore()
 
-    result = verify_manifest(data, ctx, store)
+    result = verify_manifest(subject, ctx, store)
     _write(result.model_dump(mode="json"), output)
 
     if result.result != OverallResult.VALID:
@@ -398,7 +442,65 @@ def revoke(manifest_id: str, reason: str, revoked_by: str, output: Optional[str]
     click.echo(f"Revocation record created for {manifest_id}", err=True)
 
 
-TOP_LEVEL_COMMANDS = ("create", "sign", "keygen", "attest", "verify", "revoke")
+@cli.command("from-plugin")
+@click.argument("bundle_dir", type=click.Path(exists=True))
+@click.option("--output", "-o", default=None, help="Write output to file (default: stdout)")
+def from_plugin(bundle_dir: str, output: Optional[str]) -> None:
+    """Read an Agent Plugins 1.0.0 bundle and report what it can bind.
+
+    Emits the whole-bundle digest, the skills found, and the MCP servers the
+    bundle declares. It does not emit a tool manifest: mcp.json declares which
+    servers to start and never enumerates their tools, so the per-tool schema
+    and description hashes a tool manifest binds are not in a bundle to be read.
+    Resolving those means starting the servers and asking them.
+
+    Example:
+      manifest from-plugin ./my-plugin
+    """
+    from ._plugins import PluginBundleError, load_plugin_bundle
+
+    try:
+        bundle = load_plugin_bundle(bundle_dir)
+    except PluginBundleError as exc:
+        click.echo(f"Not a usable Agent Plugins bundle: {exc}", err=True)
+        sys.exit(1)
+
+    payload: dict[str, Any] = {
+        "bundle": {
+            "name": bundle.name,
+            "version": bundle.version,
+            "schema": bundle.schema,
+            "digest": bundle.digest,
+        },
+        "skills": [
+            {"name": s.name, "path": s.relative_path, "content_hash": s.content_hash}
+            for s in bundle.skills
+        ],
+        "declared_mcp_servers": [
+            {"name": s.name, "declaration_hash": s.declaration_hash}
+            for s in bundle.declared_mcp_servers
+        ],
+        "tool_manifest": None,
+        "tool_manifest_note": (
+            "A bundle declares MCP servers, not tools. A tool manifest binds a "
+            "schema_hash and description_hash per tool, neither of which a bundle "
+            "carries. Resolve the declared servers at runtime and bind what they "
+            "actually exposed."
+        ),
+    }
+    _write(payload, output)
+
+    if bundle.has_resolvable_tools:
+        click.echo(
+            f"{len(bundle.declared_mcp_servers)} declared MCP server(s) still need "
+            "resolving before a tool manifest can be bound.",
+            err=True,
+        )
+
+
+TOP_LEVEL_COMMANDS = (
+    "create", "sign", "keygen", "attest", "verify", "revoke", "from-plugin",
+)
 
 
 @cli.group("manifest", hidden=True)

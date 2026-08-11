@@ -465,13 +465,16 @@ def _raise_unavailable(*args, **kwargs):
     from agent_manifest._signing import AlgorithmUnavailableError
 
     raise AlgorithmUnavailableError(
-        'ML-DSA-65 requires pyoqs. Install with: pip install "agent-manifest[pq]"'
+        "ML-DSA-65 is unavailable in this build. It needs cryptography >= 47 "
+        '(install with: pip install "agent-manifest[pq]") or the liboqs '
+        "Python bindings importable as `oqs`."
     )
 
 
 def test_ml_dsa_without_pq_extra_is_unverifiable_not_an_exception(monkeypatch):
-    # pyoqs is an optional extra, so the default install cannot appraise an
-    # ML-DSA-65 signature. A manifest is untrusted input: verify_manifest must
+    # A build can lack an ML-DSA-65 backend entirely (cryptography < 47 and no
+    # liboqs), so it cannot appraise an ML-DSA-65 signature. A manifest is
+    # untrusted input: verify_manifest must
     # return a verdict rather than raise, and the verdict must not be MISMATCH,
     # which would accuse a manifest that may be perfectly valid.
     monkeypatch.setattr(_signing, "MlDsa65Verifier", _raise_unavailable)
@@ -638,7 +641,8 @@ def test_delegation_chain_without_keys_is_unverifiable():
 
 
 def test_unsupported_version_is_incompatible():
-    m = base_manifest(version="0.2")
+    # 0.2 is supported (the COSE envelope); 0.3 does not exist.
+    m = base_manifest(version="0.3")
     result = verify_manifest(m, base_context(), store())
     assert result.result == OverallResult.INCOMPATIBLE_VERSION
 

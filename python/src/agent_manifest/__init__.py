@@ -10,7 +10,7 @@ from .models import (
     Sbom, McpServer,
     EscalationPolicy, HitlRuntime,
     TransparencyLogEntry, InclusionProof,
-    LogRetention, DataScope, OperationalLifecycle,
+    LogRetention, DataScope, OperationalLifecycle, DeclaredIntent,
     PolicyLanguage, EnforcementMode, DeploymentType, MemoryType, DriftPolicy,
     RugPullPolicy, TraceType, SbomFormat, SlsaLevel, PoisoningResult,
     ApprovalMethod, ApproverIdentityType, PrincipalType, DataClassification,
@@ -21,8 +21,22 @@ from ._types import HashValue, ManifestId
 from ._canonicalize import canonicalize, canonical_hash
 from ._signing import (
     SIGNED_FIELDS,
+    intent_hash,
     signing_pre_image,
     generate_ed25519, Ed25519KeyPair, Ed25519Signer, Ed25519Verifier,
+)
+from ._cose import (
+    COSE_MANIFEST_VERSION, COSE_SIGN1_TAG, COSE_SIGN_TAG,
+    ALG_EDDSA, ALG_ML_DSA_65,
+    MEDIA_TYPE_MANIFEST_COSE, MEDIA_TYPE_MANIFEST_JSON,
+    HDR_RECEIPTS, LABEL_ATTESTATION, LABEL_APPROVALS,
+    cose_payload, payload_hash,
+    sign_manifest_cose, sign_cose_sign1, sign_cose_sign_hybrid,
+    attach_receipt, attach_attestation, attach_approvals, attach_unprotected,
+    decode_cose_manifest, verify_cose_manifest,
+    CoseVerification, CoseSignature,
+    CoseError, CoseStructureError, CoseVersionError, CoseDowngradeError,
+    CoseKeyError,
 )
 from ._providers import (
     AttestationReport, AttestationUnavailableError, RuntimeAttestationReport,
@@ -65,6 +79,16 @@ from ._delegation import (
     DelegationHopSigner,
     HitlApprovalSigner,
 )
+from ._plugins import (
+    PluginBundleError,
+    PluginSkill,
+    DeclaredMcpServer,
+    PluginBundle,
+    load_plugin_bundle,
+    bundle_digest,
+    system_prompt_binding_from_bundle,
+    SUPPORTED_PLUGIN_SCHEMAS,
+)
 
 __all__ = [
     "Manifest", "ArtifactBindings",
@@ -77,7 +101,7 @@ __all__ = [
     "Sbom", "McpServer",
     "EscalationPolicy", "HitlRuntime",
     "TransparencyLogEntry", "InclusionProof",
-    "LogRetention", "DataScope", "OperationalLifecycle",
+    "LogRetention", "DataScope", "OperationalLifecycle", "DeclaredIntent",
     "PolicyLanguage", "EnforcementMode", "DeploymentType", "MemoryType", "DriftPolicy",
     "RugPullPolicy", "TraceType", "SbomFormat", "SlsaLevel", "PoisoningResult",
     "ApprovalMethod", "ApproverIdentityType", "PrincipalType", "DataClassification",
@@ -85,8 +109,19 @@ __all__ = [
     "ModelAttestationType", "OverrideMechanism", "TimeoutAction",
     "HashValue", "ManifestId",
     "canonicalize", "canonical_hash",
-    "SIGNED_FIELDS", "signing_pre_image",
+    "SIGNED_FIELDS", "signing_pre_image", "intent_hash",
     "generate_ed25519", "Ed25519KeyPair", "Ed25519Signer", "Ed25519Verifier",
+    "COSE_MANIFEST_VERSION", "COSE_SIGN1_TAG", "COSE_SIGN_TAG",
+    "ALG_EDDSA", "ALG_ML_DSA_65",
+    "MEDIA_TYPE_MANIFEST_COSE", "MEDIA_TYPE_MANIFEST_JSON",
+    "HDR_RECEIPTS", "LABEL_ATTESTATION", "LABEL_APPROVALS",
+    "cose_payload", "payload_hash",
+    "sign_manifest_cose", "sign_cose_sign1", "sign_cose_sign_hybrid",
+    "attach_receipt", "attach_attestation", "attach_approvals",
+    "attach_unprotected", "decode_cose_manifest", "verify_cose_manifest",
+    "CoseVerification", "CoseSignature",
+    "CoseError", "CoseStructureError", "CoseVersionError", "CoseDowngradeError",
+    "CoseKeyError",
     "AttestationReport", "AttestationUnavailableError", "RuntimeAttestationReport",
     "TPMProvider", "AzureCVMProvider", "SEVSNPProvider", "TDXProvider", "OPAQUEProvider",
     "verify_attestation_chain", "ChainVerificationResult", "SignatureStatus",
@@ -107,4 +142,7 @@ __all__ = [
     "RevocationStore", "RevocationRecord",
     "verify_delegation_chain", "verify_hitl_approval", "delegation_depth_exceeded",
     "DelegationHopSigner", "HitlApprovalSigner",
+    "PluginBundleError", "PluginSkill", "DeclaredMcpServer", "PluginBundle",
+    "load_plugin_bundle", "bundle_digest", "system_prompt_binding_from_bundle",
+    "SUPPORTED_PLUGIN_SCHEMAS",
 ]

@@ -347,6 +347,23 @@ class DataScope(SpecModel):
     dpia_reference: Optional[str] = None
 
 
+class DeclaredIntent(SpecModel):
+    """What the agent is for, declared by the issuer - spec Section 3.9.
+
+    Carried in the signing pre-image, which is the whole point: the issuer
+    declares the intent before the agent runs, so the running agent cannot
+    choose or revise it. An intent the governed agent asserts about itself
+    proves nothing, because an agent that wants to do X simply declares X.
+
+    ``statement`` is the only field. There is deliberately no stored hash
+    alongside it: two representations of one value can be made to disagree, and
+    a consumer that needs a stable reference derives it with
+    :func:`agent_manifest.intent_hash`.
+    """
+
+    statement: str = Field(min_length=1)
+
+
 class OperationalLifecycle(SpecModel):
     """EU AI Act Art. 13(3)(c)/(e) lifecycle disclosures - spec Section 9.4."""
 
@@ -702,6 +719,10 @@ class Manifest(SpecModel):
     log_retention: Optional[LogRetention] = None
     data_scope: Optional[DataScope] = None
     operational_lifecycle: Optional[OperationalLifecycle] = None
+    # OPTIONAL. Absent on every manifest issued before spec 3.9, and absent
+    # fields are omitted from the signing pre-image, so adding this field left
+    # every existing signature verifying unchanged.
+    intent: Optional[DeclaredIntent] = None
     signature: Optional[ManifestSignature] = None
     # Populated after transparency log submission (spec 3.6 ordering rules);
     # NOT covered by the signature.
