@@ -1210,9 +1210,10 @@ Worked example — a manifest, the OCSF runtime evidence a producer emits agains
   "expires_at": "2026-11-01T14:00:00Z"
 }
 
-// Runtime evidence: an OCSF Agent Inventory Info [5050] event, unmodified
-// output of the reference implementation at
-// rabbidave/ws4-secure-design-agentic-systems@1e35ab5 (ocsf_mapping.to_ocsf_event)
+// Runtime evidence: a candidate OCSF Agent Inventory Info [5050] event shape,
+// pending class assignment upstream (see ocsf/ocsf-schema#1724). Reflects the
+// reference implementation at rabbidave/ws4-secure-design-agentic-systems@1e35ab5
+// (ocsf_mapping.to_ocsf_event) — the working contribution this proposal is based on.
 {
   "class_uid": 5050,
   "class_name": "Agent Inventory Info",
