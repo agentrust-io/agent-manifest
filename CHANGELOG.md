@@ -4,6 +4,10 @@ All notable changes to Agent Manifest are documented here. Format follows [Keep 
 
 ## [Unreleased]
 
+### Security
+
+- Generic hardware-attestation certificate-chain verification now enforces every certificate's validity period and requires every issuing certificate to carry `BasicConstraints(ca=True)`. If an issuer declares `KeyUsage`, it must permit certificate signing.
+
 ## [0.11.0] — 2026-08-11
 
 ### Added
