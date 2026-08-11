@@ -2,6 +2,8 @@
 import hashlib
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from agent_manifest import _signing
 from agent_manifest._signing import Ed25519Signer, _b64url_encode, generate_ed25519
 from agent_manifest._verify import (
@@ -86,6 +88,24 @@ def test_valid_all_match():
     assert result.fields_verified.system_prompt == FieldResult.MATCH
     assert result.fields_verified.policy_bundle == FieldResult.MATCH
     assert result.mismatch_details == []
+
+
+@pytest.mark.parametrize(
+    "required_field",
+    ["manifest_id", "agent_id", "issued_at", "expires_at", "artifacts"],
+)
+def test_signed_manifest_missing_required_claim_is_not_valid(required_field):
+    manifest = base_manifest()
+    manifest.pop(required_field)
+    sign(manifest)
+
+    result = verify_manifest(manifest, base_context(), store())
+
+    assert result.result == OverallResult.MISMATCH
+    assert any(
+        detail.field == f"schema:{required_field}"
+        for detail in result.mismatch_details
+    )
 
 
 def test_valid_unbound_fields_not_mismatch():
