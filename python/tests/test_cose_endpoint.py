@@ -19,7 +19,6 @@ from agent_manifest._cose import (
 from agent_manifest._signing import generate_ed25519
 from agent_manifest._verify import (
     MAX_COSE_ENVELOPE_BYTES,
-    OverallResult,
     RevocationRecord,
     RevocationStore,
     VerificationContext,

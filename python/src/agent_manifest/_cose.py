@@ -41,7 +41,6 @@ from cryptography.exceptions import InvalidSignature
 from . import _signing
 from ._canonicalize import canonicalize
 from ._signing import (
-    AlgorithmUnavailableError,
     Ed25519KeyPair,
     Ed25519Verifier,
     HybridKeyPair,

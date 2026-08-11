@@ -25,7 +25,6 @@ from agent_manifest._cose import (
     HDR_CONTENT_TYPE,
     HDR_CRIT,
     HDR_KID,
-    HDR_RECEIPTS,
     HDR_TYP,
     LABEL_APPROVALS,
     LABEL_ATTESTATION,

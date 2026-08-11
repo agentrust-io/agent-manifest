@@ -63,7 +63,7 @@ def _check_sign1() -> bool:
     message = Sign1Message.decode(envelope)
     message.key = key
 
-    print(f"[COSE_Sign1] fixture     : cose_sign1_eddsa.json")
+    print("[COSE_Sign1] fixture     : cose_sign1_eddsa.json")
     print(f"[COSE_Sign1] protected   : {message.phdr}")
     print(f"[COSE_Sign1] unprotected : {message.uhdr}")
     print(f"[COSE_Sign1] manifest_id : "
