@@ -88,11 +88,13 @@ def verify_revocation_signature(
     """
     import base64
     from cryptography.exceptions import InvalidSignature
-    from ._signing import Ed25519Verifier as _Ed25519Verifier
+    from ._signing import Ed25519Verifier as _Ed25519Verifier, _key_id
 
     # CRL-001: null/empty signature must raise InvalidSignature, not ValueError
     if not record.revocation_signature:
         raise InvalidSignature("revocation_signature is absent or null")
+    if record.signer_key_id != _key_id(signer_public_key):
+        raise InvalidSignature("signer_key_id does not identify the trusted signer key")
 
     sig = record.revocation_signature
     if len(sig) < 86:  # Ed25519 sig = 64 bytes = 86 base64url chars (no padding)
@@ -187,6 +189,8 @@ class FileCRL:
 
     def revoke(self, record: SignedRevocationRecord) -> None:
         """Append a revocation record to the CRL file."""
+        if self._trusted_signer_key is not None:
+            verify_revocation_signature(record, self._trusted_signer_key)
         with self._lock:
             self._cache[record.manifest_id] = record
             with open(self._path, "a") as f:

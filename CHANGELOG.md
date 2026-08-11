@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Security
+
+- `verify_manifest()` now fails closed when a core identity, validity, or artifact-container claim is missing. A valid signature no longer turns such a structurally incomplete object into a `VALID` manifest; legacy v0.1 issuer omission remains compatible unless issuer authorization is configured.
+
 All notable changes to Agent Manifest are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Spec changes are marked **[SPEC]**; SDK changes are marked **[SDK]**.
 
 ## [Unreleased]
@@ -7,6 +13,16 @@ All notable changes to Agent Manifest are documented here. Format follows [Keep 
 ### Security
 
 - Generic hardware-attestation certificate-chain verification now enforces every certificate's validity period and requires every issuing certificate to carry `BasicConstraints(ca=True)`. If an issuer declares `KeyUsage`, it must permit certificate signing.
+
+### Fixed
+
+- The Python test harness now pins imports to the checkout's `src` tree and asserts that location, preventing a stale installed `agent-manifest` wheel from producing misleading release-validation results.
+
+### Security
+
+- `FileCRL.revoke()` now verifies a record's signature and signer key ID before mutating its cache or append-only file whenever `trusted_signer_key` is configured. This closes an append-time bypass of the existing load-time trust check.
+
+- `verify_manifest()` now rejects manifests whose `issued_at` is in the future and treats `expires_at` as an exclusive upper bound, enforcing the specification's full `issued_at <= now < expires_at` validity window.
 
 ## [0.11.0] — 2026-08-11
 
@@ -321,4 +337,8 @@ Initial developer preview. Launching at Confidential Computing Summit, June 23 2
 - CLI: `manifest keygen`, `create`, `sign`, `attest`, `verify`, `revoke`
 - Post-quantum support via `pyoqs`: `pip install "agent-manifest[pq]"`
 - Verification server: `pip install "agent-manifest[server]"`
+- Python 3.11, 3.12, 3.13 support
+
+- Python 3.11, 3.12, 3.13 support
+
 - Python 3.11, 3.12, 3.13 support

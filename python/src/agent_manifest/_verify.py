@@ -278,14 +278,11 @@ def _signature_key_issuer_mismatch(
 def _strict_schema_violations(manifest: dict[str, Any]) -> list[tuple[str, str]]:
     """Run the manifest through the Pydantic schema and return fail-closed errors.
 
-    Returns a list of (location, message) tuples for every validation error
-    that is NOT a tolerated "missing required field" error. An empty list
-    means the manifest carries no disqualifying schema violation.
-
-    Tolerated: ``missing`` errors only. Disqualifying: unknown fields
-    (``extra_forbidden``), type errors, bad enums, unparseable or
-    out-of-window timestamps, and any ``value_error`` raised by a model
-    validator (e.g. the expiry-window rule).
+    Returns a list of (location, message) tuples for every validation error,
+    except legacy omissions inside individual artifact-binding objects. The
+    verifier historically appraises those incomplete bindings as ``NOT_BOUND``;
+    that compatibility does not extend to the required top-level claims that
+    define the manifest's identity, authority, validity, and signed contents.
     """
     from pydantic import ValidationError
 
@@ -303,9 +300,12 @@ def _strict_schema_violations(manifest: dict[str, Any]) -> list[tuple[str, str]]
     except ValidationError as exc:
         violations: list[tuple[str, str]] = []
         for err in exc.errors():
-            if err.get("type") == "missing":
+            loc_parts = err.get("loc", ())
+            if err.get("type") == "missing" and (
+                len(loc_parts) > 1 or loc_parts == ("issuer",)
+            ):
                 continue
-            loc = ".".join(str(p) for p in err.get("loc", ()))
+            loc = ".".join(str(p) for p in loc_parts)
             violations.append((loc, err.get("msg", "schema error")))
         return violations
     return []
@@ -366,12 +366,9 @@ def verify_manifest(
     # the verify path. A malformed expires_at is a schema failure here, not a
     # silently non-expiring manifest.
     #
-    # Only pure "missing required field" errors are tolerated: the engine
-    # treats absent artifact bindings and metadata as NOT_BOUND and degrades
-    # safely, and requiring every business field would reject otherwise
-    # well-formed manifests the engine can still evaluate. Every other class of
-    # error (unknown field, wrong type, bad enum, unparseable/out-of-window
-    # timestamp, or any value_error from a model validator) fails closed.
+    # Required top-level claims fail closed. Missing runtime observations in the
+    # VerificationContext still produce NOT_BOUND; legacy omissions nested in
+    # individual artifact bindings retain that same compatibility behavior.
     schema_violations = _strict_schema_violations(manifest)
     if schema_violations:
         result.result = OverallResult.MISMATCH
@@ -396,12 +393,23 @@ def verify_manifest(
         result.result = OverallResult.REVOKED
         return result
 
-    # --- Expiry check
+    # --- Validity-window check (spec 5.3: issued_at <= now < expires_at)
+    issued_at = manifest.get("issued_at")
     expires_at = manifest.get("expires_at")
-    if expires_at:
+    if issued_at and expires_at:
         try:
+            issued = datetime.fromisoformat(issued_at.replace("Z", "+00:00"))
             exp = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
-            if exp < datetime.now(timezone.utc):
+            now = datetime.now(timezone.utc)
+            if issued > now:
+                result.result = OverallResult.MISMATCH
+                result.mismatch_details = [MismatchDetail(
+                    field="validity.issued_at",
+                    expected_hash="<issued_at at or before verification time>",
+                    actual_hash=f"<{issued_at}>",
+                )]
+                return result
+            if exp <= now:
                 result.result = OverallResult.EXPIRED
                 return result
         except (ValueError, AttributeError):

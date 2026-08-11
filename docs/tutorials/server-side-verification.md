@@ -21,7 +21,7 @@ pip install "agent-manifest[server]"
 The verifier checks six things in order, stopping at the first hard failure:
 
 1. **Revocation**  -  is this manifest ID in the revocation store?
-2. **Expiry**  -  is `expires_at` in the past?
+2. **Validity window**  -  does the current time satisfy `issued_at <= now < expires_at`?
 3. **Artifact hashes**  -  do the hashes in the manifest match what is actually running?
 4. **Delegation chain**  -  is every hop signed by its parent?
 5. **HITL record**  -  if approval was required, is a valid, unexpired one present?
@@ -54,6 +54,13 @@ if result.result != OverallResult.VALID:
 ### Supplying runtime artifact hashes
 
 Pass hashes for any artifacts you can observe at runtime. Fields left as `None` in the context are skipped and return `FieldResult.NOT_BOUND`, not a mismatch.
+
+`NOT_BOUND` applies only to observations omitted from the trusted runtime
+context. It does not make required claims optional in the signed manifest:
+`verify_manifest()` rejects a manifest missing `manifest_id`, `agent_id`,
+`issued_at`, `expires_at`, or `artifacts` as a schema mismatch before appraisal.
+For legacy v0.1 compatibility, a missing `issuer` is rejected when
+`trusted_key_issuers` authorization is configured.
 
 ```python
 import hashlib

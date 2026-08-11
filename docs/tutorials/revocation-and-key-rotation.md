@@ -57,15 +57,16 @@ manifest revoke 018f4a3b-2c1d-7e5f-a8b9-0d1e2f3a4b5c \
   --output revocation.json
 ```
 
-Append the record to the CRL file and verify the record's own signature before trusting it:
+Configure the trusted revocation authority on the CRL, then append the record.
+`FileCRL.revoke()` verifies both its signature and `signer_key_id` before changing
+the file or in-memory cache:
 
 ```python
-crl = FileCRL("revocations.jsonl")
+crl = FileCRL(
+    "revocations.jsonl",
+    trusted_signer_key=revocation_kp.public_bytes,
+)
 crl.revoke(record)
-
-# Verify the revocation record's signature before trusting it
-verify_revocation_signature(record, revocation_kp.public_bytes)
-# Raises cryptography.exceptions.InvalidSignature if the record was tampered
 
 assert crl.is_revoked(manifest_id)
 print(f"CRL now contains {len(crl.all_records())} record(s)")
