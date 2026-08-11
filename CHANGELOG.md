@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Security
+
+- `verify_manifest()` now fails closed when a core identity, validity, or artifact-container claim is missing. A valid signature no longer turns such a structurally incomplete object into a `VALID` manifest; legacy v0.1 issuer omission remains compatible unless issuer authorization is configured.
+
 All notable changes to Agent Manifest are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Spec changes are marked **[SPEC]**; SDK changes are marked **[SDK]**.
 
 ## [Unreleased]
@@ -7,6 +13,8 @@ All notable changes to Agent Manifest are documented here. Format follows [Keep 
 ### Security
 
 - `FileCRL.revoke()` now verifies a record's signature and signer key ID before mutating its cache or append-only file whenever `trusted_signer_key` is configured. This closes an append-time bypass of the existing load-time trust check.
+
+- `verify_manifest()` now rejects manifests whose `issued_at` is in the future and treats `expires_at` as an exclusive upper bound, enforcing the specification's full `issued_at <= now < expires_at` validity window.
 
 ## [0.11.0] — 2026-08-11
 
