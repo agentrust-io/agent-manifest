@@ -93,6 +93,14 @@
          <lastmod>2026-08-11</lastmod>
     </url>
     <url>
+         <loc>https://manifest.agentrust-io.com/adr/0013-cbor-library-for-cose/</loc>
+         <lastmod>2026-08-11</lastmod>
+    </url>
+    <url>
+         <loc>https://manifest.agentrust-io.com/adr/0014-fully-specified-ed25519-code-point/</loc>
+         <lastmod>2026-08-11</lastmod>
+    </url>
+    <url>
          <loc>https://manifest.agentrust-io.com/api-reference/</loc>
          <lastmod>2026-08-11</lastmod>
     </url>
@@ -102,6 +110,10 @@
     </url>
     <url>
          <loc>https://manifest.agentrust-io.com/api-reference/cli/</loc>
+         <lastmod>2026-08-11</lastmod>
+    </url>
+    <url>
+         <loc>https://manifest.agentrust-io.com/api-reference/cose/</loc>
          <lastmod>2026-08-11</lastmod>
     </url>
     <url>
