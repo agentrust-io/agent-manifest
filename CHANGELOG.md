@@ -4,6 +4,10 @@ All notable changes to Agent Manifest are documented here. Format follows [Keep 
 
 ## [Unreleased]
 
+### Security
+
+- `verify_manifest()` now rejects manifests whose `issued_at` is in the future and treats `expires_at` as an exclusive upper bound, enforcing the specification's full `issued_at <= now < expires_at` validity window.
+
 ## [0.11.0] — 2026-08-11
 
 ### Added

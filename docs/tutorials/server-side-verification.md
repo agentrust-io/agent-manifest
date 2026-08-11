@@ -21,7 +21,7 @@ pip install "agent-manifest[server]"
 The verifier checks six things in order, stopping at the first hard failure:
 
 1. **Revocation**  -  is this manifest ID in the revocation store?
-2. **Expiry**  -  is `expires_at` in the past?
+2. **Validity window**  -  does the current time satisfy `issued_at <= now < expires_at`?
 3. **Artifact hashes**  -  do the hashes in the manifest match what is actually running?
 4. **Delegation chain**  -  is every hop signed by its parent?
 5. **HITL record**  -  if approval was required, is a valid, unexpired one present?

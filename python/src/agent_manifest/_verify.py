@@ -396,12 +396,23 @@ def verify_manifest(
         result.result = OverallResult.REVOKED
         return result
 
-    # --- Expiry check
+    # --- Validity-window check (spec 5.3: issued_at <= now < expires_at)
+    issued_at = manifest.get("issued_at")
     expires_at = manifest.get("expires_at")
-    if expires_at:
+    if issued_at and expires_at:
         try:
+            issued = datetime.fromisoformat(issued_at.replace("Z", "+00:00"))
             exp = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
-            if exp < datetime.now(timezone.utc):
+            now = datetime.now(timezone.utc)
+            if issued > now:
+                result.result = OverallResult.MISMATCH
+                result.mismatch_details = [MismatchDetail(
+                    field="validity.issued_at",
+                    expected_hash="<issued_at at or before verification time>",
+                    actual_hash=f"<{issued_at}>",
+                )]
+                return result
+            if exp <= now:
                 result.result = OverallResult.EXPIRED
                 return result
         except (ValueError, AttributeError):

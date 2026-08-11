@@ -217,6 +217,22 @@ def test_expired_returns_early_no_field_checks():
     assert r.result == OverallResult.EXPIRED
     assert r.mismatch_details == []
 
+def test_future_issued_manifest_is_not_valid():
+    issued_at = (datetime.now(timezone.utc) + timedelta(days=1))
+    expires_at = issued_at + timedelta(days=1)
+
+    r = verify_manifest(
+        manifest(
+            issued_at=issued_at.isoformat().replace("+00:00", "Z"),
+            expires_at=expires_at.isoformat().replace("+00:00", "Z"),
+        ),
+        ctx(),
+        store(),
+    )
+
+    assert r.result == OverallResult.MISMATCH
+    assert [detail.field for detail in r.mismatch_details] == ["validity.issued_at"]
+
 def test_memory_baseline_expired():
     m = manifest()
     m["artifacts"]["memory_baseline"] = {
