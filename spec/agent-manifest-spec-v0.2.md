@@ -892,6 +892,7 @@ Signing coverage table (normative)
 | `log_retention` | Signed | Prevents post-signing weakening of the declared retention policy (section 8.1). |
 | `data_scope` | Signed | Prevents post-signing alteration of declared GDPR processing scope (section 9.3). |
 | `operational_lifecycle` | Signed | Prevents post-signing alteration of Art. 13 lifecycle disclosures (section 9.4). |
+| `intent` | Signed | The declared intent must be the issuer's, not the running agent's (section 3.9). An intent outside the signature is one any downstream party can rewrite, which would make the field decorative. |
 | `signature` | NOT signed | The signing object itself. |
 | `transparency_log_entry` | NOT signed | Populated after log submission (see ordering rules below). |
 
@@ -991,6 +992,32 @@ Key rotation procedure:
 7. Revoke the old signing key in the key management system
 
 Implementations MUST NOT re-use the old `manifest_id` for the rotated manifest - a new UUID v7 MUST be generated. The old manifest_id MAY be referenced in the new manifest's metadata for continuity tracing.
+
+### 3.9 Declared Intent <!-- CHANGED: new OPTIONAL top-level field; AARM R2/R3 input -->
+
+An OPTIONAL top-level `intent` object states what the agent is for.
+
+```json
+"intent": {
+  "statement": "<what this agent is for>  -- REQUIRED, non-empty>"
+}
+```
+
+**The issuer declares it, and that is the entire point.** Runtime governance frameworks increasingly ask that an action be evaluated against the agent's stated intent. An intent the governed agent asserts about itself cannot support that: an agent that intends to do X declares X, and the check becomes a formality. Because `intent` is inside the signing pre-image (section 3.6), it is fixed by the issuing authority before the agent runs, and the running agent can neither choose nor revise it. A verifier that finds an intent which does not match the issuer's signature has found tampering, not a change of plan.
+
+`intent` MUST be covered by the issuer signature. An implementation MUST NOT accept an `intent` supplied outside the signed manifest — for example on a per-call request field — as satisfying this section, because such a value is self-asserted by the party being governed.
+
+**One field, and no stored digest.** A consumer that needs a stable reference to the intent, such as a runtime binding it into a per-call receipt, derives it as the `sha256:` digest of the RFC 8785 canonical form of the whole `intent` object. That digest is computed on demand and MUST NOT be stored inside the manifest beside the statement: two representations of one value can be made to disagree, and the signature already makes the statement tamper-evident.
+
+**Compatibility.** `intent` is OPTIONAL, and a manifest that omits it is unaffected. Per the null-omission rule in section 2.3 and the signing coverage table in section 3.6, a signed field absent from the manifest is omitted from the pre-image rather than serialized as `null`, so every signature issued before this section existed verifies unchanged.
+
+#### 3.9.1 What this does not provide
+
+This section defines an input, not an analysis. It specifies no way to measure whether an action is *semantically* consistent with the declared intent, and an implementation MUST NOT present the presence of `intent` as evidence that such a measurement was performed.
+
+Measuring semantic distance from a stated intent requires comparing meaning, which needs a model, and the trustworthiness of that comparison then depends on which model ran and whether its execution was itself attested. That is out of scope here and is deliberately left unclaimed rather than approximated. A structural proxy — scope overlap, tool category distance — is not a semantic measure and MUST NOT be labelled as one.
+
+What the field does give is a signed, pre-execution statement of purpose that a verifier can read, bind to a receipt, and compare across manifests for the same agent.
 
 ## 4. Cryptographic Protocols
 

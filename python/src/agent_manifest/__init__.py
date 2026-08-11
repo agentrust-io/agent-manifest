@@ -10,7 +10,7 @@ from .models import (
     Sbom, McpServer,
     EscalationPolicy, HitlRuntime,
     TransparencyLogEntry, InclusionProof,
-    LogRetention, DataScope, OperationalLifecycle,
+    LogRetention, DataScope, OperationalLifecycle, DeclaredIntent,
     PolicyLanguage, EnforcementMode, DeploymentType, MemoryType, DriftPolicy,
     RugPullPolicy, TraceType, SbomFormat, SlsaLevel, PoisoningResult,
     ApprovalMethod, ApproverIdentityType, PrincipalType, DataClassification,
@@ -21,6 +21,7 @@ from ._types import HashValue, ManifestId
 from ._canonicalize import canonicalize, canonical_hash
 from ._signing import (
     SIGNED_FIELDS,
+    intent_hash,
     signing_pre_image,
     generate_ed25519, Ed25519KeyPair, Ed25519Signer, Ed25519Verifier,
 )
@@ -100,7 +101,7 @@ __all__ = [
     "Sbom", "McpServer",
     "EscalationPolicy", "HitlRuntime",
     "TransparencyLogEntry", "InclusionProof",
-    "LogRetention", "DataScope", "OperationalLifecycle",
+    "LogRetention", "DataScope", "OperationalLifecycle", "DeclaredIntent",
     "PolicyLanguage", "EnforcementMode", "DeploymentType", "MemoryType", "DriftPolicy",
     "RugPullPolicy", "TraceType", "SbomFormat", "SlsaLevel", "PoisoningResult",
     "ApprovalMethod", "ApproverIdentityType", "PrincipalType", "DataClassification",
@@ -108,7 +109,7 @@ __all__ = [
     "ModelAttestationType", "OverrideMechanism", "TimeoutAction",
     "HashValue", "ManifestId",
     "canonicalize", "canonical_hash",
-    "SIGNED_FIELDS", "signing_pre_image",
+    "SIGNED_FIELDS", "signing_pre_image", "intent_hash",
     "generate_ed25519", "Ed25519KeyPair", "Ed25519Signer", "Ed25519Verifier",
     "COSE_MANIFEST_VERSION", "COSE_SIGN1_TAG", "COSE_SIGN_TAG",
     "ALG_EDDSA", "ALG_ML_DSA_65",

@@ -6,6 +6,16 @@ All notable changes to Agent Manifest are documented here. Format follows [Keep 
 
 ### Added
 
+**[SPEC][SDK] Section 3.9 adds an OPTIONAL `intent` field, declared by the issuer.** Runtime governance frameworks (AARM R2/R3 among them) ask that an action be evaluated against the agent's stated intent, and this specification had no such input. The field is one string, `intent.statement`.
+
+**The issuer declares it, and that is the whole design.** An intent the governed agent asserts about itself cannot support the check it exists for: an agent that intends to do X declares X, and the comparison becomes a formality. `intent` is therefore inside the signing pre-image, fixed before the agent runs, and the spec says an `intent` supplied outside the signed manifest — on a per-call request field, say — MUST NOT be accepted as satisfying the section.
+
+Adding a field to `SIGNED_FIELDS` would normally be a compatibility break and is not one here: `signing_pre_image` omits fields absent from the manifest rather than serializing them as `null`, so a manifest without `intent` produces byte-identical pre-image to before and its signature still verifies. A test asserts that against the exact bytes, and it fails if absent fields are ever materialized.
+
+No digest is stored beside the statement. `intent_hash()` derives `sha256:<hex>` over the canonical `intent` object on demand, so a runtime can bind the intent into a per-call receipt without a second representation that can be made to disagree with the first. It returns None when no intent is declared, which is a distinct answer from a digest over an empty statement.
+
+Section 3.9.1 states what the field does **not** give: it is an input, not an analysis. Nothing here measures whether an action is semantically consistent with the declared intent, that would need a model whose own execution would have to be attested, and an implementation MUST NOT present the presence of `intent` as evidence such a measurement happened. A structural proxy is not a semantic measure and MUST NOT be labelled as one.
+
 **[SPEC] Section 6.5 states the boundary with Agent Plugins** (#281). Agent Plugins 1.0.0 shipped as a packaging format for Agent Skills and MCP server configuration, backed by a multi-vendor steering committee, and the obvious reading from outside is that this project is a second format for the same job. It is not, and the specification had nowhere that said so.
 
 The boundary in one sentence: Agent Plugins describes what a client should install, a manifest describes what actually ran. A plugin bundle is an input to a manifest.

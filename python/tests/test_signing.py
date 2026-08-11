@@ -323,6 +323,7 @@ def test_signed_fields_match_spec_coverage_table():
         "log_retention",
         "data_scope",
         "operational_lifecycle",
+        "intent",
     )
 
 

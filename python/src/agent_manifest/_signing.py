@@ -141,6 +141,13 @@ SIGNED_FIELDS: tuple[str, ...] = (
     "log_retention",
     "data_scope",
     "operational_lifecycle",
+    # Spec 3.9. Adding a field here is normally a compatibility break, and is
+    # not one in this case: signing_pre_image omits fields absent from the
+    # manifest, so a manifest with no `intent` produces byte-identical
+    # pre-image to before and its signature still verifies. The field has to
+    # be in this tuple rather than outside it, because an intent the signature
+    # does not cover is an intent anyone downstream can rewrite.
+    "intent",
 )
 
 
@@ -176,6 +183,25 @@ def _b64url_decode(s: str) -> bytes:
 def _key_id(public_key_bytes: bytes) -> str:
     """sha256 hex of raw public key bytes."""
     return hashlib.sha256(public_key_bytes).hexdigest()
+
+
+def intent_hash(manifest_dict: dict[str, Any]) -> str | None:
+    """Return ``sha256:<hex>`` over the manifest's declared intent, or None.
+
+    Derived rather than stored (spec 3.9). A runtime that wants to bind the
+    intent into a per-call receipt references this digest instead of copying the
+    statement, and because it is computed from the manifest on demand there is
+    no second representation that can be made to disagree with the first.
+
+    Computed over the RFC 8785 canonical form of the whole ``intent`` object, so
+    a field added to it in a later revision is covered without changing this
+    function. Returns None when the manifest declares no intent, which is a
+    distinct answer from a digest over an empty statement.
+    """
+    intent = manifest_dict.get("intent")
+    if intent is None:
+        return None
+    return "sha256:" + hashlib.sha256(canonicalize(intent)).hexdigest()
 
 
 def signing_pre_image(manifest_dict: dict[str, Any]) -> bytes:
