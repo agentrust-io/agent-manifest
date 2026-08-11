@@ -4,6 +4,10 @@ All notable changes to Agent Manifest are documented here. Format follows [Keep 
 
 ## [Unreleased]
 
+### Fixed
+
+- The Python test harness now pins imports to the checkout's `src` tree and asserts that location, preventing a stale installed `agent-manifest` wheel from producing misleading release-validation results.
+
 ## [0.11.0] — 2026-08-11
 
 ### Added

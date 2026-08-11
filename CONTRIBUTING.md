@@ -30,6 +30,11 @@ Run tests:
 pytest -v
 ```
 
+Pytest is configured to import `python/src` ahead of any globally installed
+`agent-manifest` wheel. A regression guard fails if the suite resolves the
+package outside the checkout, so local results always exercise the code under
+review.
+
 Run type checking:
 
 ```bash
