@@ -668,14 +668,74 @@ def _reject_non_json_constant(token: str) -> Any:
     )
 
 
+#: Maximum nesting depth accepted in a COSE payload (DOS-006).
+#:
+#: A manifest is a shallow document: the deepest path this specification defines
+#: is roughly ``artifacts.tool_manifest.tools[].approved_scope``, well under ten.
+#: Sixty-four leaves generous headroom for a future revision while staying far
+#: below any interpreter's recursion limit.
+_MAX_PAYLOAD_NESTING = 64
+
+
+def _payload_nesting_depth(text: str) -> int:
+    """Maximum ``{``/``[`` nesting depth in *text*, ignoring string contents.
+
+    Scanned rather than measured after parsing, because the point is to refuse
+    the work before doing it: a depth check that runs after ``json.loads`` has
+    already paid for the structure it was supposed to prevent.
+
+    String-aware, so a brace inside a member value cannot inflate the count and
+    make a legitimate manifest look like an attack. Backslash escapes are skipped
+    so ``"\\\\"`` does not swallow the closing quote.
+    """
+    depth = 0
+    deepest = 0
+    in_string = False
+    escaped = False
+    for char in text:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char in "{[":
+            depth += 1
+            deepest = max(deepest, depth)
+        elif char in "}]":
+            depth -= 1
+    return deepest
+
+
 def _parse_payload(payload: bytes) -> dict[str, Any]:
     try:
+        text = payload.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise CoseStructureError(f"payload is not valid JSON: {exc}") from exc
+
+    # Before json.loads, not after. Relying on RecursionError alone made this
+    # guard platform-dependent: CPython on Linux parses thousands of levels
+    # without raising, so on that platform there was no bound at all, while
+    # Windows tripped its own recursion limit and appeared to be protected. An
+    # explicit bound behaves identically everywhere.
+    depth = _payload_nesting_depth(text)
+    if depth > _MAX_PAYLOAD_NESTING:
+        raise CoseStructureError(
+            f"payload is nested {depth} levels deep, above the "
+            f"{_MAX_PAYLOAD_NESTING}-level limit"
+        )
+
+    try:
         manifest = json.loads(
-            payload.decode("utf-8"),
+            text,
             object_pairs_hook=_reject_duplicate_keys,
             parse_constant=_reject_non_json_constant,
         )
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+    except json.JSONDecodeError as exc:
         raise CoseStructureError(f"payload is not valid JSON: {exc}") from exc
     except RecursionError as exc:
         # A manifest is untrusted input, so nesting must produce a verdict

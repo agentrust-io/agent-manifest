@@ -1318,3 +1318,41 @@ def test_a_v01_manifest_with_the_v01_envelope_is_unaffected():
     assert verify_manifest(manifest, base_context(), store()).result == (
         OverallResult.VALID
     )
+
+
+def test_nesting_bound_is_explicit_not_a_recursion_accident():
+    """DOS-006 must behave identically on every platform.
+
+    Relying on RecursionError made this guard platform-dependent: CPython on
+    Linux parses thousands of levels without raising, so on that platform there
+    was no bound at all, while Windows tripped its own recursion limit and
+    looked protected. Main went red on ubuntu 3.12/3.13 for exactly this.
+    """
+    from agent_manifest._cose import _MAX_PAYLOAD_NESTING, _parse_payload
+
+    at_limit = ('{"a":' * (_MAX_PAYLOAD_NESTING - 1)) + '{"version":"0.2"}' + ("}" * (_MAX_PAYLOAD_NESTING - 1))
+    assert _parse_payload(at_limit.encode()) is not None
+
+    too_deep = ('{"a":' * (_MAX_PAYLOAD_NESTING + 1)) + "1" + ("}" * (_MAX_PAYLOAD_NESTING + 1))
+    with pytest.raises(CoseStructureError, match="levels deep"):
+        _parse_payload(too_deep.encode())
+
+
+def test_nesting_scan_ignores_braces_inside_strings():
+    """A brace in a member value must not be counted, or a legitimate manifest
+    with JSON-ish text in a field would be refused as an attack."""
+    from agent_manifest._cose import _payload_nesting_depth
+
+    assert _payload_nesting_depth('{"a": "{{{{{{"}') == 1
+    assert _payload_nesting_depth('{"a": "\\"} {{{"}') == 1
+    assert _payload_nesting_depth('{"a": {"b": [1, 2]}}') == 3
+    assert _payload_nesting_depth("{}") == 1
+
+
+def test_a_deeply_nested_payload_is_refused_before_it_is_parsed():
+    """The refusal must come from the bound, not from whatever json.loads does
+    with 5000 levels on this particular platform."""
+    from agent_manifest._cose import _parse_payload
+
+    with pytest.raises(CoseStructureError, match="levels deep"):
+        _parse_payload((('{"a":' * 5000) + "1" + ("}" * 5000)).encode())
