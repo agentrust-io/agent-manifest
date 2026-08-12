@@ -29,7 +29,7 @@
 
 A signed JWT proves who called an API. It proves nothing about the agent that made the call.
 
-Agent Manifest binds the ten artifacts that define an agent (system prompt, policy bundle, tool schemas, model identity, RAG corpus, memory state, decision trace, A2A delegation chain, supply chain provenance, and human-in-the-loop approvals) into one hardware-attestable, tamper-evident record. A signed manifest makes agent identity provable to any third party who has no reason to trust the operator.
+Agent Manifest binds the ten artifacts that define an agent (system prompt, policy bundle, tool schemas, model identity, RAG corpus, memory state, the decision-log baseline, A2A delegation chain, supply chain provenance, and human-in-the-loop approvals) into one hardware-attestable, tamper-evident record. A signed manifest makes agent identity provable to any third party who has no reason to trust the operator. Runtime decisions remain separate TRACE or OCSF records; the manifest commits to the audit-chain root current at issuance so a verifier can join later evidence to the approved deployment without treating post-hoc evidence as deploy-time identity.
 
 ## Quick start
 

@@ -56,7 +56,7 @@ plugins:
         Agent Manifest is an open standard for the cryptographic identity and
         provenance of AI agents. It anchors the 10 artifacts that define an
         agent at deployment (system prompt, policy bundle, tool manifest, model
-        identity, RAG corpus, memory baseline, decision trace, A2A delegation,
+        identity, RAG corpus, memory baseline, decision-log baseline, A2A delegation,
         supply chain, and HITL approvals) so a verifier who does not trust the
         operator can prove the agent running in production is the one that was
         approved. Level 0 is software-only Ed25519 signing; Levels 1 to 3 add

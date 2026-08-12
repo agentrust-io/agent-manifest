@@ -45,7 +45,7 @@ Sign manifest       →   Seal signing key     →  attestation report
 Publish to log      →   Return TRACE claim   →  VALID / MISMATCH
 ```
 
-A verifying party who holds an Agent Manifest and its accompanying attestation report can prove  -  without trusting the operator  -  that a specific agent ran specific code under specific policy with specific tools, produced specific decisions, and received specific human oversight.
+A verifying party who holds an Agent Manifest and its accompanying attestation report can prove  -  without trusting the operator  -  that a specific agent started with specific code, policy, tools, audit-chain baseline, and human oversight. Runtime evidence shows what happened after that point and is verified separately.
 
 ## The 10 attested artifacts
 
@@ -57,7 +57,7 @@ A verifying party who holds an Agent Manifest and its accompanying attestation r
 | 4 | Model Identity | Which model and version ran (binary hash for local, version for API) |
 | 5 | RAG Corpus | The knowledge base the agent was grounded on (Merkle root) |
 | 6 | Memory Baseline | Approved agent memory state with TTL-based re-approval |
-| 7 | Decision Trace | Hardware-signed audit chain root for all agent decisions |
+| 7 | Decision-log baseline | Audit-chain root current when the manifest is issued; later decisions are separate linked evidence |
 | 8 | A2A Delegation | Signed delegation chain from human principal to current agent |
 | 9 | Supply Chain | Container digest, SLSA provenance, SBOM, MCP server supply chain |
 | 10 | HITL Approvals | Hardware-signed human oversight records (EU AI Act Art. 14) |
@@ -86,11 +86,11 @@ Provider auto-selects based on available hardware: `OPAQUE → SEV-SNP → TDX �
 
 ### What is an Agent Manifest?
 
-An Agent Manifest is a cryptographically signed record that anchors the 10 artifacts defining an AI agent at deployment: system prompt, policy bundle, tool manifest, model identity, RAG corpus, memory baseline, decision trace, A2A delegation, supply chain, and HITL approvals. It lets a third party verify that the agent running now is the agent that was approved.
+An Agent Manifest is a cryptographically signed record that anchors the 10 artifacts defining an AI agent at deployment: system prompt, policy bundle, tool manifest, model identity, RAG corpus, memory baseline, decision-log baseline, A2A delegation, supply chain, and HITL approvals. It lets a third party verify that the agent running now is the agent that was approved. It does not claim that later runtime decisions existed at deployment time: those are separate TRACE or OCSF records joined back to the manifest.
 
 ### How is an Agent Manifest different from a signed JWT?
 
-A signed JWT proves who called an API. An Agent Manifest proves who the agent was, what it was allowed to do, how it was built, what it decided, who approved it, and whether any of that changed between approval and execution.
+A signed JWT proves who called an API. An Agent Manifest proves who the agent was, what it was allowed to do, how it was built, which audit-chain baseline it started from, who approved it, and whether the deployment configuration changed before execution.
 
 ### Why not specify it as a JWT or JOSE profile?
 
@@ -126,7 +126,7 @@ Yes. It is published on PyPI (`pip install agent-manifest`) and developed in the
       "name": "What is an Agent Manifest?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "An Agent Manifest is a cryptographically signed record that anchors the 10 artifacts defining an AI agent at deployment: system prompt, policy bundle, tool manifest, model identity, RAG corpus, memory baseline, decision trace, A2A delegation, supply chain, and HITL approvals. It lets a third party verify that the agent running now is the agent that was approved."
+        "text": "An Agent Manifest is a cryptographically signed record that anchors the deployment configuration and decision-log baseline for an AI agent. Runtime decisions are separate TRACE or OCSF records joined back to the manifest."
       }
     },
     {
@@ -134,7 +134,7 @@ Yes. It is published on PyPI (`pip install agent-manifest`) and developed in the
       "name": "How is an Agent Manifest different from a signed JWT?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "A signed JWT proves who called an API. An Agent Manifest proves who the agent was, what it was allowed to do, how it was built, what it decided, who approved it, and whether any of that changed between approval and execution."
+        "text": "A signed JWT proves who called an API. An Agent Manifest proves who the agent was, what it was allowed to do, how it was built, which audit-chain baseline it started from, who approved it, and whether the deployment configuration changed before execution."
       }
     },
     {

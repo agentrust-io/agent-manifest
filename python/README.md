@@ -70,7 +70,7 @@ print(sig_block["key_id"])      # sha256:<hex>
 | 4 | Model Identity | Which model and version ran (binary hash for local, version for API) |
 | 5 | RAG Corpus | The knowledge base the agent was grounded on (Merkle root) |
 | 6 | Memory Baseline | Approved agent memory state with TTL-based re-approval |
-| 7 | Decision Trace | Hardware-signed audit chain root for all agent decisions |
+| 7 | Decision-log baseline | Audit-chain root at manifest issuance; runtime decisions remain separate linked evidence |
 | 8 | A2A Delegation | Signed delegation chain from human principal to current agent |
 | 9 | Supply Chain | Container digest, SLSA provenance, SBOM, MCP server supply chain |
 | 10 | HITL Approvals | Hardware-signed human oversight records (EU AI Act Art. 14) |
