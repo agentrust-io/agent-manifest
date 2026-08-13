@@ -252,7 +252,7 @@ Artifact-to-field mapping (for Level 2 "all 10 artifacts bound" conformance):
 | 4 | Model Identity | `artifacts.model_identity` |
 | 5 | RAG Corpus | `artifacts.rag_corpus` |
 | 6 | Memory Baseline | `artifacts.memory_baseline` |
-| 7 | Decision Trace | `artifacts.decision_trace` |
+| 7 | Decision-log baseline | `artifacts.decision_trace` |
 | 8 | A2A Delegation | `delegation_chain` (top-level array) |
 | 9 | Supply Chain | `artifacts.supply_chain` |
 | 10 | HITL Approvals | `hitl_record` (top-level object) |
