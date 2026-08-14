@@ -78,6 +78,43 @@ TRACE_VERIFICATION_RESULTS: tuple[str, ...] = (
 # its signature verifies.
 INADMISSIBLE_RESULTS: frozenset[str] = frozenset({"MISMATCH", "EXPIRED"})
 
+# The four members spec 5.2.1 defines an evidence pack as carrying, with the
+# type each must have. They are checked before the signature, because a
+# signature proves who assembled a document and not that the document is the
+# thing it claims to be: a pack carrying nothing but its own `pack_signature`
+# verifies perfectly and evidences nothing. An empty `manifest` in particular
+# would silently disable the manifest-id and policy binding further down.
+EVIDENCE_PACK_REQUIRED_FIELDS: dict[str, type] = {
+    "manifest": dict,
+    "verification_result": dict,
+    "trace_envelopes": list,
+    "attestation_report": str,
+}
+
+# Presence is not enough for a TRACE envelope either. A field carrying the
+# wrong type passes a `in envelope` check and then flows into a comparison
+# that silently does nothing: `policy_hash: []` never equals the manifest's
+# hash, so the section 6.3.2 conflict rule would never fire against it.
+TRACE_FIELD_TYPES: dict[str, type] = {
+    "trace_id": str,
+    "agent_id": str,
+    "agent_manifest_id": str,
+    "manifest_verification_result": str,
+    "tool_id": str,
+    "policy_hash": str,
+    "catalog_hash": str,
+    "decision": str,
+    "decision_reason": str,
+    "payload_classification": str,
+    "egress_destination": str,
+    # hitl_required is deliberately absent: it has a dedicated check further
+    # down that names SCHEMA F-11 and says why a string is dangerous rather
+    # than merely wrong. A generic message here would replace a specific one.
+    "timestamp": str,
+    "tee_measurement": str,
+    "signature": str,
+}
+
 # Spec 6.3.2 types the envelope signature as a bare string, which cannot carry
 # the two components a hybrid signature needs.
 TRACE_SIGNATURE_ALGORITHMS: frozenset[str] = frozenset({"Ed25519", "ML-DSA-65"})
@@ -283,6 +320,16 @@ def verify_trace_envelope(
         result.failures.append("missing_required_fields:" + ",".join(missing))
         return result
 
+    # Presence checked, now shape.
+    wrong_type = [
+        name
+        for name, want in TRACE_FIELD_TYPES.items()
+        if not isinstance(envelope[name], want)
+    ]
+    if wrong_type:
+        result.failures.append("wrong_field_type:" + ",".join(sorted(wrong_type)))
+        return result
+
     mvr = envelope["manifest_verification_result"]
     if mvr not in TRACE_VERIFICATION_RESULTS:
         result.failures.append(f"illegal_manifest_verification_result:{mvr!r}")
@@ -438,6 +485,43 @@ def verify_evidence_pack(
 
     if not isinstance(pack, dict):
         result.failures.append("pack_not_an_object")
+        return result
+
+    # Structure before signature. A pack carrying only its own `pack_signature`
+    # would otherwise verify: the pre-image is computed over whatever is
+    # present, the signature covers it honestly, and the result says VERIFIED
+    # about a document with no manifest, no verification result, no envelopes
+    # and no attestation report in it.
+    missing = [f for f in EVIDENCE_PACK_REQUIRED_FIELDS if f not in pack]
+    if missing:
+        result.failures.append("missing_required_fields:" + ",".join(missing))
+        return result
+
+    wrong_type = [
+        name
+        for name, want in EVIDENCE_PACK_REQUIRED_FIELDS.items()
+        if not isinstance(pack[name], want)
+    ]
+    if wrong_type:
+        result.failures.append("wrong_field_type:" + ",".join(sorted(wrong_type)))
+        return result
+
+    # An empty manifest is well-typed and still useless: every binding check
+    # downstream reads from it, so an empty one disables them all silently.
+    if not pack["manifest"]:
+        result.failures.append("manifest_empty")
+        return result
+
+    # Non-empty is not enough either. `_check_manifest_binding` skips the
+    # manifest-id comparison when the manifest carries no `manifest_id`, so a
+    # manifest of `{"note": "..."}` is well-typed, non-empty, and still lets an
+    # envelope naming a completely different manifest through unremarked. The
+    # binding is the reason the manifest is in the pack at all, so the field it
+    # binds on is required rather than optional.
+    if not isinstance(pack["manifest"].get("manifest_id"), str) or not pack[
+        "manifest"
+    ]["manifest_id"]:
+        result.failures.append("manifest_missing_manifest_id")
         return result
 
     result.pack_hash = compute_pack_hash(pack)

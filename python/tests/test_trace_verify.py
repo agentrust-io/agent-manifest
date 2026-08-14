@@ -587,3 +587,152 @@ def test_manifest_verify_still_uses_the_manifest_pre_image(kp):
     with_extra = copy.deepcopy(manifest)
     with_extra["transparency_log_entry"] = {"log_index": 7}
     verifier.verify(with_extra, block["signature_value"])
+
+
+# ---------------------------------------------------------------------------
+# Structural requirements of the pack itself (spec 5.2.1)
+#
+# A signature proves who assembled a document, not that the document is the
+# thing it claims to be. These assert the four members exist and are the right
+# shape before the signature is appraised at all.
+# ---------------------------------------------------------------------------
+
+
+def test_a_pack_carrying_only_its_own_signature_is_malformed(kp, trusted):
+    """The case that motivated these checks.
+
+    Every member of the pre-image is optional to the signer, so a pack
+    containing nothing but `pack_signature` is signed honestly and verifies
+    perfectly, while evidencing nothing at all.
+    """
+    pack = _sign_pack({}, kp)
+    result = verify_evidence_pack(pack, trusted_keys=trusted)
+    assert result.status is TraceStatus.MALFORMED
+    assert result.signature_verified is False
+    assert any("missing_required_fields" in f for f in result.failures)
+
+
+@pytest.mark.parametrize(
+    "missing",
+    ["manifest", "verification_result", "trace_envelopes", "attestation_report"],
+)
+def test_each_missing_pack_member_is_malformed(kp, trusted, missing):
+    pack = _pack([])
+    del pack[missing]
+    result = verify_evidence_pack(_sign_pack(pack, kp), trusted_keys=trusted)
+    assert result.status is TraceStatus.MALFORMED
+    assert result.signature_verified is False
+    assert f"missing_required_fields:{missing}" in result.failures
+
+
+@pytest.mark.parametrize(
+    "field,bad_value",
+    [
+        ("manifest", "not-an-object"),
+        ("verification_result", []),
+        ("trace_envelopes", {}),
+        ("attestation_report", 42),
+    ],
+)
+def test_a_pack_member_of_the_wrong_type_is_malformed(kp, trusted, field, bad_value):
+    pack = _pack([])
+    pack[field] = bad_value
+    result = verify_evidence_pack(_sign_pack(pack, kp), trusted_keys=trusted)
+    assert result.status is TraceStatus.MALFORMED
+    assert f"wrong_field_type:{field}" in result.failures
+
+
+def test_an_empty_manifest_is_malformed(kp, trusted):
+    """Well-typed and still useless: every binding check reads from it, so an
+    empty manifest disables them all without any of them reporting a failure."""
+    pack = _pack([])
+    pack["manifest"] = {}
+    result = verify_evidence_pack(_sign_pack(pack, kp), trusted_keys=trusted)
+    assert result.status is TraceStatus.MALFORMED
+    assert "manifest_empty" in result.failures
+
+
+def test_structure_is_checked_before_the_signature(kp, trusted):
+    """A malformed pack is MALFORMED even when the signature is unverifiable,
+    so the two failures cannot mask one another."""
+    pack = _pack([])
+    del pack["manifest"]
+    signed = _sign_pack(pack, kp)
+    result = verify_evidence_pack(signed, trusted_keys={})  # no keys at all
+    assert result.status is TraceStatus.MALFORMED
+    assert "missing_required_fields:manifest" in result.failures
+
+
+def test_a_well_formed_pack_still_verifies(kp, trusted):
+    """The checks must not cost the happy path."""
+    envelope = _sign_envelope(_envelope(), kp)
+    result = verify_evidence_pack(
+        _sign_pack(_pack([envelope]), kp),
+        trusted_keys=trusted,
+        trace_key_id=kp.key_id,
+    )
+    assert result.status is TraceStatus.VERIFIED
+    assert result.signature_verified is True
+
+
+# ---------------------------------------------------------------------------
+# Envelope fields: present is not the same as well-formed
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "field,bad_value",
+    [
+        ("trace_id", 12345),
+        ("agent_id", None),
+        ("policy_hash", []),
+        ("catalog_hash", {}),
+        ("decision", 1),
+        ("timestamp", 1735689600),
+        ("tee_measurement", 999),
+    ],
+)
+def test_an_envelope_field_of_the_wrong_type_is_malformed(
+    kp, trusted, field, bad_value
+):
+    """`policy_hash: []` is the case that matters: it is present, so the
+    conflict rule of section 6.3.2 runs, compares it against the manifest's
+    hash, finds no match, and reports nothing because the types differ."""
+    envelope = _sign_envelope(_envelope(**{field: bad_value}), kp)
+    result = verify_trace_envelope(envelope, trusted_keys=trusted)
+    assert result.status is TraceStatus.MALFORMED
+    assert f"wrong_field_type:{field}" in result.failures
+
+
+def test_a_manifest_without_manifest_id_cannot_disable_the_binding(kp, trusted):
+    """Non-empty is not the same as usable.
+
+    `_check_manifest_binding` skips the manifest-id comparison when the
+    manifest carries no `manifest_id`, so a manifest of `{"note": "..."}` is
+    well-typed, non-empty, and still lets an envelope naming a completely
+    different manifest through without remark. The binding is why the manifest
+    is in the pack, so the field it binds on is required.
+    """
+    envelope = _sign_envelope(
+        _envelope(agent_manifest_id="0192f3a0-dead-7000-8000-00000000beef"), kp
+    )
+    pack = _pack([envelope], manifest={"note": "not really a manifest"})
+    result = verify_evidence_pack(
+        _sign_pack(pack, kp), trusted_keys=trusted, trace_key_id=kp.key_id
+    )
+    assert result.status is TraceStatus.MALFORMED
+    assert "manifest_missing_manifest_id" in result.failures
+
+
+def test_the_binding_still_catches_a_mismatched_envelope(kp, trusted):
+    """And with a real manifest present, the binding does its job."""
+    envelope = _sign_envelope(
+        _envelope(agent_manifest_id="0192f3a0-dead-7000-8000-00000000beef"), kp
+    )
+    result = verify_evidence_pack(
+        _sign_pack(_pack([envelope]), kp),
+        trusted_keys=trusted,
+        trace_key_id=kp.key_id,
+    )
+    assert result.status is not TraceStatus.VERIFIED
+    assert any("manifest_id_mismatch" in f for e in result.envelopes for f in e.failures)
