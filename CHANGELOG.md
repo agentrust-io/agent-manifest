@@ -10,6 +10,10 @@ All notable changes to Agent Manifest are documented here. Format follows [Keep 
 
 ## [Unreleased]
 
+### Added
+
+- Added an informative Agent Credentials integration guide describing how a relying party joins a credential decision to the exact signed manifest and runtime-evidence record at a defined execution boundary. The guide tracks CoSAI WS4 issue #99 and OCSF proposals #1704 and #1724 without treating either open proposal as released schema. Closes #267.
+
 ### Security
 
 - The PyPI release workflow now installs and smoke-tests both the exact wheel and source distribution before upload, including version/tag agreement, import provenance, a public cryptographic verification roundtrip, and the packaged CLI entry point.

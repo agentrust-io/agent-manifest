@@ -9,6 +9,7 @@ Agent-manifest is framework-agnostic  -  it is a signing and verification layer,
 | [AutoGen and CrewAI](autogen-crewai.md) | Per-agent manifests in AutoGen conversations and CrewAI crews |
 | [AGT (Agent Governance Toolkit)](agt.md) | Using agent-manifest as the identity layer feeding AGT policy and trust scores |
 | [NVIDIA OpenShell](openshell.md) | Binding the approved OpenShell, ACS, workload, and tool configuration to runtime TRACE evidence |
+| [Agent Credentials](agent-credentials.md) | Joining a credential decision to the exact manifest and signed runtime evidence |
 
 ## Common pattern
 
