@@ -1,0 +1,589 @@
+"""Tests for TRACE envelope and evidence pack verification (#204).
+
+Covers the spec 6.3.2 envelope signature, the spec 5.2.1 evidence pack
+``pack_signature`` and ``pack_hash``, the SCHEMA F-21 hash-conflict rule, and
+the admissibility rule that MISMATCH/EXPIRED TRACEs are never evidence of a
+valid tool call however good their signatures are.
+
+Fail-closed behaviour is the point of most of these: an envelope the verifier
+cannot appraise must never come back VERIFIED.
+"""
+
+import copy
+import hashlib
+
+import pytest
+
+from agent_manifest._canonicalize import canonicalize
+from agent_manifest._signing import (
+    _b64url_encode,
+    generate_ed25519,
+)
+from agent_manifest._trace import (
+    INADMISSIBLE_RESULTS,
+    TRACE_REQUIRED_FIELDS,
+    TraceStatus,
+    compute_pack_hash,
+    evidence_pack_pre_image,
+    trace_signing_pre_image,
+    verify_evidence_pack,
+    verify_trace_envelope,
+)
+
+from agent_manifest._signing import ml_dsa65_available
+
+_OQS = ml_dsa65_available()
+
+
+POLICY_HASH = f"sha256:{'a1' * 32}"
+CATALOG_HASH = f"sha256:{'b2' * 32}"
+MANIFEST_ID = "0192f3a0-0000-7000-8000-000000000001"
+
+
+def _envelope(**overrides):
+    """A spec 6.3.2 TRACE envelope with every required field present."""
+    envelope = {
+        "trace_id": "0192f3a0-0000-7000-8000-00000000000a",
+        "agent_id": "spiffe://example.org/agent/billing",
+        "agent_manifest_id": MANIFEST_ID,
+        "manifest_verification_result": "VALID",
+        "tool_id": "org.example.tools.invoice-lookup",
+        "policy_hash": POLICY_HASH,
+        "catalog_hash": CATALOG_HASH,
+        "decision": "allow",
+        "decision_reason": 'permit(principal, action, resource) when { context.tier == "gold" };',
+        "payload_classification": "internal",
+        "egress_destination": "api.example.com",
+        "hitl_required": False,
+        "hitl_approval_id": None,
+        "timestamp": "2026-08-03T12:00:00Z",
+        "tee_measurement": "sha256:" + "cd" * 32,
+        "signature": "",
+    }
+    envelope.update(overrides)
+    return envelope
+
+
+def _manifest(policy_hash=POLICY_HASH, manifest_id=MANIFEST_ID):
+    return {
+        "manifest_id": manifest_id,
+        "artifacts": {"policy_bundle": {"hash": policy_hash}},
+    }
+
+
+def _sign_envelope(envelope, keypair):
+    """Sign *envelope* in place with Ed25519 over its canonical pre-image."""
+    signed = dict(envelope)
+    signed["signature"] = _b64url_encode(
+        keypair.private_key.sign(trace_signing_pre_image(signed))
+    )
+    return signed
+
+
+def _sign_pack(pack, keypair):
+    signed = dict(pack)
+    signed["pack_signature"] = {
+        "algorithm": "Ed25519",
+        "key_id": keypair.key_id,
+        "key_type": "tee-sealed",
+        "signed_at": "2026-08-03T12:00:00Z",
+        "signature_value": _b64url_encode(
+            keypair.private_key.sign(evidence_pack_pre_image(signed))
+        ),
+    }
+    return signed
+
+
+@pytest.fixture
+def kp():
+    return generate_ed25519()
+
+
+@pytest.fixture
+def trusted(kp):
+    return {kp.key_id: kp.public_b64url()}
+
+
+# ---------------------------------------------------------------------------
+# Pre-image
+# ---------------------------------------------------------------------------
+
+
+def test_pre_image_excludes_only_the_signature_field():
+    envelope = _envelope(signature="not-covered")
+    expected = canonicalize({k: v for k, v in envelope.items() if k != "signature"})
+    assert trace_signing_pre_image(envelope) == expected
+
+
+def test_pre_image_is_stable_under_key_reordering():
+    envelope = _envelope()
+    shuffled = dict(reversed(list(envelope.items())))
+    assert trace_signing_pre_image(envelope) == trace_signing_pre_image(shuffled)
+
+
+def test_changing_the_signature_does_not_change_the_pre_image(kp):
+    a = _envelope(signature="aaa")
+    b = _envelope(signature="bbb")
+    assert trace_signing_pre_image(a) == trace_signing_pre_image(b)
+
+
+# ---------------------------------------------------------------------------
+# Envelope signature
+# ---------------------------------------------------------------------------
+
+
+def test_valid_envelope_verifies_and_is_admissible(kp, trusted):
+    envelope = _sign_envelope(_envelope(), kp)
+    result = verify_trace_envelope(envelope, trusted_keys=trusted)
+    assert result.status is TraceStatus.VERIFIED
+    assert result.signature_verified is True
+    assert result.admissible is True
+    assert result.failures == []
+    assert result.trace_id == envelope["trace_id"]
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("decision", "deny"),
+        ("policy_hash", f"sha256:{'ff' * 32}"),
+        ("tool_id", "org.example.tools.wire-transfer"),
+        ("egress_destination", "attacker.example.net"),
+        ("hitl_required", True),
+        ("tee_measurement", "sha256:" + "00" * 32),
+        ("timestamp", "2026-08-03T13:00:00Z"),
+    ],
+)
+def test_tampering_any_covered_field_fails(kp, trusted, field, value):
+    envelope = _sign_envelope(_envelope(), kp)
+    envelope[field] = value
+    result = verify_trace_envelope(envelope, trusted_keys=trusted)
+    assert result.status is TraceStatus.FAILED
+    assert result.signature_verified is False
+    assert result.admissible is False
+
+
+def test_tampered_signature_fails(kp, trusted):
+    envelope = _sign_envelope(_envelope(), kp)
+    # Flip one base64url character to a different valid one.
+    sig = envelope["signature"]
+    envelope["signature"] = ("B" if sig[0] == "A" else "A") + sig[1:]
+    result = verify_trace_envelope(envelope, trusted_keys=trusted)
+    assert result.status is TraceStatus.FAILED
+
+
+def test_signature_from_a_different_key_fails(kp, trusted):
+    attacker = generate_ed25519()
+    envelope = _sign_envelope(_envelope(), attacker)
+    result = verify_trace_envelope(envelope, trusted_keys=trusted)
+    assert result.status is TraceStatus.FAILED
+    assert result.admissible is False
+
+
+def test_missing_signature_is_signature_missing(trusted):
+    envelope = _envelope(signature="")
+    result = verify_trace_envelope(envelope, trusted_keys=trusted)
+    assert result.status is TraceStatus.SIGNATURE_MISSING
+    assert result.admissible is False
+
+
+# ---------------------------------------------------------------------------
+# Fail-closed: unappraisable is never VERIFIED
+# ---------------------------------------------------------------------------
+
+
+def test_no_trusted_keys_is_unverifiable_not_verified(kp):
+    envelope = _sign_envelope(_envelope(), kp)
+    result = verify_trace_envelope(envelope, trusted_keys=None)
+    assert result.status is TraceStatus.UNVERIFIABLE
+    assert result.signature_verified is False
+    assert result.admissible is False
+
+
+def test_untrusted_key_id_is_unverifiable(kp, trusted):
+    envelope = _sign_envelope(_envelope(), kp)
+    result = verify_trace_envelope(
+        envelope, trusted_keys=trusted, key_id="0" * 64
+    )
+    assert result.status is TraceStatus.UNVERIFIABLE
+    assert any("key_id_not_trusted" in f for f in result.failures)
+
+
+def test_ambiguous_key_without_key_id_is_refused(kp):
+    """Two trusted keys and no key_id: refuse rather than try each in turn."""
+    other = generate_ed25519()
+    envelope = _sign_envelope(_envelope(), kp)
+    trusted_two = {
+        kp.key_id: kp.public_b64url(),
+        other.key_id: other.public_b64url(),
+    }
+    result = verify_trace_envelope(envelope, trusted_keys=trusted_two)
+    assert result.status is TraceStatus.UNVERIFIABLE
+    assert "ambiguous_key_id" in result.failures
+
+    # Naming the key resolves it.
+    ok = verify_trace_envelope(
+        envelope, trusted_keys=trusted_two, key_id=kp.key_id
+    )
+    assert ok.status is TraceStatus.VERIFIED
+
+
+def test_hybrid_algorithm_is_rejected_for_envelopes(kp, trusted):
+    """Spec 6.3.2 types the envelope signature as a bare string."""
+    envelope = _sign_envelope(_envelope(), kp)
+    result = verify_trace_envelope(
+        envelope, trusted_keys=trusted, algorithm="hybrid-Ed25519-ML-DSA-65"
+    )
+    assert result.status is TraceStatus.UNVERIFIABLE
+    assert any("unsupported_envelope_algorithm" in f for f in result.failures)
+
+
+# ---------------------------------------------------------------------------
+# Shape validation
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("missing", TRACE_REQUIRED_FIELDS)
+def test_missing_required_field_is_malformed(kp, trusted, missing):
+    envelope = _sign_envelope(_envelope(), kp)
+    del envelope[missing]
+    result = verify_trace_envelope(envelope, trusted_keys=trusted)
+    assert result.status is TraceStatus.MALFORMED
+    assert result.admissible is False
+
+
+def test_illegal_verification_result_enum_is_malformed(kp, trusted):
+    """Spec 6.3.2 forbids values outside the section 5.2 enum."""
+    envelope = _sign_envelope(_envelope(manifest_verification_result="OK"), kp)
+    result = verify_trace_envelope(envelope, trusted_keys=trusted)
+    assert result.status is TraceStatus.MALFORMED
+
+
+def test_sdk_only_statuses_are_not_legal_in_an_envelope(kp, trusted):
+    """UNVERIFIABLE is a verifier-side outcome, not a producer-writable one."""
+    envelope = _sign_envelope(
+        _envelope(manifest_verification_result="UNVERIFIABLE"), kp
+    )
+    result = verify_trace_envelope(envelope, trusted_keys=trusted)
+    assert result.status is TraceStatus.MALFORMED
+
+
+def test_string_hitl_required_is_malformed(kp, trusted):
+    """SCHEMA F-11: a string "false" is truthy and would read as approved."""
+    envelope = _sign_envelope(_envelope(hitl_required="false"), kp)
+    result = verify_trace_envelope(envelope, trusted_keys=trusted)
+    assert result.status is TraceStatus.MALFORMED
+    assert "hitl_required_not_a_boolean" in result.failures
+
+
+def test_non_dict_envelope_is_malformed(trusted):
+    result = verify_trace_envelope(["not", "an", "object"], trusted_keys=trusted)
+    assert result.status is TraceStatus.MALFORMED
+
+
+# ---------------------------------------------------------------------------
+# Admissibility (spec 6.3.2)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("result_value", sorted(INADMISSIBLE_RESULTS))
+def test_mismatch_and_expired_are_authentic_but_inadmissible(
+    kp, trusted, result_value
+):
+    envelope = _sign_envelope(
+        _envelope(manifest_verification_result=result_value), kp
+    )
+    result = verify_trace_envelope(envelope, trusted_keys=trusted)
+    # The signature is genuine -- the runtime honestly recorded a bad state.
+    assert result.status is TraceStatus.VERIFIED
+    assert result.signature_verified is True
+    # But it is not evidence of a valid tool call.
+    assert result.admissible is False
+    assert any("inadmissible" in f for f in result.failures)
+
+
+@pytest.mark.parametrize(
+    "result_value", ["VALID", "REVOKED", "INCOMPLETE", "ATTESTATION_UNAVAILABLE"]
+)
+def test_other_results_remain_admissible(kp, trusted, result_value):
+    envelope = _sign_envelope(
+        _envelope(manifest_verification_result=result_value), kp
+    )
+    result = verify_trace_envelope(envelope, trusted_keys=trusted)
+    assert result.admissible is True
+
+
+# ---------------------------------------------------------------------------
+# Manifest binding / SCHEMA F-21
+# ---------------------------------------------------------------------------
+
+
+def test_matching_policy_hash_binds_cleanly(kp, trusted):
+    envelope = _sign_envelope(_envelope(), kp)
+    result = verify_trace_envelope(
+        envelope, trusted_keys=trusted, manifest=_manifest()
+    )
+    assert result.status is TraceStatus.VERIFIED
+    assert result.admissible is True
+
+
+def test_policy_hash_conflict_claiming_valid_is_a_failure(kp, trusted):
+    """F-21: a conflict MUST be declared as MISMATCH, not papered over."""
+    envelope = _sign_envelope(_envelope(policy_hash=f"sha256:{'99' * 32}"), kp)
+    result = verify_trace_envelope(
+        envelope, trusted_keys=trusted, manifest=_manifest()
+    )
+    assert result.signature_verified is True
+    assert result.admissible is False
+    assert any("policy_hash_conflict_not_declared" in f for f in result.failures)
+
+
+def test_policy_hash_conflict_declared_as_mismatch_is_spec_compliant(kp, trusted):
+    envelope = _sign_envelope(
+        _envelope(
+            policy_hash=f"sha256:{'99' * 32}",
+            manifest_verification_result="MISMATCH",
+        ),
+        kp,
+    )
+    result = verify_trace_envelope(
+        envelope, trusted_keys=trusted, manifest=_manifest()
+    )
+    # Correctly declared, so no F-21 violation ...
+    assert not any(
+        "policy_hash_conflict_not_declared" in f for f in result.failures
+    )
+    # ... but still not usable as evidence of a valid call.
+    assert result.admissible is False
+
+
+def test_manifest_id_mismatch_is_a_failure(kp, trusted):
+    envelope = _sign_envelope(_envelope(), kp)
+    result = verify_trace_envelope(
+        envelope,
+        trusted_keys=trusted,
+        manifest=_manifest(manifest_id="0192f3a0-0000-7000-8000-0000000000ff"),
+    )
+    assert result.admissible is False
+    assert any("manifest_id_mismatch" in f for f in result.failures)
+
+
+def test_manifest_without_policy_hash_warns(kp, trusted):
+    envelope = _sign_envelope(_envelope(), kp)
+    result = verify_trace_envelope(
+        envelope,
+        trusted_keys=trusted,
+        manifest={"manifest_id": MANIFEST_ID, "artifacts": {}},
+    )
+    assert result.status is TraceStatus.VERIFIED
+    assert "manifest_has_no_policy_bundle_hash" in result.warnings
+
+
+# ---------------------------------------------------------------------------
+# Evidence pack
+# ---------------------------------------------------------------------------
+
+
+def _pack(envelopes, manifest=None):
+    return {
+        "manifest": manifest if manifest is not None else _manifest(),
+        "verification_result": {"result": "VALID", "manifest_id": MANIFEST_ID},
+        "trace_envelopes": envelopes,
+        "attestation_report": _b64url_encode(b"raw-attestation-bytes"),
+    }
+
+
+def test_pack_hash_excludes_the_signature(kp):
+    pack = _pack([])
+    unsigned_hash = compute_pack_hash(pack)
+    signed = _sign_pack(pack, kp)
+    assert compute_pack_hash(signed) == unsigned_hash
+    # And it is the SHA-256 of the canonical bytes, per spec 5.2.1.
+    expected = hashlib.sha256(evidence_pack_pre_image(pack)).hexdigest()
+    assert unsigned_hash == f"sha256:{expected}"
+
+
+def test_valid_pack_verifies(kp, trusted):
+    envelope = _sign_envelope(_envelope(), kp)
+    pack = _sign_pack(_pack([envelope]), kp)
+    result = verify_evidence_pack(
+        pack, trusted_keys=trusted, trace_key_id=kp.key_id
+    )
+    assert result.status is TraceStatus.VERIFIED
+    assert result.signature_verified is True
+    assert result.failures == []
+    assert len(result.envelopes) == 1
+    assert result.envelopes[0].admissible is True
+
+
+def test_expected_pack_hash_is_checked(kp, trusted):
+    envelope = _sign_envelope(_envelope(), kp)
+    pack = _sign_pack(_pack([envelope]), kp)
+    good = verify_evidence_pack(
+        pack,
+        trusted_keys=trusted,
+        trace_key_id=kp.key_id,
+        expected_pack_hash=compute_pack_hash(pack),
+    )
+    assert good.pack_hash_matches is True
+    assert good.status is TraceStatus.VERIFIED
+
+    bad = verify_evidence_pack(
+        pack,
+        trusted_keys=trusted,
+        trace_key_id=kp.key_id,
+        expected_pack_hash=f"sha256:{'00' * 32}",
+    )
+    assert bad.pack_hash_matches is False
+    assert bad.status is TraceStatus.FAILED
+    assert any("pack_hash_mismatch" in f for f in bad.failures)
+
+
+def test_tampering_the_pack_breaks_the_signature(kp, trusted):
+    envelope = _sign_envelope(_envelope(), kp)
+    pack = _sign_pack(_pack([envelope]), kp)
+    pack["attestation_report"] = _b64url_encode(b"swapped-attestation")
+    result = verify_evidence_pack(
+        pack, trusted_keys=trusted, trace_key_id=kp.key_id
+    )
+    assert result.status is TraceStatus.FAILED
+    assert result.signature_verified is False
+
+
+def test_removing_an_envelope_breaks_the_pack_signature(kp, trusted):
+    """The pack signature covers the envelope array, so dropping one is caught."""
+    e1 = _sign_envelope(_envelope(), kp)
+    e2 = _sign_envelope(_envelope(trace_id="0192f3a0-0000-7000-8000-00000000000b"), kp)
+    pack = _sign_pack(_pack([e1, e2]), kp)
+    pack["trace_envelopes"] = [e1]
+    result = verify_evidence_pack(
+        pack, trusted_keys=trusted, trace_key_id=kp.key_id
+    )
+    assert result.status is TraceStatus.FAILED
+
+
+def test_pack_missing_signature(kp, trusted):
+    pack = _pack([_sign_envelope(_envelope(), kp)])
+    result = verify_evidence_pack(pack, trusted_keys=trusted)
+    assert result.status is TraceStatus.SIGNATURE_MISSING
+
+
+def test_pack_signature_as_bare_string_is_malformed(kp, trusted):
+    """Spec 5.2.1 requires the detached object form of section 3.6."""
+    pack = _pack([])
+    pack["pack_signature"] = "just-a-string"
+    result = verify_evidence_pack(pack, trusted_keys=trusted)
+    assert result.status is TraceStatus.MALFORMED
+
+
+def test_pack_with_no_trusted_keys_is_unverifiable(kp):
+    pack = _sign_pack(_pack([]), kp)
+    result = verify_evidence_pack(pack, trusted_keys={})
+    assert result.status is TraceStatus.UNVERIFIABLE
+    assert result.signature_verified is False
+
+
+def test_good_pack_signature_over_inadmissible_envelope_still_fails(kp, trusted):
+    """A pack is not usable evidence just because the pack signature is valid."""
+    envelope = _sign_envelope(
+        _envelope(manifest_verification_result="EXPIRED"), kp
+    )
+    pack = _sign_pack(_pack([envelope]), kp)
+    result = verify_evidence_pack(
+        pack, trusted_keys=trusted, trace_key_id=kp.key_id
+    )
+    assert result.signature_verified is True
+    assert result.status is TraceStatus.FAILED
+    assert "pack_contains_inadmissible_envelope" in result.failures
+
+
+def test_envelope_check_can_be_skipped(kp, trusted):
+    envelope = _sign_envelope(
+        _envelope(manifest_verification_result="EXPIRED"), kp
+    )
+    pack = _sign_pack(_pack([envelope]), kp)
+    result = verify_evidence_pack(
+        pack, trusted_keys=trusted, verify_envelopes=False
+    )
+    assert result.status is TraceStatus.VERIFIED
+    assert result.envelopes == []
+
+
+def test_pack_envelopes_are_bound_to_the_packs_manifest(kp, trusted):
+    """The manifest inside the pack drives the F-21 check on its envelopes."""
+    envelope = _sign_envelope(_envelope(policy_hash=f"sha256:{'99' * 32}"), kp)
+    pack = _sign_pack(_pack([envelope]), kp)
+    result = verify_evidence_pack(
+        pack, trusted_keys=trusted, trace_key_id=kp.key_id
+    )
+    assert any(
+        "policy_hash_conflict_not_declared" in f
+        for f in result.envelopes[0].failures
+    )
+
+
+def test_trace_envelopes_not_an_array_is_malformed(kp, trusted):
+    pack = _sign_pack(_pack([]), kp)
+    pack["trace_envelopes"] = {"not": "a list"}
+    result = verify_evidence_pack(pack, trusted_keys=trusted)
+    assert result.status is TraceStatus.MALFORMED
+
+
+def test_unknown_pack_algorithm_is_unverifiable(kp, trusted):
+    pack = _sign_pack(_pack([]), kp)
+    pack["pack_signature"]["algorithm"] = "RSA-PKCS1"
+    result = verify_evidence_pack(pack, trusted_keys=trusted)
+    assert result.status is TraceStatus.UNVERIFIABLE
+    assert any("unknown_algorithm" in f for f in result.failures)
+
+
+@pytest.mark.skipif(not _OQS, reason="no ML-DSA-65 backend available")
+def test_hybrid_pack_signature_verifies():
+    from agent_manifest._signing import generate_hybrid
+
+    hybrid = generate_hybrid()
+    pack = _pack([])
+    pre_image = evidence_pack_pre_image(pack)
+    classical = _b64url_encode(hybrid.ed25519.private_key.sign(pre_image))
+    from agent_manifest._signing import _ml_dsa_sign_raw
+
+    pq = _b64url_encode(
+        _ml_dsa_sign_raw(hybrid.ml_dsa65.private_key_bytes, pre_image)
+    )
+    pack["pack_signature"] = {
+        "algorithm": "hybrid-Ed25519-ML-DSA-65",
+        "key_id": hybrid.key_id,
+        "classical_signature": classical,
+        "pq_signature": pq,
+        "signature_value": "",
+    }
+    combined = hybrid.ed25519.public_bytes + hybrid.ml_dsa65.public_key_bytes
+    result = verify_evidence_pack(
+        pack, trusted_keys={hybrid.key_id: _b64url_encode(combined)}
+    )
+    assert result.status is TraceStatus.VERIFIED
+
+
+# ---------------------------------------------------------------------------
+# Regression: the refactor that made the verifiers reusable
+# ---------------------------------------------------------------------------
+
+
+def test_manifest_verify_still_uses_the_manifest_pre_image(kp):
+    """verify() must keep signing SIGNED_FIELDS, not the whole dict."""
+    from agent_manifest._signing import Ed25519Signer, Ed25519Verifier
+
+    manifest = {
+        "manifest_id": MANIFEST_ID,
+        "agent_id": "spiffe://example.org/agent/billing",
+        "version": "0.1",
+        "artifacts": {"policy_bundle": {"hash": POLICY_HASH}},
+    }
+    block = Ed25519Signer(kp).sign(manifest)
+    verifier = Ed25519Verifier(kp.public_bytes)
+    verifier.verify(manifest, block["signature_value"])
+
+    # A field outside SIGNED_FIELDS must not disturb the signature.
+    with_extra = copy.deepcopy(manifest)
+    with_extra["transparency_log_entry"] = {"log_index": 7}
+    verifier.verify(with_extra, block["signature_value"])

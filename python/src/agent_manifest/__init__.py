@@ -72,6 +72,12 @@ from ._verify import (
     FieldsVerified, MismatchDetail, EvidencePack,
     RevocationStore, RevocationRecord,
 )
+from ._trace import (
+    verify_trace_envelope, verify_evidence_pack,
+    trace_signing_pre_image, evidence_pack_pre_image, compute_pack_hash,
+    TraceStatus, TraceVerificationResult, EvidencePackVerificationResult,
+    TRACE_REQUIRED_FIELDS, TRACE_VERIFICATION_RESULTS, INADMISSIBLE_RESULTS,
+)
 from ._delegation import (
     verify_delegation_chain,
     verify_hitl_approval,
@@ -140,6 +146,10 @@ __all__ = [
     "OverallResult", "FieldResult", "DelegationResult", "HitlResult",
     "FieldsVerified", "MismatchDetail", "EvidencePack",
     "RevocationStore", "RevocationRecord",
+    "verify_trace_envelope", "verify_evidence_pack",
+    "trace_signing_pre_image", "evidence_pack_pre_image", "compute_pack_hash",
+    "TraceStatus", "TraceVerificationResult", "EvidencePackVerificationResult",
+    "TRACE_REQUIRED_FIELDS", "TRACE_VERIFICATION_RESULTS", "INADMISSIBLE_RESULTS",
     "verify_delegation_chain", "verify_hitl_approval", "delegation_depth_exceeded",
     "DelegationHopSigner", "HitlApprovalSigner",
     "PluginBundleError", "PluginSkill", "DeclaredMcpServer", "PluginBundle",
