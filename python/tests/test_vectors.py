@@ -83,8 +83,19 @@ def test_vector(file_name: str) -> None:
         assert got == want, f"{vector['id']}: fields_verified.{field} expected {want}, got {got}"
 
 
+# Only vectors that pin an encoding. A negative vector carries `envelope_hex`
+# but no `expected.cose`, because its bytes are malformed by construction and
+# pinning their decomposition would assert that a verifier can parse something
+# it is being told to reject.
 COSE_VECTOR_FILES = [
-    f for f in VECTOR_FILES if "envelope_hex" in _load_vector(f)
+    f for f in VECTOR_FILES if "cose" in _load_vector(f).get("expected", {})
+]
+
+COSE_NEGATIVE_FILES = [
+    f
+    for f in VECTOR_FILES
+    if "envelope_hex" in _load_vector(f)
+    and "cose" not in _load_vector(f).get("expected", {})
 ]
 
 
@@ -129,3 +140,38 @@ def test_cose_vector_encoding_is_pinned(file_name: str) -> None:
     keypair = ed25519_from_private_bytes(bytes(range(32)))
     regenerated = sign_cose_sign1(json.loads(payload.decode()), keypair)
     assert regenerated == envelope
+
+
+@pytest.mark.parametrize(
+    "file_name",
+    COSE_NEGATIVE_FILES,
+    ids=[f.removesuffix(".json") for f in COSE_NEGATIVE_FILES],
+)
+def test_cose_negative_vector_is_not_silently_unparseable(file_name: str) -> None:
+    """A negative vector must be rejected for its own reason, not by accident.
+
+    The vector schema records that a manifest is rejected, not why, so a
+    verifier could pass one of these by failing to decode the CBOR at all.
+    These vectors are built by mutating a valid envelope, so the envelope must
+    still decode as CBOR even where the mutation makes it inadmissible. This
+    asserts that, so a vector cannot degrade into "rejected because it was
+    garbage" without the suite noticing.
+    """
+    import cbor2
+
+    vector = _load_vector(file_name)
+    envelope = bytes.fromhex(vector["envelope_hex"])
+
+    # Trailing-byte vectors are deliberately undecodable past the first
+    # object, which is the property under test, so they are exempt.
+    if "Trailing bytes" in vector["description"]:
+        return
+
+    decoded = cbor2.loads(envelope)
+    body = decoded.value if isinstance(decoded, cbor2.CBORTag) else decoded
+    assert isinstance(body, (list, tuple)), (
+        f"{vector['id']}: the mutated envelope should still be a CBOR array, "
+        f"otherwise the vector tests decoder robustness rather than the rule "
+        f"it names"
+    )
+    assert len(body) == 4, f"{vector['id']}: should still be four elements"

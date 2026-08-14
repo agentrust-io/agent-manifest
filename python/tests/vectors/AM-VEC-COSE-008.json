@@ -1,0 +1,21 @@
+{
+  "id": "AM-VEC-COSE-008",
+  "description": "A detached (nil) payload is rejected; this profile is inline only.",
+  "spec_refs": [
+    "cose-envelope-v0.2 4",
+    "cose-envelope-v0.2 6"
+  ],
+  "envelope_hex": "d284586aa4013203781f6170706c69636174696f6e2f6167656e742d6d616e69666573742b6a736f6e04582056475aa75463474c0285df5dbf2bcab73da651358839e9b77481b2eab107708c10781f6170706c69636174696f6e2f6167656e742d6d616e69666573742b636f7365a0f65840819b17572c67eece4a1b20557f1d861a295c1fc3287b8a5cd1e6f93e48ec8553e22fcd94eba9ac6edfdfae0316cda3e35609637f27d2bba0bc148dc6c82b8409",
+  "context": {
+    "system_prompt_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "policy_bundle_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "model_version": "claude-3",
+    "trusted_keys": {
+      "56475aa75463474c0285df5dbf2bcab73da651358839e9b77481b2eab107708c": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+    }
+  },
+  "expected": {
+    "result": "MISMATCH",
+    "signature_verified": false
+  }
+}

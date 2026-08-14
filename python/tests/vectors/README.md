@@ -73,7 +73,49 @@ The `cose` block is the point of these vectors: an implementation must produce
 
 Only Ed25519 envelopes can be pinned this way. ML-DSA-65 signing is hedged, so
 a post-quantum or hybrid envelope differs on every run and only its structure
-is stable.
+is stable. There is deliberately no post-quantum COSE vector: one whose bytes
+changed on every regeneration would be a snapshot rather than a contract, and
+shipping a private seed for consumers to regenerate against would break the
+rule below that no private key material is written to disk.
+
+### Negative COSE vectors
+
+`AM-VEC-COSE-002` onward are envelopes a conforming verifier **must not
+accept**. They carry `envelope_hex` and an expected result, and deliberately
+**no `expected.cose` block**: the bytes are malformed by construction, so
+pinning their decomposition would assert that a verifier can parse something
+it is being told to reject.
+
+```jsonc
+{
+  "id": "AM-VEC-COSE-003",
+  "description": "alg present in the unprotected header is rejected, never read.",
+  "envelope_hex": "d284586aa401270378...",
+  "context": { ... },
+  "expected": {
+    "result": "MISMATCH",
+    "signature_verified": false
+  }
+}
+```
+
+Consume them exactly as the positive ones: decode `envelope_hex` and run your
+verifier over the bytes. The only difference is what you assert.
+
+Two properties are worth knowing before you rely on them.
+
+**They state that a manifest is rejected, not why.** Every structural
+rejection maps to `MISMATCH`, so a verifier that rejects one of these for the
+wrong reason still passes. Each vector's `description` and `spec_refs` name
+the rule actually under test, and an implementation that wants stronger
+assurance should check it rejects for that reason.
+
+**One of them expects `VALID`.** `AM-VEC-COSE-005` injects an unprotected
+header after signing, and a conforming verifier must still return `VALID`,
+because nothing in the unprotected header is covered by the signature and
+section 6 step 7 evaluates it last. A verifier that merged the two halves, or
+read `kid` from the malleable one, fails it. It is filed with the negatives
+because it tests the same rule from the other side.
 
 `context` maps field-for-field onto the SDK's `VerificationContext`, so a Python
 consumer is just `VerificationContext(**vector["context"])`. Other languages

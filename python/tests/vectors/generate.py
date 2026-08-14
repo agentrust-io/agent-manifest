@@ -38,6 +38,11 @@ from typing import Any
 import cbor2
 
 from agent_manifest._canonicalize import canonicalize
+from agent_manifest._cose import (
+    _sig_structure_sign1,
+    payload_hash,
+    sign_cose_sign1,
+)
 from agent_manifest._delegation import DelegationHopSigner
 from agent_manifest._signing import Ed25519Signer, ed25519_from_private_bytes
 
@@ -159,8 +164,6 @@ def cose_encoding_vector() -> dict[str, Any]:
     pinned this way: ML-DSA-65 signing is hedged, so the signature bytes
     differ per run and only the structure is stable.
     """
-    from agent_manifest._cose import payload_hash, sign_cose_sign1
-
     manifest = cose_manifest()
     envelope = sign_cose_sign1(manifest, KP)
     protected, unprotected, payload, signature = cbor2.loads(envelope).value
@@ -189,6 +192,165 @@ def cose_encoding_vector() -> dict[str, Any]:
             },
         },
     }
+
+
+def _cose_negative(
+    vid: str,
+    description: str,
+    spec_refs: list[str],
+    envelope: bytes,
+    expected_result: str,
+    *,
+    signature_verified: bool = False,
+) -> dict[str, Any]:
+    """A COSE vector whose envelope a conforming verifier must not accept.
+
+    Negatives carry `envelope_hex` and an expected result, and deliberately
+    not an `expected.cose` block: the bytes are malformed by construction, so
+    pinning their decomposition would assert that a verifier can parse
+    something it is being told to reject.
+
+    The schema states *that* a manifest is rejected, not *why*. A verifier
+    that rejects one of these for the wrong reason still passes. That is a
+    known limit of the current shape rather than an oversight; adding an
+    expected reason would change a published contract, so it is raised in the
+    PR rather than assumed.
+    """
+    return {
+        "id": vid,
+        "description": description,
+        "spec_refs": spec_refs,
+        "envelope_hex": envelope.hex(),
+        "context": base_context(),
+        "expected": {
+            "result": expected_result,
+            "signature_verified": signature_verified,
+        },
+    }
+
+
+def _signed_cose_parts() -> tuple[bytes, bytes, dict[Any, Any], bytes, bytes]:
+    """A valid envelope and its four decoded elements, for mutation."""
+    envelope = sign_cose_sign1(cose_manifest(), KP)
+    protected, unprotected, payload, signature = cbor2.loads(envelope).value
+    return envelope, protected, dict(unprotected), payload, signature
+
+
+def _retag(tag: int, body: list[Any]) -> bytes:
+    return cbor2.dumps(cbor2.CBORTag(tag, body), canonical=True)
+
+
+def cose_negative_vectors() -> list[dict[str, Any]]:
+    """The negative cases only this envelope can express.
+
+    The first four are named in section 9 of the envelope specification. The
+    last three are places a CBOR implementation genuinely differs, so they
+    catch cross-language divergence rather than restating v0.1 behaviour.
+    """
+    vectors: list[dict[str, Any]] = []
+    _, protected, _, payload, signature = _signed_cose_parts()
+
+    # 002: the protected header is covered by the signature, so editing it
+    # invalidates the signature even when the edit is semantically harmless.
+    # This is the case re-serialising a header to inspect it would break.
+    tampered_header = dict(cbor2.loads(protected))
+    tampered_header[7] = "injected"
+    vectors.append(_cose_negative(
+        "AM-VEC-COSE-002",
+        "A tampered protected header invalidates the signature.",
+        ["cose-envelope-v0.2 3", "cose-envelope-v0.2 6"],
+        _retag(18, [cbor2.dumps(tampered_header, canonical=True), {}, payload, signature]),
+        "MISMATCH",
+    ))
+
+    # 003: alg placed in the unprotected header, which is not covered by the
+    # signature. A verifier that reads alg from the malleable half can be told
+    # which algorithm to use by anyone who can modify the object in transit.
+    vectors.append(_cose_negative(
+        "AM-VEC-COSE-003",
+        "alg present in the unprotected header is rejected, never read.",
+        ["cose-envelope-v0.2 3", "cose-envelope-v0.2 6"],
+        _retag(18, [protected, {1: -49}, payload, signature]),
+        "MISMATCH",
+    ))
+
+    # 004: a vendor-tree alias for typ. Section 7 forbids accepting one:
+    # two valid type values for one object type is the ambiguity typ removes.
+    #
+    # The signature is computed over the aliased header rather than copied from
+    # a differently-signed object, so the signature is valid and the typ value
+    # is the only defect. Editing typ in an already-signed header would have
+    # broken the signature too, and a verifier that checked the signature and
+    # never implemented the typ rule would have passed the vector for the wrong
+    # reason.
+    aliased_header = dict(cbor2.loads(protected))
+    aliased_header[16] = "application/vnd.agent-manifest+cose"
+    aliased_protected = cbor2.dumps(aliased_header, canonical=True)
+    aliased_signature = KP.private_key.sign(
+        _sig_structure_sign1(aliased_protected, payload)
+    )
+    vectors.append(_cose_negative(
+        "AM-VEC-COSE-004",
+        (
+            "A vendor-tree typ alias is rejected. The signature over this "
+            "envelope is valid, so typ is the only defect."
+        ),
+        ["cose-envelope-v0.2 3", "cose-envelope-v0.2 7"],
+        _retag(18, [aliased_protected, {}, payload, aliased_signature]),
+        "MISMATCH",
+    ))
+
+    # 005: the positive half of the same rule. An unprotected header injected
+    # after signing MUST NOT change the verdict, because nothing in it is
+    # covered and step 7 is evaluated last. A verifier that merged the two
+    # halves, or took kid from the malleable one, would fail this.
+    vectors.append(_cose_negative(
+        "AM-VEC-COSE-005",
+        (
+            "An unprotected header injected after signing does not change the "
+            "verdict: kid is read from the protected header only."
+        ),
+        ["cose-envelope-v0.2 4.1", "cose-envelope-v0.2 6"],
+        _retag(18, [protected, {4: b"\x00" * 32}, payload, signature]),
+        "VALID",
+        signature_verified=True,
+    ))
+
+    # 006: untagged. The tag is what tells a relying party which procedure
+    # applies; inferring it from the array shape is the guess this envelope
+    # exists to remove.
+    vectors.append(_cose_negative(
+        "AM-VEC-COSE-006",
+        "An untagged COSE structure is rejected rather than inferred.",
+        ["cose-envelope-v0.2 2", "cose-envelope-v0.2 6"],
+        cbor2.dumps([protected, {}, payload, signature], canonical=True),
+        "MISMATCH",
+    ))
+
+    # 007: trailing bytes. CBOR decoders commonly stop at the end of the first
+    # object and ignore the rest, which would let one octet string carry a
+    # second manifest behind the first.
+    valid = sign_cose_sign1(cose_manifest(), KP)
+    vectors.append(_cose_negative(
+        "AM-VEC-COSE-007",
+        "Trailing bytes after the COSE object are rejected.",
+        ["cose-envelope-v0.2 6"],
+        valid + b"\x00",
+        "MISMATCH",
+    ))
+
+    # 008: detached payload. Permitted by SCITT, not by this profile, and a
+    # verifier that accepts nil here would verify a signature over bytes it
+    # never saw.
+    vectors.append(_cose_negative(
+        "AM-VEC-COSE-008",
+        "A detached (nil) payload is rejected; this profile is inline only.",
+        ["cose-envelope-v0.2 4", "cose-envelope-v0.2 6"],
+        _retag(18, [protected, {}, None, signature]),
+        "MISMATCH",
+    ))
+
+    return vectors
 
 
 def _vector(
@@ -437,6 +599,7 @@ def build() -> list[dict[str, Any]]:
 
     # --- version 0.2, COSE envelope (ADR-0011, issue #243) -----------------
     vectors.append(cose_encoding_vector())
+    vectors.extend(cose_negative_vectors())
 
     return vectors
 

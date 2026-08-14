@@ -112,6 +112,41 @@
       "id": "AM-VEC-COSE-001",
       "file": "AM-VEC-COSE-001.json",
       "description": "COSE_Sign1 encoding is pinned byte-for-byte: CBOR tag 18, a four-element array, and a zero-length unprotected header map before any receipt is attached."
+    },
+    {
+      "id": "AM-VEC-COSE-002",
+      "file": "AM-VEC-COSE-002.json",
+      "description": "A tampered protected header invalidates the signature."
+    },
+    {
+      "id": "AM-VEC-COSE-003",
+      "file": "AM-VEC-COSE-003.json",
+      "description": "alg present in the unprotected header is rejected, never read."
+    },
+    {
+      "id": "AM-VEC-COSE-004",
+      "file": "AM-VEC-COSE-004.json",
+      "description": "A vendor-tree typ alias is rejected. The signature over this envelope is valid, so typ is the only defect."
+    },
+    {
+      "id": "AM-VEC-COSE-005",
+      "file": "AM-VEC-COSE-005.json",
+      "description": "An unprotected header injected after signing does not change the verdict: kid is read from the protected header only."
+    },
+    {
+      "id": "AM-VEC-COSE-006",
+      "file": "AM-VEC-COSE-006.json",
+      "description": "An untagged COSE structure is rejected rather than inferred."
+    },
+    {
+      "id": "AM-VEC-COSE-007",
+      "file": "AM-VEC-COSE-007.json",
+      "description": "Trailing bytes after the COSE object are rejected."
+    },
+    {
+      "id": "AM-VEC-COSE-008",
+      "file": "AM-VEC-COSE-008.json",
+      "description": "A detached (nil) payload is rejected; this profile is inline only."
     }
   ]
 }
