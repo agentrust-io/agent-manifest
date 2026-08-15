@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Added
+
+- **[SDK]** `parse_tpm_attest()` now exposes the common signed `TPMS_ATTEST`
+  header and opaque union payload, while `parse_tpm_nv_certify()` enforces the
+  signed type and parses the `TPMS_NV_CERTIFY_INFO` carried by
+  `TPM2_NV_Certify`. This lets cMCP retire its remaining local NV-certify wire
+  parser. Size-prefixed attestations now reject undeclared trailing bytes.
+
 ### Security
 
 - `verify_manifest()` now fails closed when a core identity, validity, or artifact-container claim is missing. A valid signature no longer turns such a structurally incomplete object into a `VALID` manifest; legacy v0.1 issuer omission remains compatible unless issuer authorization is configured.
