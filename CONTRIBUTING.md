@@ -80,7 +80,7 @@ Spec changes follow this process:
 
 1. Open a GitHub issue describing the problem and proposed change. Reference the spec section.
 2. Allow 5 business days for design-partner feedback.
-3. Submit a PR to `spec/agent-manifest-spec-v0.1.md` with the change marked using `<!-- CHANGED: ISSUE-NNN — description -->`.
+3. Submit a PR against the [current specification](spec/README.md) with the change marked using `<!-- CHANGED: ISSUE-NNN — description -->`.
 4. Update conformance tests in `python/tests/` to cover the changed normative text.
 5. Update `CHANGELOG.md`.
 
