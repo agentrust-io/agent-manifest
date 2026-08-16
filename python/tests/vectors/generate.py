@@ -29,6 +29,7 @@ behaviour changes, and review the diff.
 """
 from __future__ import annotations
 
+import base64
 import copy
 import hashlib
 import json
@@ -52,7 +53,11 @@ from agent_manifest._cose import (
     sign_cose_sign1,
 )
 from agent_manifest._delegation import DelegationHopSigner
-from agent_manifest._signing import Ed25519Signer, ed25519_from_private_bytes
+from agent_manifest._signing import (
+    Ed25519Signer,
+    ed25519_from_private_bytes,
+    signing_pre_image,
+)
 
 HERE = Path(__file__).parent
 
@@ -200,6 +205,25 @@ def cose_encoding_vector() -> dict[str, Any]:
             },
         },
     }
+
+
+def _detached_signature_is_valid(manifest: dict[str, Any]) -> bool:
+    """The ``signature_valid`` counterpart for a v0.1 detached signature block.
+
+    Same meaning as :func:`_signature_is_valid`, over the pre-image the v0.1
+    envelope signs rather than an RFC 9052 Sig_structure. Only AM-VEC-COSE-014
+    needs it, because it is the one COSE-series vector whose subject is a
+    manifest document.
+    """
+    block = manifest.get("signature")
+    if not block:
+        return False
+    try:
+        raw = base64.urlsafe_b64decode(block["signature_value"] + "====")
+        KP.public_key.verify(raw, signing_pre_image(manifest))
+    except Exception:
+        return False
+    return True
 
 
 def _signature_is_valid(envelope: bytes) -> bool:
@@ -531,6 +555,7 @@ def cose_negative_vectors() -> list[dict[str, Any]]:
     # MISMATCH rather than INCOMPATIBLE_VERSION, deliberately. The verifier
     # supports 0.2; what it will not do is verify 0.2 here. Reporting an
     # unsupported version would state something untrue about its capabilities.
+    fallback = base_manifest(version="0.2")
     vectors.append({
         "id": "AM-VEC-COSE-014",
         "description": (
@@ -539,7 +564,12 @@ def cose_negative_vectors() -> list[dict[str, Any]]:
             "supported; the envelope is the defect."
         ),
         "spec_refs": ["cose-envelope-v0.2 6", "2.4"],
-        "manifest": base_manifest(version="0.2"),
+        "manifest": fallback,
+        # Carried for the same reason as on every other negative, over the
+        # pre-image this envelope signs rather than a Sig_structure. Without it
+        # a verifier could pass the vector by rejecting the signature and never
+        # reaching the version rule.
+        "signature_valid": _detached_signature_is_valid(fallback),
         "context": base_context(),
         "expected": {
             "result": "MISMATCH",

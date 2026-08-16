@@ -130,6 +130,23 @@ COSE_NEGATIVE_FILES = [
     and "cose" not in _load_vector(f).get("expected", {})
 ]
 
+# Every COSE-series negative, selected by id rather than by the presence of the
+# key under test, so a vector that forgets to declare signature_valid fails
+# instead of quietly dropping out of the check.
+#
+# The membership rule is "in the COSE series and not the positive encoding
+# vector". That pulls in AM-VEC-COSE-014, whose subject is a manifest document
+# rather than an envelope because the rule it tests is that such a document
+# must not be accepted outside a COSE envelope. It still has to declare and
+# justify signature_valid, so it belongs here even though it is not in
+# COSE_NEGATIVE_FILES.
+COSE_SIGNED_NEGATIVE_FILES = [
+    f
+    for f in VECTOR_FILES
+    if f.startswith("AM-VEC-COSE-")
+    and "cose" not in _load_vector(f).get("expected", {})
+]
+
 
 @pytest.mark.parametrize(
     "file_name", COSE_VECTOR_FILES, ids=[f.removesuffix(".json") for f in COSE_VECTOR_FILES]
@@ -211,8 +228,8 @@ def test_cose_negative_vector_is_not_silently_unparseable(file_name: str) -> Non
 
 @pytest.mark.parametrize(
     "file_name",
-    COSE_NEGATIVE_FILES,
-    ids=[f.removesuffix(".json") for f in COSE_NEGATIVE_FILES],
+    COSE_SIGNED_NEGATIVE_FILES,
+    ids=[f.removesuffix(".json") for f in COSE_SIGNED_NEGATIVE_FILES],
 )
 def test_cose_negative_vector_declares_whether_its_signature_is_valid(
     file_name: str,
@@ -247,15 +264,18 @@ def test_cose_negative_vector_declares_whether_its_signature_is_valid(
 
 @pytest.mark.parametrize(
     "file_name",
-    COSE_NEGATIVE_FILES,
-    ids=[f.removesuffix(".json") for f in COSE_NEGATIVE_FILES],
+    COSE_SIGNED_NEGATIVE_FILES,
+    ids=[f.removesuffix(".json") for f in COSE_SIGNED_NEGATIVE_FILES],
 )
 def test_cose_negative_vector_signature_claim_is_true(file_name: str) -> None:
     """Re-derive ``signature_valid`` the way a foreign implementation would.
 
-    Using only the public key published in ``keys.json`` and the RFC 9052
-    Sig_structure, so the claim is checked against the bytes on disk rather
-    than trusted from the generator that wrote them.
+    Using only the public key published in ``keys.json``, so the claim is
+    checked against the bytes on disk rather than trusted from the generator
+    that wrote them. Which pre-image applies follows the envelope the vector
+    carries: the RFC 9052 Sig_structure for an ``envelope_hex`` vector, and the
+    RFC 8785 signing pre-image for AM-VEC-COSE-014, whose subject is a manifest
+    document with a v0.1 detached signature block.
     """
     import base64
 
@@ -264,22 +284,32 @@ def test_cose_negative_vector_signature_claim_is_true(file_name: str) -> None:
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
     from agent_manifest._cose import _sig_structure_sign1
+    from agent_manifest._signing import signing_pre_image
 
     vector = _load_vector(file_name)
     keys = json.loads((VECTORS_DIR / "keys.json").read_text())
     raw = base64.urlsafe_b64decode(keys["public_key_b64url"] + "=" * 4)
     public_key = Ed25519PublicKey.from_public_bytes(raw)
 
-    decoded = cbor2.loads(bytes.fromhex(vector["envelope_hex"]))
-    body = decoded.value if isinstance(decoded, cbor2.CBORTag) else decoded
-    protected, _unprotected, payload, signature = body
-
-    if payload is None:
-        assert vector["signature_valid"] is False, vector["id"]
-        return
+    if "envelope_hex" in vector:
+        decoded = cbor2.loads(bytes.fromhex(vector["envelope_hex"]))
+        body = decoded.value if isinstance(decoded, cbor2.CBORTag) else decoded
+        protected, _unprotected, payload, signature = body
+        if payload is None:
+            assert vector["signature_valid"] is False, vector["id"]
+            return
+        pre_image = _sig_structure_sign1(protected, payload)
+    else:
+        manifest = vector["manifest"]
+        block = manifest["signature"]
+        assert block["key_id"] == keys["key_id"], (
+            f"{vector['id']}: signed by a key other than the published one"
+        )
+        signature = base64.urlsafe_b64decode(block["signature_value"] + "=" * 4)
+        pre_image = signing_pre_image(manifest)
 
     try:
-        public_key.verify(signature, _sig_structure_sign1(protected, payload))
+        public_key.verify(signature, pre_image)
         verifies = True
     except InvalidSignature:
         verifies = False

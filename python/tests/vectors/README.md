@@ -112,12 +112,17 @@ the rule actually under test, and an implementation that wants stronger
 assurance should check it rejects for that reason.
 
 **`signature_valid` tells you whether the signature is the reason.** Where it
-is `true`, the Ed25519 signature over the RFC 9052 `Sig_structure` verifies
-under the published key, so a verifier cannot pass the vector by rejecting a
-broken signature and never reaching the rule the vector names. Every negative
-declares it. Two are `false`, both by design: `AM-VEC-COSE-002` tampers with
-the protected header, which is the rule under test, and `AM-VEC-COSE-008` has
-a nil payload, so there is no `Sig_structure` to verify over.
+is `true`, the signature verifies under the published key, so a verifier cannot
+pass the vector by rejecting a broken signature and never reaching the rule the
+vector names. Every negative declares it, and a test re-derives it from the
+bytes on disk rather than trusting the generator. Which pre-image applies
+follows the envelope: the RFC 9052 `Sig_structure` for an `envelope_hex`
+vector, and the RFC 8785 signing pre-image for `AM-VEC-COSE-014`, whose subject
+is a manifest document with a v0.1 detached signature block.
+
+Two are `false`, both by design: `AM-VEC-COSE-002` tampers with the protected
+header, which is the rule under test, and `AM-VEC-COSE-008` has a nil payload,
+so there is no `Sig_structure` to verify over.
 
 Note that `signature_valid` is a fact about the bytes and
 `expected.signature_verified` is what your verifier should report. They differ
