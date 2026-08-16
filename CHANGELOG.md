@@ -4,6 +4,12 @@
 
 ### Added
 
+- **[SDK]** `parse_tpm_attest()` now exposes the common signed `TPMS_ATTEST`
+  header and opaque union payload, while `parse_tpm_nv_certify()` enforces the
+  signed type and parses the `TPMS_NV_CERTIFY_INFO` carried by
+  `TPM2_NV_Certify`. This lets cMCP retire its remaining local NV-certify wire
+  parser. Size-prefixed attestations now reject undeclared trailing bytes.
+
 **[SDK] `AM-VEC-COSE-002` … `AM-VEC-COSE-015` publish the COSE negative conformance vectors.** Fourteen cases a conforming verifier must not accept, covering the protected/unprotected header split, CBOR tagging and framing, payload presence, the issuer authorization boundary, the two JSON parser divergences RFC 8259 leaves open (duplicate member names, non-finite numbers), version routing in both directions, and the payload depth bound. `011` and `015` are a pair: #243 records `NaN` and `Infinity` as one class of defect, but they are not one code path in every parser, so a verifier that special-cases `NaN` passes the first and fails the second. They complete the portable contract other-language SDKs are written against: until now the suite proved an implementation could accept a valid envelope, not that it rejected an invalid one.
 
 `AM-VEC-COSE-014` is the reverse of `012` and the reason the version gate is described as bidirectional: a v0.2 manifest must not fall back to the v0.1 detached signature block, because a one-way gate is not a gate. It expects `MISMATCH` rather than `INCOMPATIBLE_VERSION`, since the verifier does support 0.2 and reporting otherwise would state something untrue about its capabilities.

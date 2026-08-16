@@ -61,8 +61,10 @@ from ._tdx_verify import (
     parse_tdx_quote, parse_tdx_quote_signature, verify_tdx_quote,
 )
 from ._tpm_verify import (
-    TpmQuote, TpmVerificationError, ParsedSignature,
-    parse_tpm_quote, parse_tpmt_signature, verify_tpm_quote,
+    TPM_ST_ATTEST_NV, NvCertifyInfo, ParsedSignature, TpmAttest, TpmNvCertify, TpmQuote,
+    TpmVerificationError,
+    parse_nv_certify_info, parse_tpm_attest, parse_tpm_nv_certify, parse_tpm_quote,
+    parse_tpmt_signature, verify_tpm_quote,
 )
 from ._verify import (
     verify_manifest,
@@ -133,7 +135,8 @@ __all__ = [
     "verify_cert_chain", "CertChainError",
     "TdxQuote", "TdxQuoteSignature", "TdxVerificationError",
     "parse_tdx_quote", "parse_tdx_quote_signature", "verify_tdx_quote",
-    "TpmQuote", "TpmVerificationError", "ParsedSignature",
+    "TPM_ST_ATTEST_NV", "NvCertifyInfo", "ParsedSignature", "TpmAttest", "TpmNvCertify", "TpmQuote",
+    "TpmVerificationError", "parse_nv_certify_info", "parse_tpm_attest", "parse_tpm_nv_certify",
     "parse_tpm_quote", "parse_tpmt_signature", "verify_tpm_quote",
     "verify_manifest", "verify_runtime_report",
     "VerificationContext", "VerificationResult",
