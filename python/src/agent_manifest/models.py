@@ -54,6 +54,27 @@ class ModelAttestationType(str, Enum):
     provider_asserted = "provider-asserted"
 
 
+class ManifestProfile(str, Enum):
+    """The assurance scope of an Agent Manifest (spec Section 3.1)."""
+
+    composition_only = "composition-only"
+
+
+class ArtifactName(str, Enum):
+    """Names that may be declared outside a composition-only binding."""
+
+    system_prompt = "system_prompt"
+    policy_bundle = "policy_bundle"
+    tool_manifest = "tool_manifest"
+    model_identity = "model_identity"
+    rag_corpus = "rag_corpus"
+    memory_baseline = "memory_baseline"
+    decision_trace = "decision_trace"
+    delegation_chain = "delegation_chain"
+    supply_chain = "supply_chain"
+    hitl_record = "hitl_record"
+
+
 class MemoryType(str, Enum):
     none = "none"
     session = "session"
@@ -632,10 +653,10 @@ class HitlRecord(SpecModel):
 class ArtifactBindings(SpecModel):
     """Container for the 8 artifact bindings that live under `artifacts`."""
 
-    system_prompt: SystemPromptBinding
-    policy_bundle: PolicyBundleBinding
+    system_prompt: Optional[SystemPromptBinding] = None
+    policy_bundle: Optional[PolicyBundleBinding] = None
     tool_manifest: Optional[ToolManifestBinding] = None
-    model_identity: ModelIdentityBinding
+    model_identity: Optional[ModelIdentityBinding] = None
     rag_corpus: Optional[RagCorpusBinding] = None
     memory_baseline: Optional[MemoryBaselineBinding] = None
     decision_trace: Optional[DecisionTraceBinding] = None
@@ -706,6 +727,10 @@ class Manifest(SpecModel):
     expires_at: datetime
     issuer: str  # SPIFFE URI of signing authority
     crypto_profile: CryptoProfile = CryptoProfile.standard
+    # Absent means the original full-binding manifest profile. Keeping the
+    # default absent preserves the signing bytes of every existing manifest.
+    profile: Optional[ManifestProfile] = None
+    unbound_artifacts: Optional[list[ArtifactName]] = None
     artifacts: ArtifactBindings
     # attestation is appended by the TEE at launch - excluded from signature pre-image
     attestation: Optional[dict[str, Any]] = None
@@ -735,6 +760,61 @@ class Manifest(SpecModel):
             raise ValueError("expires_at must be at least 1 hour after issued_at")
         if delta > timedelta(days=365):
             raise ValueError("expires_at must not be more than 365 days after issued_at")
+        return self
+
+    @model_validator(mode="after")
+    def _validate_manifest_profile(self) -> "Manifest":
+        nested_names = {
+            "system_prompt",
+            "policy_bundle",
+            "tool_manifest",
+            "model_identity",
+            "rag_corpus",
+            "memory_baseline",
+            "decision_trace",
+            "supply_chain",
+        }
+        bound = {
+            name for name in nested_names if getattr(self.artifacts, name) is not None
+        }
+        if self.delegation_chain is not None:
+            bound.add("delegation_chain")
+        if self.hitl_record is not None:
+            bound.add("hitl_record")
+
+        if self.profile is None:
+            if self.unbound_artifacts is not None:
+                raise ValueError(
+                    "unbound_artifacts is only valid when profile is 'composition-only'"
+                )
+            required = {"system_prompt", "policy_bundle", "model_identity"}
+            missing = sorted(required - bound)
+            if missing:
+                raise ValueError(
+                    "full-binding manifest is missing required artifacts: "
+                    + ", ".join(missing)
+                )
+            return self
+
+        declared = [name.value for name in self.unbound_artifacts or []]
+        if not declared:
+            raise ValueError(
+                "unbound_artifacts must be non-empty for profile 'composition-only'"
+            )
+        if len(declared) != len(set(declared)):
+            raise ValueError("unbound_artifacts must not contain duplicates")
+        overlap = sorted(bound & set(declared))
+        if overlap:
+            raise ValueError(
+                "artifacts cannot be both bound and declared unbound: "
+                + ", ".join(overlap)
+            )
+        undeclared = sorted({name.value for name in ArtifactName} - bound - set(declared))
+        if undeclared:
+            raise ValueError(
+                "composition-only manifest omits artifacts without declaring them unbound: "
+                + ", ".join(undeclared)
+            )
         return self
 
     @model_validator(mode="after")

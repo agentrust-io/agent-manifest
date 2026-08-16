@@ -60,6 +60,29 @@ print(sig_block["algorithm"])   # Ed25519
 print(sig_block["key_id"])      # sha256:<hex>
 ```
 
+### Composition-only manifests
+
+Repository scanners can bind the artifacts they know before a model or runtime
+session exists. Set `profile="composition-only"` and explicitly name every
+artifact not bound by the document in `unbound_artifacts`. The verifier returns
+`INCOMPLETE`, not `VALID`, so this narrower document cannot be mistaken for a
+Level 0 agent manifest. Both fields are signature-covered.
+
+```python
+manifest = Manifest(
+    # identity, validity, issuer, and crypto fields omitted here for brevity
+    profile="composition-only",
+    unbound_artifacts=[
+        "tool_manifest", "model_identity", "rag_corpus", "memory_baseline",
+        "decision_trace", "delegation_chain", "supply_chain", "hitl_record",
+    ],
+    artifacts=ArtifactBindings(
+        system_prompt=system_prompt_binding,
+        policy_bundle=policy_bundle_binding,
+    ),
+)
+```
+
 ## The 10 Attested Artifacts
 
 | # | Artifact | What it proves |

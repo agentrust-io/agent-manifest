@@ -316,6 +316,8 @@ def test_signed_fields_match_spec_coverage_table():
         "expires_at",
         "issuer",
         "crypto_profile",
+        "profile",
+        "unbound_artifacts",
         "artifacts",
         "delegation_chain",
         "hitl_record",

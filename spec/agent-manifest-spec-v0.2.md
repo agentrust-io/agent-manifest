@@ -198,6 +198,8 @@ An Agent Manifest is a JSON-LD document conforming to the following schema. All 
   "expires_at": "<string, ISO 8601 UTC - REQUIRED, default issued_at + 90 days>",
   "issuer": "<string, SPIFFE URI of signing authority - REQUIRED>",
   "crypto_profile": "<string, 'standard' | 'post-quantum' - REQUIRED>",
+  "profile": "<string, 'composition-only' - OPTIONAL; absence means full binding>",
+  "unbound_artifacts": "<non-empty array of artifact names - REQUIRED for composition-only>",
   "artifacts": "<object - REQUIRED, see section 3.2>",
   "attestation": "<object - REQUIRED for Level 1+, see section 3.3>",
   "delegation_chain": "<array - REQUIRED if agent is spawned by another agent, see section 3.4>",
@@ -220,6 +222,8 @@ Field cardinality table
 | `expires_at` | string (ISO 8601 UTC) | REQUIRED | Default: `issued_at` + 90 days. MUST NOT be more than 365 days after `issued_at` for Level 1+. MUST NOT be less than 1 hour after `issued_at`. |
 | `issuer` | string (SPIFFE URI) | REQUIRED | |
 | `crypto_profile` | string enum | REQUIRED | `"standard"` or `"post-quantum"`. |
+| `profile` | string enum | OPTIONAL | `"composition-only"`. Absence preserves the full-binding behavior defined before this field existed. |
+| `unbound_artifacts` | array of artifact-name strings | CONDITIONALLY REQUIRED | REQUIRED and non-empty for `composition-only`; otherwise MUST be absent. |
 | `artifacts` | object | REQUIRED | |
 | `attestation` | object | REQUIRED for Level 1+ | MUST be omitted (not null) at Level 0. |
 | `delegation_chain` | array | CONDITIONALLY REQUIRED | REQUIRED when agent is spawned by another agent. Empty array is invalid - omit the field entirely if no delegation. |
@@ -258,6 +262,33 @@ Artifact-to-field mapping (for Level 2 "all 10 artifacts bound" conformance):
 | 10 | HITL Approvals | `hitl_record` (top-level object) |
 
 For Level 2, "all 10 artifacts bound" means artifacts 1-7 and 9 MUST be present in `artifacts`; `delegation_chain` MUST be a non-empty array if the agent is spawned by another agent; and `hitl_record.required` MUST be `true` with at least one approval present.
+
+#### 3.1.1 Composition-only profile
+
+A repository, policy gate, or marketplace scanner can know the composition it contributes before
+a model or execution session exists. Such a producer MAY issue a manifest with
+`profile: "composition-only"`. This profile authenticates a contribution to a future agent; it
+does not describe an agent instance and is not eligible for conformance Level 0 or above. A
+verifier that otherwise authenticates it MUST return `INCOMPLETE`, while still returning the
+per-artifact verification results it was able to compute.
+
+`unbound_artifacts` MUST be present and non-empty on a composition-only manifest. Its values are
+the ten artifact field names in the mapping above:
+`system_prompt`, `policy_bundle`, `tool_manifest`, `model_identity`, `rag_corpus`,
+`memory_baseline`, `decision_trace`, `delegation_chain`, `supply_chain`, and `hitl_record`.
+Every artifact not present in the manifest MUST be named in `unbound_artifacts`, and an artifact
+MUST NOT be both present and named as unbound. Values MUST NOT repeat. A verifier MUST reject an
+omission that is not declared and a bound/unbound contradiction as a schema mismatch.
+
+For each declared name, the verification result MUST be `NOT_BOUND`. `NOT_BOUND` says only that
+this manifest deliberately makes no claim about that artifact; it MUST NOT be interpreted as a
+match, a measured zero, or permission to run without the artifact. A later full manifest can bind
+the completed agent instance.
+
+Both `profile` and `unbound_artifacts` are in the signing pre-image. A party that removes the
+profile, narrows the unbound list, or rewrites its entries after issuance MUST invalidate the
+signature. When `profile` is absent, `unbound_artifacts` MUST also be absent and the original
+full-binding cardinality rules apply, preserving all existing manifests and signatures.
 
 ### 3.2 Artifact Bindings
 
@@ -862,7 +893,7 @@ Each `approval_signature` is produced by the approver's hardware-backed key (FID
   "key_id": "<key identifier>  -- REQUIRED",
   "key_type": "software | hsm | tee-sealed  -- REQUIRED",
   "signed_at": "<ISO 8601 UTC>  -- REQUIRED",
-  "signed_fields": ["@context", "@type", "manifest_id", "previous_manifest_id", "agent_id", "version", "min_verifier_version", "issued_at", "expires_at", "issuer", "crypto_profile", "artifacts", "delegation_chain", "hitl_record", "prior_transparency_log_entry", "log_retention", "data_scope", "operational_lifecycle"],
+  "signed_fields": ["@context", "@type", "manifest_id", "previous_manifest_id", "agent_id", "version", "min_verifier_version", "issued_at", "expires_at", "issuer", "crypto_profile", "profile", "unbound_artifacts", "artifacts", "delegation_chain", "hitl_record", "prior_transparency_log_entry", "log_retention", "data_scope", "operational_lifecycle", "intent"],
   "signature_value": "<base64url-encoded signature over RFC 8785 canonical JSON>  -- CONDITIONALLY REQUIRED: REQUIRED when algorithm is Ed25519 or ML-DSA-65",
   "classical_signature": "<base64url-encoded Ed25519 signature>  -- CONDITIONALLY REQUIRED: REQUIRED when algorithm is hybrid-Ed25519-ML-DSA-65",
   "pq_signature": "<base64url-encoded ML-DSA-65 signature>  -- CONDITIONALLY REQUIRED: REQUIRED when algorithm is hybrid-Ed25519-ML-DSA-65"
@@ -886,6 +917,8 @@ Signing coverage table (normative)
 | `expires_at` | Signed | |
 | `issuer` | Signed | |
 | `crypto_profile` | Signed | |
+| `profile` | Signed | Prevents stripping the `composition-only` limitation. |
+| `unbound_artifacts` | Signed | Prevents rewriting which artifacts the issuer explicitly did not bind. |
 | `artifacts` | Signed | |
 | `attestation` | NOT signed | Appended post-signing by hardware (section 3.3). |
 | `delegation_chain` | Signed | |

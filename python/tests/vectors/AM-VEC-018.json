@@ -45,6 +45,8 @@
         "expires_at",
         "issuer",
         "crypto_profile",
+        "profile",
+        "unbound_artifacts",
         "artifacts",
         "delegation_chain",
         "hitl_record",
@@ -57,7 +59,7 @@
     },
     "attestation": {
       "platform": "tpm",
-      "manifest_hash_in_report": "sha256:74fec66926f25b3c0c7b03ed3435980c566707858338ec9c82adee693ececeff"
+      "manifest_hash_in_report": "sha256:389c9ba921ce8f49f4ceb3f01854a0883b74c390196a9accc4787f7f541611dd"
     }
   },
   "context": {

@@ -829,8 +829,13 @@ def verify_manifest(
     elif fields.delegation_chain == DelegationResult.UNVERIFIABLE:
         result.result = OverallResult.UNVERIFIABLE
     elif OverallResult.VALID == result.result:
+        # A composition-only document authenticates a contribution to a future
+        # agent, not a complete agent instance. INCOMPLETE is deliberate: it
+        # can be verified and inspected but cannot be mistaken for Level 0.
+        if manifest.get("profile") == "composition-only":
+            result.result = OverallResult.INCOMPLETE
         # VERIFY-001: bound artifacts with no runtime hashes in strict mode
-        if context.strict_artifact_verification and unverified_bound:
+        elif context.strict_artifact_verification and unverified_bound:
             result.result = OverallResult.INCOMPLETE
         elif context.enforce_attestation and not result.attestation_verified:
             result.result = OverallResult.ATTESTATION_UNAVAILABLE

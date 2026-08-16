@@ -4,6 +4,12 @@
 
 ### Added
 
+
+- **[SPEC][SDK]** Added the signed `composition-only` profile for repository and
+  pre-execution manifests. Every omitted artifact must be named in
+  `unbound_artifacts`; overlap and undeclared omissions fail closed. These
+  documents verify as `INCOMPLETE` and cannot claim Level 0 or above.
+
 - **[SDK]** `parse_tpm_attest()` now exposes the common signed `TPMS_ATTEST`
   header and opaque union payload, while `parse_tpm_nv_certify()` enforces the
   signed type and parses the `TPMS_NV_CERTIFY_INFO` carried by
@@ -21,10 +27,9 @@ Each negative carries `signature_valid`, recording whether the Ed25519 signature
 `AM-VEC-COSE-009` is byte-identical to `AM-VEC-COSE-001` and differs only in `context.trusted_key_issuers`. Nothing about the object explains the rejection, so a verifier that stops at "the signature verifies under a trusted key" returns `VALID` and has no authorization boundary at all.
 
 ### Fixed
-
 - The committed conformance vectors are now diffed against a fresh in-memory regeneration by the test suite, so a vector edited by hand, or a generator change made without regenerating, fails CI rather than shipping as a contract nobody can reproduce.
 
-- The v0.1 vectors had been stale since `intent` joined `SIGNED_FIELDS` in 0.11.0: nineteen of them published a `signature.signed_fields` list that omitted it, and `AM-VEC-018` carried the `manifest_hash_in_report` that followed from the shorter list. No signature or expected result changes, because none of these manifests declares an `intent` and `signing_pre_image` omits absent fields, so the signed bytes are identical either way. What was wrong is what the suite told other languages to build their pre-image from. The regeneration test above is what surfaced it, and is what stops it recurring.
+- The vectors had been stale since `intent` joined `SIGNED_FIELDS` in 0.11.0, and again when `profile` and `unbound_artifacts` joined it in #306: they published a `signature.signed_fields` list omitting those fields, and `AM-VEC-018` carried the `manifest_hash_in_report` that followed from the shorter list. No signature or expected result changes, because none of these manifests declares an `intent` and `signing_pre_image` omits absent fields, so the signed bytes are identical either way. What was wrong is what the suite told other languages to build their pre-image from. The regeneration test above is what surfaced it, and is what stops it recurring.
 
 ### Security
 

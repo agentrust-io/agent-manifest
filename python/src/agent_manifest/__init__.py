@@ -15,7 +15,8 @@ from .models import (
     RugPullPolicy, TraceType, SbomFormat, SlsaLevel, PoisoningResult,
     ApprovalMethod, ApproverIdentityType, PrincipalType, DataClassification,
     CryptoProfile, SignatureAlgorithm, KeyType, RiskTier,
-    ModelAttestationType, OverrideMechanism, TimeoutAction,
+    ModelAttestationType, ManifestProfile, ArtifactName,
+    OverrideMechanism, TimeoutAction,
 )
 from ._types import HashValue, ManifestId
 from ._canonicalize import canonicalize, canonical_hash
@@ -108,7 +109,8 @@ __all__ = [
     "RugPullPolicy", "TraceType", "SbomFormat", "SlsaLevel", "PoisoningResult",
     "ApprovalMethod", "ApproverIdentityType", "PrincipalType", "DataClassification",
     "CryptoProfile", "SignatureAlgorithm", "KeyType", "RiskTier",
-    "ModelAttestationType", "OverrideMechanism", "TimeoutAction",
+    "ModelAttestationType", "ManifestProfile", "ArtifactName",
+    "OverrideMechanism", "TimeoutAction",
     "HashValue", "ManifestId",
     "canonicalize", "canonical_hash",
     "SIGNED_FIELDS", "signing_pre_image", "intent_hash",
