@@ -318,6 +318,7 @@ def test_signed_fields_match_spec_coverage_table():
         "crypto_profile",
         "profile",
         "unbound_artifacts",
+        "source_bundle",
         "artifacts",
         "delegation_chain",
         "hitl_record",

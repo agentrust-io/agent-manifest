@@ -60,6 +60,12 @@ class ManifestProfile(str, Enum):
     composition_only = "composition-only"
 
 
+class SourceBundleFormat(str, Enum):
+    """Packaging formats a signed manifest can bind as its source."""
+
+    agent_plugins_1_0_0 = "agent-plugins-1.0.0"
+
+
 class ArtifactName(str, Enum):
     """Names that may be declared outside a composition-only binding."""
 
@@ -392,6 +398,13 @@ class OperationalLifecycle(SpecModel):
     planned_maintenance_schedule: Optional[str] = None
     update_policy: Optional[str] = None
     reissuance_triggers: list[str] = Field(default_factory=list)
+
+
+class SourceBundleBinding(SpecModel):
+    """Signed binding to the package from which this manifest was derived."""
+
+    format: SourceBundleFormat
+    digest: HashValue
 
 
 # ---------------------------------------------------------------------------
@@ -731,6 +744,7 @@ class Manifest(SpecModel):
     # default absent preserves the signing bytes of every existing manifest.
     profile: Optional[ManifestProfile] = None
     unbound_artifacts: Optional[list[ArtifactName]] = None
+    source_bundle: Optional[SourceBundleBinding] = None
     artifacts: ArtifactBindings
     # attestation is appended by the TEE at launch - excluded from signature pre-image
     attestation: Optional[dict[str, Any]] = None

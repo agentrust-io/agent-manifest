@@ -200,6 +200,7 @@ An Agent Manifest is a JSON-LD document conforming to the following schema. All 
   "crypto_profile": "<string, 'standard' | 'post-quantum' - REQUIRED>",
   "profile": "<string, 'composition-only' - OPTIONAL; absence means full binding>",
   "unbound_artifacts": "<non-empty array of artifact names - REQUIRED for composition-only>",
+  "source_bundle": "<object - OPTIONAL, signed package binding; see section 3.1.2>",
   "artifacts": "<object - REQUIRED, see section 3.2>",
   "attestation": "<object - REQUIRED for Level 1+, see section 3.3>",
   "delegation_chain": "<array - REQUIRED if agent is spawned by another agent, see section 3.4>",
@@ -224,6 +225,7 @@ Field cardinality table
 | `crypto_profile` | string enum | REQUIRED | `"standard"` or `"post-quantum"`. |
 | `profile` | string enum | OPTIONAL | `"composition-only"`. Absence preserves the full-binding behavior defined before this field existed. |
 | `unbound_artifacts` | array of artifact-name strings | CONDITIONALLY REQUIRED | REQUIRED and non-empty for `composition-only`; otherwise MUST be absent. |
+| `source_bundle` | object | OPTIONAL | Signed format identifier and digest of the package from which this manifest was derived. |
 | `artifacts` | object | REQUIRED | |
 | `attestation` | object | REQUIRED for Level 1+ | MUST be omitted (not null) at Level 0. |
 | `delegation_chain` | array | CONDITIONALLY REQUIRED | REQUIRED when agent is spawned by another agent. Empty array is invalid - omit the field entirely if no delegation. |
@@ -289,6 +291,26 @@ Both `profile` and `unbound_artifacts` are in the signing pre-image. A party tha
 profile, narrows the unbound list, or rewrites its entries after issuance MUST invalidate the
 signature. When `profile` is absent, `unbound_artifacts` MUST also be absent and the original
 full-binding cardinality rules apply, preserving all existing manifests and signatures.
+
+#### 3.1.2 Source bundle binding
+
+`source_bundle` binds the package from which a manifest was derived. It has exactly two fields:
+
+```json
+{
+  "format": "agent-plugins-1.0.0",
+  "digest": "sha256:<64 lowercase hex characters>"
+}
+```
+
+`format` identifies the digest profile, not merely a media type. This version defines
+`agent-plugins-1.0.0`, whose digest algorithm is specified in section 6.5.3. `digest` MUST be a
+valid `HashValue`. A verifier MUST reject an unknown format rather than applying a familiar
+digest algorithm to unfamiliar package semantics.
+
+`source_bundle` is in the signing pre-image. It attests which package supplied the pre-execution
+composition; it does not assert that every runtime artifact was resolved from that package. The
+individual artifact bindings continue to state what was actually bound.
 
 ### 3.2 Artifact Bindings
 
@@ -893,7 +915,7 @@ Each `approval_signature` is produced by the approver's hardware-backed key (FID
   "key_id": "<key identifier>  -- REQUIRED",
   "key_type": "software | hsm | tee-sealed  -- REQUIRED",
   "signed_at": "<ISO 8601 UTC>  -- REQUIRED",
-  "signed_fields": ["@context", "@type", "manifest_id", "previous_manifest_id", "agent_id", "version", "min_verifier_version", "issued_at", "expires_at", "issuer", "crypto_profile", "profile", "unbound_artifacts", "artifacts", "delegation_chain", "hitl_record", "prior_transparency_log_entry", "log_retention", "data_scope", "operational_lifecycle", "intent"],
+  "signed_fields": ["@context", "@type", "manifest_id", "previous_manifest_id", "agent_id", "version", "min_verifier_version", "issued_at", "expires_at", "issuer", "crypto_profile", "profile", "unbound_artifacts", "source_bundle", "artifacts", "delegation_chain", "hitl_record", "prior_transparency_log_entry", "log_retention", "data_scope", "operational_lifecycle", "intent"],
   "signature_value": "<base64url-encoded signature over RFC 8785 canonical JSON>  -- CONDITIONALLY REQUIRED: REQUIRED when algorithm is Ed25519 or ML-DSA-65",
   "classical_signature": "<base64url-encoded Ed25519 signature>  -- CONDITIONALLY REQUIRED: REQUIRED when algorithm is hybrid-Ed25519-ML-DSA-65",
   "pq_signature": "<base64url-encoded ML-DSA-65 signature>  -- CONDITIONALLY REQUIRED: REQUIRED when algorithm is hybrid-Ed25519-ML-DSA-65"
@@ -919,6 +941,7 @@ Signing coverage table (normative)
 | `crypto_profile` | Signed | |
 | `profile` | Signed | Prevents stripping the `composition-only` limitation. |
 | `unbound_artifacts` | Signed | Prevents rewriting which artifacts the issuer explicitly did not bind. |
+| `source_bundle` | Signed | Binds the package format and digest from which the manifest was derived. |
 | `artifacts` | Signed | |
 | `attestation` | NOT signed | Appended post-signing by hardware (section 3.3). |
 | `delegation_chain` | Signed | |
@@ -1485,9 +1508,9 @@ The resolution is to decide whether `agent_id` splits into a stable identifier a
 
 Per section 3.1, the CoSAI WS4 working stream already owns the canonical `@context` URL for this specification. An OCSF correlation mapping belongs in the same venue, alongside the `agent_id` question above, rather than being settled here first.
 
-### 6.5 Relationship to Agent Plugins <!-- CHANGED: #281 - informative boundary statement, no normative binding -->
+### 6.5 Relationship to Agent Plugins
 
-> **This section is informative.** It defines no conformance requirement and uses no MUST. It states where this specification stops and where a packaging format starts, so that implementers do not read the two as competing descriptions of the same thing.
+> Sections 6.5.1 and 6.5.2 are informative boundary material. Section 6.5.3 defines the optional normative reference profile.
 
 [Agent Plugins 1.0.0](https://agent-plugins.org) is a packaging format for Agent Skills and MCP server configuration, maintained by a technical steering committee drawn from several client vendors. It is not a competitor to this specification and this specification is not a package format.
 
@@ -1522,11 +1545,44 @@ Of the ten artifacts in section 3, Agent Plugins carries two, and carries both a
 
 The declared-versus-resolved distinction is the boundary in miniature. A bundle states an intended composition. A manifest attests the composition that was actually loaded, which is the only one an incident is ever about.
 
-#### 6.5.3 Why this is not normative
+#### 6.5.3 Optional Agent Manifest reference profile
 
-Binding this specification to `plugin.json` would fix a field layout in a format at 1.0.0 whose own roadmap anticipates adding provenance. A binding written now would have to be revised rather than refined once that lands.
+Agent Plugins 1.0.0 permits client-specific objects under reverse-domain keys in `extensions`.
+The optional Agent Manifest reference uses `com.agentrust-io.manifest`, derived from the
+controlled `agentrust-io.com` domain:
 
-`plugin.json` carries an `extensions` object keyed by reverse-domain namespace for client-specific data, which is sufficient to carry a manifest reference without any change to the format. Whether such a reference becomes a defined profile here, or is proposed to the format's own governance process, is deferred.
+```json
+{
+  "extensions": {
+    "com.agentrust-io.manifest": {
+      "manifest_uri": "https://registry.example/manifests/demo.cose",
+      "manifest_digest": "sha256:<64 lowercase hex characters>"
+    }
+  }
+}
+```
+
+The namespace object MUST contain exactly `manifest_uri` and `manifest_digest`.
+`manifest_uri` MUST be an absolute HTTPS URI without embedded credentials or a fragment.
+`manifest_digest` MUST be the SHA-256 digest of the fetched manifest bytes, before any decoding.
+The plugin MUST NOT supply a trust key: verifiers obtain trusted keys through independent policy.
+
+The referenced signed manifest MUST carry `source_bundle.format: "agent-plugins-1.0.0"` and a
+matching `source_bundle.digest`. That digest is the section 3.2.5 Merkle construction over every
+regular bundle file, with paths bound as document identifiers, with one normalization: parse
+`plugin.json`, remove only `extensions.com.agentrust-io.manifest`, remove `extensions` if it is
+then empty, and encode the remaining object as RFC 8785 canonical JSON before making its leaf.
+This exclusion avoids a recursive digest while every other plugin field, extension namespace,
+and file remains covered.
+
+Absence of the namespace is `NOT_PRESENT`, not failure. A fetch failure is `UNRESOLVABLE`, not a
+claim that the plugin is invalid. Malformed reference data, a fetched-byte digest mismatch, an
+invalid manifest signature, or a mismatch between the local bundle and signed `source_bundle`
+MUST NOT verify. A verifier without the independently trusted key reports `UNVERIFIABLE`; it MUST
+NOT treat the key identifier inside a signature as a trust anchor.
+
+This is a namespaced compatibility profile, not a change to Agent Plugins itself. An upstream
+provenance field can supersede it later without changing the signed `source_bundle` semantics.
 
 ## 7. Threat Model
 

@@ -30,19 +30,32 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from enum import Enum
 from pathlib import Path
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
+from urllib.parse import urlsplit
 
+from ._canonicalize import canonicalize
 from ._merkle import CorpusDocument, build_corpus_tree
+
+if TYPE_CHECKING:
+    from ._verify import RevocationStore, VerificationContext, VerificationResult
 
 __all__ = [
     "PluginBundleError",
     "PluginSkill",
     "DeclaredMcpServer",
     "PluginBundle",
+    "PluginManifestReference",
+    "PluginReferenceResult",
+    "PluginReferenceStatus",
     "load_plugin_bundle",
     "bundle_digest",
+    "bundle_reference_digest",
+    "plugin_manifest_reference",
+    "verify_plugin_manifest_reference",
     "system_prompt_binding_from_bundle",
+    "PLUGIN_MANIFEST_EXTENSION",
     "SUPPORTED_PLUGIN_SCHEMAS",
 ]
 
@@ -53,14 +66,39 @@ SUPPORTED_PLUGIN_SCHEMAS = frozenset(
     {"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json"}
 )
 
+PLUGIN_MANIFEST_EXTENSION = "com.agentrust-io.manifest"
+
 # DOS: a bundle is untrusted input. These bound what a malformed or hostile
 # directory can cost before it is rejected.
 _MAX_BUNDLE_FILES = 10_000
 _MAX_BUNDLE_BYTES = 256 * 1024 * 1024
+_MAX_MANIFEST_BYTES = 16 * 1024 * 1024
 
 
 class PluginBundleError(ValueError):
     """A directory is not a usable Agent Plugins 1.0.0 bundle."""
+
+
+class PluginReferenceStatus(str, Enum):
+    VERIFIED = "VERIFIED"
+    NOT_PRESENT = "NOT_PRESENT"
+    INVALID = "INVALID"
+    UNRESOLVABLE = "UNRESOLVABLE"
+    UNVERIFIABLE = "UNVERIFIABLE"
+    MISMATCH = "MISMATCH"
+
+
+@dataclass(frozen=True)
+class PluginManifestReference:
+    manifest_uri: str
+    manifest_digest: str
+
+
+@dataclass(frozen=True)
+class PluginReferenceResult:
+    status: PluginReferenceStatus
+    reason: str
+    manifest_result: Optional["VerificationResult"] = field(default=None, repr=False)
 
 
 @dataclass(frozen=True)
@@ -153,6 +191,199 @@ def bundle_digest(path: Path) -> str:
         raise PluginBundleError(f"bundle directory is empty: {path}")
 
     return build_corpus_tree(documents)
+
+
+def bundle_reference_digest(path: Path | str) -> str:
+    """Digest a bundle while excluding only this reference namespace.
+
+    The signed manifest contains this digest, so including the reference to
+    that manifest would create a recursive value. Every other bundle member
+    remains covered. ``plugin.json`` is canonicalized after removal so adding
+    the reference to an extension-free bundle preserves the digest.
+    """
+    root = Path(path)
+    documents: list[CorpusDocument] = []
+    total_bytes = 0
+    for entry in sorted(p for p in root.rglob("*") if p.is_file()):
+        if len(documents) >= _MAX_BUNDLE_FILES:
+            raise PluginBundleError(
+                f"bundle contains more than {_MAX_BUNDLE_FILES} files: {root}"
+            )
+        if entry == root / "plugin.json":
+            plugin = _load_json(entry, "plugin.json")
+            if not isinstance(plugin, dict):
+                raise PluginBundleError(f"plugin.json must be a JSON object: {root}")
+            normalized = dict(plugin)
+            extensions = normalized.get("extensions")
+            if isinstance(extensions, dict):
+                remaining = dict(extensions)
+                remaining.pop(PLUGIN_MANIFEST_EXTENSION, None)
+                if remaining:
+                    normalized["extensions"] = remaining
+                else:
+                    normalized.pop("extensions", None)
+            data = canonicalize(normalized)
+        else:
+            data = entry.read_bytes()
+        total_bytes += len(data)
+        if total_bytes > _MAX_BUNDLE_BYTES:
+            raise PluginBundleError(
+                f"bundle exceeds {_MAX_BUNDLE_BYTES} bytes: {root}"
+            )
+        documents.append(
+            CorpusDocument(
+                document_id=entry.relative_to(root).as_posix(),
+                content_bytes=data,
+            )
+        )
+    if not documents:
+        raise PluginBundleError(f"bundle directory is empty: {root}")
+    return build_corpus_tree(documents)
+
+
+def _is_sha256(value: str) -> bool:
+    import re
+
+    return re.fullmatch(r"sha256:[0-9a-f]{64}", value) is not None
+
+
+def plugin_manifest_reference(bundle: PluginBundle) -> Optional[PluginManifestReference]:
+    """Parse this project's extension, or return ``None`` when absent."""
+    raw = bundle.extensions.get(PLUGIN_MANIFEST_EXTENSION)
+    if raw is None:
+        return None
+    if not isinstance(raw, dict) or set(raw) != {"manifest_uri", "manifest_digest"}:
+        raise PluginBundleError(
+            f"extensions.{PLUGIN_MANIFEST_EXTENSION} must contain exactly "
+            "manifest_uri and manifest_digest"
+        )
+    uri = raw.get("manifest_uri")
+    digest = raw.get("manifest_digest")
+    if not isinstance(uri, str):
+        raise PluginBundleError("manifest_uri must be a string")
+    parsed = urlsplit(uri)
+    if parsed.scheme != "https" or not parsed.netloc or parsed.username or parsed.password:
+        raise PluginBundleError(
+            "manifest_uri must be an absolute HTTPS URI without embedded credentials"
+        )
+    if parsed.fragment:
+        raise PluginBundleError("manifest_uri must not contain a fragment")
+    if not isinstance(digest, str) or not _is_sha256(digest):
+        raise PluginBundleError("manifest_digest must be sha256:<64 lowercase hex>")
+    return PluginManifestReference(manifest_uri=uri, manifest_digest=digest)
+
+
+def _json_manifest(data: bytes) -> dict[str, Any]:
+    def reject_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in result:
+                raise PluginBundleError(
+                    f"fetched manifest contains duplicate member {key!r}"
+                )
+            result[key] = value
+        return result
+
+    try:
+        value = json.loads(data.decode("utf-8"), object_pairs_hook=reject_duplicates)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise PluginBundleError(f"fetched manifest is not valid JSON: {exc}") from exc
+    if not isinstance(value, dict):
+        raise PluginBundleError("fetched manifest must be a JSON object or COSE envelope")
+    return value
+
+
+def verify_plugin_manifest_reference(
+    path: Path | str,
+    *,
+    fetch: Callable[[str], bytes],
+    context: "VerificationContext",
+    revocation_store: "RevocationStore",
+) -> PluginReferenceResult:
+    """Resolve and authenticate the manifest referenced by a plugin bundle.
+
+    Network policy belongs to ``fetch``. Requiring HTTPS does not replace a
+    caller-controlled allowlist, redirect policy, response limit, and timeout.
+    """
+    try:
+        bundle = load_plugin_bundle(path)
+        reference = plugin_manifest_reference(bundle)
+    except PluginBundleError as exc:
+        return PluginReferenceResult(PluginReferenceStatus.INVALID, str(exc))
+    if reference is None:
+        return PluginReferenceResult(
+            PluginReferenceStatus.NOT_PRESENT,
+            "plugin carries no Agent Manifest reference",
+        )
+    try:
+        fetched = fetch(reference.manifest_uri)
+    except Exception as exc:
+        return PluginReferenceResult(
+            PluginReferenceStatus.UNRESOLVABLE,
+            f"manifest could not be fetched: {exc}",
+        )
+    if not isinstance(fetched, bytes):
+        return PluginReferenceResult(
+            PluginReferenceStatus.INVALID, "fetch must return bytes"
+        )
+    if len(fetched) > _MAX_MANIFEST_BYTES:
+        return PluginReferenceResult(
+            PluginReferenceStatus.INVALID,
+            f"fetched manifest exceeds {_MAX_MANIFEST_BYTES} bytes",
+        )
+
+    import hashlib
+
+    fetched_digest = f"sha256:{hashlib.sha256(fetched).hexdigest()}"
+    if fetched_digest != reference.manifest_digest:
+        return PluginReferenceResult(
+            PluginReferenceStatus.MISMATCH,
+            "fetched manifest digest does not match plugin.json",
+        )
+    try:
+        json_candidate = fetched.removeprefix(b"\xef\xbb\xbf").lstrip()
+        if json_candidate.startswith(b"{"):
+            manifest: Any = _json_manifest(json_candidate)
+            verification_subject: Any = manifest
+        else:
+            from ._cose import read_payload_manifest
+
+            manifest = read_payload_manifest(fetched)
+            verification_subject = fetched
+    except (PluginBundleError, ValueError) as exc:
+        return PluginReferenceResult(PluginReferenceStatus.INVALID, str(exc))
+
+    source = manifest.get("source_bundle") or {}
+    expected_bundle_digest = bundle_reference_digest(path)
+    if (
+        source.get("format") != "agent-plugins-1.0.0"
+        or source.get("digest") != expected_bundle_digest
+    ):
+        return PluginReferenceResult(
+            PluginReferenceStatus.MISMATCH,
+            "local plugin bundle does not match the signed manifest source_bundle",
+        )
+
+    from ._verify import OverallResult, verify_manifest
+
+    verified = verify_manifest(verification_subject, context, revocation_store)
+    if verified.result == OverallResult.UNVERIFIABLE:
+        return PluginReferenceResult(
+            PluginReferenceStatus.UNVERIFIABLE,
+            "manifest trust key or verification capability is unavailable",
+            verified,
+        )
+    if verified.result not in (OverallResult.VALID, OverallResult.INCOMPLETE):
+        return PluginReferenceResult(
+            PluginReferenceStatus.MISMATCH,
+            f"referenced manifest verification returned {verified.result.value}",
+            verified,
+        )
+    return PluginReferenceResult(
+        PluginReferenceStatus.VERIFIED,
+        "plugin bundle matches an authenticated Agent Manifest",
+        verified,
+    )
 
 
 def _load_json(path: Path, label: str) -> Any:

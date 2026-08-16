@@ -3,16 +3,25 @@
 from __future__ import annotations
 
 import json
+import hashlib
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
 from agent_manifest import (
     DataClassification,
     PluginBundleError,
+    PLUGIN_MANIFEST_EXTENSION,
+    PluginReferenceStatus,
     bundle_digest,
+    bundle_reference_digest,
     load_plugin_bundle,
+    plugin_manifest_reference,
     system_prompt_binding_from_bundle,
+    verify_plugin_manifest_reference,
 )
+from agent_manifest._signing import Ed25519Signer, generate_ed25519
+from agent_manifest._verify import RevocationStore, VerificationContext
 
 SCHEMA = "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json"
 
@@ -224,3 +233,218 @@ def test_binding_requires_a_version_somewhere(tmp_path):
         bundle, classification=DataClassification.internal, version="0.0.1"
     )
     assert binding.version == "0.0.1"
+
+
+# --- signed manifest reference --------------------------------------------
+
+
+def _referenced_manifest(root, key):
+    now = datetime.now(timezone.utc)
+    manifest = {
+        "manifest_id": "018f4a3b-2c1d-7e5f-a8b9-0d1e2f3a4b5c",
+        "agent_id": "spiffe://trust.example/plugin/demo",
+        "version": "0.1",
+        "issued_at": now.isoformat().replace("+00:00", "Z"),
+        "expires_at": (now + timedelta(days=30)).isoformat().replace("+00:00", "Z"),
+        "issuer": "spiffe://trust.example/issuer/ci",
+        "crypto_profile": "standard",
+        "source_bundle": {
+            "format": "agent-plugins-1.0.0",
+            "digest": bundle_reference_digest(root),
+        },
+        "artifacts": {
+            "system_prompt": {"hash": "sha256:" + "a" * 64},
+            "policy_bundle": {"hash": "sha256:" + "b" * 64},
+            "model_identity": {
+                "model_hash": None,
+                "version": "chosen-at-runtime",
+                "deployment_type": "api",
+            },
+        },
+    }
+    manifest["signature"] = Ed25519Signer(key).sign(manifest)
+    return json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()
+
+
+def _attach_reference(root, manifest_bytes, *, uri="https://registry.example/manifest.json"):
+    plugin_path = root / "plugin.json"
+    plugin = json.loads(plugin_path.read_text(encoding="utf-8"))
+    plugin.setdefault("extensions", {})[PLUGIN_MANIFEST_EXTENSION] = {
+        "manifest_uri": uri,
+        "manifest_digest": "sha256:" + hashlib.sha256(manifest_bytes).hexdigest(),
+    }
+    plugin_path.write_text(json.dumps(plugin), encoding="utf-8")
+
+
+def test_reference_digest_excludes_only_its_own_namespace(tmp_path):
+    root = _bundle(tmp_path)
+    before = bundle_reference_digest(root)
+    _attach_reference(root, b"manifest")
+    assert bundle_reference_digest(root) == before
+
+    plugin_path = root / "plugin.json"
+    plugin = json.loads(plugin_path.read_text(encoding="utf-8"))
+    plugin["extensions"]["com.example.other"] = {"setting": True}
+    plugin_path.write_text(json.dumps(plugin), encoding="utf-8")
+    assert bundle_reference_digest(root) != before
+
+
+def test_absent_reference_is_not_a_failure_and_does_not_fetch(tmp_path):
+    root = _bundle(tmp_path)
+
+    def should_not_fetch(_uri):
+        raise AssertionError("fetch called for absent reference")
+
+    result = verify_plugin_manifest_reference(
+        root,
+        fetch=should_not_fetch,
+        context=VerificationContext(),
+        revocation_store=RevocationStore(),
+    )
+    assert result.status == PluginReferenceStatus.NOT_PRESENT
+
+
+def test_reference_parses_the_controlled_namespace(tmp_path):
+    root = _bundle(tmp_path)
+    _attach_reference(root, b"manifest")
+    reference = plugin_manifest_reference(load_plugin_bundle(root))
+    assert reference is not None
+    assert reference.manifest_uri == "https://registry.example/manifest.json"
+
+
+def test_reference_rejects_unknown_members(tmp_path):
+    root = _bundle(tmp_path)
+    _attach_reference(root, b"manifest")
+    plugin_path = root / "plugin.json"
+    plugin = json.loads(plugin_path.read_text(encoding="utf-8"))
+    plugin["extensions"][PLUGIN_MANIFEST_EXTENSION]["trusted_key"] = "attacker-key"
+    plugin_path.write_text(json.dumps(plugin), encoding="utf-8")
+    result = verify_plugin_manifest_reference(
+        root,
+        fetch=lambda _uri: b"manifest",
+        context=VerificationContext(),
+        revocation_store=RevocationStore(),
+    )
+    assert result.status == PluginReferenceStatus.INVALID
+
+
+@pytest.mark.parametrize(
+    "uri",
+    [
+        "http://registry.example/manifest.json",
+        "https://user:password@registry.example/manifest.json",
+        "https://registry.example/manifest.json#unsigned-fragment",
+    ],
+)
+def test_unsafe_manifest_locations_are_invalid(tmp_path, uri):
+    root = _bundle(tmp_path)
+    _attach_reference(root, b"manifest", uri=uri)
+    result = verify_plugin_manifest_reference(
+        root,
+        fetch=lambda _uri: b"manifest",
+        context=VerificationContext(),
+        revocation_store=RevocationStore(),
+    )
+    assert result.status == PluginReferenceStatus.INVALID
+
+
+def test_resolved_reference_verifies_manifest_and_bundle(tmp_path):
+    root = _bundle(tmp_path)
+    key = generate_ed25519()
+    manifest_bytes = _referenced_manifest(root, key)
+    _attach_reference(root, manifest_bytes)
+
+    result = verify_plugin_manifest_reference(
+        root,
+        fetch=lambda _uri: manifest_bytes,
+        context=VerificationContext(trusted_keys={key.key_id: key.public_b64url()}),
+        revocation_store=RevocationStore(),
+    )
+    assert result.status == PluginReferenceStatus.VERIFIED
+    assert result.manifest_result.signature_verified is True
+
+
+def test_json_reference_allows_leading_whitespace_without_changing_raw_digest(tmp_path):
+    root = _bundle(tmp_path)
+    key = generate_ed25519()
+    manifest_bytes = b" \r\n" + _referenced_manifest(root, key)
+    _attach_reference(root, manifest_bytes)
+    result = verify_plugin_manifest_reference(
+        root,
+        fetch=lambda _uri: manifest_bytes,
+        context=VerificationContext(trusted_keys={key.key_id: key.public_b64url()}),
+        revocation_store=RevocationStore(),
+    )
+    assert result.status == PluginReferenceStatus.VERIFIED
+
+
+def test_oversized_fetched_manifest_is_rejected_before_parsing(tmp_path):
+    root = _bundle(tmp_path)
+    oversized = b"{" + b" " * (16 * 1024 * 1024)
+    _attach_reference(root, oversized)
+    result = verify_plugin_manifest_reference(
+        root,
+        fetch=lambda _uri: oversized,
+        context=VerificationContext(),
+        revocation_store=RevocationStore(),
+    )
+    assert result.status == PluginReferenceStatus.INVALID
+    assert "exceeds" in result.reason
+
+
+def test_unreachable_reference_is_distinct_from_mismatch(tmp_path):
+    root = _bundle(tmp_path)
+    _attach_reference(root, b"manifest")
+
+    def unavailable(_uri):
+        raise TimeoutError("timed out")
+
+    result = verify_plugin_manifest_reference(
+        root,
+        fetch=unavailable,
+        context=VerificationContext(),
+        revocation_store=RevocationStore(),
+    )
+    assert result.status == PluginReferenceStatus.UNRESOLVABLE
+
+
+def test_fetched_manifest_digest_mismatch_is_fatal(tmp_path):
+    root = _bundle(tmp_path)
+    _attach_reference(root, b"expected")
+    result = verify_plugin_manifest_reference(
+        root,
+        fetch=lambda _uri: b"substituted",
+        context=VerificationContext(),
+        revocation_store=RevocationStore(),
+    )
+    assert result.status == PluginReferenceStatus.MISMATCH
+
+
+def test_bundle_changed_after_manifest_was_signed_is_fatal(tmp_path):
+    root = _bundle(tmp_path)
+    key = generate_ed25519()
+    manifest_bytes = _referenced_manifest(root, key)
+    _attach_reference(root, manifest_bytes)
+    (root / "skills" / "greeter" / "SKILL.md").write_text("poisoned\n", encoding="utf-8")
+
+    result = verify_plugin_manifest_reference(
+        root,
+        fetch=lambda _uri: manifest_bytes,
+        context=VerificationContext(trusted_keys={key.key_id: key.public_b64url()}),
+        revocation_store=RevocationStore(),
+    )
+    assert result.status == PluginReferenceStatus.MISMATCH
+
+
+def test_reference_does_not_bootstrap_its_own_trust_key(tmp_path):
+    root = _bundle(tmp_path)
+    key = generate_ed25519()
+    manifest_bytes = _referenced_manifest(root, key)
+    _attach_reference(root, manifest_bytes)
+    result = verify_plugin_manifest_reference(
+        root,
+        fetch=lambda _uri: manifest_bytes,
+        context=VerificationContext(),
+        revocation_store=RevocationStore(),
+    )
+    assert result.status == PluginReferenceStatus.UNVERIFIABLE

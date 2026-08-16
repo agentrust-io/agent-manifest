@@ -136,6 +136,7 @@ SIGNED_FIELDS: tuple[str, ...] = (
     "crypto_profile",
     "profile",
     "unbound_artifacts",
+    "source_bundle",
     "artifacts",
     "delegation_chain",
     "hitl_record",

@@ -5,6 +5,12 @@
 ### Added
 
 
+- **[SPEC][SDK]** Added the `com.agentrust-io.manifest` Agent Plugins 1.0.0
+  extension profile. It resolves an HTTPS manifest by raw-byte digest, verifies
+  it against independently trusted keys, and compares the local bundle with a
+  signed `source_bundle` binding. Absent, unreachable, unverifiable, and
+  mismatched references remain distinct outcomes.
+
 - **[SPEC][SDK]** Added the signed `composition-only` profile for repository and
   pre-execution manifests. Every omitted artifact must be named in
   `unbound_artifacts`; overlap and undeclared omissions fail closed. These
@@ -27,9 +33,10 @@ Each negative carries `signature_valid`, recording whether the Ed25519 signature
 `AM-VEC-COSE-009` is byte-identical to `AM-VEC-COSE-001` and differs only in `context.trusted_key_issuers`. Nothing about the object explains the rejection, so a verifier that stops at "the signature verifies under a trusted key" returns `VALID` and has no authorization boundary at all.
 
 ### Fixed
+
 - The committed conformance vectors are now diffed against a fresh in-memory regeneration by the test suite, so a vector edited by hand, or a generator change made without regenerating, fails CI rather than shipping as a contract nobody can reproduce.
 
-- The vectors had been stale since `intent` joined `SIGNED_FIELDS` in 0.11.0, and again when `profile` and `unbound_artifacts` joined it in #306: they published a `signature.signed_fields` list omitting those fields, and `AM-VEC-018` carried the `manifest_hash_in_report` that followed from the shorter list. No signature or expected result changes, because none of these manifests declares an `intent` and `signing_pre_image` omits absent fields, so the signed bytes are identical either way. What was wrong is what the suite told other languages to build their pre-image from. The regeneration test above is what surfaced it, and is what stops it recurring.
+- The vectors had been stale each time `SIGNED_FIELDS` gained a member without being regenerated alongside it: `intent` in 0.11.0, `profile` and `unbound_artifacts` in #306, `source_bundle` in #307. In each case they they published a `signature.signed_fields` list omitting those fields, and `AM-VEC-018` carried the `manifest_hash_in_report` that followed from the shorter list. No signature or expected result changes, because none of these manifests declares any of those fields and `signing_pre_image` omits absent ones, so the signed bytes are identical either way. What was wrong is what the suite told other languages to build their pre-image from. The regeneration test above is what surfaced it, and is what stops it recurring.
 
 ### Security
 

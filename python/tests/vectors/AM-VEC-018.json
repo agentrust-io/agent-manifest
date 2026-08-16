@@ -47,6 +47,7 @@
         "crypto_profile",
         "profile",
         "unbound_artifacts",
+        "source_bundle",
         "artifacts",
         "delegation_chain",
         "hitl_record",
@@ -59,7 +60,7 @@
     },
     "attestation": {
       "platform": "tpm",
-      "manifest_hash_in_report": "sha256:389c9ba921ce8f49f4ceb3f01854a0883b74c390196a9accc4787f7f541611dd"
+      "manifest_hash_in_report": "sha256:be209f45a3f44fef55001b626a46468505860f7a85245967d2365586ce2da9e0"
     }
   },
   "context": {
