@@ -290,16 +290,24 @@ def test_cose_negative_vector_signature_claim_is_true(file_name: str) -> None:
     )
 
 
-def _repaired_envelopes() -> dict[str, tuple[bytes, dict[str, Any]]]:
+def _repaired_envelopes() -> dict[str, tuple[Any, dict[str, Any]]]:
     """Each phase 3 vector with its named defect removed and nothing else.
 
     Built from the same helpers that build the vectors, so a repair cannot
-    silently diverge from the thing it is repairing.
+    silently diverge from the thing it is repairing. The subject is bytes for
+    the envelope vectors and a manifest document for AM-VEC-COSE-014, matching
+    what each vector carries.
     """
     from agent_manifest._canonicalize import canonicalize
     from agent_manifest._cose import sign_cose_sign1
 
-    from tests.vectors.generate import KP, _sign_payload, base_context, cose_manifest
+    from tests.vectors.generate import (
+        KP,
+        _sign_payload,
+        base_context,
+        base_manifest,
+        cose_manifest,
+    )
 
     context = base_context()
     valid_payload = canonicalize(cose_manifest())
@@ -320,6 +328,10 @@ def _repaired_envelopes() -> dict[str, tuple[bytes, dict[str, Any]]]:
         ),
         "AM-VEC-COSE-012": (_sign_payload(valid_payload), context),
         "AM-VEC-COSE-013": (_sign_payload(carrier), context),
+        # 014's defect is the version/envelope pairing, so the repair is to put
+        # the document back at the version its envelope is for. This is
+        # AM-VEC-001.
+        "AM-VEC-COSE-014": (base_manifest(version="0.1"), context),
     }
 
 

@@ -147,6 +147,7 @@ because it tests the same rule from the other side.
 | `AM-VEC-COSE-011` | The non-JSON literal `NaN` is rejected, not accepted | `MISMATCH` |
 | `AM-VEC-COSE-012` | A `0.1` payload in a `0.2` envelope routes on the payload | `INCOMPATIBLE_VERSION` |
 | `AM-VEC-COSE-013` | A payload nested past the depth bound yields a verdict | `MISMATCH` |
+| `AM-VEC-COSE-014` | A `0.2` manifest may not fall back to the v0.1 envelope | `MISMATCH` |
 
 `AM-VEC-COSE-009` is worth calling out. Its envelope is **byte-identical** to
 `AM-VEC-COSE-001`; only `context.trusted_key_issuers` differs, binding the
@@ -161,6 +162,41 @@ valid and the named defect is the only thing wrong with it. All three are
 signed **over** the malformed payload rather than having bytes swapped into an
 already-signed envelope, which is what keeps them from degrading into
 signature-failure tests.
+
+`AM-VEC-COSE-014` is the only vector in the COSE series carrying `manifest`
+rather than `envelope_hex`, because the rule under test is precisely that a
+v0.2 document must **not** be accepted outside a COSE envelope. It is the other
+half of `012`: the version gate is bidirectional, and a one-way gate is not a
+gate, since anyone unable to produce a valid COSE envelope would simply present
+the manifest in the envelope still accepted. It expects `MISMATCH` rather than
+`INCOMPATIBLE_VERSION` deliberately, because the verifier does support 0.2;
+what it will not do is verify 0.2 through the v0.1 path, and reporting an
+unsupported version would state something untrue about its capabilities.
+
+`test_cose_negative_vector_isolates_its_named_defect` asserts the isolation
+claim rather than leaving it to the descriptions: it strips only the defect
+each vector names and requires the result to verify `VALID`. If a vector
+carried a second defect, the repaired object would not verify and the test
+says so.
+
+#### One case that is deliberately not a vector
+
+The hybrid authorization case, a `COSE_Sign` carrying one authorized component
+key alongside one unauthorized one, is **not** here and cannot be. A hybrid
+envelope contains an ML-DSA-65 signature, ML-DSA-65 signing is hedged, and
+`cryptography` 49 exposes no deterministic mode, so the bytes differ on every
+regeneration. A vector that could not be regenerated would be a snapshot rather
+than a contract, and exempting one from the regeneration check would remove the
+guarantee that makes the rest of the suite trustworthy.
+
+It is covered instead by
+`test_every_hybrid_signer_must_be_authorized_for_the_issuer` in
+[`tests/test_cose.py`](../test_cose.py), which generates its keys per run. An
+implementation in another language should treat the rule as binding and test it
+locally the same way: **every** signer in a `COSE_Sign` must be authorized for
+the payload's `issuer`, not merely one of them. `AM-VEC-COSE-009` fixes the
+single-signer half of that rule portably. If a deterministic ML-DSA-65 signing
+mode becomes available, the hybrid half can join it.
 
 `context` maps field-for-field onto the SDK's `VerificationContext`, so a Python
 consumer is just `VerificationContext(**vector["context"])`. Other languages
@@ -207,12 +243,12 @@ The Python reference assertion lives in
   `ATTESTATION_UNAVAILABLE` (attestation enforced but absent).
 * HITL approved / missing / expired, and memory-baseline TTL expiry.
 
-`AM-VEC-COSE-001` … `AM-VEC-COSE-013` cover the v0.2 envelope: one vector
-pinning the encoding byte for byte, and twelve negatives spanning the
+`AM-VEC-COSE-001` … `AM-VEC-COSE-014` cover the v0.2 envelope: one vector
+pinning the encoding byte for byte, and thirteen negatives spanning the
 protected/unprotected header split, CBOR tagging and framing, payload
 presence, the issuer authorization boundary, the two JSON parser divergences
-(duplicate member names, non-finite numbers), version routing, and the payload
-depth bound.
+(duplicate member names, non-finite numbers), version routing in both
+directions, and the payload depth bound.
 
 > Note: `AM-VEC-013` returns overall `VALID` while `memory_baseline` is
 > `EXPIRED` — this faithfully encodes the reference engine's behaviour (an

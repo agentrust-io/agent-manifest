@@ -429,12 +429,12 @@ def cose_negative_vectors() -> list[dict[str, Any]]:
         ),
     ))
 
-    # 010: a duplicate member name. RFC 8259 section 4 says the behaviour of an
-    # implementation given these is unpredictable, and it is: of the two
-    # parsers checked here, both keep the last, but nothing requires that. The
-    # second issuer is an attacker-chosen value, so a verifier that keeps
-    # either one and proceeds attributes the manifest to a different authority
-    # than the one that a first-wins parser would report.
+    # 010: a duplicate member name. RFC 8259 section 4 states that the
+    # behaviour of an implementation given these is unpredictable, and RFC 8785
+    # forbids them outright. The second issuer is an attacker-chosen value, so
+    # a last-wins parser and a first-wins parser attribute the same signed
+    # bytes to two different authorities, and both consider the signature
+    # valid. Rejecting is the only answer that cannot differ between them.
     canonical = canonicalize(cose_manifest())
     first_issuer = canonical.index(b'"issuer":')
     after_issuer = canonical.index(b",", first_issuer)
@@ -514,6 +514,38 @@ def cose_negative_vectors() -> list[dict[str, Any]]:
         _sign_payload(deeply_nested),
         "MISMATCH",
     ))
+
+    # 014: the other half of the version gate. #274 made it bidirectional, so a
+    # 0.2 manifest must not fall back to the v0.1 detached signature block any
+    # more than a 0.1 payload may be verified under 0.2 rules (012). A one-way
+    # gate is not a gate: an attacker who cannot produce a valid COSE envelope
+    # would simply present the manifest in the envelope that is still accepted.
+    #
+    # It is the one vector in the COSE series carrying `manifest` rather than
+    # `envelope_hex`, because the rule under test is precisely that this
+    # document must not be accepted outside a COSE envelope. The signature over
+    # it is valid and the version is one the verifier supports, so the envelope
+    # pairing is the only defect: the same document at version 0.1 is
+    # AM-VEC-001, which verifies VALID.
+    #
+    # MISMATCH rather than INCOMPATIBLE_VERSION, deliberately. The verifier
+    # supports 0.2; what it will not do is verify 0.2 here. Reporting an
+    # unsupported version would state something untrue about its capabilities.
+    vectors.append({
+        "id": "AM-VEC-COSE-014",
+        "description": (
+            "A version 0.2 manifest presented with a v0.1 detached signature "
+            "block is rejected. The signature is valid and the version is "
+            "supported; the envelope is the defect."
+        ),
+        "spec_refs": ["cose-envelope-v0.2 6", "2.4"],
+        "manifest": base_manifest(version="0.2"),
+        "context": base_context(),
+        "expected": {
+            "result": "MISMATCH",
+            "signature_verified": False,
+        },
+    })
 
     return vectors
 
