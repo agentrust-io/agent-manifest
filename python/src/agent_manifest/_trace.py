@@ -28,7 +28,9 @@ without the post-quantum extra yields ``UNVERIFIABLE``, never ``VERIFIED``.
 from __future__ import annotations
 
 import hashlib
+import re
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import Enum
 from typing import Any, Optional
 
@@ -90,6 +92,32 @@ EVIDENCE_PACK_REQUIRED_FIELDS: dict[str, type] = {
     "trace_envelopes": list,
     "attestation_report": str,
 }
+
+# Spec 6.3.2 fixes these three as closed enumerations. `manifest_verification_result`
+# is checked separately against TRACE_VERIFICATION_RESULTS, which section 6.3.2
+# requires to be the section 5.2 `result` values with no additions.
+TRACE_DECISIONS: frozenset[str] = frozenset({"allow", "deny", "require-approval"})
+PAYLOAD_CLASSIFICATIONS: frozenset[str] = frozenset(
+    {"public", "internal", "confidential", "restricted"}
+)
+
+# Section 5.2 `result` values, for the verification result carried in a pack.
+VERIFICATION_RESULTS: frozenset[str] = frozenset(TRACE_VERIFICATION_RESULTS) | {
+    "SIGNATURE_MISSING",
+    "UNVERIFIABLE",
+}
+
+# Formats the specification fixes exactly. Deliberately partial: `tee_measurement`
+# is "<platform-specific measurement>" and `egress_destination` is
+# "<FQDN | IP | none>", so neither has a shape this can enforce without
+# rejecting records the spec permits. `tool_id` is a reverse-domain identifier
+# with no stated grammar, so it is checked for emptiness only.
+_UUID_V7 = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
+_SHA256 = re.compile(r"^sha256:[0-9a-f]{64}$")
+_SPIFFE = re.compile(r"^spiffe://[a-z0-9._-]+(/[a-zA-Z0-9._-]+)*$")
 
 # Presence is not enough for a TRACE envelope either. A field carrying the
 # wrong type passes a `in envelope` check and then flows into a comparison
@@ -330,6 +358,14 @@ def verify_trace_envelope(
         result.failures.append("wrong_field_type:" + ",".join(sorted(wrong_type)))
         return result
 
+    # Type checked, now value. A field of the right type carrying a value the
+    # specification does not define is still a non-conforming record, and
+    # calling one admissible would label it as evidence of a valid tool call.
+    bad_format = _envelope_format_failures(envelope)
+    if bad_format:
+        result.failures.extend(bad_format)
+        return result
+
     mvr = envelope["manifest_verification_result"]
     if mvr not in TRACE_VERIFICATION_RESULTS:
         result.failures.append(f"illegal_manifest_verification_result:{mvr!r}")
@@ -402,6 +438,107 @@ def verify_trace_envelope(
         result.admissible = not result.failures
 
     return result
+
+
+def _is_utc_iso8601(value: str) -> bool:
+    """True when *value* is an ISO 8601 timestamp that states UTC.
+
+    Spec 6.3.2 types ``timestamp`` as ISO 8601 UTC, so an offset-naive string
+    is rejected rather than assumed: a record whose time zone has to be
+    guessed cannot be relied on to order events in an audit trail.
+    """
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        return False
+    offset = parsed.utcoffset()
+    if offset is None:
+        return False
+    return offset.total_seconds() == 0
+
+
+def _envelope_format_failures(envelope: dict[str, Any]) -> list[str]:
+    """Value-level checks for the fields spec 6.3.2 defines exactly.
+
+    Only the fields with a stated shape are checked. ``tee_measurement`` is
+    "<platform-specific measurement>" and ``egress_destination`` is
+    "<FQDN | IP | none>", so enforcing a pattern on either would reject
+    records the specification permits.
+    """
+    failures: list[str] = []
+
+    for field_name in ("trace_id", "agent_manifest_id"):
+        if not _UUID_V7.match(envelope[field_name]):
+            failures.append(f"not_a_uuid_v7:{field_name}")
+
+    # hitl_approval_id is "<UUID v7> | null", so null is legal and a present
+    # value must be well formed.
+    approval_id = envelope.get("hitl_approval_id")
+    if approval_id is not None and (
+        not isinstance(approval_id, str) or not _UUID_V7.match(approval_id)
+    ):
+        failures.append("not_a_uuid_v7:hitl_approval_id")
+
+    if not _SPIFFE.match(envelope["agent_id"]):
+        failures.append("not_a_spiffe_uri:agent_id")
+
+    for field_name in ("policy_hash", "catalog_hash"):
+        if not _SHA256.match(envelope[field_name]):
+            failures.append(f"not_a_sha256_hash:{field_name}")
+
+    if envelope["decision"] not in TRACE_DECISIONS:
+        failures.append(f"illegal_decision:{envelope['decision']!r}")
+
+    if envelope["payload_classification"] not in PAYLOAD_CLASSIFICATIONS:
+        failures.append(
+            f"illegal_payload_classification:"
+            f"{envelope['payload_classification']!r}"
+        )
+
+    if not _is_utc_iso8601(envelope["timestamp"]):
+        failures.append("not_an_iso8601_utc_timestamp:timestamp")
+
+    for field_name in ("tool_id", "tee_measurement", "egress_destination"):
+        if not envelope[field_name].strip():
+            failures.append(f"empty_required_field:{field_name}")
+
+    return failures
+
+
+def _evidence_pack_content_failures(pack: dict[str, Any]) -> list[str]:
+    """Value-level checks for the pack members spec 5.2.1 defines.
+
+    A well-typed but empty member is the case this exists for: an empty
+    ``verification_result`` carries no verdict, and an empty
+    ``attestation_report`` is not a report. Either would let a pack that
+    evidences nothing be labelled VERIFIED.
+    """
+    from ._signing import _b64url_decode
+
+    failures: list[str] = []
+
+    verification_result = pack["verification_result"]
+    if not verification_result:
+        failures.append("verification_result_empty")
+    else:
+        declared = verification_result.get("result")
+        if declared is None:
+            failures.append("verification_result_missing_result")
+        elif declared not in VERIFICATION_RESULTS:
+            failures.append(f"illegal_verification_result:{declared!r}")
+
+    report = pack["attestation_report"]
+    if not report:
+        failures.append("attestation_report_empty")
+    else:
+        # Spec 5.2.1 carries the raw platform report base64url-encoded, so a
+        # value that cannot be decoded is not a report this pack can produce.
+        try:
+            _b64url_decode(report)
+        except Exception:
+            failures.append("attestation_report_not_base64url")
+
+    return failures
 
 
 def _check_manifest_binding(
@@ -522,6 +659,15 @@ def verify_evidence_pack(
         "manifest"
     ]["manifest_id"]:
         result.failures.append("manifest_missing_manifest_id")
+        return result
+
+    # Members present and well typed, now their contents. Also before the
+    # signature: an empty verification_result carries no verdict and an empty
+    # attestation_report is not a report, so a pack containing either
+    # evidences nothing however well it is signed.
+    content_failures = _evidence_pack_content_failures(pack)
+    if content_failures:
+        result.failures.extend(content_failures)
         return result
 
     result.pack_hash = compute_pack_hash(pack)

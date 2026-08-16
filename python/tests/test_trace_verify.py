@@ -736,3 +736,178 @@ def test_the_binding_still_catches_a_mismatched_envelope(kp, trusted):
     )
     assert result.status is not TraceStatus.VERIFIED
     assert any("manifest_id_mismatch" in f for e in result.envelopes for f in e.failures)
+
+
+# ---------------------------------------------------------------------------
+# Value-level conformance, spec 6.3.2 and 5.2.1
+#
+# Type-correct is not the same as spec-conforming. Each of these is a signed
+# record whose every field is present and of the right type, carrying a value
+# the specification does not define. Labelling one admissible would call a
+# non-conforming forensic record evidence of a valid tool call.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "field,bad_value,failure",
+    [
+        ("decision", "root", "illegal_decision:'root'"),
+        ("decision", "ALLOW", "illegal_decision:'ALLOW'"),
+        (
+            "payload_classification",
+            "cosmic",
+            "illegal_payload_classification:'cosmic'",
+        ),
+    ],
+)
+def test_an_illegal_enum_value_is_malformed(kp, trusted, field, bad_value, failure):
+    envelope = _sign_envelope(_envelope(**{field: bad_value}), kp)
+    result = verify_trace_envelope(envelope, trusted_keys=trusted)
+    assert result.status is TraceStatus.MALFORMED
+    assert result.admissible is False
+    assert failure in result.failures
+
+
+@pytest.mark.parametrize("field", ["trace_id", "agent_manifest_id"])
+def test_an_id_that_is_not_uuid_v7_is_malformed(kp, trusted, field):
+    envelope = _sign_envelope(_envelope(**{field: "not-a-uuid"}), kp)
+    result = verify_trace_envelope(envelope, trusted_keys=trusted)
+    assert result.status is TraceStatus.MALFORMED
+    assert f"not_a_uuid_v7:{field}" in result.failures
+
+
+def test_a_uuid_v4_is_not_accepted_where_v7_is_required(kp, trusted):
+    """The version nibble is the point: v7 is time-ordered, v4 is not."""
+    envelope = _sign_envelope(
+        _envelope(trace_id="0192f3a0-0000-4000-8000-00000000000a"), kp
+    )
+    result = verify_trace_envelope(envelope, trusted_keys=trusted)
+    assert result.status is TraceStatus.MALFORMED
+    assert "not_a_uuid_v7:trace_id" in result.failures
+
+
+def test_a_present_but_malformed_hitl_approval_id_is_malformed(kp, trusted):
+    """`<UUID v7> | null`: null is legal, a broken value is not."""
+    envelope = _sign_envelope(_envelope(hitl_approval_id="approved-by-bob"), kp)
+    result = verify_trace_envelope(envelope, trusted_keys=trusted)
+    assert result.status is TraceStatus.MALFORMED
+    assert "not_a_uuid_v7:hitl_approval_id" in result.failures
+
+
+def test_a_null_hitl_approval_id_is_accepted(kp, trusted):
+    envelope = _sign_envelope(_envelope(hitl_approval_id=None), kp)
+    assert verify_trace_envelope(envelope, trusted_keys=trusted).status is (
+        TraceStatus.VERIFIED
+    )
+
+
+@pytest.mark.parametrize(
+    "bad_agent_id", ["just-a-name", "https://example.org/agent", "spiffe:/missing"]
+)
+def test_an_agent_id_that_is_not_a_spiffe_uri_is_malformed(kp, trusted, bad_agent_id):
+    envelope = _sign_envelope(_envelope(agent_id=bad_agent_id), kp)
+    result = verify_trace_envelope(envelope, trusted_keys=trusted)
+    assert result.status is TraceStatus.MALFORMED
+    assert "not_a_spiffe_uri:agent_id" in result.failures
+
+
+@pytest.mark.parametrize("field", ["policy_hash", "catalog_hash"])
+def test_a_hash_that_is_not_sha256_prefixed_is_malformed(kp, trusted, field):
+    envelope = _sign_envelope(_envelope(**{field: "deadbeef"}), kp)
+    result = verify_trace_envelope(envelope, trusted_keys=trusted)
+    assert result.status is TraceStatus.MALFORMED
+    assert f"not_a_sha256_hash:{field}" in result.failures
+
+
+@pytest.mark.parametrize(
+    "bad_timestamp",
+    [
+        "yesterday",
+        "2026-08-03T12:00:00",          # offset-naive, time zone would be guessed
+        "2026-08-03T12:00:00+02:00",    # a real offset, but not UTC
+        "03/08/2026 12:00",
+    ],
+)
+def test_a_timestamp_that_is_not_iso8601_utc_is_malformed(kp, trusted, bad_timestamp):
+    envelope = _sign_envelope(_envelope(timestamp=bad_timestamp), kp)
+    result = verify_trace_envelope(envelope, trusted_keys=trusted)
+    assert result.status is TraceStatus.MALFORMED
+    assert "not_an_iso8601_utc_timestamp:timestamp" in result.failures
+
+
+@pytest.mark.parametrize("suffix", ["Z", "+00:00"])
+def test_both_utc_spellings_are_accepted(kp, trusted, suffix):
+    envelope = _sign_envelope(_envelope(timestamp=f"2026-08-03T12:00:00{suffix}"), kp)
+    assert verify_trace_envelope(envelope, trusted_keys=trusted).status is (
+        TraceStatus.VERIFIED
+    )
+
+
+def test_a_platform_specific_tee_measurement_is_not_forced_to_sha256(kp, trusted):
+    """Spec 6.3.2 types it as `<platform-specific measurement>`, so enforcing a
+    hash shape here would reject records the specification permits."""
+    envelope = _sign_envelope(_envelope(tee_measurement="mrenclave:abc123"), kp)
+    assert verify_trace_envelope(envelope, trusted_keys=trusted).status is (
+        TraceStatus.VERIFIED
+    )
+
+
+@pytest.mark.parametrize("field", ["tool_id", "tee_measurement", "egress_destination"])
+def test_an_empty_required_string_is_malformed(kp, trusted, field):
+    envelope = _sign_envelope(_envelope(**{field: "   "}), kp)
+    result = verify_trace_envelope(envelope, trusted_keys=trusted)
+    assert result.status is TraceStatus.MALFORMED
+    assert f"empty_required_field:{field}" in result.failures
+
+
+# --- pack contents ---------------------------------------------------------
+
+
+def test_an_empty_verification_result_is_malformed(kp, trusted):
+    pack = _pack([])
+    pack["verification_result"] = {}
+    result = verify_evidence_pack(_sign_pack(pack, kp), trusted_keys=trusted)
+    assert result.status is TraceStatus.MALFORMED
+    assert "verification_result_empty" in result.failures
+
+
+def test_a_verification_result_without_a_result_is_malformed(kp, trusted):
+    pack = _pack([])
+    pack["verification_result"] = {"manifest_id": MANIFEST_ID}
+    result = verify_evidence_pack(_sign_pack(pack, kp), trusted_keys=trusted)
+    assert result.status is TraceStatus.MALFORMED
+    assert "verification_result_missing_result" in result.failures
+
+
+def test_an_illegal_verification_result_value_is_malformed(kp, trusted):
+    pack = _pack([])
+    pack["verification_result"] = {"result": "PROBABLY_FINE"}
+    result = verify_evidence_pack(_sign_pack(pack, kp), trusted_keys=trusted)
+    assert result.status is TraceStatus.MALFORMED
+    assert "illegal_verification_result:'PROBABLY_FINE'" in result.failures
+
+
+def test_an_empty_attestation_report_is_malformed(kp, trusted):
+    pack = _pack([])
+    pack["attestation_report"] = ""
+    result = verify_evidence_pack(_sign_pack(pack, kp), trusted_keys=trusted)
+    assert result.status is TraceStatus.MALFORMED
+    assert "attestation_report_empty" in result.failures
+
+
+def test_an_attestation_report_that_is_not_base64url_is_malformed(kp, trusted):
+    """Spec 5.2.1 carries the raw platform report base64url-encoded, so a value
+    that cannot be decoded is not a report this pack could have produced."""
+    pack = _pack([])
+    pack["attestation_report"] = "not/valid+base64!!"
+    result = verify_evidence_pack(_sign_pack(pack, kp), trusted_keys=trusted)
+    assert result.status is TraceStatus.MALFORMED
+    assert "attestation_report_not_base64url" in result.failures
+
+
+def test_pack_contents_are_checked_before_the_signature(kp, trusted):
+    pack = _pack([])
+    pack["attestation_report"] = ""
+    result = verify_evidence_pack(_sign_pack(pack, kp), trusted_keys={})
+    assert result.status is TraceStatus.MALFORMED
+    assert result.signature_verified is False
