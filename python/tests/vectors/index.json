@@ -174,14 +174,14 @@
       "description": "A payload nested past the accepted depth is rejected with a verdict, not a stack exhaustion. The signature over these bytes is valid."
     },
     {
-      "id": "AM-VEC-COSE-015",
-      "file": "AM-VEC-COSE-015.json",
-      "description": "A payload containing the non-JSON literal Infinity is rejected. Companion to AM-VEC-COSE-011: a verifier that special-cases NaN passes that one and fails this. The signature over these bytes is valid."
-    },
-    {
       "id": "AM-VEC-COSE-014",
       "file": "AM-VEC-COSE-014.json",
       "description": "A version 0.2 manifest presented with a v0.1 detached signature block is rejected. The signature is valid and the version is supported; the envelope is the defect."
+    },
+    {
+      "id": "AM-VEC-COSE-015",
+      "file": "AM-VEC-COSE-015.json",
+      "description": "A payload containing the non-JSON literal Infinity is rejected. Companion to AM-VEC-COSE-011: a verifier that special-cases NaN passes that one and fails this. The signature over these bytes is valid."
     }
   ]
 }
