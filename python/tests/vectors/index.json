@@ -1,7 +1,7 @@
 {
   "suite": "agent-manifest-verification",
-  "spec_version": "0.1",
-  "description": "Language-neutral verification conformance vectors. Each vector: a manifest, a VerificationContext, and the expected VerificationResult.",
+  "spec_version": "0.2",
+  "description": "Language-neutral verification conformance vectors. Each vector: a manifest or a COSE envelope, a VerificationContext, and the expected VerificationResult.",
   "envelopes": {
     "manifest": "v0.1 detached signature over an RFC 8785 pre-image",
     "envelope_hex": "v0.2 COSE_Sign1 / COSE_Sign, CBOR"

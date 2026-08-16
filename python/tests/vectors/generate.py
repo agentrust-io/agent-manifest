@@ -847,10 +847,14 @@ def main() -> None:
 
     index = {
         "suite": "agent-manifest-verification",
-        "spec_version": "0.1",
+        # The suite is written against the 0.2 spec, which defines both
+        # envelopes. It said 0.1 while nearly half the vectors target the v0.2
+        # COSE envelope, which is the first thing a consumer reads.
+        "spec_version": "0.2",
         "description": "Language-neutral verification conformance vectors. "
-                       "Each vector: a manifest, a VerificationContext, and the "
-                       "expected VerificationResult.",
+                       "Each vector: a manifest or a COSE envelope, a "
+                       "VerificationContext, and the expected "
+                       "VerificationResult.",
         # A vector carries either `manifest` (a version 0.1 document with a
         # detached signature block) or `envelope_hex` (a version 0.2 COSE
         # object). The envelope follows the manifest version, so a consumer
