@@ -555,6 +555,28 @@ def cose_negative_vectors() -> list[dict[str, Any]]:
     # MISMATCH rather than INCOMPATIBLE_VERSION, deliberately. The verifier
     # supports 0.2; what it will not do is verify 0.2 here. Reporting an
     # unsupported version would state something untrue about its capabilities.
+    # 015: the other literal finding 2 on #243 names. NaN and Infinity are one
+    # class of defect but not one code path in every parser, so a verifier
+    # could special-case NaN, pass 011, and still accept this. -Infinity
+    # travels the same path as Infinity in every parser checked, so it is
+    # covered by this vector rather than given a third.
+    infinite = placeholder.replace(
+        b'{"placeholder":0}', b'{"nonce_skew_seconds":Infinity}'
+    )
+    assert b"Infinity" in infinite, "the non-finite literal was not spliced in"
+    vectors.append(_cose_negative(
+        "AM-VEC-COSE-015",
+        (
+            "A payload containing the non-JSON literal Infinity is rejected. "
+            "Companion to AM-VEC-COSE-011: a verifier that special-cases NaN "
+            "passes that one and fails this. The signature over these bytes "
+            "is valid."
+        ),
+        ["cose-envelope-v0.2 4", "cose-envelope-v0.2 6"],
+        _sign_payload(infinite),
+        "MISMATCH",
+    ))
+
     fallback = base_manifest(version="0.2")
     vectors.append({
         "id": "AM-VEC-COSE-014",

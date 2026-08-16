@@ -153,6 +153,7 @@ because it tests the same rule from the other side.
 | `AM-VEC-COSE-012` | A `0.1` payload in a `0.2` envelope routes on the payload | `INCOMPATIBLE_VERSION` |
 | `AM-VEC-COSE-013` | A payload nested past the depth bound yields a verdict | `MISMATCH` |
 | `AM-VEC-COSE-014` | A `0.2` manifest may not fall back to the v0.1 envelope | `MISMATCH` |
+| `AM-VEC-COSE-015` | The non-JSON literal `Infinity` is rejected likewise | `MISMATCH` |
 
 `AM-VEC-COSE-009` is worth calling out. Its envelope is **byte-identical** to
 `AM-VEC-COSE-001`; only `context.trusted_key_issuers` differs, binding the
@@ -248,12 +249,18 @@ The Python reference assertion lives in
   `ATTESTATION_UNAVAILABLE` (attestation enforced but absent).
 * HITL approved / missing / expired, and memory-baseline TTL expiry.
 
-`AM-VEC-COSE-001` … `AM-VEC-COSE-014` cover the v0.2 envelope: one vector
-pinning the encoding byte for byte, and thirteen negatives spanning the
+`AM-VEC-COSE-001` … `AM-VEC-COSE-015` cover the v0.2 envelope: one vector
+pinning the encoding byte for byte, and fourteen negatives spanning the
 protected/unprotected header split, CBOR tagging and framing, payload
 presence, the issuer authorization boundary, the two JSON parser divergences
 (duplicate member names, non-finite numbers), version routing in both
 directions, and the payload depth bound.
+
+`011` and `015` are a pair on purpose. #243 records `NaN` and `Infinity` as one
+class of defect, but they are not one code path in every parser, so a verifier
+that special-cases `NaN` passes `011` and fails `015`. `-Infinity` travels the
+same path as `Infinity` in every parser checked and is covered by `015` rather
+than given a third vector.
 
 > Note: `AM-VEC-013` returns overall `VALID` while `memory_baseline` is
 > `EXPIRED` — this faithfully encodes the reference engine's behaviour (an

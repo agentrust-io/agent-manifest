@@ -358,6 +358,12 @@ def _repaired_envelopes() -> dict[str, tuple[Any, dict[str, Any]]]:
         ),
         "AM-VEC-COSE-012": (_sign_payload(valid_payload), context),
         "AM-VEC-COSE-013": (_sign_payload(carrier), context),
+        "AM-VEC-COSE-015": (
+            _sign_payload(
+                carrier.replace(b'{"placeholder":0}', b'{"nonce_skew_seconds":0}')
+            ),
+            context,
+        ),
         # 014's defect is the version/envelope pairing, so the repair is to put
         # the document back at the version its envelope is for. This is
         # AM-VEC-001.
