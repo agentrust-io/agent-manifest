@@ -288,3 +288,62 @@ def test_cose_negative_vector_signature_claim_is_true(file_name: str) -> None:
         f"{vector['id']}: signature_valid says {vector['signature_valid']} but "
         f"the signature on disk {'verifies' if verifies else 'does not verify'}"
     )
+
+
+def _repaired_envelopes() -> dict[str, tuple[bytes, dict[str, Any]]]:
+    """Each phase 3 vector with its named defect removed and nothing else.
+
+    Built from the same helpers that build the vectors, so a repair cannot
+    silently diverge from the thing it is repairing.
+    """
+    from agent_manifest._canonicalize import canonicalize
+    from agent_manifest._cose import sign_cose_sign1
+
+    from tests.vectors.generate import KP, _sign_payload, base_context, cose_manifest
+
+    context = base_context()
+    valid_payload = canonicalize(cose_manifest())
+    # The carrier 010, 011 and 013 hang their defect on. Asserted below to be
+    # benign on its own, so those three cannot be passing on the carrier.
+    carrier = canonicalize(cose_manifest(attestation={"placeholder": 0}))
+
+    return {
+        # 009's defect is entirely in the context, so the repair is to drop
+        # the issuer binding and leave the envelope untouched.
+        "AM-VEC-COSE-009": (sign_cose_sign1(cose_manifest(), KP), context),
+        "AM-VEC-COSE-010": (_sign_payload(valid_payload), context),
+        "AM-VEC-COSE-011": (
+            _sign_payload(
+                carrier.replace(b'{"placeholder":0}', b'{"nonce_skew_seconds":0}')
+            ),
+            context,
+        ),
+        "AM-VEC-COSE-012": (_sign_payload(valid_payload), context),
+        "AM-VEC-COSE-013": (_sign_payload(carrier), context),
+    }
+
+
+@pytest.mark.parametrize("vector_id", sorted(_repaired_envelopes()))
+def test_cose_negative_vector_isolates_its_named_defect(vector_id: str) -> None:
+    """Remove only the defect a vector names, and it must verify VALID.
+
+    This is what separates a vector that tests its rule from one that happens
+    to be rejected for some other reason it also contains. ``signature_valid``
+    rules out an incidental signature failure; this rules out everything else,
+    by showing the named defect is the sole thing standing between the
+    envelope and a VALID result.
+
+    It matters most for AM-VEC-COSE-011 and 013, which hang their defect on an
+    ``attestation`` object. If that carrier were not itself benign the vectors
+    would have two defects, and an implementation could pass them without
+    implementing the rule under test.
+    """
+    envelope, context = _repaired_envelopes()[vector_id]
+    result = verify_manifest(envelope, VerificationContext(**context), RevocationStore())
+
+    assert result.result.value == "VALID", (
+        f"{vector_id}: with its named defect removed the envelope still does "
+        f"not verify ({result.result.value}), so the vector carries a second "
+        f"defect and does not isolate the rule it names"
+    )
+    assert result.signature_verified is True, vector_id
