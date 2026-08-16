@@ -39,6 +39,14 @@ import cbor2
 
 from agent_manifest._canonicalize import canonicalize
 from agent_manifest._cose import (
+    ALG_ED25519,
+    COSE_SIGN1_TAG,
+    HDR_ALG,
+    HDR_CONTENT_TYPE,
+    HDR_KID,
+    HDR_TYP,
+    MEDIA_TYPE_MANIFEST_COSE,
+    MEDIA_TYPE_MANIFEST_JSON,
     _sig_structure_sign1,
     payload_hash,
     sign_cose_sign1,
@@ -194,6 +202,27 @@ def cose_encoding_vector() -> dict[str, Any]:
     }
 
 
+def _signature_is_valid(envelope: bytes) -> bool:
+    """Does the Ed25519 signature in *envelope* verify over its Sig_structure?
+
+    Recorded on every negative vector as ``signature_valid``. It is the
+    difference between a vector that tests the rule it names and one that a
+    verifier passes by rejecting a broken signature and never reaching that
+    rule. Computed from the finished bytes rather than passed in, so it cannot
+    drift from what the vector actually contains.
+    """
+    try:
+        decoded = cbor2.loads(envelope)
+        body = decoded.value if isinstance(decoded, cbor2.CBORTag) else decoded
+        protected, _unprotected, payload, signature = body
+        if payload is None:
+            return False
+        KP.public_key.verify(signature, _sig_structure_sign1(protected, payload))
+    except Exception:
+        return False
+    return True
+
+
 def _cose_negative(
     vid: str,
     description: str,
@@ -202,6 +231,7 @@ def _cose_negative(
     expected_result: str,
     *,
     signature_verified: bool = False,
+    context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """A COSE vector whose envelope a conforming verifier must not accept.
 
@@ -211,22 +241,43 @@ def _cose_negative(
     something it is being told to reject.
 
     The schema states *that* a manifest is rejected, not *why*. A verifier
-    that rejects one of these for the wrong reason still passes. That is a
-    known limit of the current shape rather than an oversight; adding an
-    expected reason would change a published contract, so it is raised in the
-    PR rather than assumed.
+    that rejects one of these for the wrong reason still passes. ``signature_valid``
+    narrows that: where it is true, a rejection cannot have come from signature
+    verification, so the named rule is the only thing left to reject on.
     """
     return {
         "id": vid,
         "description": description,
         "spec_refs": spec_refs,
         "envelope_hex": envelope.hex(),
-        "context": base_context(),
+        "signature_valid": _signature_is_valid(envelope),
+        "context": base_context() if context is None else context,
         "expected": {
             "result": expected_result,
             "signature_verified": signature_verified,
         },
     }
+
+
+def _sign_payload(payload: bytes) -> bytes:
+    """A well-formed COSE_Sign1 carrying *payload* verbatim.
+
+    Used by the vectors whose defect is in the payload. Signing over the
+    malformed bytes rather than swapping them into an already-signed envelope
+    is what keeps the payload rule the only thing wrong with the object: a
+    verifier that checked the signature and stopped would accept it.
+    """
+    protected = cbor2.dumps(
+        {
+            HDR_ALG: ALG_ED25519,
+            HDR_CONTENT_TYPE: MEDIA_TYPE_MANIFEST_JSON,
+            HDR_KID: hashlib.sha256(KP.public_bytes).digest(),
+            HDR_TYP: MEDIA_TYPE_MANIFEST_COSE,
+        },
+        canonical=True,
+    )
+    signature = KP.private_key.sign(_sig_structure_sign1(protected, payload))
+    return _retag(COSE_SIGN1_TAG, [protected, {}, payload, signature])
 
 
 def _signed_cose_parts() -> tuple[bytes, bytes, dict[Any, Any], bytes, bytes]:
@@ -241,11 +292,18 @@ def _retag(tag: int, body: list[Any]) -> bytes:
 
 
 def cose_negative_vectors() -> list[dict[str, Any]]:
-    """The negative cases only this envelope can express.
+    """The negative cases a conforming verifier must reject.
 
-    The first four are named in section 9 of the envelope specification. The
-    last three are places a CBOR implementation genuinely differs, so they
-    catch cross-language divergence rather than restating v0.1 behaviour.
+    002 to 005 are named in section 9 of the envelope specification. 006 to 008
+    are places a CBOR implementation genuinely differs, so they catch
+    cross-language divergence rather than restating v0.1 behaviour. 009 to 013
+    are the cases carried over from the phase 2 security follow-up on issue
+    #243: the authorization boundary, the two JSON parser divergences, version
+    routing, and the depth bound.
+
+    Every one of 009 to 013 signs over the payload under test rather than
+    swapping bytes into an already-signed envelope, so each carries a valid
+    signature and the rule it names is the only reason to reject it.
     """
     vectors: list[dict[str, Any]] = []
     _, protected, _, payload, signature = _signed_cose_parts()
@@ -347,6 +405,113 @@ def cose_negative_vectors() -> list[dict[str, Any]]:
         "A detached (nil) payload is rejected; this profile is inline only.",
         ["cose-envelope-v0.2 4", "cose-envelope-v0.2 6"],
         _retag(18, [protected, {}, None, signature]),
+        "MISMATCH",
+    ))
+
+    # 009: the signing key is trusted, but not for this issuer. The envelope is
+    # byte-identical to AM-VEC-COSE-001, which is the point: only the context
+    # differs, so nothing about the object can explain the rejection. A
+    # verifier that stops at "the signature verifies under a trusted key"
+    # returns VALID here and has no authorization boundary at all.
+    vectors.append(_cose_negative(
+        "AM-VEC-COSE-009",
+        (
+            "A trusted key not authorized for the manifest's issuer is "
+            "rejected. The envelope is byte-identical to AM-VEC-COSE-001 and "
+            "the signature verifies; only the issuer binding differs."
+        ),
+        ["5.3", "cose-envelope-v0.2 6"],
+        sign_cose_sign1(cose_manifest(), KP),
+        "MISMATCH",
+        signature_verified=True,
+        context=base_context(
+            trusted_key_issuers={KEY_ID: ["spiffe://trust.example/other-authority"]}
+        ),
+    ))
+
+    # 010: a duplicate member name. RFC 8259 section 4 says the behaviour of an
+    # implementation given these is unpredictable, and it is: of the two
+    # parsers checked here, both keep the last, but nothing requires that. The
+    # second issuer is an attacker-chosen value, so a verifier that keeps
+    # either one and proceeds attributes the manifest to a different authority
+    # than the one that a first-wins parser would report.
+    canonical = canonicalize(cose_manifest())
+    first_issuer = canonical.index(b'"issuer":')
+    after_issuer = canonical.index(b",", first_issuer)
+    duplicated = (
+        canonical[:after_issuer]
+        + b',"issuer":"spiffe://trust.example/attacker"'
+        + canonical[after_issuer:]
+    )
+    vectors.append(_cose_negative(
+        "AM-VEC-COSE-010",
+        (
+            "A payload with a duplicate member name is rejected rather than "
+            "resolved. The signature over these bytes is valid: the two "
+            "issuer values are the only defect."
+        ),
+        ["cose-envelope-v0.2 4", "cose-envelope-v0.2 6"],
+        _sign_payload(duplicated),
+        "MISMATCH",
+    ))
+
+    # 011: NaN. Not JSON (RFC 8259 section 6 admits no non-finite values), but
+    # several parsers accept it as an extension, Python's own among them unless
+    # told otherwise. It is placed in `attestation`, which is a free-form
+    # object, so the manifest is schema-valid everywhere else and the literal
+    # is the only thing wrong with it.
+    placeholder = canonicalize(cose_manifest(attestation={"placeholder": 0}))
+    non_finite = placeholder.replace(
+        b'{"placeholder":0}', b'{"nonce_skew_seconds":NaN}'
+    )
+    assert b"NaN" in non_finite, "the non-finite literal was not spliced in"
+    vectors.append(_cose_negative(
+        "AM-VEC-COSE-011",
+        (
+            "A payload containing the non-JSON literal NaN is rejected, not "
+            "accepted as a parser extension. The signature over these bytes "
+            "is valid."
+        ),
+        ["cose-envelope-v0.2 4", "cose-envelope-v0.2 6"],
+        _sign_payload(non_finite),
+        "MISMATCH",
+    ))
+
+    # 012: a 0.1 payload in a 0.2 envelope. Section 6 step 3 routes on the
+    # payload's own version, so this must come back INCOMPATIBLE_VERSION rather
+    # than being verified under 0.2 rules because the envelope looks like one.
+    # Distinct from the other negatives in expected result, deliberately: an
+    # unsupported version is a capability statement, not a malformed object.
+    vectors.append(_cose_negative(
+        "AM-VEC-COSE-012",
+        (
+            "A payload declaring version 0.1 inside a 0.2 COSE envelope "
+            "returns INCOMPATIBLE_VERSION. The envelope is well formed and "
+            "the signature over it is valid."
+        ),
+        ["cose-envelope-v0.2 6", "2.4"],
+        _sign_payload(canonicalize(cose_manifest(version="0.1"))),
+        "INCOMPATIBLE_VERSION",
+    ))
+
+    # 013: nesting past the accepted depth. A manifest is untrusted input, so
+    # this has to produce a verdict rather than exhaust the stack - a verifier
+    # that recurses without a bound crashes on it instead of returning
+    # anything. Nested inside `attestation` for the same reason as 011: the
+    # rest of the document is valid, so depth is the only defect.
+    deeply_nested = placeholder.replace(
+        b'{"placeholder":0}',
+        ('{"a":' * 80 + "1" + "}" * 80).encode(),
+    )
+    vectors.append(_cose_negative(
+        "AM-VEC-COSE-013",
+        (
+            "A payload nested past the accepted depth is rejected with a "
+            "verdict, not a stack exhaustion. The signature over these bytes "
+            "is valid."
+        ),
+        ["cose-envelope-v0.2 4", "cose-envelope-v0.2 6"],
+        _sign_payload(deeply_nested),
         "MISMATCH",
     ))
 

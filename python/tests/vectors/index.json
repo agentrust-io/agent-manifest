@@ -147,6 +147,31 @@
       "id": "AM-VEC-COSE-008",
       "file": "AM-VEC-COSE-008.json",
       "description": "A detached (nil) payload is rejected; this profile is inline only."
+    },
+    {
+      "id": "AM-VEC-COSE-009",
+      "file": "AM-VEC-COSE-009.json",
+      "description": "A trusted key not authorized for the manifest's issuer is rejected. The envelope is byte-identical to AM-VEC-COSE-001 and the signature verifies; only the issuer binding differs."
+    },
+    {
+      "id": "AM-VEC-COSE-010",
+      "file": "AM-VEC-COSE-010.json",
+      "description": "A payload with a duplicate member name is rejected rather than resolved. The signature over these bytes is valid: the two issuer values are the only defect."
+    },
+    {
+      "id": "AM-VEC-COSE-011",
+      "file": "AM-VEC-COSE-011.json",
+      "description": "A payload containing the non-JSON literal NaN is rejected, not accepted as a parser extension. The signature over these bytes is valid."
+    },
+    {
+      "id": "AM-VEC-COSE-012",
+      "file": "AM-VEC-COSE-012.json",
+      "description": "A payload declaring version 0.1 inside a 0.2 COSE envelope returns INCOMPATIBLE_VERSION. The envelope is well formed and the signature over it is valid."
+    },
+    {
+      "id": "AM-VEC-COSE-013",
+      "file": "AM-VEC-COSE-013.json",
+      "description": "A payload nested past the accepted depth is rejected with a verdict, not a stack exhaustion. The signature over these bytes is valid."
     }
   ]
 }

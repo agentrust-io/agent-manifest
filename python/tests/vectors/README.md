@@ -91,7 +91,8 @@ it is being told to reject.
   "id": "AM-VEC-COSE-003",
   "description": "alg present in the unprotected header is rejected, never read.",
   "envelope_hex": "d284586aa401270378...",
-  "context": { ... },
+  "signature_valid": true,       // the Ed25519 signature over the
+  "context": { ... },            // Sig_structure verifies; see below
   "expected": {
     "result": "MISMATCH",
     "signature_verified": false
@@ -102,7 +103,7 @@ it is being told to reject.
 Consume them exactly as the positive ones: decode `envelope_hex` and run your
 verifier over the bytes. The only difference is what you assert.
 
-Two properties are worth knowing before you rely on them.
+Three properties are worth knowing before you rely on them.
 
 **They state that a manifest is rejected, not why.** Every structural
 rejection maps to `MISMATCH`, so a verifier that rejects one of these for the
@@ -110,12 +111,56 @@ wrong reason still passes. Each vector's `description` and `spec_refs` name
 the rule actually under test, and an implementation that wants stronger
 assurance should check it rejects for that reason.
 
+**`signature_valid` tells you whether the signature is the reason.** Where it
+is `true`, the Ed25519 signature over the RFC 9052 `Sig_structure` verifies
+under the published key, so a verifier cannot pass the vector by rejecting a
+broken signature and never reaching the rule the vector names. Every negative
+declares it. Two are `false`, both by design: `AM-VEC-COSE-002` tampers with
+the protected header, which is the rule under test, and `AM-VEC-COSE-008` has
+a nil payload, so there is no `Sig_structure` to verify over.
+
+Note that `signature_valid` is a fact about the bytes and
+`expected.signature_verified` is what your verifier should report. They differ
+wherever a rule fires before signature appraisal: `AM-VEC-COSE-010` carries a
+valid signature over a payload the verifier rejects before it gets that far.
+
 **One of them expects `VALID`.** `AM-VEC-COSE-005` injects an unprotected
 header after signing, and a conforming verifier must still return `VALID`,
 because nothing in the unprotected header is covered by the signature and
 section 6 step 7 evaluates it last. A verifier that merged the two halves, or
 read `kid` from the malleable one, fails it. It is filed with the negatives
 because it tests the same rule from the other side.
+
+#### What each negative covers
+
+| Vector | Rule under test | Expected |
+|--------|-----------------|----------|
+| `AM-VEC-COSE-002` | A tampered protected header invalidates the signature | `MISMATCH` |
+| `AM-VEC-COSE-003` | `alg` in the unprotected header is rejected, never read | `MISMATCH` |
+| `AM-VEC-COSE-004` | A vendor-tree `typ` alias is rejected | `MISMATCH` |
+| `AM-VEC-COSE-005` | An unprotected header injected after signing changes nothing | `VALID` |
+| `AM-VEC-COSE-006` | An untagged COSE structure is rejected, not inferred | `MISMATCH` |
+| `AM-VEC-COSE-007` | Trailing bytes after the COSE object are rejected | `MISMATCH` |
+| `AM-VEC-COSE-008` | A detached (nil) payload is rejected; this profile is inline only | `MISMATCH` |
+| `AM-VEC-COSE-009` | A trusted key not authorized for the manifest's issuer | `MISMATCH` |
+| `AM-VEC-COSE-010` | A duplicate JSON member name is rejected, not resolved | `MISMATCH` |
+| `AM-VEC-COSE-011` | The non-JSON literal `NaN` is rejected, not accepted | `MISMATCH` |
+| `AM-VEC-COSE-012` | A `0.1` payload in a `0.2` envelope routes on the payload | `INCOMPATIBLE_VERSION` |
+| `AM-VEC-COSE-013` | A payload nested past the depth bound yields a verdict | `MISMATCH` |
+
+`AM-VEC-COSE-009` is worth calling out. Its envelope is **byte-identical** to
+`AM-VEC-COSE-001`; only `context.trusted_key_issuers` differs, binding the
+signing key to an issuer other than the manifest's. Nothing about the object
+can explain the rejection, so a verifier that stops at "the signature verifies
+under a trusted key" returns `VALID` and has no authorization boundary at all.
+It is the one negative that reports `signature_verified: true`.
+
+`AM-VEC-COSE-010`, `011` and `013` place their defect inside `attestation`,
+which the schema types as a free-form object, so the rest of the document is
+valid and the named defect is the only thing wrong with it. All three are
+signed **over** the malformed payload rather than having bytes swapped into an
+already-signed envelope, which is what keeps them from degrading into
+signature-failure tests.
 
 `context` maps field-for-field onto the SDK's `VerificationContext`, so a Python
 consumer is just `VerificationContext(**vector["context"])`. Other languages
@@ -162,6 +207,13 @@ The Python reference assertion lives in
   `ATTESTATION_UNAVAILABLE` (attestation enforced but absent).
 * HITL approved / missing / expired, and memory-baseline TTL expiry.
 
+`AM-VEC-COSE-001` … `AM-VEC-COSE-013` cover the v0.2 envelope: one vector
+pinning the encoding byte for byte, and twelve negatives spanning the
+protected/unprotected header split, CBOR tagging and framing, payload
+presence, the issuer authorization boundary, the two JSON parser divergences
+(duplicate member names, non-finite numbers), version routing, and the payload
+depth bound.
+
 > Note: `AM-VEC-013` returns overall `VALID` while `memory_baseline` is
 > `EXPIRED` — this faithfully encodes the reference engine's behaviour (an
 > expired baseline is surfaced per-field but is not, on its own, a hard
@@ -177,3 +229,8 @@ python -m tests.vectors.generate
 
 Regenerate only when the engine's normative behaviour changes, and review the
 diff. The generated files are committed so consumers don't need to run Python.
+
+`test_committed_vectors_match_a_fresh_regeneration` rebuilds every vector in
+memory and diffs it against the committed copy, so a file edited by hand, or a
+generator change made without regenerating, fails the suite rather than
+shipping as a contract nobody can reproduce.

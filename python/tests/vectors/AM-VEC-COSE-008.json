@@ -6,6 +6,7 @@
     "cose-envelope-v0.2 6"
   ],
   "envelope_hex": "d284586aa4013203781f6170706c69636174696f6e2f6167656e742d6d616e69666573742b6a736f6e04582056475aa75463474c0285df5dbf2bcab73da651358839e9b77481b2eab107708c10781f6170706c69636174696f6e2f6167656e742d6d616e69666573742b636f7365a0f65840819b17572c67eece4a1b20557f1d861a295c1fc3287b8a5cd1e6f93e48ec8553e22fcd94eba9ac6edfdfae0316cda3e35609637f27d2bba0bc148dc6c82b8409",
+  "signature_valid": false,
   "context": {
     "system_prompt_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "policy_bundle_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",

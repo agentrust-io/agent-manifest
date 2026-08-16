@@ -52,7 +52,8 @@
         "prior_transparency_log_entry",
         "log_retention",
         "data_scope",
-        "operational_lifecycle"
+        "operational_lifecycle",
+        "intent"
       ]
     }
   },

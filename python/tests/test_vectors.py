@@ -38,6 +38,38 @@ def _load_vector(file_name: str) -> dict[str, Any]:
 VECTOR_FILES = [entry["file"] for entry in _load_index()]
 
 
+def test_committed_vectors_match_a_fresh_regeneration() -> None:
+    """The committed JSON must be what ``generate.py`` produces today.
+
+    The vectors are committed so a consumer in another language never has to
+    run Python, which means the files and the generator can drift apart
+    silently. Rebuilding them in memory and diffing closes that: a vector
+    edited by hand, or a generator change made without regenerating, fails
+    here rather than shipping as a contract nobody can reproduce.
+
+    Reproducibility rests on the fixed seed and Ed25519 determinism (RFC 8032),
+    so this is stable rather than merely usually true. It is also why there is
+    no post-quantum vector: ML-DSA-65 signing is hedged, and a vector whose
+    bytes changed on every run could not be asserted this way.
+    """
+    from tests.vectors.generate import build
+
+    rebuilt = {v["id"]: v for v in build()}
+    committed = {
+        p.stem: json.loads(p.read_text()) for p in VECTORS_DIR.glob("AM-VEC-*.json")
+    }
+
+    assert rebuilt.keys() == committed.keys(), (
+        "the set of committed vectors differs from what generate.py builds; "
+        "run `python -m tests.vectors.generate`"
+    )
+    for vid, expected in rebuilt.items():
+        assert committed[vid] == expected, (
+            f"{vid} on disk differs from a fresh regeneration; run "
+            f"`python -m tests.vectors.generate` and review the diff"
+        )
+
+
 def test_index_lists_every_vector_file() -> None:
     on_disk = {p.name for p in VECTORS_DIR.glob("AM-VEC-*.json")}
     in_index = set(VECTOR_FILES)
@@ -175,3 +207,84 @@ def test_cose_negative_vector_is_not_silently_unparseable(file_name: str) -> Non
         f"it names"
     )
     assert len(body) == 4, f"{vector['id']}: should still be four elements"
+
+
+@pytest.mark.parametrize(
+    "file_name",
+    COSE_NEGATIVE_FILES,
+    ids=[f.removesuffix(".json") for f in COSE_NEGATIVE_FILES],
+)
+def test_cose_negative_vector_declares_whether_its_signature_is_valid(
+    file_name: str,
+) -> None:
+    """``signature_valid`` must be present and must be true.
+
+    It is the property that separates a vector testing the rule it names from
+    one a verifier passes by rejecting a broken signature and never reaching
+    that rule. Asserting it here means a vector cannot be added, or an existing
+    one mutated, in a way that quietly turns it into an incidental signature
+    failure.
+
+    The two exceptions are declared rather than tolerated: AM-VEC-COSE-002
+    invalidates the signature on purpose, since a tampered protected header is
+    the rule under test, and AM-VEC-COSE-008 has a nil payload, so there is no
+    Sig_structure to verify over in the first place.
+    """
+    vector = _load_vector(file_name)
+    assert "signature_valid" in vector, (
+        f"{vector['id']}: every negative COSE vector must declare whether its "
+        f"signature verifies"
+    )
+
+    if vector["id"] in {"AM-VEC-COSE-002", "AM-VEC-COSE-008"}:
+        assert vector["signature_valid"] is False
+        return
+    assert vector["signature_valid"] is True, (
+        f"{vector['id']}: a verifier could pass this by rejecting the "
+        f"signature and never applying the rule the vector names"
+    )
+
+
+@pytest.mark.parametrize(
+    "file_name",
+    COSE_NEGATIVE_FILES,
+    ids=[f.removesuffix(".json") for f in COSE_NEGATIVE_FILES],
+)
+def test_cose_negative_vector_signature_claim_is_true(file_name: str) -> None:
+    """Re-derive ``signature_valid`` the way a foreign implementation would.
+
+    Using only the public key published in ``keys.json`` and the RFC 9052
+    Sig_structure, so the claim is checked against the bytes on disk rather
+    than trusted from the generator that wrote them.
+    """
+    import base64
+
+    import cbor2
+    from cryptography.exceptions import InvalidSignature
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
+    from agent_manifest._cose import _sig_structure_sign1
+
+    vector = _load_vector(file_name)
+    keys = json.loads((VECTORS_DIR / "keys.json").read_text())
+    raw = base64.urlsafe_b64decode(keys["public_key_b64url"] + "=" * 4)
+    public_key = Ed25519PublicKey.from_public_bytes(raw)
+
+    decoded = cbor2.loads(bytes.fromhex(vector["envelope_hex"]))
+    body = decoded.value if isinstance(decoded, cbor2.CBORTag) else decoded
+    protected, _unprotected, payload, signature = body
+
+    if payload is None:
+        assert vector["signature_valid"] is False, vector["id"]
+        return
+
+    try:
+        public_key.verify(signature, _sig_structure_sign1(protected, payload))
+        verifies = True
+    except InvalidSignature:
+        verifies = False
+
+    assert verifies is vector["signature_valid"], (
+        f"{vector['id']}: signature_valid says {vector['signature_valid']} but "
+        f"the signature on disk {'verifies' if verifies else 'does not verify'}"
+    )

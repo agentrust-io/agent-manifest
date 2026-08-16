@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Added
+
+**[SDK] `AM-VEC-COSE-002` … `AM-VEC-COSE-013` publish the COSE negative conformance vectors.** Twelve envelopes a conforming verifier must not accept, covering the protected/unprotected header split, CBOR tagging and framing, payload presence, the issuer authorization boundary, the two JSON parser divergences RFC 8259 leaves open (duplicate member names, non-finite numbers), version routing, and the payload depth bound. They complete the portable contract other-language SDKs are written against: until now the suite proved an implementation could accept a valid envelope, not that it rejected an invalid one.
+
+Each negative carries `signature_valid`, recording whether the Ed25519 signature over the RFC 9052 `Sig_structure` verifies. Where it is true, a verifier cannot pass the vector by rejecting a broken signature and never reaching the rule the vector names. The vectors whose defect is in the payload are signed over the malformed bytes rather than having bytes swapped into an already-signed envelope, which is what keeps that guarantee. Two declare `false` by design: `AM-VEC-COSE-002` tampers with the protected header, which is the rule under test, and `AM-VEC-COSE-008` has a nil payload, so there is no `Sig_structure` to verify over.
+
+`AM-VEC-COSE-009` is byte-identical to `AM-VEC-COSE-001` and differs only in `context.trusted_key_issuers`. Nothing about the object explains the rejection, so a verifier that stops at "the signature verifies under a trusted key" returns `VALID` and has no authorization boundary at all.
+
+### Fixed
+
+- The committed conformance vectors are now diffed against a fresh in-memory regeneration by the test suite, so a vector edited by hand, or a generator change made without regenerating, fails CI rather than shipping as a contract nobody can reproduce.
+
+- The v0.1 vectors had been stale since `intent` joined `SIGNED_FIELDS` in 0.11.0: nineteen of them published a `signature.signed_fields` list that omitted it, and `AM-VEC-018` carried the `manifest_hash_in_report` that followed from the shorter list. No signature or expected result changes, because none of these manifests declares an `intent` and `signing_pre_image` omits absent fields, so the signed bytes are identical either way. What was wrong is what the suite told other languages to build their pre-image from. The regeneration test above is what surfaced it, and is what stops it recurring.
+
 ### Security
 
 - `verify_manifest()` now fails closed when a core identity, validity, or artifact-container claim is missing. A valid signature no longer turns such a structurally incomplete object into a `VALID` manifest; legacy v0.1 issuer omission remains compatible unless issuer authorization is configured.

@@ -51,12 +51,13 @@
         "prior_transparency_log_entry",
         "log_retention",
         "data_scope",
-        "operational_lifecycle"
+        "operational_lifecycle",
+        "intent"
       ]
     },
     "attestation": {
       "platform": "tpm",
-      "manifest_hash_in_report": "sha256:55a8dfda7985bf883ae26ef4a487ba5aa689640c0d633fd03bd909fe9f37b4e9"
+      "manifest_hash_in_report": "sha256:74fec66926f25b3c0c7b03ed3435980c566707858338ec9c82adee693ececeff"
     }
   },
   "context": {
