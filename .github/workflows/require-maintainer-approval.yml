@@ -30,7 +30,7 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
-            const MAINTAINERS = ['imran-siddique'];
+            const MAINTAINERS = ['imran-siddique', 'carloshvp', 'zohebk8s'];
 
             // Maintainer-authored PRs skip the gate. author_association is
             // not reliable for this: it only reports MEMBER when the
@@ -40,12 +40,6 @@ jobs:
             const author = context.payload.pull_request.user.login;
             if (MAINTAINERS.includes(author)) {
               core.info(`Author ${author} is a maintainer, skipping gate`);
-              return;
-            }
-
-            const association = context.payload.pull_request.author_association;
-            if (association === 'MEMBER' || association === 'OWNER') {
-              core.info(`Author is ${association}, skipping gate`);
               return;
             }
 
