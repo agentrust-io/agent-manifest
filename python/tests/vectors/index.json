@@ -99,6 +99,11 @@
       "description": "Attestation report hash matching the canonical manifest hash verifies."
     },
     {
+      "id": "AM-VEC-021",
+      "file": "AM-VEC-021.json",
+      "description": "Attestation carried forward onto a re-signed manifest binds the previous document."
+    },
+    {
       "id": "AM-VEC-019",
       "file": "AM-VEC-019.json",
       "description": "Signed single-hop delegation chain bound to the manifest issuer verifies."

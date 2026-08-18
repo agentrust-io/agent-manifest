@@ -808,7 +808,15 @@ def verify_manifest(
                 expected_attest_hash = "sha256:" + _hashlib.sha256(_canonicalize(subset)).hexdigest()
             if hmac.compare_digest(reported_hash, expected_attest_hash):
                 result.attestation_verified = True
-            elif context.enforce_attestation:
+            else:
+                # A present attestation that binds a different manifest is a
+                # mismatch whether or not the caller asked for enforcement
+                # (spec 3.3, issue #265). Absent is a policy question and
+                # enforce_attestation still governs it; present-and-wrong is
+                # not: it is a report about some other document, and the case
+                # that produces it is the stale attestation left on a re-signed
+                # manifest. Gating it on enforce_attestation meant the default
+                # verifier returned VALID for exactly that.
                 mismatches.append(MismatchDetail(
                     field="attestation",
                     expected_hash=expected_attest_hash,

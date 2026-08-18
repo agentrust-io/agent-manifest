@@ -4,6 +4,25 @@
 
 ### Added
 
+- **[SPEC][SDK]** Withdrew the artifact-only refresh path at Level 1 and above,
+  and made a stale attestation fatal (issue #265). Section 2.2 let
+  `memory_baseline.snapshot_hash` be renewed and the manifest re-signed without
+  re-running the TEE attestation. That cannot hold: `manifest_hash_in_report` is
+  computed over the full manifest including the `signature` block, so the
+  refresh changes the attested pre-image twice and the retained report binds the
+  previous document. A verifier had to either reject the refreshed manifest or
+  stop enforcing the binding, and both cannot be conformant at once. Governed
+  memory evolution belongs to the section 3.2.6.2 checkpoint protocol, which
+  exists so a growing store does not mutate the attested document.
+
+  The verifier previously reported a mismatched `manifest_hash_in_report` only
+  when `enforce_attestation` was set, so the default path returned `VALID` for
+  exactly the case above. A present attestation binding a different manifest is
+  now `MISMATCH` regardless: `enforce_attestation` governs whether an
+  attestation is required, not whether a wrong one counts. `AM-VEC-021` pins it,
+  and `examples/level1-tpm-attested.json` carried a placeholder hash that bound
+  no document, which the new rule surfaced.
+
 
 - **[SPEC][SDK]** Added the `com.agentrust-io.manifest` Agent Plugins 1.0.0
   extension profile. It resolves an HTTPS manifest by raw-byte digest, verifies

@@ -810,6 +810,44 @@ def build() -> list[dict[str, Any]]:
         {"result": "VALID", "attestation_verified": True},
     ))
 
+    # 018b - the stale-attestation case from issue #265. The manifest is
+    # attested, then memory_baseline.snapshot_hash is renewed and the document
+    # re-signed, and the original attestation block is carried forward. This is
+    # exactly what the withdrawn artifact-only refresh path described. The
+    # pre-image covers the signature block, so re-signing alone would have been
+    # enough to break the binding; the retained report binds the previous
+    # document either way, and spec 3.3 requires MISMATCH regardless of
+    # enforce_attestation.
+    m = base_manifest(artifacts={
+        "system_prompt": {"hash": SP_HASH},
+        "policy_bundle": {"hash": PB_HASH},
+        "model_identity": {
+            "model_hash": None,
+            "version": "claude-3",
+            "deployment_type": "api",
+        },
+        "memory_baseline": {"snapshot_hash": "sha256:" + "a1" * 32},
+    })
+    subset = {k: v for k, v in m.items() if k not in ("attestation", "transparency_log_entry")}
+    stale_hash = "sha256:" + hashlib.sha256(canonicalize(subset)).hexdigest()
+    refreshed = base_manifest(artifacts={
+        "system_prompt": {"hash": SP_HASH},
+        "policy_bundle": {"hash": PB_HASH},
+        "model_identity": {
+            "model_hash": None,
+            "version": "claude-3",
+            "deployment_type": "api",
+        },
+        "memory_baseline": {"snapshot_hash": "sha256:" + "b2" * 32},
+    })
+    refreshed["attestation"] = {"platform": "tpm", "manifest_hash_in_report": stale_hash}
+    vectors.append(_vector(
+        "AM-VEC-021",
+        "Attestation carried forward onto a re-signed manifest binds the previous document.",
+        ["2.2", "3.3"], refreshed, base_context(),
+        {"result": "MISMATCH", "attestation_verified": False},
+    ))
+
     # 019 - a fully signed, verifiable single-hop delegation chain.
     # The chain root principal must equal the manifest signing identity (issuer),
     # so a valid chain cannot be grafted onto an unrelated manifest.

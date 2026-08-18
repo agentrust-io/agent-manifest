@@ -317,12 +317,16 @@ def test_attestation_hash_mismatch_with_enforce_raises_mismatch():
     assert any(d.field == "attestation" for d in result.mismatch_details)
 
 
-def test_attestation_hash_mismatch_without_enforce_is_valid():
+def test_attestation_hash_mismatch_is_fatal_without_enforce():
+    """Issue #265: a present attestation that binds a different manifest is
+    a report about some other document. enforce_attestation governs whether
+    an attestation is required, not whether a wrong one counts."""
     m = base_manifest()
     m["attestation"] = {"platform": "tpm", "manifest_hash_in_report": "sha256:" + "00" * 32}
     result = verify_manifest(m, base_context(), store())
     assert result.attestation_verified is False
-    assert result.result == OverallResult.VALID
+    assert result.result == OverallResult.MISMATCH
+    assert [d for d in result.mismatch_details if d.field == "attestation"]
 
 
 # ---------------------------------------------------------------------------

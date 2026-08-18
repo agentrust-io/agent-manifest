@@ -125,7 +125,8 @@ The `manifest_id` field is immutable per issuance. Any change to any signed fiel
 Two update paths are defined:
 
 - Full re-issuance: A new UUID v7, a new TEE attestation run, and a new transparency log entry. Required when any artifact binding changes, the signing key rotates, or the manifest expires.
-- Artifact-only refresh: Used only for `memory_baseline.snapshot_hash` renewal within the same `ttl_seconds` window. The manifest is re-signed but the TEE attestation need not be re-run if no other artifact has changed. This path is NOT available for any other artifact.
+- Artifact-only refresh: **Withdrawn at Level 1 and above** <!-- CHANGED: #265 --> in favour of the memory checkpoint protocol. It permitted `memory_baseline.snapshot_hash` to be renewed and the manifest re-signed without re-running the TEE attestation, which cannot hold: `manifest_hash_in_report` (section 3.3) is computed over the full manifest including the `signature` block, so changing the snapshot hash and re-signing changes the attested pre-image twice over. The retained attestation binds the previous document. A verifier had to either reject the refreshed manifest or stop enforcing the binding, and both cannot be conformant at once. At Level 1 and above, any change to a signed field MUST produce a new manifest and a fresh attestation binding its new `manifest_hash_in_report`. At Level 0 there is no attestation to invalidate, so a re-signed manifest with a new `manifest_id` is the only requirement and the refresh path adds nothing.
+- Governed memory evolution: Memory may advance without re-attesting the root manifest through the checkpoint and delta protocol in section 3.2.6.2, which binds the advance in a separate object with its own consistency proof and freshness rule. That protocol exists so a growing memory store does not have to mutate the document whose exact hash was attested. A checkpoint advance is not a refreshed manifest and MUST NOT be presented as one.
 
 Version Negotiation
 
@@ -708,6 +709,10 @@ The attestation block binds the manifest to a specific TEE hardware measurement.
 `manifest_hash_in_report` pre-image <!-- CHANGED: SPEC-09 - normative pre-image definition -->
 
 The `manifest_hash_in_report` pre-image is the RFC 8785 canonical JSON serialization of the full manifest document including the `signature` block and excluding only the `attestation` block. The `attestation` key MUST NOT be present in the pre-image document. The `transparency_log_entry` key MUST also be absent from the pre-image (it is populated after log submission). The hash MUST be computed over the UTF-8 encoding of this canonical form with no BOM.
+
+Because the pre-image covers the `signature` block, re-signing a manifest changes its `manifest_hash_in_report` even when no artifact value changed. An attestation carried forward onto a re-signed document therefore binds the previous document, not the one being verified.
+
+A verifier that finds an `attestation` block whose `manifest_hash_in_report` does not equal the hash computed above MUST return `MISMATCH`, whether or not `enforce_attestation` is set. <!-- CHANGED: #265 --> `enforce_attestation` governs whether an attestation is *required*; it does not govern whether a wrong one counts. An absent attestation and a present attestation that binds a different manifest are different conditions: the first is a policy question and the second is a report about some other document.
 
 The `audit_key_sealed` field (JSON boolean) MUST be `true` for production deployments. It indicates that the audit log signing key was generated inside the TEE and has never been exported to operator-readable memory. A manifest with `audit_key_sealed: false` MUST be treated as software-attested and MUST NOT satisfy regulatory requirements that call for hardware-rooted evidence.
 
