@@ -687,7 +687,7 @@ A checkpoint binds `{audit_chain_root, tree_size, seq, observed_at, ttl_seconds}
 }
 ```
 
-Entry leaves. An entry leaf is `H(0x00 || "am-trace-entry " || canonical_entry)`, where `canonical_entry` is the RFC 8785 canonical JSON (Section 4.3) of the audit entry. The tag domain-separates a trace entry from a memory operation or a corpus document that canonicalizes to the same bytes.
+Entry leaves. An entry leaf is `H(0x00 || "am-trace-entry\x00" || canonical_entry)`, where `canonical_entry` is the RFC 8785 canonical JSON (Section 4.3) of the audit entry. The tag domain-separates a trace entry from a memory operation or a corpus document that canonicalizes to the same bytes.
 
 Continuity evidence. The shape depends on the signed `trace_type`, and the verifier MUST use the `trace_type` bound in the manifest rather than one asserted at fetch time.
 
