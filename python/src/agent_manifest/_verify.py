@@ -117,6 +117,22 @@ class EvidencePack(BaseModel):
     pack_uri: Optional[str] = None
 
 
+class AgentCorrelation(BaseModel):
+    """The join key between a manifest and the runtime evidence emitted
+    under it (spec 6.4.2).
+
+    `agent_uid` is the stable logical identity and `agent_instance_uid` the
+    session-scoped one, mirroring the OCSF `ai_agent` split. The latter is
+    None on a manifest that governs more than one run; a producer supplies its
+    own session identifier there and must not reuse `agent_uid` for it, or the
+    two concepts collapse and "every run of this agent" stops being a query.
+    """
+
+    agent_uid: str
+    agent_instance_uid: Optional[str] = None
+    manifest_id: str
+
+
 class VerificationResult(BaseModel):
     verification_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     manifest_id: str
@@ -131,6 +147,9 @@ class VerificationResult(BaseModel):
     configuration_assurance: ConfigurationAssurance = ConfigurationAssurance.NOT_ASSESSED
     mismatch_details: list[MismatchDetail] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    # Spec 5.2 / 6.4.2: what a consumer joins this manifest to its runtime
+    # evidence with. Populated whenever the manifest carries an agent_id.
+    correlation: Optional[AgentCorrelation] = None
     evidence_pack: Optional[EvidencePack] = None
     verification_signature: Optional[str] = None
 
@@ -495,6 +514,14 @@ def verify_manifest(
 
     manifest_id = manifest.get("manifest_id", "unknown")
     result = VerificationResult(manifest_id=manifest_id, result=OverallResult.VALID)
+    agent_uid = manifest.get("agent_id")
+    if isinstance(agent_uid, str) and agent_uid:
+        instance_uid = manifest.get("agent_instance_id")
+        result.correlation = AgentCorrelation(
+            agent_uid=agent_uid,
+            agent_instance_uid=instance_uid if isinstance(instance_uid, str) else None,
+            manifest_id=manifest_id,
+        )
     mismatches: list[MismatchDetail] = []
     fields = result.fields_verified
 

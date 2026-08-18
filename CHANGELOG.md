@@ -73,6 +73,22 @@
   narrowed to what it actually binds. No schema, field, or conformance change;
   the conformance test from #280 already demonstrates the boundary.
 
+- **[SPEC][SDK]** Resolved the `agent_id` lifetime overload and made the OCSF
+  identity mapping normative (spec 3.1 / 6.4.2, issue #269). `agent_id` was
+  serving both of OCSF's identity roles at once: the stable `ai_agent.uid` and
+  the session-scoped `ai_agent.instance_uid`, which is why the crosswalk
+  shipped informative. `agent_id` is now defined as the stable identity, and
+  instance scope is declared in a new OPTIONAL signed `agent_instance_id`
+  rather than parsed out of a SPIFFE path segment that carries no declared
+  meaning. A producer emitting `ai_agent` for a manifest-governed session MUST
+  populate `uid` from `agent_id`, MUST populate `instance_uid` from
+  `agent_instance_id` when the manifest declares one, and MUST NOT fall back to
+  `agent_id` for `instance_uid` when it does not. The verification result gains
+  a `correlation` object carrying both identities and the `manifest_id` they
+  came from. Adding the field leaves every existing signature verifying, since
+  the pre-image omits absent fields; the conformance vectors are regenerated
+  for the longer `signed_fields` list.
+
 
 - **[SPEC][SDK]** Added the `com.agentrust-io.manifest` Agent Plugins 1.0.0
   extension profile. It resolves an HTTPS manifest by raw-byte digest, verifies

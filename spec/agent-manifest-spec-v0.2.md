@@ -193,6 +193,7 @@ An Agent Manifest is a JSON-LD document conforming to the following schema. All 
   "manifest_id": "<string, UUID v7 per RFC 9562 - REQUIRED>",
   "previous_manifest_id": "<string, UUID v7 - OPTIONAL, set on re-issuance>",
   "agent_id": "<string, SPIFFE URI - REQUIRED>",
+  "agent_instance_id": "<string, UUID v7 - OPTIONAL, present only on an instance-scoped manifest>",
   "version": "<string - REQUIRED, set to '0.1'>",
   "min_verifier_version": "<string, semantic version - OPTIONAL>",
   "issued_at": "<string, ISO 8601 UTC - REQUIRED>",
@@ -218,6 +219,7 @@ Field cardinality table
 | `manifest_id` | string (UUID v7, RFC 9562) | REQUIRED | Version nibble MUST be 7. Canonical 8-4-4-4-12 hyphenated lowercase hex. |
 | `previous_manifest_id` | string (UUID v7, RFC 9562) | OPTIONAL | Set on re-issuance to establish audit chain continuity. |
 | `agent_id` | string (SPIFFE URI) | REQUIRED | Trust domain lowercase `[a-z0-9._-]`; path segments `[a-zA-Z0-9._-]`. URI MUST NOT exceed 2048 bytes. |
+| `agent_instance_id` | string (UUID v7, RFC 9562) | OPTIONAL | Present only when this manifest governs a single run. Absence means the manifest governs every run of `agent_id`. See section 6.4.2. |
 | `version` | string | REQUIRED | MUST be `"0.2"` for this specification version. `"0.1"` identifies a manifest issued under the v0.1 specification, which stays verifiable; see section 2.4 and the [COSE envelope](agent-manifest-cose-envelope-v0.2.md). |
 | `min_verifier_version` | string (semver) | OPTIONAL | Minimum verifier version required to correctly process this manifest. |
 | `issued_at` | string (ISO 8601 UTC) | REQUIRED | |
@@ -242,6 +244,10 @@ All fields annotated as UUID v7 MUST conform to RFC 9562 Section 5.7. The string
 
 <!-- CHANGED: F-01 - SPIFFE URI path note -->
 The `agent_id` path structure `/agent/<name>/<instance>` shown in examples is a convention, not a requirement. Trust domain must be lowercase `[a-z0-9._-]`; path segments may use `[a-zA-Z0-9._-]`. UUID v7 instance identifiers (hyphens permitted in path segments) are valid. Example: `spiffe://trust.example/agent/payments-processor/01926b4c-1234-7abc-9def-000000000001`.
+
+`agent_id` is the **stable** logical identity of the agent: it identifies the agent across restarts and across runs. A deployment MAY still encode an instance in the SPIFFE path, but a verifier or evidence consumer MUST NOT infer instance scope from the path, because the structure above is a convention and a path segment carries no declared meaning.
+
+Instance scope is declared, not parsed. A manifest issued for a single run SHOULD carry `agent_instance_id`, and its absence means the manifest governs every run of `agent_id`. This is what lets one field stop serving two lifetimes; section 6.4.2 gives the resulting correlation rules.
 
 <!-- CHANGED: SCHEMA F-15/@context - normative note on provisional URL -->
 The `@context` URL `https://manifest.agentrust-io.com/v0.2/context.json` is provisional for the v0.2 draft period. The CoSAI WS4 working stream will assign the canonical URL prior to v1.0 ratification, and implementations MUST support the canonical CoSAI-assigned URL when it is assigned.
@@ -1011,7 +1017,7 @@ Each `approval_signature` is produced by the approver's hardware-backed key (FID
   "key_id": "<key identifier>  -- REQUIRED",
   "key_type": "software | hsm | tee-sealed  -- REQUIRED",
   "signed_at": "<ISO 8601 UTC>  -- REQUIRED",
-  "signed_fields": ["@context", "@type", "manifest_id", "previous_manifest_id", "agent_id", "version", "min_verifier_version", "issued_at", "expires_at", "issuer", "crypto_profile", "profile", "unbound_artifacts", "source_bundle", "artifacts", "delegation_chain", "hitl_record", "prior_transparency_log_entry", "log_retention", "data_scope", "operational_lifecycle", "intent"],
+  "signed_fields": ["@context", "@type", "manifest_id", "previous_manifest_id", "agent_id", "agent_instance_id", "version", "min_verifier_version", "issued_at", "expires_at", "issuer", "crypto_profile", "profile", "unbound_artifacts", "source_bundle", "artifacts", "delegation_chain", "hitl_record", "prior_transparency_log_entry", "log_retention", "data_scope", "operational_lifecycle", "intent"],
   "signature_value": "<base64url-encoded signature over RFC 8785 canonical JSON>  -- CONDITIONALLY REQUIRED: REQUIRED when algorithm is Ed25519 or ML-DSA-65",
   "classical_signature": "<base64url-encoded Ed25519 signature>  -- CONDITIONALLY REQUIRED: REQUIRED when algorithm is hybrid-Ed25519-ML-DSA-65",
   "pq_signature": "<base64url-encoded ML-DSA-65 signature>  -- CONDITIONALLY REQUIRED: REQUIRED when algorithm is hybrid-Ed25519-ML-DSA-65"
@@ -1029,6 +1035,7 @@ Signing coverage table (normative)
 | `manifest_id` | Signed | |
 | `previous_manifest_id` | Signed | Binds re-issuance audit chain continuity. |
 | `agent_id` | Signed | |
+| `agent_instance_id` | Signed | The instance this manifest governs (section 6.4.2). An instance identity outside the signature is one an operator can retarget after the fact, which is precisely the correlation a runtime-evidence consumer depends on. |
 | `version` | Signed | |
 | `min_verifier_version` | Signed | Prevents post-signing downgrade of the required verifier version. |
 | `issued_at` | Signed | |
@@ -1323,6 +1330,11 @@ Conformance level requirements:
       "delta_detected_at": "<ISO 8601 UTC>"
     }
   ],
+  "correlation": {
+    "agent_uid": "<the manifest agent_id>  -- REQUIRED when agent_id is present",
+    "agent_instance_uid": "<the manifest agent_instance_id, or null>  -- REQUIRED",
+    "manifest_id": "<UUID v7>  -- REQUIRED"
+  },
   "evidence_pack": {
     "trace_id": "<TRACE envelope ID>",
     "signed_by": "<TEE-sealed key identifier>",
@@ -1342,6 +1354,8 @@ Conformance level requirements:
 `configuration_assurance` reports the state of `system_prompt.assurance_test` (section 3.2.1.1): `PASSED` when an assessment ran and found no violation, `FLAGGED` when one ran and did, and `NOT_ASSESSED` when the block is absent or carries `not-assessed`. `FLAGGED` MUST cause the overall result to be `MISMATCH`. `NOT_ASSESSED` does not affect the overall result in v0.2 and is reported so that a relying party can tell an assessed configuration from an unassessed one rather than inferring a pass from silence.
 
 `hitl_record` returns `APPROVAL_INSUFFICIENT` when an approval exists but does not meet the `approval_method` requirement for the declared `risk_tier` (e.g., `software-key` approval on a `high` risk tier operation at Level 2).
+
+The `correlation` object is what a consumer joins this result to runtime evidence with, so the two identities and the exact manifest they came from travel together rather than being reassembled by the consumer. `agent_instance_uid` is `null` on a manifest that governs more than one run; see section 6.4.2 for what a producer does in that case.
 
 `ATTESTATION_UNAVAILABLE` is returned when the hardware attestation service cannot be reached and the verification cannot be completed. Verifiers receiving this result MUST NOT treat it as `VALID`.
 
@@ -1581,9 +1595,9 @@ Every tool call evidence record (TRACE envelope) produced by cMCP MUST include t
 
 Hash conflict resolution <!-- CHANGED: SCHEMA F-21 -->: If `policy_hash` in the TRACE envelope differs from `artifacts.policy_bundle.hash` in the agent manifest, the TRACE MUST set `manifest_verification_result: MISMATCH` for that call. The manifest is the authoritative source for approved artifact hashes; the TRACE reflects runtime measurements. A non-empty `mismatch_details` array in the verification result (section 5.2) MUST be generated for every such discrepancy. The `manifest_verification_result` field MUST use the same enum values as the `result` field in section 5.2 - no additional values. Any TRACE with `manifest_verification_result: MISMATCH` or `EXPIRED` MUST NOT be accepted as evidence of a valid tool call for regulatory reporting purposes.
 
-### 6.4 Crosswalk: OCSF Runtime Evidence <!-- CHANGED: #269 - informative crosswalk, no normative binding -->
+### 6.4 Crosswalk: OCSF Runtime Evidence <!-- CHANGED: #269 - identity mapping is now normative; delegation stays informative -->
 
-> **This section is informative.** It defines no conformance requirement and uses no MUST. It records how a producer emitting OCSF events for a manifest-governed session is *intended* to line up with this specification, so implementers stop inventing a second identity mechanism for the same job. A normative binding is deferred; see "Why this is not normative yet" below.
+> **Section 6.4.2 is normative. The rest of section 6.4 is informative.** The identity mapping carries conformance requirements for a producer that emits OCSF events for a manifest-governed session. The delegation crosswalk in 6.4.3 does not, and says why.
 
 A manifest attests an agent's identity surface at approval time. OCSF carries the runtime events that agent then produces. Nothing has connected the two: there is no defined join key between a manifest and the OCSF evidence emitted under it, so a consumer holding both cannot tell that they describe the same agent without an out-of-band convention.
 
@@ -1595,12 +1609,23 @@ The `ai_agent` object is contributed by the **`ai_operation` profile**, not by a
 
 | OCSF (`ai_agent`) | OCSF's own definition | Intended manifest counterpart |
 |---|---|---|
-| `uid` | "The stable logical identifier for the agent... Persists across restarts and instances." | The manifest's durable agent identity. Stable across sessions, which is what `agent_id` looks like when it carries no instance segment. |
-| `instance_uid` | "Identifier for a specific running instance or session of the agent, **distinct from the stable logical uid**. An instance is a single materialization of the agent: a conversation, session, or run." | The session-scoped value, and the per-event join key. This is what `agent_id` looks like when its optional `/agent/<name>/<instance>` path carries a UUID v7 instance segment. |
+| `uid` | "The stable logical identifier for the agent... Persists across restarts and instances." | `agent_id` (section 3.1), which is defined as the stable identity. |
+| `instance_uid` | "Identifier for a specific running instance or session of the agent, **distinct from the stable logical uid**. An instance is a single materialization of the agent: a conversation, session, or run." | `agent_instance_id` (section 3.1) when the manifest declares one. Otherwise the producer's own session identifier, never `agent_id`. |
 | `version` | "the agent's own code or configuration revision... distinct from the version of the model backing it" | Not a join key. Static across a session. |
 | `charter` | "A document that defines an AI agent's durable role, responsibilities, constraints, and operating boundaries." | Closest to the manifest itself, though the manifest is signed and scoped more narrowly. Not a join key. |
 
 `session_uid` is **not** an attribute of `ai_agent`; where an event carries a session identifier it comes from elsewhere in the event, so it is not part of this crosswalk.
+
+A producer emitting an `ai_agent` object for a session governed by an Agent Manifest:
+
+1. MUST populate `ai_agent.uid` with the manifest `agent_id`.
+2. MUST populate `ai_agent.instance_uid` with the manifest `agent_instance_id` when the manifest declares one.
+3. MUST NOT populate `ai_agent.instance_uid` with `agent_id` when the manifest declares no `agent_instance_id`. It populates that field with its own session-scoped identifier instead.
+4. MUST carry the `manifest_id` of the exact manifest in force, on any event class whose schema can express it, so the join is to a signed document rather than to a name.
+
+Rule 3 is the one that matters and the one an implementation is most likely to get wrong. Reusing `agent_id` as `instance_uid` makes the two OCSF fields equal on every event, which silently destroys the distinction between "every run of this agent" and "this run" for a consumer that has no way to tell the collapse happened. Emitting no `instance_uid` at all is a better failure than emitting a stable one.
+
+These rules bind the producer, not the manifest issuer: a manifest that declares no `agent_instance_id` is fully conformant, and rule 3 is how a producer stays conformant alongside it.
 
 #### 6.4.3 Delegation
 
@@ -1613,15 +1638,15 @@ That is a closer correspondence than the identity fields, and it is the more use
 
 Closing that gap is a data-model change to section 3.4, not a crosswalk, and it is not proposed here.
 
-#### 6.4.4 Why this is not normative yet
+#### 6.4.4 How the `agent_id` question was settled
 
-Making the identity mapping a requirement would mean choosing what `agent_id` is, and that is not yet settled:
+The identity mapping was informative in the first revision of this section because `agent_id` was one field serving both of OCSF's roles, and a requirement binding it to `instance_uid` would have forced a stable identifier into the field OCSF defines as the non-stable one. Section 3.1 now settles it: `agent_id` is the stable identity, instance scope is declared in `agent_instance_id` rather than parsed out of a SPIFFE path, and a manifest that declares nothing governs every run.
 
-`agent_id` is one field currently serving both roles in the table above. Section 3.1 states that the `/agent/<name>/<instance>` path structure "is a convention, not a requirement", so a conformant `agent_id` may legitimately be stable and carry no instance scope at all. OCSF makes `uid` and `instance_uid` explicitly distinct. A requirement binding `agent_id` to `instance_uid` would therefore force a stable identifier into the field OCSF defines as the non-stable one whenever a deployment takes the convention at its word — and a consumer would lose the ability to separate "every run of this agent" from "this run", which is the distinction `instance_uid` exists to express.
+That is deliberately not the mapping proposed in issue #269, which asked that `instance_uid` equal `agent_id`. Taken at face value it would have made the two OCSF fields identical for every deployment that follows section 3.1's stated convention, which is the collapse rule 3 now forbids. What the proposal was right about is that a join key was missing and that `instance_uid` is the field it belongs in; splitting the declaration is how that key exists without overloading a field that already had a job.
 
-The resolution is to decide whether `agent_id` splits into a stable identifier and a session-scoped one. Until it does, a normative binding would have to be revised rather than refined, and revising a MUST is a breaking change where revising this section is not.
+The remaining OCSF question is delegation (6.4.3), which needs a per-hop durable identifier in section 3.4 and a decision about issued rather than self-asserted authority. That is a data-model change, it is not settled here, and it stays informative until it is.
 
-Per section 3.1, the CoSAI WS4 working stream already owns the canonical `@context` URL for this specification. An OCSF correlation mapping belongs in the same venue, alongside the `agent_id` question above, rather than being settled here first.
+Per section 3.1, the CoSAI WS4 working stream will assign the canonical `@context` URL for this specification, and an OCSF correlation mapping is the kind of thing that belongs in the same venue. Publishing the rules here rather than waiting is what gives that venue something specific to reject.
 
 ### 6.5 Relationship to Agent Plugins
 
