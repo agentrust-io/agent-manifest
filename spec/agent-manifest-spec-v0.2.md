@@ -630,6 +630,8 @@ proof to the 2-operation log is the single node
 `42effb8d6d6bf9904585248b30b039a5ede7a447a5f8fd21cc0a8b0b850c566f`. Implementations MUST
 reproduce these values.
 
+Scope. A governed checkpoint advance establishes integrity, ordering, freshness and budget. It does not establish that retrieval behaviour over the new memory state remained acceptable, and nothing in this protocol assesses it. A checkpoint can satisfy every rule above while an appended correction stays less salient than the fact it corrects, while authorized additions displace a safety or identity anchor, while memory from another role or tenant becomes retrievable, or while states that should retrieve differently collapse to the same context. None of those requires a forged signature, a rewritten checkpoint, an expired TTL, or an invalid consistency proof. Assessing them is a separate evidence artifact over a pinned retriever and probe suite, out of scope for this specification and tracked in [agent-manifest#298](https://github.com/agentrust-io/agent-manifest/issues/298).
+
 Limitations (v0.2). Log compaction / checkpoint re-baseline is not yet defined: a
 deployment MUST re-baseline (full re-approval per Section 3.2.6.1) before the cumulative
 operation count approaches implementation limits. HITL co-signing of a checkpoint advance and

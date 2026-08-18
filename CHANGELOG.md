@@ -24,6 +24,18 @@
   defined value space and no verification behaviour, which is what it always
   was; the field name resembled an assurance signal and nothing said otherwise.
 
+- **[SPEC]** Stated the scope boundary of the memory checkpoint protocol
+  (section 3.2.6.2, issue #298). A governed advance establishes integrity,
+  ordering, freshness and budget, and establishes nothing about retrieval
+  behaviour over the new state. A checkpoint can satisfy every rule while an
+  appended correction stays less salient than the fact it corrects, while
+  authorized additions displace a safety or identity anchor, while another
+  tenant's memory becomes retrievable, or while states that should retrieve
+  differently collapse to the same context. None of that needs a forged
+  signature or a broken proof, so the protocol's own checks cannot see it.
+  Assessment is a separate evidence artifact over a pinned retriever and probe
+  suite, out of scope here and tracked in #298.
+
 - **[SPEC][SDK]** Withdrew the artifact-only refresh path at Level 1 and above,
   and made a stale attestation fatal (issue #265). Section 2.2 let
   `memory_baseline.snapshot_hash` be renewed and the manifest re-signed without
