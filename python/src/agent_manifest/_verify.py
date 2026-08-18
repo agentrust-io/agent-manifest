@@ -72,6 +72,16 @@ class DelegationResult(str, Enum):
     UNVERIFIABLE = "UNVERIFIABLE"
 
 
+class ConfigurationAssurance(str, Enum):
+    """Spec 3.2.1.1 / 5.2. Reported separately from `system_prompt` because the
+    two answer different questions: the field result says which prompt is
+    running, this says whether the approved prompt was ever assessed."""
+
+    PASSED = "PASSED"
+    FLAGGED = "FLAGGED"
+    NOT_ASSESSED = "NOT_ASSESSED"
+
+
 class HitlResult(str, Enum):
     APPROVED = "APPROVED"
     EXPIRED = "EXPIRED"
@@ -115,6 +125,10 @@ class VerificationResult(BaseModel):
     signature_verified: bool = False
     attestation_verified: bool = False
     fields_verified: FieldsVerified = Field(default_factory=FieldsVerified)
+    # Spec 5.2. NOT_ASSESSED is the default because absence of an assessment is
+    # not a pass, and reporting it is what lets a relying party tell the two
+    # apart instead of inferring one from silence.
+    configuration_assurance: ConfigurationAssurance = ConfigurationAssurance.NOT_ASSESSED
     mismatch_details: list[MismatchDetail] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     evidence_pack: Optional[EvidencePack] = None
@@ -759,6 +773,32 @@ def verify_manifest(
         rc.get("merkle_root"),
         context.rag_corpus_merkle_root,
     )
+
+    # --- Configuration assurance (spec §3.2.1.1, issue #254)
+    # Same rule shape as the poisoning scan below, and the same reasoning: an
+    # assessment that ran and failed is evidence against the configuration, so
+    # carrying it while returning VALID would make the field decorative. An
+    # absent or not-assessed block is reported, never inferred as a pass, and
+    # does not affect the overall result in v0.2 -- which conformance level
+    # requires an assessment is deliberately still open.
+    assurance = (artifacts.get("system_prompt") or {}).get("assurance_test") or {}
+    assurance_result = assurance.get("result")
+    if assurance_result == "passed":
+        result.configuration_assurance = ConfigurationAssurance.PASSED
+    elif assurance_result == "flagged":
+        result.configuration_assurance = ConfigurationAssurance.FLAGGED
+        mismatches.append(MismatchDetail(
+            field="system_prompt.assurance_test",
+            expected_hash="<result: passed or not-assessed>",
+            actual_hash="<result: flagged>",
+        ))
+    else:
+        result.configuration_assurance = ConfigurationAssurance.NOT_ASSESSED
+        if assurance_result == "not-assessed":
+            result.warnings.append(
+                "system_prompt.assurance_test.result is 'not-assessed'; the "
+                "approved prompt's behaviour has not been assessed"
+            )
 
     # --- Poisoning scan rules (spec §3.2.5.1)
     poisoning_scan = rc.get("poisoning_scan") or {}

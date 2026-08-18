@@ -327,11 +327,49 @@ Each artifact is represented by a binding object containing the artifact's crypt
   "classification": "public | internal | confidential | restricted  -- REQUIRED",
   "language": "<BCP 47 language tag>  -- OPTIONAL",
   "safety_level": "<operator-defined safety tier>  -- OPTIONAL",
+  "assurance_test": "<object - OPTIONAL, see 3.2.1.1>",
   "bound_at": "<ISO 8601 UTC>  -- REQUIRED"
 }
 ```
 
 The system prompt hash binds the complete byte sequence of the prompt as delivered to the model. Any modification - including whitespace changes, character encoding changes, or appended injections - produces a different hash and invalidates the manifest. Implementations MUST hash the prompt as a UTF-8 byte sequence with no BOM, normalized to NFC.
+
+`safety_level` is an operator assertion. <!-- CHANGED: #254 --> It has no defined value space, no constraint, and no verification behaviour, and a verifier MUST NOT treat it as evidence of anything. It is retained because deployments use it as a routing label, and named here as an assertion so it is not read as the assurance signal the field name suggests. `assurance_test` (3.2.1.1) is where evidence about the approved prompt's behaviour goes.
+
+##### 3.2.1.1 Configuration Assurance <!-- CHANGED: #254 - bound assessment for artifact #1 -->
+
+The threat model in 7.1 treats artifact #1 as covered: T1 is prompt substitution, and `system_prompt.hash` detects it. Every threat in 7.1 is a substitution, mutation, or forgery by an adversary, and the nearest exclusion in 7.2 is semantic prompt injection, which also presumes adversarial input.
+
+There is a hazard in this artifact that is neither addressed nor excluded: a prompt authored in good faith, reviewed, approved, signed, sealed to a TEE measurement, and verified `VALID` at every conformance level, which specifies behaviour the deploying organisation would reject if it were tested rather than read. No adversary is present and no digest changes. Artifact #1 is not data the agent consumes; it is the specification of the agent's behaviour, so its hazard is expressible in the approved value itself. For this artifact digest equality is necessary and not sufficient.
+
+The specification already accepts this shape for one artifact. Section 3.2.5 binds the RAG corpus by `merkle_root` and additionally carries `poisoning_scan`, under normative force: `result: flagged` MUST NOT be issued as `VALID`. `assurance_test` is that pattern applied to artifact #1.
+
+```json
+"assurance_test": {
+  "suite_id": "<identifier of the scenario suite>  -- REQUIRED",
+  "suite_version": "<semantic version of the suite>  -- REQUIRED",
+  "harness_version": "<tool-name>/<semver>  -- REQUIRED",
+  "result": "passed | flagged | not-assessed  -- REQUIRED",
+  "assessed_at": "<ISO 8601 UTC>  -- CONDITIONALLY REQUIRED",
+  "scenario_count": "<positive integer>  -- OPTIONAL",
+  "evidence_uri": "<HTTPS URI to the full assessment record>  -- OPTIONAL",
+  "evidence_digest": "sha256:<64-hex-chars>  -- OPTIONAL",
+  "assessed_by": "<SPIFFE URI of the assessing party>  -- OPTIONAL"
+}
+```
+
+Rules:
+
+- A manifest whose `assurance_test.result` is `flagged` MUST NOT be issued as `VALID`. This is the section 3.2.5 rule for `poisoning_scan`, unchanged in substance: an assessment that ran and failed is evidence against the configuration, and carrying it while claiming `VALID` would make the field decorative.
+- `result: not-assessed`, and an absent `assurance_test` block, are permitted at every conformance level in v0.2. A verifier MUST report the distinction rather than collapsing it: section 5.2 defines `configuration_assurance`, so a relying party can tell *approved and assessed* from *approved and unassessed*. Which conformance level, if any, requires an assessment is deliberately left open; see below.
+- `assessed_at` is REQUIRED when `result` is `passed` or `flagged`, and MAY be omitted when `not-assessed`.
+- `harness_version` MUST carry the tool name and a semantic version, format `"<tool-name>/<semver>"`, matching the `scanner_version` rule in 3.2.5. `suite_id` and `suite_version` MUST identify the scenario suite precisely enough that a second party can obtain it; a result whose suite cannot be identified is not reproducible and carries no more weight than `safety_level`.
+- `evidence_digest`, when present, MUST be the digest of the record at `evidence_uri`. A verifier that cannot fetch the record still knows which record was claimed.
+- The block is inside `artifacts` and therefore inside the signing pre-image (3.6). An assessment result outside the signature is one the operator can revise after approval.
+
+What this does not establish. A `passed` result is evidence that a named suite, at a named version, run by a named harness, did not find a violation. It is not proof that the configuration is safe, and the suite's coverage bounds the claim entirely. A relying party MUST treat `passed` as the assertion "this suite found nothing" rather than "nothing is there", which is the same reading 3.2.5 requires of a clean poisoning scan.
+
+Deliberately open. Whether Level 2 conformance should require `result: passed`, as Level 1 already requires a scanned corpus, is a decision about what conformance costs every adopter and is not settled by this section. Until it is settled, an assessment is evidence a deployment may choose to carry, and the verification result reports its absence plainly rather than treating absence as a pass.
 
 #### 3.2.2 Policy Bundle Binding
 
@@ -1276,6 +1314,7 @@ Conformance level requirements:
     "delegation_chain": "VALID | INVALID | NOT_PRESENT | UNVERIFIABLE  -- REQUIRED",
     "hitl_record": "APPROVED | EXPIRED | NOT_REQUIRED | MISSING | APPROVAL_INSUFFICIENT  -- REQUIRED"
   },
+  "configuration_assurance": "PASSED | FLAGGED | NOT_ASSESSED  -- REQUIRED",
   "mismatch_details": [
     {
       "field": "<field name>",
@@ -1299,6 +1338,8 @@ Conformance level requirements:
 `decision_trace` returns `EXTENDED` when the running `audit_chain_root` is not the root signed at `bound_at` but continuity evidence proves the signed root is an append-only prefix of it, per Section 3.2.7.1. `EXTENDED` is a passing result and does not make the overall result `MISMATCH`; it is reported distinctly from `MATCH` so a relying party can tell an unmoved chain from a proven extension. A diverged root with absent, malformed, or failing continuity evidence returns `MISMATCH`.
 
 `delegation_chain` returns `UNVERIFIABLE` when any `scope_grant.constraints` element is a non-empty array of Cedar statements and the verifier does not support Cedar evaluation - rather than treating the chain as `VALID`.
+
+`configuration_assurance` reports the state of `system_prompt.assurance_test` (section 3.2.1.1): `PASSED` when an assessment ran and found no violation, `FLAGGED` when one ran and did, and `NOT_ASSESSED` when the block is absent or carries `not-assessed`. `FLAGGED` MUST cause the overall result to be `MISMATCH`. `NOT_ASSESSED` does not affect the overall result in v0.2 and is reported so that a relying party can tell an assessed configuration from an unassessed one rather than inferring a pass from silence.
 
 `hitl_record` returns `APPROVAL_INSUFFICIENT` when an approval exists but does not meet the `approval_method` requirement for the declared `risk_tier` (e.g., `software-key` approval on a `high` risk tier operation at Level 2).
 
@@ -1684,6 +1725,7 @@ The following threats are explicitly out of scope for this specification:
 - Side-channel attacks on the TEE - hardware vulnerabilities in AMD SEV-SNP, Intel TDX, or NVIDIA Blackwell that allow measurement extraction are out of scope. These are platform-level threats addressed by hardware vendors.
 - Denial of service against the verification endpoint - availability of the verification service is an operational concern, not a correctness concern.
 - Human approver compromise - if an authorized approver's hardware key is compromised, the HITL record is valid despite the fraudulent approval. Key management and approver identity assurance are out of scope.
+- Whether an approved configuration is a good one - every threat in 7.1 is a substitution, mutation, or forgery by an adversary. A system prompt authored in good faith, approved, signed, sealed and verified `VALID` may still specify behaviour the deploying organisation would reject if it were tested rather than read, with no adversary present and no digest changed. The manifest binds which configuration was approved. Section 3.2.1.1 defines where evidence about the approved configuration's behaviour is carried, and section 3.2.6.2 states the equivalent boundary for memory.
 - Per-call authorization - the manifest binds which tools were approved, not what a call through one of them may do. Argument-level policy, consequence bounds, and the read versus irreversible-write distinction inside a single tool belong to the policy layer that consumes a verification result. See section 5.3.2.
 
 ## 8. Conformance Requirements

@@ -4,6 +4,26 @@
 
 ### Added
 
+- **[SPEC][SDK]** Added configuration assurance for artifact #1 (spec 3.2.1.1,
+  issue #254). Every threat in section 7.1 is an adversary substituting
+  something, and `system_prompt.hash` detects that. A prompt authored in good
+  faith, reviewed, approved, signed, sealed to a TEE measurement and verified
+  `VALID` may still specify behaviour the deploying organisation would reject if
+  it were tested rather than read, with no adversary present and no digest
+  changed. Artifact #1 is the specification of the agent's behaviour rather than
+  data it consumes, so digest equality is necessary and not sufficient.
+
+  `system_prompt.assurance_test` binds a named suite, suite version, harness
+  version and result, the same shape and the same normative force section 3.2.5
+  already gives `poisoning_scan`: `result: flagged` MUST NOT be issued as
+  `VALID`. The verification result gains `configuration_assurance`, so absence
+  is reported as `NOT_ASSESSED` rather than inferred as a pass. Which
+  conformance level requires an assessment is deliberately left open.
+
+  `safety_level` is now named in the spec as an operator assertion with no
+  defined value space and no verification behaviour, which is what it always
+  was; the field name resembled an assurance signal and nothing said otherwise.
+
 - **[SPEC][SDK]** Withdrew the artifact-only refresh path at Level 1 and above,
   and made a stale attestation fatal (issue #265). Section 2.2 let
   `memory_baseline.snapshot_hash` be renewed and the manifest re-signed without
