@@ -911,6 +911,7 @@ def verify_manifest(
             # Check if any approval has expired (HITL-001: parse failure must set all_ok=False)
             now = datetime.now(timezone.utc)
             all_ok = True
+            approval_insufficient = False
             for approval in approvals:
                 approved_at = approval.get("approved_at", "")
                 duration = approval.get("approved_scope", {}).get("approval_duration_seconds", 0)
@@ -924,14 +925,32 @@ def verify_manifest(
                     # Unparseable timestamp - treat as expired to fail safe (HITL-001)
                     all_ok = False
                     break
-            if not all_ok:
+                if context.conformance_level >= 2:
+                    scope = approval.get("approved_scope") or {}
+                    risk_tier = scope.get("risk_tier")
+                    method = approval.get("approval_method")
+                    if method == "software-key" or (
+                        risk_tier in {"high", "critical"} and method != "hardware-key"
+                    ):
+                        approval_insufficient = True
+                        break
+            if approval_insufficient:
+                mismatches.append(MismatchDetail(
+                    field="hitl_record",
+                    expected_hash="<approval method sufficient for declared risk tier>",
+                    actual_hash="<approval method insufficient>",
+                ))
+                fields.hitl_record = HitlResult.APPROVAL_INSUFFICIENT
+            elif not all_ok:
                 # Expired approvals always add to mismatches regardless of enforce_hitl (HITL-002)
                 mismatches.append(MismatchDetail(
                     field="hitl_record",
                     expected_hash="<valid unexpired approval>",
                     actual_hash="<approval expired or unparseable>",
                 ))
-            fields.hitl_record = HitlResult.APPROVED if all_ok else HitlResult.EXPIRED
+                fields.hitl_record = HitlResult.EXPIRED
+            else:
+                fields.hitl_record = HitlResult.APPROVED
     elif context.enforce_hitl:
         # enforce_hitl with no hitl_record at all - fail closed. Omitting the
         # record entirely MUST NOT be weaker than declaring it with no approvals.

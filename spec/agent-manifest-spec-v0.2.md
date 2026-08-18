@@ -992,10 +992,23 @@ For agents operating under EU AI Act Article 14 requirements or any policy that 
 
 `approver_id` MUST be a human-attributable identity. SPIFFE SVIDs MUST NOT be used as `approver_id` values - SPIFFE SVIDs identify machine workloads, not natural persons. The preferred form is an OIDC `sub` claim paired with an `approver_oidc_issuer` URI (e.g., `sub: "1234567890"` + `iss: "https://accounts.google.com"`), an email address as a URI (`mailto:approver@example.com`), or a W3C DID bound to a hardware authenticator. For EU AI Act Art. 14 compliance, the approver identity MUST be traceable to a natural person in the deployer's HR or IAM system.
 
+`risk_tier` is assigned on the reversibility and operational-boundary axis below. It is not an operator's estimate of likelihood or severity and MUST NOT be lowered because an action is routine. The approver MUST assign the highest tier of any action permitted by the approved scope or its bound policy:
+
+| Tier | Falsifiable assignment rule |
+|---|---|
+| `low` | The scope permits no durable external effect. Its effects are confined to the evaluated system and disappear when the operation ends or can be withdrawn completely without a compensating action. |
+| `medium` | The scope permits a durable effect, but the effect remains wholly within the deployer's control and can be withdrawn completely by that deployer. |
+| `high` | The scope permits an effect outside the deployer's control, but a documented external or compensating action can reverse the effect. |
+| `critical` | The scope permits an effect that cannot be fully recalled or reversed after execution, including an external party acting on released information or an irreversible safety, legal, or financial action. |
+
+If the permitted actions span tiers, the highest tier applies. If reversibility or the operational boundary cannot be established from the bound policy, tool catalog, and approval evidence, the approver MUST use `critical`. A verifier proves only that the declared tier and approval method were signed and satisfy the mechanical ordering below; it does not infer that the tier is truthful. A reviewer or deployment policy compares the declaration with the bound capabilities. A `VALID` result therefore MUST NOT be represented as proof that the tier assignment was correct.
+
 `approval_method` trust ordering for regulatory compliance: <!-- CHANGED: SCHEMA F-11 -->
 - `hardware-key` (FIDO2 passkey, HSM, or smartcard): satisfies EU AI Act Art. 14 non-repudiation requirements. REQUIRED for `risk_tier: high` or `critical` at Level 2 conformance.
-- `mfa-backed` (software key protected by MFA): acceptable for medium-risk approvals only.
+- `mfa-backed` (software key protected by MFA): acceptable for `low` or `medium` at Level 2 conformance.
 - `software-key`: acceptable only for Level 0 non-regulated deployments.
+
+At Level 2, a verifier MUST return `APPROVAL_INSUFFICIENT` when any otherwise-current approval uses `software-key`, or when a `high` or `critical` approval uses anything other than `hardware-key`. The overall result MUST be `MISMATCH`. Level 0 records the declared method without making a regulatory-strength claim; Level 1 deployments define their minimum method in relying-party policy.
 
 `hitl_runtime` block declares the runtime human oversight capabilities required by EU AI Act Art. 14(4) operational oversight obligations. The `hitl_record.approvals` structure satisfies Art. 14 pre-deployment documentation obligations (Art. 14(4)(b)-(e)). The `hitl_runtime` block separately addresses the runtime stop/override capability requirement (Art. 14(4)(a)). Both are required for full Art. 14 compliance. See section 9.1 for the regulatory mapping. <!-- CHANGED: REG-001 -->
 
