@@ -121,6 +121,12 @@ class VerificationResult(BaseModel):
     verification_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     manifest_id: str
     verified_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    # Spec 5.1.2. The nonce is echoed unchanged so a relying party can tell this
+    # result was produced for its live request; the context hash is what it
+    # asked for. Neither verification_id nor verified_at can do that job:
+    # the service picks both.
+    challenge_nonce: Optional[str] = None
+    verification_context_hash: Optional[str] = None
     result: OverallResult
     signature_verified: bool = False
     attestation_verified: bool = False
@@ -221,6 +227,15 @@ class VerificationContext(BaseModel):
     # root (spec 3.2.7.1). Absent + diverged root = MISMATCH, unchanged.
     audit_chain_continuity: Optional[AuditChainContinuity] = None
     container_image_digest: Optional[str] = None
+    # Spec 5.1.2: the relying party's challenge, hex, at least 128 bits from a
+    # CSPRNG, used once. Optional here because a caller verifying a historical
+    # manifest has no freshness requirement to bind.
+    challenge_nonce: Optional[str] = None
+    # Spec 5.1 request context. These do not change what is verified; they are
+    # what the caller declared it was asking, and they travel into the context
+    # hash so the answer is bound to the question.
+    purpose: Optional[str] = None
+    verifier_id: Optional[str] = None
     enforce_hitl: bool = False
     enforce_attestation: bool = False
     min_slsa_level: int = 0
@@ -450,6 +465,67 @@ def _hex_nodes(values: list[str]) -> list[bytes]:
     return nodes
 
 
+# Spec 5.1.2 rule 6. Domain separated so the derived value cannot be presented
+# as a verification challenge in its own right.
+_RUNTIME_NONCE_DOMAIN = b"am-runtime-nonce"
+
+# The context inputs this implementation lets affect a verification decision.
+# Spec 5.1.2 rule 2 requires every such input to be inside the hash; an
+# implementation that drops one is asserting a decision it did not make. The
+# runtime artifact hashes and key material in VerificationContext are not in
+# this list because they are the evidence being checked and the trust anchors
+# doing the checking, not the question the relying party asked.
+_CONTEXT_HASH_FIELDS: tuple[str, ...] = (
+    "conformance_level",
+    "enforce_attestation",
+    "enforce_hitl",
+    "min_slsa_level",
+    "purpose",
+    "require_delegation",
+    "strict_artifact_verification",
+    "verifier_id",
+)
+
+
+def verification_context_hash(context: "VerificationContext") -> str:
+    """`sha256:` digest of the RFC 8785 canonical JSON of the request context.
+
+    Spec 5.1.2 rule 2. `challenge_nonce` is deliberately excluded (rule 3): the
+    relying party compares the nonce directly, and leaving it out means two
+    requests asking the same question hash the same, which is what makes the
+    value comparable across requests at all.
+    """
+    from ._canonicalize import canonicalize
+
+    declared = {
+        name: getattr(context, name)
+        for name in _CONTEXT_HASH_FIELDS
+        if getattr(context, name, None) is not None
+    }
+    return "sha256:" + hashlib.sha256(canonicalize(declared)).hexdigest()
+
+
+def derive_runtime_nonce(challenge_nonce: str) -> bytes:
+    """Derive the section 3.3.2 runtime-report nonce from a 5.1.2 challenge.
+
+    `sha256("am-runtime-nonce" || challenge_nonce_bytes)`. A runtime report
+    whose nonce is not this derivation is evidence about a different challenge,
+    which leaves the two freshness domains replayable independently of each
+    other -- the composition failure spec 5.1.2 rule 6 exists to prevent.
+
+    Raises ValueError if *challenge_nonce* is not hex or is under 128 bits.
+    """
+    try:
+        raw = bytes.fromhex(challenge_nonce)
+    except (ValueError, TypeError) as exc:
+        raise ValueError("challenge_nonce must be hex") from exc
+    if len(raw) < 16:
+        raise ValueError(
+            f"challenge_nonce must carry at least 128 bits, got {len(raw) * 8}"
+        )
+    return hashlib.sha256(_RUNTIME_NONCE_DOMAIN + raw).digest()
+
+
 def verify_manifest(
     manifest: Union[dict[str, Any], bytes],
     context: VerificationContext,
@@ -495,6 +571,8 @@ def verify_manifest(
 
     manifest_id = manifest.get("manifest_id", "unknown")
     result = VerificationResult(manifest_id=manifest_id, result=OverallResult.VALID)
+    result.verification_context_hash = verification_context_hash(context)
+    result.challenge_nonce = context.challenge_nonce
     mismatches: list[MismatchDetail] = []
     fields = result.fields_verified
 

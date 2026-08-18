@@ -73,6 +73,25 @@
   narrowed to what it actually binds. No schema, field, or conformance change;
   the conformance test from #280 already demonstrates the boundary.
 
+- **[SPEC][SDK]** Added the relying-party challenge and context binding for
+  verification results (spec 5.1.2, issue #266). `verification_id` is chosen by
+  the verification service and `verified_at` is a producer-selected timestamp,
+  so neither shows a relying party that a result was produced for its live
+  request: a signed `VALID` could be replayed to a different party, for a
+  different `purpose`, or against a weaker context than the one now being asked
+  for. A request may now carry `challenge_nonce` (at least 128 bits, single
+  use), which the result echoes unchanged, alongside
+  `verification_context_hash` over the RFC 8785 canonical form of the request
+  context. The nonce is deliberately outside the hash so two requests asking the
+  same question hash the same. A result with no nonce is unbound to any request
+  and 5.3 now says it must not gate an action.
+
+  `derive_runtime_nonce()` composes this challenge with the section 3.3.2
+  runtime attestation report: `sha256("am-runtime-nonce" || nonce)`, domain
+  separated so the derived value cannot be presented as a verification challenge
+  itself. Without it the two freshness domains are replayable independently,
+  which defeats both.
+
 
 - **[SPEC][SDK]** Added the `com.agentrust-io.manifest` Agent Plugins 1.0.0
   extension profile. It resolves an HTTPS manifest by raw-byte digest, verifies
