@@ -626,11 +626,64 @@ operation count approaches implementation limits. HITL co-signing of a checkpoin
 | `entry_count` | OPTIONAL | Total number of entries in the chain; allows verifiers to detect entry deletion |
 | `bound_at` | REQUIRED | When this binding was captured |
 
-This object is a commitment to the audit-chain state observed at manifest signing time, not an embedded account of decisions the agent will make later. Per-invocation decisions produced after `bound_at` MUST travel as separate TRACE envelopes or equivalent runtime evidence. A verifier MUST use the manifest identifier, agent identity, signing-key binding, and chain continuity to join those records to this baseline. A valid signature on a later record proves that record was not altered; it does not by itself prove that the record is complete or faithful to every action that occurred.
+This object is a commitment to the audit-chain state observed at manifest signing time, not an embedded account of decisions the agent will make later. Section 3.2.7.1 defines how a verifier checks that a chain served later is an append-only extension of that commitment. Per-invocation decisions produced after `bound_at` MUST travel as separate TRACE envelopes or equivalent runtime evidence. A verifier MUST use the manifest identifier, agent identity, signing-key binding, and chain continuity to join those records to this baseline. A valid signature on a later record proves that record was not altered; it does not by itself prove that the record is complete or faithful to every action that occurred.
 
-The `audit_chain_root` in this binding MUST match the `audit_chain_root` field in the cMCP attestation report (Section 6.2). A mismatch between these two values indicates the manifest was signed against a different audit chain than the one currently running, which MUST cause verification to return MISMATCH.
+The `audit_chain_root` in this binding MUST match the `audit_chain_root` field in the cMCP attestation report (Section 6.2), or the running root MUST be shown to descend from it by the continuity protocol in Section 3.2.7.1. A difference that is neither an exact match nor a proven append-only extension indicates the manifest was signed against a different audit chain than the one currently running, which MUST cause verification to return MISMATCH.
 
 `audit_key_sealed: false` does not invalidate the manifest but MUST be surfaced in the verification result as a warning. A verifying party that requires hardware-rooted evidence (e.g., Level 1+ conformance, regulatory audit) MUST treat `audit_key_sealed: false` as equivalent to NOT_BOUND for attestation purposes.
+
+##### 3.2.7.1 Audit Chain Checkpoint and Continuity <!-- CHANGED: #273 - post-signing continuity for artifact #7 -->
+
+Section 3.2.7 binds the audit chain as a snapshot root at signing time. Decisions are produced after signing. `entry_count` lets a verifier detect deletion *below* the signed count, but nothing above the signed root is constrained: a verifier fetching the chain at T+n can confirm it is internally consistent and still contains the signed root, and cannot distinguish an append-only extension from a chain rebuilt around that prefix. Section 3.2.6.2 already solves exactly this problem for the other artifact that grows after signing. This subsection applies the same mechanism to the audit chain.
+
+A checkpoint binds `{audit_chain_root, tree_size, seq, observed_at, ttl_seconds}` (see `AuditCheckpointBinding`). The checkpoint signed into the manifest is `decision_trace.audit_chain_root` with `entry_count` as its `tree_size`, observed at `bound_at`. `seq` is a strictly monotonic checkpoint counter.
+
+```json
+"audit_checkpoint": {
+  "audit_chain_root": "sha256:<64-hex-chars>  -- REQUIRED",
+  "tree_size": "<integer>  -- REQUIRED (entries for hash-chained, leaves for merkle-log)",
+  "seq": "<integer>  -- REQUIRED (strictly monotonic)",
+  "observed_at": "<ISO 8601 UTC>  -- REQUIRED",
+  "ttl_seconds": "<integer 60..7776000>  -- REQUIRED",
+  "checkpoint_signature": "<signature by the TEE-sealed audit key>  -- OPTIONAL"
+}
+```
+
+Entry leaves. An entry leaf is `H(0x00 || "am-trace-entry " || canonical_entry)`, where `canonical_entry` is the RFC 8785 canonical JSON (Section 4.3) of the audit entry. The tag domain-separates a trace entry from a memory operation or a corpus document that canonicalizes to the same bytes.
+
+Continuity evidence. The shape depends on the signed `trace_type`, and the verifier MUST use the `trace_type` bound in the manifest rather than one asserted at fetch time.
+
+- `merkle-log`: an RFC 9162 §2.1.2 consistency proof between the signed root and the current root. O(log n), verified from the two roots and the two tree sizes alone. The tree is the RFC 9162 Merkle Tree Hash over entry leaves in append order (NOT sorted).
+- `hash-chained`: the ordered entry leaves appended after the signed position. The verifier folds them forward from the signed root: `chain_i = H(0x02 || chain_{i-1} || leaf_i)`, with `chain_0 = leaf_0` and the empty chain equal to `H("")`. O(n). A sequential chain admits no logarithmic proof; a linear proof is the honest alternative to no proof. `0x02` is used rather than the RFC 9162 internal-node byte `0x01` so that a sequential root can never be read as a merkle root over the same entries.
+
+Acceptance. A verifier presented with the signed checkpoint, a current checkpoint, and continuity evidence MUST accept the advance as continuous if and only if, in this order:
+
+1. the current `tree_size` is not below the signed `tree_size`, the signed `tree_size` is non-zero, and both roots use the same hash algorithm;
+2. the continuity evidence verifies that the signed root is an append-only prefix of the current root (RFC 9162 §2.1.4.2 for `merkle-log`; the forward fold above for `hash-chained`);
+3. `current.seq >= signed.seq`, and if the sizes differ then `current.seq > signed.seq` (else `rollback`);
+4. the current checkpoint is within its TTL window, `now <= observed_at + ttl_seconds` (else `expired`).
+
+If step 2 fails, the running chain is not demonstrably the chain the manifest was signed against. The verifier MUST return `MISMATCH` for `decision_trace`, which is the treatment Section 3.2.7 already requires when the signed and running roots disagree. Absence of continuity evidence never grants acceptance: a diverged root with no proof is `MISMATCH`, not a warning.
+
+Unlike a memory delta there is no budget stage. An audit chain is expected to grow without bound, so a growth ceiling would be a constraint the artifact cannot honestly carry.
+
+Scope. A verified consistency proof establishes that no entry below the current head was rewritten or removed. It does not establish that every action the agent took produced an entry. Completeness of the record against real behaviour is out of scope for this specification (Section 7.2), and a continuity proof MUST NOT be presented as evidence of it.
+
+Test vectors. Three entries, canonicalized per Section 4.3, where entry *i* is `{"decision":"allow","seq":i,"tool":"kyc.lookup"}`:
+
+| Value | Digest |
+|---|---|
+| leaf 0 | `60254cf11420c61e878667adc185b683d261a19e9c74da5d224687758db65267` |
+| leaf 1 | `933612cc73106c049a8b4c4ea20103c997d26f9ff45f4eda83eac569f0c82cf5` |
+| leaf 2 | `d2a1bd03e6ea0d31241263f59252f5fab5f4f9a6625c8b89c90d0d116b17d441` |
+| `hash-chained` root at size 2 | `sha256:0d313a1b8e77e6f1c7a585f99ca9c877f75dd6876229c2164d25694df3f3f0ba` |
+| `hash-chained` root at size 3 | `sha256:ce399e52ed691feeb4703b1b259d4ef166350b6a23363209943e2a57276990bb` |
+| `merkle-log` root at size 2 | `sha256:478f71a93107b464fedfb132180fe3b881ee09950aaace2aeced2e4fdb59b406` |
+| `merkle-log` root at size 3 | `sha256:4974beaa3bbe693aa96414258aec1854551edcabd564108f4485e0bed4cc3ddb` |
+
+The `merkle-log` consistency proof from size 2 to size 3 is the single node `d2a1bd03e6ea0d31241263f59252f5fab5f4f9a6625c8b89c90d0d116b17d441`; the `hash-chained` evidence for the same advance is leaf 2. Implementations MUST reproduce these values.
+
+Limitations (v0.2). Checkpoint co-signing by the TEE-sealed audit key is OPTIONAL (`checkpoint_signature`), so a checkpoint served without one is authenticated only by the transport and by the proof itself. Chain compaction and re-baselining are not defined: a deployment MUST re-sign the manifest against a new `audit_chain_root` rather than re-base a chain in place.
 
 #### 3.2.8 Supply Chain Binding
 
@@ -1218,7 +1271,7 @@ Conformance level requirements:
     "model_identity": "MATCH | PROVIDER_ASSERTED | MISMATCH | NOT_BOUND  -- REQUIRED",
     "rag_corpus": "MATCH | MISMATCH | NOT_BOUND  -- REQUIRED",
     "memory_baseline": "MATCH | MISMATCH | NOT_BOUND | EXPIRED  -- REQUIRED",
-    "decision_trace": "MATCH | MISMATCH | NOT_BOUND  -- REQUIRED",
+    "decision_trace": "MATCH | EXTENDED | MISMATCH | NOT_BOUND  -- REQUIRED",
     "supply_chain": "MATCH | MISMATCH | NOT_BOUND  -- REQUIRED",
     "delegation_chain": "VALID | INVALID | NOT_PRESENT | UNVERIFIABLE  -- REQUIRED",
     "hitl_record": "APPROVED | EXPIRED | NOT_REQUIRED | MISSING | APPROVAL_INSUFFICIENT  -- REQUIRED"
@@ -1242,6 +1295,8 @@ Conformance level requirements:
 ```
 
 `model_identity` returns `PROVIDER_ASSERTED` when `model_attestation_type` is `provider-asserted` (i.e., `model_hash` is null for API-deployed models), so verifiers have an explicit signal distinguishing hardware-rooted model identity from an operator assertion. See section 3.2.4.
+
+`decision_trace` returns `EXTENDED` when the running `audit_chain_root` is not the root signed at `bound_at` but continuity evidence proves the signed root is an append-only prefix of it, per Section 3.2.7.1. `EXTENDED` is a passing result and does not make the overall result `MISMATCH`; it is reported distinctly from `MATCH` so a relying party can tell an unmoved chain from a proven extension. A diverged root with absent, malformed, or failing continuity evidence returns `MISMATCH`.
 
 `delegation_chain` returns `UNVERIFIABLE` when any `scope_grant.constraints` element is a non-empty array of Cedar statements and the verifier does not support Cedar evaluation - rather than treating the chain as `VALID`.
 
@@ -1274,7 +1329,7 @@ A `VALID` result means all of the following are true:
 
 - The manifest signature is valid under RFC 8785 canonicalization and the manifest is present in the transparency log. Before checking the issuer signature, the verifier MUST apply the `hitl_record.approvals` normalization rule from section 3.6 (replace `hitl_record.approvals` with `[]` in the signing pre-image); approvals are verified separately against their own `approval_signature`s
 - The TEE attestation report confirms the manifest hash is bound to the hardware measurement
-- All fields specified in `required_fields` match their running artifacts
+- All fields specified in `required_fields` match their running artifacts. For `decision_trace`, `EXTENDED` satisfies this condition and `MISMATCH` does not; see Section 3.2.7.1
 - The manifest has not expired
 - The manifest has not been revoked (revocation status endpoint MUST be checked before returning VALID)
 - If `enforce_hitl` is `true`, at least one HITL approval is present, valid, not expired, and meets the `approval_method` requirement for the declared `risk_tier`

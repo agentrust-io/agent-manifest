@@ -18,10 +18,11 @@ import hmac
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Optional, Union
+from typing import Any, Callable, Optional, Union
 
 from pydantic import BaseModel, Field
 
+from ._audit_continuity import AuditCheckpoint, verify_continuity
 from ._cose import (
     COSE_MANIFEST_VERSION,
     MEDIA_TYPE_MANIFEST_COSE,
@@ -56,6 +57,10 @@ class FieldResult(str, Enum):
     MISMATCH = "MISMATCH"
     NOT_BOUND = "NOT_BOUND"
     EXPIRED = "EXPIRED"
+    # decision_trace only (spec 3.2.7.1): the running audit chain is not the
+    # root signed at T0, but continuity evidence proves it descends from it by
+    # append only. Without that proof a diverged root stays MISMATCH.
+    EXTENDED = "EXTENDED"
 
 
 class DelegationResult(str, Enum):
@@ -163,6 +168,31 @@ class VerifyRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class AuditChainContinuity(BaseModel):
+    """Evidence that a running audit chain descends from the signed root.
+
+    Spec Section 3.2.7.1. The runtime supplies this alongside
+    `audit_chain_root` whenever the chain has advanced past the state bound at
+    manifest signing time. Hex strings, not bytes, so the whole context stays
+    JSON-serializable over the Section 5.1 endpoint.
+    """
+
+    # Chain state at manifest signing time, as served by the runtime. Both
+    # MUST agree with decision_trace.audit_chain_root / entry_count when the
+    # manifest carries them; a disagreement is discontinuity, not a hint.
+    signed_tree_size: int = Field(ge=0)
+    current_tree_size: int = Field(ge=0)
+    signed_seq: int = Field(default=0, ge=0)
+    current_seq: int = Field(default=0, ge=0)
+    observed_at: Optional[datetime] = None
+    ttl_seconds: int = Field(default=300, ge=60, le=7_776_000)
+    # merkle-log: RFC 9162 consistency proof nodes, lowercase hex.
+    consistency_proof: list[str] = Field(default_factory=list)
+    # hash-chained: entry leaf hashes appended after the signed position, in
+    # order, lowercase hex (see _audit_continuity.entry_leaf).
+    appended_entry_leaves: list[str] = Field(default_factory=list)
+
+
 class VerificationContext(BaseModel):
     """Runtime artifact hashes and keys provided by the trusted component."""
 
@@ -173,6 +203,9 @@ class VerificationContext(BaseModel):
     rag_corpus_merkle_root: Optional[str] = None
     memory_snapshot_hash: Optional[str] = None
     audit_chain_root: Optional[str] = None
+    # Present only when the running chain has advanced past the signed
+    # root (spec 3.2.7.1). Absent + diverged root = MISMATCH, unchanged.
+    audit_chain_continuity: Optional[AuditChainContinuity] = None
     container_image_digest: Optional[str] = None
     enforce_hitl: bool = False
     enforce_attestation: bool = False
@@ -309,6 +342,98 @@ def _strict_schema_violations(manifest: dict[str, Any]) -> list[tuple[str, str]]
             violations.append((loc, err.get("msg", "schema error")))
         return violations
     return []
+
+
+def _check_decision_trace(
+    dt: dict[str, Any],
+    context: "VerificationContext",
+    mismatches: list["MismatchDetail"],
+    check: Callable[[str, Optional[str], Optional[str]], FieldResult],
+) -> FieldResult:
+    """Verify artifact #7 against the running audit chain (spec 3.2.7 / 3.2.7.1).
+
+    `audit_chain_root` is the chain state at manifest signing time, so a
+    running chain that has recorded a single decision since then no longer
+    matches it. Three outcomes, and the middle one is the point of #273:
+
+      MATCH      roots identical - the chain has not moved.
+      EXTENDED   roots differ, and continuity evidence proves the signed root
+                 is an append-only prefix of the running root.
+      MISMATCH   roots differ with no proof, a failed proof, a rollback, or a
+                 stale checkpoint. Unchanged fail-closed behaviour: an
+                 unproven divergence is exactly the rebuilt-chain case
+                 Section 3.2.7 already requires a verifier to reject.
+    """
+    signed_root = dt.get("audit_chain_root")
+    running_root = context.audit_chain_root
+    if signed_root is None or running_root is None:
+        # Unbound, or bound with nothing to compare against: the inner _check
+        # owns NOT_BOUND and the strict_artifact_verification bookkeeping.
+        return check("decision_trace", signed_root, running_root)
+    if hmac.compare_digest(signed_root, running_root):
+        return FieldResult.MATCH
+
+    continuity = context.audit_chain_continuity
+    if continuity is None:
+        mismatches.append(MismatchDetail(
+            field="decision_trace",
+            expected_hash=signed_root,
+            actual_hash=running_root,
+        ))
+        return FieldResult.MISMATCH
+
+    signed_count = dt.get("entry_count")
+    if signed_count is not None and signed_count != continuity.signed_tree_size:
+        # entry_count is the only size the issuer signed. If the runtime
+        # reports a different signed size, the proof is being anchored at a
+        # position the manifest never committed to.
+        mismatches.append(MismatchDetail(
+            field="decision_trace",
+            expected_hash=signed_root,
+            actual_hash=running_root,
+        ))
+        return FieldResult.MISMATCH
+
+    observed_at = continuity.observed_at or datetime.now(timezone.utc)
+    verdict = verify_continuity(
+        AuditCheckpoint(
+            audit_chain_root=signed_root,
+            tree_size=continuity.signed_tree_size,
+            seq=continuity.signed_seq,
+            observed_at=observed_at,
+            ttl_seconds=continuity.ttl_seconds,
+        ),
+        AuditCheckpoint(
+            audit_chain_root=running_root,
+            tree_size=continuity.current_tree_size,
+            seq=continuity.current_seq,
+            observed_at=observed_at,
+            ttl_seconds=continuity.ttl_seconds,
+        ),
+        trace_type=dt.get("trace_type") or "hash-chained",
+        consistency_proof=_hex_nodes(continuity.consistency_proof),
+        appended_entry_leaves=_hex_nodes(continuity.appended_entry_leaves),
+    )
+    if verdict.accepted:
+        return FieldResult.EXTENDED
+    mismatches.append(MismatchDetail(
+        field="decision_trace",
+        expected_hash=signed_root,
+        actual_hash=running_root,
+    ))
+    return FieldResult.MISMATCH
+
+
+def _hex_nodes(values: list[str]) -> list[bytes]:
+    """Decode hex proof nodes, mapping anything malformed to a value that
+    cannot verify. Raising here would turn a hostile proof into a 500."""
+    nodes: list[bytes] = []
+    for value in values:
+        try:
+            nodes.append(bytes.fromhex(value))
+        except (ValueError, TypeError):
+            nodes.append(b"")
+    return nodes
 
 
 def verify_manifest(
@@ -680,11 +805,7 @@ def verify_manifest(
             )
 
     dt = artifacts.get("decision_trace") or {}
-    fields.decision_trace = _check(
-        "decision_trace",
-        dt.get("audit_chain_root"),
-        context.audit_chain_root,
-    )
+    fields.decision_trace = _check_decision_trace(dt, context, mismatches, _check)
 
     sc = artifacts.get("supply_chain") or {}
     fields.supply_chain = _check(

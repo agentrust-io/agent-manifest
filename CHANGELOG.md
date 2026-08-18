@@ -23,6 +23,23 @@
   and `examples/level1-tpm-attested.json` carried a placeholder hash that bound
   no document, which the new rule surfaced.
 
+- **[SPEC][SDK]** Added the audit-chain continuity protocol (spec Section
+  3.2.7.1, issue #273). `audit_chain_root` is the chain state at signing time
+  and decisions are produced after signing, so a verifier fetching the chain
+  later could confirm it still contained the signed root but not that it was an
+  append-only extension of it rather than a chain rebuilt around that prefix.
+  `entry_count` detects deletion below the signed count and constrains nothing
+  above it. The chain now gets the mechanism Section 3.2.6.2 already gives
+  memory: `merkle-log` advances carry an RFC 9162 §2.1.2 consistency proof,
+  `hash-chained` advances carry the ordered entry leaves folded forward from the
+  signed root, and both walk the same fail-closed stages (proof, monotonic
+  `seq`, TTL). `decision_trace` gains an `EXTENDED` result for a proven
+  extension; a diverged root with absent, malformed, or failing evidence is
+  still `MISMATCH`. There is no budget stage, because an audit chain is meant to
+  grow without bound. A verified proof establishes that nothing below the head
+  was rewritten; it does not establish that every action produced an entry, and
+  the section says so.
+
 
 - **[SPEC][SDK]** Added the `com.agentrust-io.manifest` Agent Plugins 1.0.0
   extension profile. It resolves an HTTPS manifest by raw-byte digest, verifies

@@ -618,6 +618,29 @@ class DecisionTraceBinding(SpecModel):
         return self
 
 
+class AuditCheckpointBinding(SpecModel):
+    """Artifact #7 checkpoint anchor - spec Section 3.2.7.1 (v0.2).
+
+    Additive companion to DecisionTraceBinding, mirroring what
+    MemoryCheckpointBinding is to MemoryBaselineBinding. `audit_chain_root` in
+    Section 3.2.7 is the chain state at manifest signing time; this is the
+    chain state a runtime serves later, carrying the `tree_size` and `seq` a
+    verifier needs to check that the later state descends from the signed one
+    (see `_audit_continuity.verify_continuity`). Section 3.2.7 semantics are
+    unchanged: without continuity evidence a diverged root is still MISMATCH.
+
+    ttl_seconds: min 60 (audit freshness is measured in minutes, not hours),
+    max 7776000 (90 days), matching the memory checkpoint ceiling.
+    """
+
+    audit_chain_root: HashValue
+    tree_size: int = Field(ge=0)
+    seq: int = Field(ge=0)
+    observed_at: datetime
+    ttl_seconds: int = Field(ge=60, le=7_776_000)
+    checkpoint_signature: Optional[str] = None
+
+
 class SupplyChainBinding(SpecModel):
     """Artifact #9 - spec Section 3.2.8 (renumbered from 3.2.7 in #24)."""
 
