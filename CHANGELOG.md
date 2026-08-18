@@ -40,6 +40,19 @@
   was rewritten; it does not establish that every action produced an entry, and
   the section says so.
 
+- **[SPEC]** Added section 5.3.2, what `VALID` does not establish (issue #272).
+  Section 5.3 defined behaviour on `MISMATCH` and none on `VALID`, so a gateway
+  reading it literally had a rule for one outcome and a natural default for the
+  other. `VALID` is a statement about provenance, not permission: it does not
+  establish that the call about to be made is permitted, that it is within the
+  consequence envelope an approver had in mind, or that the agent's current
+  inputs are trustworthy. `catalog_hash` pins which tools were approved, and
+  inside one authorized tool a read and an irreversible write are the same tool.
+  Per-call authorization joins the section 7.2 out-of-scope list, and the
+  overview sentence claiming the manifest proves "what it was allowed to do" is
+  narrowed to what it actually binds. No schema, field, or conformance change;
+  the conformance test from #280 already demonstrates the boundary.
+
 
 - **[SPEC][SDK]** Added the `com.agentrust-io.manifest` Agent Plugins 1.0.0
   extension profile. It resolves an HTTPS manifest by raw-byte digest, verifies

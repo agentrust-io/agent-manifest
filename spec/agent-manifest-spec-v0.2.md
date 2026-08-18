@@ -19,7 +19,7 @@ The Agent Manifest is a cryptographically signed, hardware-attestable document t
 
 ## Why This Matters Now
 
-MCP's emergence as the dominant agent-to-tool protocol has made the agent trust surface explicit and exploitable. In the period between January and February 2026, researchers filed over 30 CVEs targeting MCP servers, clients, and tooling. Palo Alto Unit 42 found that with five connected MCP servers, a single compromised server hit a 78.3% attack success rate. The problem is not MCP's protocol design - it is the absence of a standard identity primitive that makes every agent's approved deployment context verifiable to a third party. A signed JWT proves who called an API. An Agent Manifest proves who the agent was, what it was allowed to do, how it was built, which audit-chain baseline it started from, who approved it, and whether the deployment configuration changed before execution.
+MCP's emergence as the dominant agent-to-tool protocol has made the agent trust surface explicit and exploitable. In the period between January and February 2026, researchers filed over 30 CVEs targeting MCP servers, clients, and tooling. Palo Alto Unit 42 found that with five connected MCP servers, a single compromised server hit a 78.3% attack success rate. The problem is not MCP's protocol design - it is the absence of a standard identity primitive that makes every agent's approved deployment context verifiable to a third party. A signed JWT proves who called an API. An Agent Manifest proves who the agent was, which tools it was approved to hold, how it was built, which audit-chain baseline it started from, who approved it, and whether the deployment configuration changed before execution. It does not prove that a particular call through one of those tools may run; that is the authorization question section 5.3.2 keeps separate.
 
 ## 1. Problem Statement
 
@@ -1337,6 +1337,20 @@ A `VALID` result means all of the following are true:
 
 A `MISMATCH` result means at least one required field does not match its running artifact. The `mismatch_details` array MUST enumerate every mismatched field. A relying party receiving a `MISMATCH` MUST NOT proceed with the operation that triggered verification.
 
+##### 5.3.2 What `VALID` does not establish <!-- CHANGED: #272 - state the authorization boundary -->
+
+`VALID` establishes that the agent presenting this manifest is the agent that was approved, running the artifacts that were approved, unexpired and unrevoked. It is a statement about provenance, not about permission.
+
+A relying party MUST NOT treat `VALID` as authorization for the action that triggered verification. Specifically, `VALID` does not establish any of the following:
+
+- that the specific call about to be made is permitted. `tool_manifest.catalog_hash` pins which tools were approved and detects mutation of their definitions. Inside one authorized tool, a read and an irreversible write are the same tool, and nothing in this specification bounds the arguments a call may carry;
+- that the action is within the consequence envelope a human approver had in mind. `risk_tier` (section 3.5) describes the approval given at issuance, not the action being attempted now;
+- that the agent's current inputs are trustworthy. Section 7.2 keeps prompt injection out of scope, and a manifest that verifies is fully compatible with an agent being misled.
+
+Authorization is the policy layer's question, and the manifest is one of its inputs: a gateway evaluates its own policy over the call, with `VALID` as the precondition establishing which agent is asking rather than as the answer. A gateway that proceeds on `VALID` alone has an identity check where it needed an access decision.
+
+Stating this is not a narrowing of scope. It is what the specification already does: `delegation_chain` returns `UNVERIFIABLE` rather than `VALID` when a Cedar constraint cannot be evaluated, and `hitl_record` returns `APPROVAL_INSUFFICIENT` when an approval does not meet the bar for its `risk_tier`. Both refuse to let an unevaluated condition become a pass. The rule above says the same thing about the overall result, which had a defined behaviour on `MISMATCH` and none on `VALID`.
+
 #### 5.3.1 Runtime session binding for gateways
 
 A gateway that binds an Agent Manifest to a runtime session, such as cMCP, MUST
@@ -1670,6 +1684,7 @@ The following threats are explicitly out of scope for this specification:
 - Side-channel attacks on the TEE - hardware vulnerabilities in AMD SEV-SNP, Intel TDX, or NVIDIA Blackwell that allow measurement extraction are out of scope. These are platform-level threats addressed by hardware vendors.
 - Denial of service against the verification endpoint - availability of the verification service is an operational concern, not a correctness concern.
 - Human approver compromise - if an authorized approver's hardware key is compromised, the HITL record is valid despite the fraudulent approval. Key management and approver identity assurance are out of scope.
+- Per-call authorization - the manifest binds which tools were approved, not what a call through one of them may do. Argument-level policy, consequence bounds, and the read versus irreversible-write distinction inside a single tool belong to the policy layer that consumes a verification result. See section 5.3.2.
 
 ## 8. Conformance Requirements
 
