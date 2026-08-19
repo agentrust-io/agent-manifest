@@ -43,6 +43,7 @@
         "manifest_id",
         "previous_manifest_id",
         "agent_id",
+        "agent_instance_id",
         "version",
         "min_verifier_version",
         "issued_at",
@@ -64,7 +65,7 @@
     },
     "attestation": {
       "platform": "tpm",
-      "manifest_hash_in_report": "sha256:b68318cc801604dbca75370489da37ee4e0c3fd44c9de41037ed4a1731f8cc4b"
+      "manifest_hash_in_report": "sha256:21c94587de670ef63f95311d20683f9003a020087e61c2b45ea298939538f6c9"
     }
   },
   "context": {

@@ -805,6 +805,10 @@ class Manifest(SpecModel):
     manifest_id: ManifestId
     previous_manifest_id: Optional[ManifestId] = None
     agent_id: str  # SPIFFE URI
+    # OPTIONAL. Present only on an instance-scoped manifest, where it is the
+    # session-scoped identity (OCSF ai_agent.instance_uid); agent_id stays the
+    # stable one (OCSF ai_agent.uid). Spec 3.1 / 6.4.2.
+    agent_instance_id: Optional[ManifestId] = None
     version: str = "0.1"
     min_verifier_version: Optional[str] = None
     issued_at: datetime

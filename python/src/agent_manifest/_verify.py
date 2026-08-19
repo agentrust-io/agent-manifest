@@ -117,6 +117,22 @@ class EvidencePack(BaseModel):
     pack_uri: Optional[str] = None
 
 
+class AgentCorrelation(BaseModel):
+    """The join key between a manifest and the runtime evidence emitted
+    under it (spec 6.4.2).
+
+    `agent_uid` is the stable logical identity and `agent_instance_uid` the
+    session-scoped one, mirroring the OCSF `ai_agent` split. The latter is
+    None on a manifest that governs more than one run; a producer supplies its
+    own session identifier there and must not reuse `agent_uid` for it, or the
+    two concepts collapse and "every run of this agent" stops being a query.
+    """
+
+    agent_uid: str
+    agent_instance_uid: Optional[str] = None
+    manifest_id: str
+
+
 class VerificationResult(BaseModel):
     verification_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     manifest_id: str
@@ -137,6 +153,10 @@ class VerificationResult(BaseModel):
     configuration_assurance: ConfigurationAssurance = ConfigurationAssurance.NOT_ASSESSED
     mismatch_details: list[MismatchDetail] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    # Spec 5.2 / 6.4.2: what a consumer joins this manifest to its runtime
+    # evidence with. Conforming manifests always carry agent_id, so this is
+    # absent only when reporting malformed input that omitted the required ID.
+    correlation: Optional[AgentCorrelation] = None
     evidence_pack: Optional[EvidencePack] = None
     verification_signature: Optional[str] = None
 
@@ -571,6 +591,14 @@ def verify_manifest(
 
     manifest_id = manifest.get("manifest_id", "unknown")
     result = VerificationResult(manifest_id=manifest_id, result=OverallResult.VALID)
+    agent_uid = manifest.get("agent_id")
+    if isinstance(agent_uid, str) and agent_uid:
+        instance_uid = manifest.get("agent_instance_id")
+        result.correlation = AgentCorrelation(
+            agent_uid=agent_uid,
+            agent_instance_uid=instance_uid if isinstance(instance_uid, str) else None,
+            manifest_id=manifest_id,
+        )
     result.verification_context_hash = verification_context_hash(context)
     result.challenge_nonce = context.challenge_nonce
     mismatches: list[MismatchDetail] = []
@@ -989,6 +1017,7 @@ def verify_manifest(
             # Check if any approval has expired (HITL-001: parse failure must set all_ok=False)
             now = datetime.now(timezone.utc)
             all_ok = True
+            approval_insufficient = False
             for approval in approvals:
                 approved_at = approval.get("approved_at", "")
                 duration = approval.get("approved_scope", {}).get("approval_duration_seconds", 0)
@@ -1002,14 +1031,32 @@ def verify_manifest(
                     # Unparseable timestamp - treat as expired to fail safe (HITL-001)
                     all_ok = False
                     break
-            if not all_ok:
+                if context.conformance_level >= 2:
+                    scope = approval.get("approved_scope") or {}
+                    risk_tier = scope.get("risk_tier")
+                    method = approval.get("approval_method")
+                    if method == "software-key" or (
+                        risk_tier in {"high", "critical"} and method != "hardware-key"
+                    ):
+                        approval_insufficient = True
+                        break
+            if approval_insufficient:
+                mismatches.append(MismatchDetail(
+                    field="hitl_record",
+                    expected_hash="<approval method sufficient for declared risk tier>",
+                    actual_hash="<approval method insufficient>",
+                ))
+                fields.hitl_record = HitlResult.APPROVAL_INSUFFICIENT
+            elif not all_ok:
                 # Expired approvals always add to mismatches regardless of enforce_hitl (HITL-002)
                 mismatches.append(MismatchDetail(
                     field="hitl_record",
                     expected_hash="<valid unexpired approval>",
                     actual_hash="<approval expired or unparseable>",
                 ))
-            fields.hitl_record = HitlResult.APPROVED if all_ok else HitlResult.EXPIRED
+                fields.hitl_record = HitlResult.EXPIRED
+            else:
+                fields.hitl_record = HitlResult.APPROVED
     elif context.enforce_hitl:
         # enforce_hitl with no hitl_record at all - fail closed. Omitting the
         # record entirely MUST NOT be weaker than declaring it with no approvals.

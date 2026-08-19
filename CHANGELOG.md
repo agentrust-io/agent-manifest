@@ -24,6 +24,18 @@
   defined value space and no verification behaviour, which is what it always
   was; the field name resembled an assurance signal and nothing said otherwise.
 
+- **[SPEC]** Stated the scope boundary of the memory checkpoint protocol
+  (section 3.2.6.2, issue #298). A governed advance establishes integrity,
+  ordering, freshness and budget, and establishes nothing about retrieval
+  behaviour over the new state. A checkpoint can satisfy every rule while an
+  appended correction stays less salient than the fact it corrects, while
+  authorized additions displace a safety or identity anchor, while another
+  tenant's memory becomes retrievable, or while states that should retrieve
+  differently collapse to the same context. None of that needs a forged
+  signature or a broken proof, so the protocol's own checks cannot see it.
+  Assessment is a separate evidence artifact over a pinned retriever and probe
+  suite, out of scope here and tracked in #298.
+
 - **[SPEC][SDK]** Withdrew the artifact-only refresh path at Level 1 and above,
   and made a stale attestation fatal (issue #265). Section 2.2 let
   `memory_baseline.snapshot_hash` be renewed and the manifest re-signed without
@@ -72,6 +84,22 @@
   overview sentence claiming the manifest proves "what it was allowed to do" is
   narrowed to what it actually binds. No schema, field, or conformance change;
   the conformance test from #280 already demonstrates the boundary.
+
+- **[SPEC][SDK]** Resolved the `agent_id` lifetime overload and made the OCSF
+  identity mapping normative (spec 3.1 / 6.4.2, issue #269). `agent_id` was
+  serving both of OCSF's identity roles at once: the stable `ai_agent.uid` and
+  the session-scoped `ai_agent.instance_uid`, which is why the crosswalk
+  shipped informative. `agent_id` is now defined as the stable identity, and
+  instance scope is declared in a new OPTIONAL signed `agent_instance_id`
+  rather than parsed out of a SPIFFE path segment that carries no declared
+  meaning. A producer emitting `ai_agent` for a manifest-governed session MUST
+  populate `uid` from `agent_id`, MUST populate `instance_uid` from
+  `agent_instance_id` when the manifest declares one, and MUST NOT fall back to
+  `agent_id` for `instance_uid` when it does not. The verification result gains
+  a `correlation` object carrying both identities and the `manifest_id` they
+  came from. Adding the field leaves every existing signature verifying, since
+  the pre-image omits absent fields; the conformance vectors are regenerated
+  for the longer `signed_fields` list.
 
 - **[SPEC][SDK]** Added the relying-party challenge and context binding for
   verification results (spec 5.1.2, issue #266). `verification_id` is chosen by
