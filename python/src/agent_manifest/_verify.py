@@ -148,7 +148,8 @@ class VerificationResult(BaseModel):
     mismatch_details: list[MismatchDetail] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     # Spec 5.2 / 6.4.2: what a consumer joins this manifest to its runtime
-    # evidence with. Populated whenever the manifest carries an agent_id.
+    # evidence with. Conforming manifests always carry agent_id, so this is
+    # absent only when reporting malformed input that omitted the required ID.
     correlation: Optional[AgentCorrelation] = None
     evidence_pack: Optional[EvidencePack] = None
     verification_signature: Optional[str] = None

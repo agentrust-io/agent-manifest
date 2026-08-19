@@ -145,7 +145,7 @@ def test_the_two_identities_are_never_the_same_value():
         assert correlation.agent_instance_uid != correlation.agent_uid
 
 
-def test_correlation_is_absent_when_there_is_no_agent_id():
+def test_correlation_is_absent_only_for_malformed_input_without_agent_id():
     doc = _manifest()
     del doc["agent_id"]
     assert _verify(doc).correlation is None

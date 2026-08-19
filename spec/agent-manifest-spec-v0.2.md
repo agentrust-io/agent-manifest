@@ -247,7 +247,7 @@ The `agent_id` path structure `/agent/<name>/<instance>` shown in examples is a 
 
 `agent_id` is the **stable** logical identity of the agent: it identifies the agent across restarts and across runs. A deployment MAY still encode an instance in the SPIFFE path, but a verifier or evidence consumer MUST NOT infer instance scope from the path, because the structure above is a convention and a path segment carries no declared meaning.
 
-Instance scope is declared, not parsed. A manifest issued for a single run SHOULD carry `agent_instance_id`, and its absence means the manifest governs every run of `agent_id`. This is what lets one field stop serving two lifetimes; section 6.4.2 gives the resulting correlation rules.
+Instance scope is declared, not parsed. A manifest issued for a single run SHOULD carry `agent_instance_id`, and its absence means the manifest governs every run of `agent_id`. Because changing a signed field requires re-issuance (and, at Level 1 or above, fresh attestation binding and transparency-log publication), instance-scoped manifests are intended for long-lived or high-risk runs where that cost is warranted. Multi-run manifests remain the normal operating model for high-volume conversational sessions. This is what lets one field stop serving two lifetimes; section 6.4.2 gives the resulting correlation rules.
 
 <!-- CHANGED: SCHEMA F-15/@context - normative note on provisional URL -->
 The `@context` URL `https://manifest.agentrust-io.com/v0.2/context.json` is provisional for the v0.2 draft period. The CoSAI WS4 working stream will assign the canonical URL prior to v1.0 ratification, and implementations MUST support the canonical CoSAI-assigned URL when it is assigned.
@@ -1357,7 +1357,7 @@ Conformance level requirements:
 
 `hitl_record` returns `APPROVAL_INSUFFICIENT` when an approval exists but does not meet the `approval_method` requirement for the declared `risk_tier` (e.g., `software-key` approval on a `high` risk tier operation at Level 2).
 
-The `correlation` object is what a consumer joins this result to runtime evidence with, so the two identities and the exact manifest they came from travel together rather than being reassembled by the consumer. `agent_instance_uid` is `null` on a manifest that governs more than one run; see section 6.4.2 for what a producer does in that case.
+The `correlation` object is what a consumer joins this result to runtime evidence with, so the two identities and the exact manifest they came from travel together rather than being reassembled by the consumer. It is always present when the input contains the REQUIRED `agent_id`; a verifier reporting malformed input that omits `agent_id` cannot construct it. `agent_instance_uid` is `null` on a manifest that governs more than one run; see section 6.4.2 for what a producer does in that case.
 
 `ATTESTATION_UNAVAILABLE` is returned when the hardware attestation service cannot be reached and the verification cannot be completed. Verifiers receiving this result MUST NOT treat it as `VALID`.
 
@@ -1612,7 +1612,7 @@ The `ai_agent` object is contributed by the **`ai_operation` profile**, not by a
 | OCSF (`ai_agent`) | OCSF's own definition | Intended manifest counterpart |
 |---|---|---|
 | `uid` | "The stable logical identifier for the agent... Persists across restarts and instances." | `agent_id` (section 3.1), which is defined as the stable identity. |
-| `instance_uid` | "Identifier for a specific running instance or session of the agent, **distinct from the stable logical uid**. An instance is a single materialization of the agent: a conversation, session, or run." | `agent_instance_id` (section 3.1) when the manifest declares one. Otherwise the producer's own session identifier, never `agent_id`. |
+| `instance_uid` | "Identifier for a specific running instance or session of the agent, **distinct from the stable logical uid**. An instance is a single materialization of the agent: a conversation, session, or run." | `agent_instance_id` (section 3.1) when the manifest declares one. Otherwise the producer SHOULD use its own session identifier and MAY omit the field if none is available; it MUST NOT use `agent_id`. |
 | `version` | "the agent's own code or configuration revision... distinct from the version of the model backing it" | Not a join key. Static across a session. |
 | `charter` | "A document that defines an AI agent's durable role, responsibilities, constraints, and operating boundaries." | Closest to the manifest itself, though the manifest is signed and scoped more narrowly. Not a join key. |
 
@@ -1622,10 +1622,10 @@ A producer emitting an `ai_agent` object for a session governed by an Agent Mani
 
 1. MUST populate `ai_agent.uid` with the manifest `agent_id`.
 2. MUST populate `ai_agent.instance_uid` with the manifest `agent_instance_id` when the manifest declares one.
-3. MUST NOT populate `ai_agent.instance_uid` with `agent_id` when the manifest declares no `agent_instance_id`. It populates that field with its own session-scoped identifier instead.
+3. MUST NOT populate `ai_agent.instance_uid` with `agent_id` when the manifest declares no `agent_instance_id`. It SHOULD populate that field with its own session-scoped identifier and MAY omit the field if no such identifier is available.
 4. MUST carry the `manifest_id` of the exact manifest in force, on any event class whose schema can express it, so the join is to a signed document rather than to a name.
 
-Rule 3 is the one that matters and the one an implementation is most likely to get wrong. Reusing `agent_id` as `instance_uid` makes the two OCSF fields equal on every event, which silently destroys the distinction between "every run of this agent" and "this run" for a consumer that has no way to tell the collapse happened. Emitting no `instance_uid` at all is a better failure than emitting a stable one.
+Rule 3 is the one that matters and the one an implementation is most likely to get wrong. Reusing `agent_id` as `instance_uid` makes the two OCSF fields equal on every event, which silently destroys the distinction between "every run of this agent" and "this run" for a consumer that has no way to tell the collapse happened. A producer SHOULD supply its own session identifier; if it cannot, omission preserves the distinction more safely than a stable value would.
 
 These rules bind the producer, not the manifest issuer: a manifest that declares no `agent_instance_id` is fully conformant, and rule 3 is how a producer stays conformant alongside it.
 
