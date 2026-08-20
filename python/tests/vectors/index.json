@@ -114,6 +114,16 @@
       "description": "Post-quantum crypto_profile with an Ed25519 signature is a downgrade."
     },
     {
+      "id": "AM-VEC-022",
+      "file": "AM-VEC-022.json",
+      "description": "A trusted key not authorized for the manifest's issuer is rejected."
+    },
+    {
+      "id": "AM-VEC-023",
+      "file": "AM-VEC-023.json",
+      "description": "A key authorized for the subject (agent_id) but not the issuer is rejected."
+    },
+    {
       "id": "AM-VEC-COSE-001",
       "file": "AM-VEC-COSE-001.json",
       "description": "COSE_Sign1 encoding is pinned byte-for-byte: CBOR tag 18, a four-element array, and a zero-length unprotected header map before any receipt is attached."

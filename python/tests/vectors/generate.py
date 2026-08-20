@@ -884,6 +884,45 @@ def build() -> list[dict[str, Any]]:
         {"result": "MISMATCH", "signature_verified": False},
     ))
 
+    # 022 - a trusted key not authorized for the manifest's issuer (issue #325).
+    # The v0.1 counterpart of AM-VEC-COSE-009: the manifest, signature and
+    # signing key are byte-identical to AM-VEC-001, and only the context differs
+    # by naming a different authority in trusted_key_issuers. A verifier that
+    # stops at "the signature verifies under a trusted key" returns VALID here
+    # and has no key-to-issuer authorization boundary at all.
+    #
+    # signature_verified is false, not true as on AM-VEC-COSE-009: the v0.1
+    # path evaluates the issuer binding before it verifies the detached
+    # signature (spec 5.3), so on a mismatch it never reaches verification and
+    # the flag stays false. The COSE path appraises the envelope signature
+    # first, so its analog records true.
+    vectors.append(_vector(
+        "AM-VEC-022",
+        "A trusted key not authorized for the manifest's issuer is rejected.",
+        ["5.3"], base_manifest(),
+        base_context(
+            trusted_key_issuers={KEY_ID: ["spiffe://trust.example/other-authority"]}
+        ),
+        {"result": "MISMATCH", "signature_verified": False},
+    ))
+
+    # 023 - the subject presented as the authority. trusted_key_issuers names
+    # the manifest's own agent_id ("spiffe://trust.example/agent/kyc/prod")
+    # rather than its issuer, so the key is authorized for the subject it signs
+    # for and not for the issuer that signed. Companion to AM-VEC-022: a
+    # verifier that compared the key's authorization against agent_id instead of
+    # issuer would accept this one, so the two together pin that the binding is
+    # to the issuer specifically.
+    vectors.append(_vector(
+        "AM-VEC-023",
+        "A key authorized for the subject (agent_id) but not the issuer is rejected.",
+        ["5.3"], base_manifest(),
+        base_context(
+            trusted_key_issuers={KEY_ID: ["spiffe://trust.example/agent/kyc/prod"]}
+        ),
+        {"result": "MISMATCH", "signature_verified": False},
+    ))
+
     # --- version 0.2, COSE envelope (ADR-0011, issue #243) -----------------
     vectors.append(cose_encoding_vector())
     vectors.extend(cose_negative_vectors())
