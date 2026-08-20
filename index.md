@@ -116,5 +116,5 @@ Yes. It is published on PyPI (`pip install agent-manifest`) and developed in the
 
 - [Getting started](https://manifest.agentrust-io.com/getting-started/index.md) - Level 0 in 15 minutes
 - [Examples](https://github.com/agentrust-io/examples) - complete manifest JSON for Level 0 and Level 1
-- [Specification](https://github.com/agentrust-io/agent-manifest/blob/main/spec/agent-manifest-spec-v0.1.md) - 197 conformance tests across 5 modules
+- [Specification](https://manifest.agentrust-io.com/spec/agent-manifest-v0.2/index.md) - 197 conformance tests across 5 modules
 - [Architecture decisions](https://manifest.agentrust-io.com/adr/index.md) - rationale behind cryptographic design choices

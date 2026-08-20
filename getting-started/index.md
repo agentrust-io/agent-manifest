@@ -262,7 +262,7 @@ store.revoke(
 
 ## Next steps
 
-- Read the [full specification](https://github.com/agentrust-io/agent-manifest/blob/main/spec/agent-manifest-spec-v0.1.md)
+- Read the [full specification](https://manifest.agentrust-io.com/spec/agent-manifest-v0.2/index.md)
 - Browse the [examples](https://manifest.agentrust-io.com/examples/index.md) for complete manifest JSON for each conformance level
 - For hardware attestation setup on Azure, AWS, or GCP, see the platform-specific notes in Section 3.3.1 of the spec
 - For EU AI Act HITL compliance, see Section 9.1 and the Level 2 example in `examples/`

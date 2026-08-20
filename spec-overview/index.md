@@ -1,12 +1,12 @@
 # Specification Overview
 
-The Agent Manifest Specification v0.1 is a formal RFC 2119 document defining the complete cryptographic identity and provenance standard for AI agents.
+The Agent Manifest Specification v0.2 is a formal RFC 2119 document defining the complete cryptographic identity and provenance standard for AI agents.
 
 TL;DR
 
 The spec has 10 sections covering the problem statement, data model for all 10 artifact bindings, Ed25519 and post-quantum cryptographic protocols, the verification protocol, integration with AGT and cMCP, the threat model, conformance Levels 0 to 3, and regulatory mapping. Conformance is measured by 197 tests across 5 modules.
 
-**Full specification**: [`spec/agent-manifest-spec-v0.1.md`](https://github.com/agentrust-io/agent-manifest/blob/main/spec/agent-manifest-spec-v0.1.md) (1,500+ lines)
+**Full specification**: [`spec/agent-manifest-spec-v0.2.md`](https://manifest.agentrust-io.com/spec/agent-manifest-v0.2/index.md) (1,500+ lines)
 
 **In progress for v0.2**: [`spec/agent-manifest-cose-envelope-v0.2.md`](https://github.com/agentrust-io/agent-manifest/blob/main/spec/agent-manifest-cose-envelope-v0.2.md) specifies the COSE_Sign1 signature envelope that replaces the v0.1 canonical-JSON detached signature, aligning with RFC 9943 (SCITT). It is gated on the manifest `version` field, so v0.1 manifests keep verifying unchanged. See [ADR-0011](https://manifest.agentrust-io.com/adr/0011-signature-envelope/index.md) for why.
 
