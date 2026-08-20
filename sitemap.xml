@@ -201,6 +201,14 @@
          <lastmod>2026-08-20</lastmod>
     </url>
     <url>
+         <loc>https://manifest.agentrust-io.com/spec/agent-manifest-cose-envelope-v0.2/</loc>
+         <lastmod>2026-08-20</lastmod>
+    </url>
+    <url>
+         <loc>https://manifest.agentrust-io.com/spec/agent-manifest-v0.2/</loc>
+         <lastmod>2026-08-20</lastmod>
+    </url>
+    <url>
          <loc>https://manifest.agentrust-io.com/tutorials/</loc>
          <lastmod>2026-08-20</lastmod>
     </url>
