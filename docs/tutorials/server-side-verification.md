@@ -62,6 +62,15 @@ context. It does not make required claims optional in the signed manifest:
 For legacy v0.1 compatibility, a missing `issuer` is rejected when
 `trusted_key_issuers` authorization is configured.
 
+`trusted_key_issuers` defaults to an empty map, and while it is empty
+`verify_manifest()` performs no issuer-key authorization at all: `signature.key_id`
+names a key, and nothing checks that the key is authorized for the manifest's
+`issuer`. A `VALID` result from a default context is a statement that the signature
+verifies under a key you trusted, not that the key belongs to the issuer the
+manifest names. Populate the map for any deployment where the issuer and the
+attested subject are not the same party. The open question of whether the
+specification should require this is tracked in issue #325.
+
 ```python
 import hashlib
 
