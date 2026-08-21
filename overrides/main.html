@@ -11,7 +11,10 @@
 #}
 {% block extrahead %}
   {{ super() }}
-  {%- set page_title = (config.site_name if (page and page.is_homepage) else (page.title if page else config.site_name)) | default(config.site_name, true) -%}
+  {#- page.title is the nav label; page.meta.title is the front matter, which is
+      the only one of the two that describes the page. -#}
+  {%- set page_name = (page.meta.title if (page and page.meta and page.meta.title) else (page.title if page else None)) -%}
+  {%- set page_title = (page_name ~ " - " ~ config.site_name if page_name and page_name != config.site_name else config.site_name) | default(config.site_name, true) -%}
   {%- set page_desc = (page.meta.description if page and page.meta else config.site_description) | default(config.site_description, true) -%}
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="{{ config.site_name }}">
