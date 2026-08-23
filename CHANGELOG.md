@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.11.1] — 2026-08-23
+
 ### Fixed
 
 - **[SECURITY][SDK]** The integrated verification path now authenticates every
@@ -185,8 +187,6 @@ Each negative carries `signature_valid`, recording whether the Ed25519 signature
 - `verify_manifest()` now fails closed when a core identity, validity, or artifact-container claim is missing. A valid signature no longer turns such a structurally incomplete object into a `VALID` manifest; legacy v0.1 issuer omission remains compatible unless issuer authorization is configured.
 
 All notable changes to Agent Manifest are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Spec changes are marked **[SPEC]**; SDK changes are marked **[SDK]**.
-
-## [Unreleased]
 
 ### Added
 

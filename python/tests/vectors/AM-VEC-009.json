@@ -36,7 +36,7 @@
           "approved_scope": {
             "approval_duration_seconds": 3153600000
           },
-          "approval_signature": "BBIMVEKTd1e6wXdxc_kc_WLuUg_fw47ONXEXTdGoVobzz8x8u9I2HGaQBNFinhGuBWdGURfngJ_UaMhYybp-Dg"
+          "approval_signature": "Fyu8qnv_nFNH0AFQaL2waxOjb4bc3f7MxvYoswAjwdaBgQydwyZCUl9t2_eL7csiUJYVOqX_mMQ54HigXAOGCg"
         }
       ]
     },
@@ -82,7 +82,7 @@
     },
     "enforce_hitl": true,
     "approver_public_keys": {
-      "mailto:alice@example.com": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+      "mailto:alice@example.com": "cSZR9FC6BbY4mLme9fe6RWMujiUn9_cVzWcexAJMxR4"
     }
   },
   "expected": {

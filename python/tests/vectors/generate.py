@@ -7,10 +7,10 @@ language, can load a manifest + verification context and assert the same
 
 Design rules that keep the vectors stable and portable:
 
-* **Fixed signing key.** All signed vectors use one Ed25519 key derived from
-  the seed ``00 01 02 ... 1f``. The public key (and key_id) is written to
-  ``keys.json`` so other languages can verify signatures without re-running
-  this script. Ed25519 is deterministic (RFC 8032), so signatures are
+* **Fixed signing keys.** Manifest vectors use one Ed25519 key derived from
+  the seed ``00 01 02 ... 1f``. HITL approvals use a distinct deterministic
+  key so the vectors do not imply that manifest issuers are their own human
+  approvers. Ed25519 is deterministic (RFC 8032), so signatures are
   reproducible byte-for-byte.
 * **Time-stable expectations.** Expiry/TTL/HITL windows use absolute dates far
   in the past or far in the future, so a vector's expected result does not
@@ -77,6 +77,10 @@ assert (KP.key_id, KP.public_b64url()) == (KEY_ID, PUBLIC_KEY_B64URL), (
 )
 TRUSTED_KEYS = {KEY_ID: PUBLIC_KEY_B64URL}
 APPROVER_ID = "mailto:alice@example.com"
+APPROVER_KP = ed25519_from_private_bytes(bytes(reversed(range(32))))
+assert APPROVER_KP.public_bytes != KP.public_bytes, (
+    "the HITL approver key must be distinct from the manifest issuer key"
+)
 
 # Stable absolute timestamps (never "now").
 ISSUED_AT = "2025-01-01T00:00:00Z"
@@ -702,7 +706,7 @@ def build() -> list[dict[str, Any]]:
             "approver_id": APPROVER_ID,
             "approved_at": ISSUED_AT,
             "approved_scope": {"approval_duration_seconds": CENTURY_SECONDS},
-            "approval_signature": HitlApprovalSigner(KP).sign_approval(
+            "approval_signature": HitlApprovalSigner(APPROVER_KP).sign_approval(
                 manifest_id=MANIFEST_ID,
                 approved_at=ISSUED_AT,
                 approved_scope={"approval_duration_seconds": CENTURY_SECONDS},
@@ -714,7 +718,7 @@ def build() -> list[dict[str, Any]]:
         "AM-VEC-009", "Required HITL with an unexpired approval passes under enforce_hitl.",
         ["3.2.10", "5.3"], m, base_context(
             enforce_hitl=True,
-            approver_public_keys={APPROVER_ID: PUBLIC_KEY_B64URL},
+            approver_public_keys={APPROVER_ID: APPROVER_KP.public_b64url()},
         ),
         {"result": "VALID", "fields_verified": {"hitl_record": "APPROVED"}},
     ))
