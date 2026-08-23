@@ -10,6 +10,12 @@
   signatures, and approvals replayed from another manifest fail closed. See
   GHSA-ww2p-prj4-c6xf.
 
+- **[SECURITY][CLI]** `manifest verify` gained `--approver-key
+  APPROVER_ID=PATH` (repeatable) to supply trusted HITL approver keys. Without
+  it the CLI had no input that could populate `approver_public_keys`, so every
+  approval resolved to `UNVERIFIABLE` and `--enforce-hitl` could not succeed.
+  A failing result now names the missing option.
+
 - **[SECURITY][SDK]** Bound runtime artifacts now fail closed when their
   observed hashes are absent. Signature-only appraisal remains available only
   through an explicit API or CLI opt-out and must not be used as authorization

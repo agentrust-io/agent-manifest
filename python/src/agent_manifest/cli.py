@@ -34,6 +34,7 @@ from ._revocation import FileCRL
 from ._signing import Ed25519Signer, ed25519_from_private_bytes, generate_ed25519
 from ._types import ManifestId
 from ._verify import (
+    HitlResult,
     OverallResult,
     RevocationRecord,
     RevocationStore,
@@ -81,28 +82,59 @@ def _write(data: dict[str, Any], output: Optional[str]) -> None:
         click.echo(text)
 
 
-def _trusted_key_from_public_hex(path: str) -> dict[str, str]:
-    """Load a raw Ed25519 public key hex file as verifier trusted_keys."""
+def _public_bytes_from_hex_file(path: str, label: str = "Public key") -> bytes:
+    """Load and validate a raw Ed25519 public key from a hex file."""
     key_path = Path(path).resolve()
     if not key_path.is_file():
         raise click.ClickException(
-            f"Public key file not found or is not a regular file: {path}"
+            f"{label} file not found or is not a regular file: {path}"
         )
 
     key_hex = key_path.read_text().strip()
     try:
         public_bytes = bytes.fromhex(key_hex)
     except ValueError:
-        raise click.ClickException("Public key file does not contain valid hex data.")
+        raise click.ClickException(f"{label} file does not contain valid hex data.")
 
     if len(public_bytes) != 32:
         raise click.ClickException(
             f"Ed25519 public key must be 32 bytes, got {len(public_bytes)} bytes."
         )
 
+    return public_bytes
+
+
+def _trusted_key_from_public_hex(path: str) -> dict[str, str]:
+    """Load a raw Ed25519 public key hex file as verifier trusted_keys."""
+    public_bytes = _public_bytes_from_hex_file(path)
     key_id = hashlib.sha256(public_bytes).hexdigest()
     public_b64 = base64.urlsafe_b64encode(public_bytes).rstrip(b"=").decode()
     return {key_id: public_b64}
+
+
+def _approver_public_keys(specs: tuple[str, ...]) -> dict[str, str]:
+    """Parse ``APPROVER_ID=PATH`` pairs into verifier approver_public_keys.
+
+    HITL approvals attach outside the manifest signature, so the relying party
+    supplies the approver keys it trusts. Without them an approval is
+    UNVERIFIABLE and can never reach VALID.
+    """
+    keys: dict[str, str] = {}
+    for spec in specs:
+        approver_id, separator, path = spec.partition("=")
+        if not separator or not approver_id or not path:
+            raise click.ClickException(
+                "--approver-key expects APPROVER_ID=PATH, got: " + spec
+            )
+        if approver_id in keys:
+            raise click.ClickException(
+                f"--approver-key given more than once for approver_id {approver_id}"
+            )
+        public_bytes = _public_bytes_from_hex_file(path, "Approver key")
+        keys[approver_id] = (
+            base64.urlsafe_b64encode(public_bytes).rstrip(b"=").decode()
+        )
+    return keys
 
 
 @click.group()
@@ -321,6 +353,9 @@ def attest(manifest_file: str, provider: str, level: int, output: Optional[str])
               help="Fail unless the attestation report matches the manifest hash")
 @click.option("--crl-path", default=None, help="Path to a FileCRL JSON-Lines file for revocation checks")
 @click.option("--public-key", default=None, help="Path to a trusted raw Ed25519 public key hex file")
+@click.option("--approver-key", multiple=True, metavar="APPROVER_ID=PATH",
+              help="Trusted HITL approver key as approver_id=path to a raw Ed25519 "
+                   "public key hex file (repeatable)")
 @click.option("--require-transparency", is_flag=True, default=False,
               help="Fail unless transparency evidence was independently verified")
 @click.option("--verified-transparency-entry-id", multiple=True,
@@ -342,6 +377,7 @@ def verify(
     enforce_attestation: bool,
     crl_path: Optional[str],
     public_key: Optional[str],
+    approver_key: tuple[str, ...],
     require_transparency: bool,
     verified_transparency_entry_id: tuple[str, ...],
     verified_transparency_receipt_hash: tuple[str, ...],
@@ -357,8 +393,15 @@ def verify(
     Use --crl-path to load a revocation list and check for revoked manifests.
 
     
+    HITL approvals attach outside the manifest signature, so supply the
+    approver keys you trust with --approver-key. Without them an approval is
+    UNVERIFIABLE and the manifest can never verify.
+
+    
     Example:
       manifest verify attested.json --crl-path revocations.jsonl
+      manifest verify signed.json --public-key pub.hex --enforce-hitl
+        --approver-key mailto:alice@example.com=alice.hex
     """
     subject = _load_manifest_or_envelope(manifest_file)
     trusted_keys = _trusted_key_from_public_hex(public_key) if public_key else {}
@@ -366,6 +409,7 @@ def verify(
         enforce_hitl=enforce_hitl,
         enforce_attestation=enforce_attestation,
         trusted_keys=trusted_keys,
+        approver_public_keys=_approver_public_keys(approver_key),
         require_transparency=require_transparency,
         verified_transparency_entry_ids=set(verified_transparency_entry_id),
         verified_transparency_receipt_hashes=set(verified_transparency_receipt_hash),
@@ -385,6 +429,13 @@ def verify(
 
     if result.result != OverallResult.VALID:
         click.echo(f"Result: {result.result.value}", err=True)
+        if result.fields_verified.hitl_record == HitlResult.UNVERIFIABLE:
+            click.echo(
+                "  HINT: this manifest carries a HITL approval and no trusted "
+                "approver key was supplied. Pass --approver-key "
+                "APPROVER_ID=PATH for each approver you trust.",
+                err=True,
+            )
         for d in result.mismatch_details:
             click.echo(f"  MISMATCH {d.field}: expected {d.expected_hash[:20]}...", err=True)
         sys.exit(1)
