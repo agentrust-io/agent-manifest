@@ -168,6 +168,11 @@ Verifier requirements:
 - MUST check `version` before verifying. If the version is unsupported, MUST return `INCOMPATIBLE_VERSION` rather than silently misinterpreting fields.
 - SHOULD support at least the current and one prior minor version.
 
+<!-- CHANGED: #315 phase 5 - announce the v0.1 issuance end date -->
+**Issuing v0.1 manifests ends 2026-11-30.** From that date the reference implementation produces v0.2 COSE envelopes only, and a producer SHOULD NOT set `version` to `"0.1"`.
+
+**Verifying v0.1 manifests is not deprecated and has no end date.** Manifests are audit records under retention obligations that outlast their validity by years, so a verifier that stopped reading them would destroy evidence rather than remove code. `INCOMPATIBLE_VERSION` stays reserved for versions a verifier genuinely cannot interpret, never for v0.1.
+
 Compatibility matrix:
 
 | Producer version | Verifier supports | Result |

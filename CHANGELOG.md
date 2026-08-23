@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Deprecated
+
+- **[SPEC] Issuing v0.1 manifests ends 2026-11-30** (issue #315, phase 5). From that
+  date the reference implementation produces v0.2 COSE envelopes only. The date follows
+  phase 4 completing: `cmcp` and `ca2a` both verify a v0.2 envelope through their real
+  loader paths and both reject a payload declaring v0.1 under a v0.2 envelope
+  (`AM-VEC-COSE-012`), so a consumer is exercising v0.2 rather than a test harness.
+
+  **Verifying v0.1 manifests is not deprecated and has no end date.** These are audit
+  records with regulated retention well beyond their 90-day validity, and a verifier that
+  stops reading them destroys evidence rather than tidying a codebase. Same reasoning as
+  keeping the `-8` Ed25519 code point acceptable indefinitely.
+
 ## [0.11.1] — 2026-08-23
 
 ### Fixed
