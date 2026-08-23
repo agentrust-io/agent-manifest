@@ -397,6 +397,9 @@ The policy bundle hash covers the complete Cedar policy set, including all polic
 
 For `policy_language: composite`, the `hash` field MUST be a Merkle root over the hashes of each sub-bundle, sorted by policy language identifier in lexicographic order (`cedar`, `rego`, `yaml-agt`). Each sub-bundle MUST be hashed independently using the same hash algorithm as the manifest. The `agt_version` field MUST reference the AGT version used to assemble the composite bundle, even if individual sub-bundles were produced by other tools.
 
+<!-- CHANGED: #149 - pin the composite Merkle leaf encoding, which ADR-0003 defined for 3.2.3 and 3.2.5 but not here -->
+The composite tree is constructed per ADR-0003, and **`leaf_data` for it is the raw digest bytes of each sub-bundle hash**: the bytes the hash algorithm produces, not the `sha256:`-prefixed hex string and not a JSON descriptor. Each leaf is therefore `SHA-256(0x00 || <raw digest bytes>)`. This is normative rather than editorial: all three readings satisfy "a Merkle root over the hashes of each sub-bundle", they produce different roots from identical inputs, and a verifier holding a manifest cannot tell which one it is checking.
+
 AGT policy scope identifiers use the form `<namespace>:<resource-type>:<action>`, e.g., `finance:ledger:write`. For the full scope identifier registry, refer to the AGT specification.
 
 #### 3.2.3 Tool Manifest Binding

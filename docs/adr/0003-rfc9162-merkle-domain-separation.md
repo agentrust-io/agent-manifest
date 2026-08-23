@@ -2,7 +2,7 @@
 
 **Status**: Accepted  
 **Date**: 2026-05-10  
-**Spec section**: Section 4.1.1, Section 3.2.3 (tool catalog hash), Section 3.2.5 (RAG corpus)
+**Spec section**: Section 4.1.1, Section 3.2.2 (composite policy bundle), Section 3.2.3 (tool catalog hash), Section 3.2.5 (RAG corpus)
 
 ## Context
 
@@ -16,7 +16,8 @@ Use the RFC 9162 (Certificate Transparency v2) Merkle tree construction with exp
 - Internal nodes: `SHA-256(0x01 || left_hash || right_hash)`
 
 Leaf data for tool entries: RFC 8785 canonical JSON of the tool descriptor (schema + description, sorted by tool name).  
-Leaf data for corpus documents: RFC 8785 canonical JSON of the document descriptor (hash + identifier + ingested_at).
+Leaf data for corpus documents: RFC 8785 canonical JSON of the document descriptor (hash + identifier + ingested_at).  
+Leaf data for composite policy sub-bundles (Section 3.2.2): the **raw digest bytes** of each sub-bundle hash, not the `sha256:`-prefixed hex string and not a JSON descriptor. Unlike the two above, this leaf carries no structured descriptor, because the ordering rule already fixes which sub-bundle each leaf is.
 
 ## Rationale
 
@@ -36,7 +37,7 @@ Leaf data for corpus documents: RFC 8785 canonical JSON of the document descript
 ## Consequences
 
 - The `0x00` prefix on leaf nodes and `0x01` prefix on internal nodes are mandatory. Implementations that omit them will fail conformance test AM-BIND-015.
-- Leaf ordering must be deterministic: tool entries sorted by `tool_id` (lexicographic, Unicode code point order, same as RFC 8785 key ordering). Corpus documents sorted by `document_id`.
+- Leaf ordering must be deterministic: tool entries sorted by `tool_id` (lexicographic, Unicode code point order, same as RFC 8785 key ordering). Corpus documents sorted by `document_id`. Composite policy sub-bundles sorted by policy language identifier (`cedar`, `rego`, `yaml-agt`), per Section 3.2.2.
 - Empty trees (no tools, no corpus documents) are represented by the SHA-256 of the empty string: `sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`.
 
 ## References
