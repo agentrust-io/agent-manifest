@@ -62,6 +62,27 @@ def test_unicode_key_ordering():
     assert result == ('{"e":2,"' + chr(233) + '":1}').encode("utf-8")
 
 
+def test_utf16_code_unit_key_order_not_code_point_order():
+    # RFC 8785 §3.2.3 sorts by UTF-16 code unit. U+10000 (a supplementary-
+    # plane character) is a surrogate pair D800 DC00 in UTF-16, which sorts
+    # below the BMP character U+FFFF (code unit FFFF) — the reverse of code
+    # point order, where U+10000 > U+FFFF. Issue #322.
+    obj = {chr(0x10000): 1, chr(0xFFFF): 2}
+    result = canonicalize(obj)
+    expected = ('{"' + chr(0x10000) + '":1,"' + chr(0xFFFF) + '":2}').encode("utf-8")
+    assert result == expected
+
+
+def test_utf16_code_unit_key_order_nested():
+    # Same divergence one level deep, matching trace-spec's
+    # 04-utf16-key-order-nested.json boundary vector.
+    obj = {"outer": {chr(0x10000): 1, chr(0xFFFF): 2}}
+    result = canonicalize(obj)
+    assert result == (
+        '{"outer":{"' + chr(0x10000) + '":1,"' + chr(0xFFFF) + '":2}}'
+    ).encode("utf-8")
+
+
 # ---------------------------------------------------------------------------
 # Whitespace
 # ---------------------------------------------------------------------------
@@ -132,9 +153,24 @@ def test_tab_newline_escaped():
     assert canonicalize({"v": "\t\n"}) == b'{"v":"\\t\\n"}'
 
 
-def test_line_separator_escaped():
-    # U+2028 LINE SEPARATOR must be
-    assert b"\\u2028" in canonicalize({"v": chr(0x2028)})
+def test_line_separator_not_escaped():
+    # RFC 8785 §3.2.2.2 defers to ECMAScript JSON.stringify, which escapes
+    # only the quote, the reverse solidus, and U+0000-U+001F. U+2028 LINE
+    # SEPARATOR is a hazard when JSON is pasted into JavaScript *source*, not
+    # a JSON serialization rule — it MUST be emitted literally. This test
+    # previously asserted the opposite (non-conformant) behaviour. Issue #322.
+    assert canonicalize({"v": chr(0x2028)}) == ('{"v":"' + chr(0x2028) + '"}').encode("utf-8")
+
+
+def test_paragraph_separator_not_escaped():
+    assert canonicalize({"v": chr(0x2029)}) == ('{"v":"' + chr(0x2029) + '"}').encode("utf-8")
+
+
+def test_delete_and_c1_controls_not_escaped():
+    # U+007F (DELETE) and the C1 control range (U+0080-U+009F) are outside
+    # ECMAScript JSON.stringify's escape set and must be emitted literally.
+    assert canonicalize({"v": chr(0x7F)}) == ('{"v":"' + chr(0x7F) + '"}').encode("utf-8")
+    assert canonicalize({"v": chr(0x85)}) == ('{"v":"' + chr(0x85) + '"}').encode("utf-8")
 
 
 def test_regular_unicode_verbatim():
@@ -199,6 +235,60 @@ def test_float_nan_raises():
 def test_float_infinity_raises():
     with pytest.raises(ValueError, match="Infinity"):
         canonicalize({"v": math.inf})
+
+
+# ---------------------------------------------------------------------------
+# ECMAScript Number::toString formatting — issue #322 differential table
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (1e-7, "1e-7"),
+        (3e-8, "3e-8"),
+        (-1e-7, "-1e-7"),
+        (1e-6, "0.000001"),
+        (1e-5, "0.00001"),
+        (1e15, "1000000000000000"),
+        (1e16, "10000000000000000"),
+        (1e20, "100000000000000000000"),
+        (1e21, "1e+21"),
+        (123.456, "123.456"),
+        (100.5, "100.5"),
+        (0.1, "0.1"),
+        (1.0, "1"),
+        (100.0, "100"),
+        (0.0, "0"),
+        (-0.0, "0"),
+    ],
+)
+def test_float_formatting_matches_ecmascript_number_tostring(value, expected):
+    assert canonicalize({"v": value}) == ('{"v":' + expected + "}").encode("utf-8")
+
+
+def test_float_exponent_no_leading_zero_or_plus_padding():
+    # Python's repr pads exponents to two digits and always signs them
+    # ("1e-07"); RFC 8785 has neither a minimum width nor a leading zero.
+    result = canonicalize({"v": 1e-7})
+    assert result == b'{"v":1e-7}'
+    assert b"1e-07" not in result
+
+
+def test_integer_within_safe_range_serializes():
+    assert canonicalize({"v": (1 << 53) - 1}) == b'{"v":9007199254740991}'
+
+
+def test_integer_beyond_safe_range_raises():
+    # Integers past 2^53-1 cannot round-trip through an IEEE-754 double and
+    # must be refused rather than silently serialized. Issue #322.
+    with pytest.raises(ValueError, match="safe integer range"):
+        canonicalize({"v": (1 << 53) + 1})
+
+
+def test_negative_integer_beyond_safe_range_raises():
+    with pytest.raises(ValueError, match="safe integer range"):
+        canonicalize({"v": -((1 << 53) + 1)})
 
 
 # ---------------------------------------------------------------------------
