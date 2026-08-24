@@ -15,8 +15,14 @@ Use the RFC 9162 (Certificate Transparency v2) Merkle tree construction with exp
 - Leaf nodes: `SHA-256(0x00 || leaf_data)`
 - Internal nodes: `SHA-256(0x01 || left_hash || right_hash)`
 
-Leaf data for tool entries: RFC 8785 canonical JSON of the tool descriptor (schema + description, sorted by tool name).  
-Leaf data for corpus documents: RFC 8785 canonical JSON of the document descriptor (hash + identifier + ingested_at).
+These are the only two Merkle hash operations selected by this ADR. The entries in
+"Alternatives considered" are rejected constructions, not additional supported
+operations.
+
+Section 4.1.1 of the specification is the normative definition of the shared
+construction. Sections 3.2.3 and 3.2.5.1 normatively define each artifact's leaf
+data and ordering; they take precedence over this ADR for those details. RFC 8785
+applies only where those sections define JSON as an input to a hash.
 
 ## Rationale
 
