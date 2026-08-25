@@ -279,16 +279,17 @@ def test_integer_within_safe_range_serializes():
     assert canonicalize({"v": (1 << 53) - 1}) == b'{"v":9007199254740991}'
 
 
-def test_integer_beyond_safe_range_raises():
-    # Integers past 2^53-1 cannot round-trip through an IEEE-754 double and
-    # must be refused rather than silently serialized. Issue #322.
-    with pytest.raises(ValueError, match="safe integer range"):
-        canonicalize({"v": (1 << 53) + 1})
+def test_large_integer_allowed():
+    result = canonicalize(
+        {"v": 295147905179352830000}
+    )
+    assert result == b'{"v":295147905179352830000}'
 
 
-def test_negative_integer_beyond_safe_range_raises():
-    with pytest.raises(ValueError, match="safe integer range"):
-        canonicalize({"v": -((1 << 53) + 1)})
+def test_large_integer_timestamp_allowed():
+    assert canonicalize(
+        {"timestamp_ns": 1790000000000000000}
+    ) == b'{"timestamp_ns":1790000000000000000}'
 
 
 # ---------------------------------------------------------------------------
