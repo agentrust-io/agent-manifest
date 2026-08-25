@@ -85,12 +85,6 @@ def _serialize(obj: Any, *, exclude_none: bool, depth: int) -> str:
         # bool check must come before int — bool is a subclass of int in Python
         return "true" if obj else "false"
     if isinstance(obj, int):
-        if abs(obj) > _MAX_SAFE_INTEGER:
-            raise ValueError(
-                f"Integer {obj!r} exceeds the IEEE-754 safe integer range "
-                "(+/-2^53-1). RFC 8785 numbers must round-trip through a "
-                "double; encode larger values as a string instead."
-            )
         return str(obj)
     if isinstance(obj, float):
         return _float_to_str(obj)
