@@ -19,7 +19,7 @@ The Agent Manifest is a cryptographically signed, hardware-attestable document t
 
 ## Why This Matters Now
 
-MCP's emergence as the dominant agent-to-tool protocol has made the agent trust surface explicit and exploitable. In the period between January and February 2026, researchers filed over 30 CVEs targeting MCP servers, clients, and tooling. Palo Alto Unit 42 found that with five connected MCP servers, a single compromised server hit a 78.3% attack success rate. The problem is not MCP's protocol design - it is the absence of a standard identity primitive that makes every agent's approved deployment context verifiable to a third party. A signed JWT proves who called an API. An Agent Manifest proves who the agent was, what it was allowed to do, how it was built, which audit-chain baseline it started from, who approved it, and whether the deployment configuration changed before execution.
+MCP's emergence as the dominant agent-to-tool protocol has made the agent trust surface explicit and exploitable. In the period between January and February 2026, researchers filed over 30 CVEs targeting MCP servers, clients, and tooling. Palo Alto Unit 42 found that with five connected MCP servers, a single compromised server hit a 78.3% attack success rate. The problem is not MCP's protocol design - it is the absence of a standard identity primitive that makes every agent's approved deployment context verifiable to a third party. A signed JWT proves who called an API. An Agent Manifest proves who the agent was, which tools it was approved to hold, how it was built, which audit-chain baseline it started from, who approved it, and whether the deployment configuration changed before execution. It does not prove that a particular call through one of those tools may run; that is the authorization question section 5.3.2 keeps separate.
 
 ## 1. Problem Statement
 
@@ -125,7 +125,8 @@ The `manifest_id` field is immutable per issuance. Any change to any signed fiel
 Two update paths are defined:
 
 - Full re-issuance: A new UUID v7, a new TEE attestation run, and a new transparency log entry. Required when any artifact binding changes, the signing key rotates, or the manifest expires.
-- Artifact-only refresh: Used only for `memory_baseline.snapshot_hash` renewal within the same `ttl_seconds` window. The manifest is re-signed but the TEE attestation need not be re-run if no other artifact has changed. This path is NOT available for any other artifact.
+- Artifact-only refresh: **Withdrawn at Level 1 and above** <!-- CHANGED: #265 --> in favour of the memory checkpoint protocol. It permitted `memory_baseline.snapshot_hash` to be renewed and the manifest re-signed without re-running the TEE attestation, which cannot hold: `manifest_hash_in_report` (section 3.3) is computed over the full manifest including the `signature` block, so changing the snapshot hash and re-signing changes the attested pre-image twice over. The retained attestation binds the previous document. A verifier had to either reject the refreshed manifest or stop enforcing the binding, and both cannot be conformant at once. At Level 1 and above, any change to a signed field MUST produce a new manifest and a fresh attestation binding its new `manifest_hash_in_report`. At Level 0 there is no attestation to invalidate, so a re-signed manifest with a new `manifest_id` is the only requirement and the refresh path adds nothing.
+- Governed memory evolution: Memory may advance without re-attesting the root manifest through the checkpoint and delta protocol in section 3.2.6.2, which binds the advance in a separate object with its own consistency proof and freshness rule. That protocol exists so a growing memory store does not have to mutate the document whose exact hash was attested. A checkpoint advance is not a refreshed manifest and MUST NOT be presented as one.
 
 Version Negotiation
 
@@ -167,6 +168,11 @@ Verifier requirements:
 - MUST check `version` before verifying. If the version is unsupported, MUST return `INCOMPATIBLE_VERSION` rather than silently misinterpreting fields.
 - SHOULD support at least the current and one prior minor version.
 
+<!-- CHANGED: #315 phase 5 - announce the v0.1 issuance end date -->
+**Issuing v0.1 manifests ends 2026-11-30.** From that date the reference implementation produces v0.2 COSE envelopes only, and a producer SHOULD NOT set `version` to `"0.1"`.
+
+**Verifying v0.1 manifests is not deprecated and has no end date.** Manifests are audit records under retention obligations that outlast their validity by years, so a verifier that stopped reading them would destroy evidence rather than remove code. `INCOMPATIBLE_VERSION` stays reserved for versions a verifier genuinely cannot interpret, never for v0.1.
+
 Compatibility matrix:
 
 | Producer version | Verifier supports | Result |
@@ -192,6 +198,7 @@ An Agent Manifest is a JSON-LD document conforming to the following schema. All 
   "manifest_id": "<string, UUID v7 per RFC 9562 - REQUIRED>",
   "previous_manifest_id": "<string, UUID v7 - OPTIONAL, set on re-issuance>",
   "agent_id": "<string, SPIFFE URI - REQUIRED>",
+  "agent_instance_id": "<string, UUID v7 - OPTIONAL, present only on an instance-scoped manifest>",
   "version": "<string - REQUIRED, set to '0.1'>",
   "min_verifier_version": "<string, semantic version - OPTIONAL>",
   "issued_at": "<string, ISO 8601 UTC - REQUIRED>",
@@ -217,6 +224,7 @@ Field cardinality table
 | `manifest_id` | string (UUID v7, RFC 9562) | REQUIRED | Version nibble MUST be 7. Canonical 8-4-4-4-12 hyphenated lowercase hex. |
 | `previous_manifest_id` | string (UUID v7, RFC 9562) | OPTIONAL | Set on re-issuance to establish audit chain continuity. |
 | `agent_id` | string (SPIFFE URI) | REQUIRED | Trust domain lowercase `[a-z0-9._-]`; path segments `[a-zA-Z0-9._-]`. URI MUST NOT exceed 2048 bytes. |
+| `agent_instance_id` | string (UUID v7, RFC 9562) | OPTIONAL | Present only when this manifest governs a single run. Absence means the manifest governs every run of `agent_id`. See section 6.4.2. |
 | `version` | string | REQUIRED | MUST be `"0.2"` for this specification version. `"0.1"` identifies a manifest issued under the v0.1 specification, which stays verifiable; see section 2.4 and the [COSE envelope](agent-manifest-cose-envelope-v0.2.md). |
 | `min_verifier_version` | string (semver) | OPTIONAL | Minimum verifier version required to correctly process this manifest. |
 | `issued_at` | string (ISO 8601 UTC) | REQUIRED | |
@@ -241,6 +249,10 @@ All fields annotated as UUID v7 MUST conform to RFC 9562 Section 5.7. The string
 
 <!-- CHANGED: F-01 - SPIFFE URI path note -->
 The `agent_id` path structure `/agent/<name>/<instance>` shown in examples is a convention, not a requirement. Trust domain must be lowercase `[a-z0-9._-]`; path segments may use `[a-zA-Z0-9._-]`. UUID v7 instance identifiers (hyphens permitted in path segments) are valid. Example: `spiffe://trust.example/agent/payments-processor/01926b4c-1234-7abc-9def-000000000001`.
+
+`agent_id` is the **stable** logical identity of the agent: it identifies the agent across restarts and across runs. A deployment MAY still encode an instance in the SPIFFE path, but a verifier or evidence consumer MUST NOT infer instance scope from the path, because the structure above is a convention and a path segment carries no declared meaning.
+
+Instance scope is declared, not parsed. A manifest issued for a single run SHOULD carry `agent_instance_id`, and its absence means the manifest governs every run of `agent_id`. Because changing a signed field requires re-issuance (and, at Level 1 or above, fresh attestation binding and transparency-log publication), instance-scoped manifests are intended for long-lived or high-risk runs where that cost is warranted. Multi-run manifests remain the normal operating model for high-volume conversational sessions. This is what lets one field stop serving two lifetimes; section 6.4.2 gives the resulting correlation rules.
 
 <!-- CHANGED: SCHEMA F-15/@context - normative note on provisional URL -->
 The `@context` URL `https://manifest.agentrust-io.com/v0.2/context.json` is provisional for the v0.2 draft period. The CoSAI WS4 working stream will assign the canonical URL prior to v1.0 ratification, and implementations MUST support the canonical CoSAI-assigned URL when it is assigned.
@@ -326,11 +338,49 @@ Each artifact is represented by a binding object containing the artifact's crypt
   "classification": "public | internal | confidential | restricted  -- REQUIRED",
   "language": "<BCP 47 language tag>  -- OPTIONAL",
   "safety_level": "<operator-defined safety tier>  -- OPTIONAL",
+  "assurance_test": "<object - OPTIONAL, see 3.2.1.1>",
   "bound_at": "<ISO 8601 UTC>  -- REQUIRED"
 }
 ```
 
 The system prompt hash binds the complete byte sequence of the prompt as delivered to the model. Any modification - including whitespace changes, character encoding changes, or appended injections - produces a different hash and invalidates the manifest. Implementations MUST hash the prompt as a UTF-8 byte sequence with no BOM, normalized to NFC.
+
+`safety_level` is an operator assertion. <!-- CHANGED: #254 --> It has no defined value space, no constraint, and no verification behaviour, and a verifier MUST NOT treat it as evidence of anything. It is retained because deployments use it as a routing label, and named here as an assertion so it is not read as the assurance signal the field name suggests. `assurance_test` (3.2.1.1) is where evidence about the approved prompt's behaviour goes.
+
+##### 3.2.1.1 Configuration Assurance <!-- CHANGED: #254 - bound assessment for artifact #1 -->
+
+The threat model in 7.1 treats artifact #1 as covered: T1 is prompt substitution, and `system_prompt.hash` detects it. Every threat in 7.1 is a substitution, mutation, or forgery by an adversary, and the nearest exclusion in 7.2 is semantic prompt injection, which also presumes adversarial input.
+
+There is a hazard in this artifact that is neither addressed nor excluded: a prompt authored in good faith, reviewed, approved, signed, sealed to a TEE measurement, and verified `VALID` at every conformance level, which specifies behaviour the deploying organisation would reject if it were tested rather than read. No adversary is present and no digest changes. Artifact #1 is not data the agent consumes; it is the specification of the agent's behaviour, so its hazard is expressible in the approved value itself. For this artifact digest equality is necessary and not sufficient.
+
+The specification already accepts this shape for one artifact. Section 3.2.5 binds the RAG corpus by `merkle_root` and additionally carries `poisoning_scan`, under normative force: `result: flagged` MUST NOT be issued as `VALID`. `assurance_test` is that pattern applied to artifact #1.
+
+```json
+"assurance_test": {
+  "suite_id": "<identifier of the scenario suite>  -- REQUIRED",
+  "suite_version": "<semantic version of the suite>  -- REQUIRED",
+  "harness_version": "<tool-name>/<semver>  -- REQUIRED",
+  "result": "passed | flagged | not-assessed  -- REQUIRED",
+  "assessed_at": "<ISO 8601 UTC>  -- CONDITIONALLY REQUIRED",
+  "scenario_count": "<positive integer>  -- OPTIONAL",
+  "evidence_uri": "<HTTPS URI to the full assessment record>  -- OPTIONAL",
+  "evidence_digest": "sha256:<64-hex-chars>  -- OPTIONAL",
+  "assessed_by": "<SPIFFE URI of the assessing party>  -- OPTIONAL"
+}
+```
+
+Rules:
+
+- A manifest whose `assurance_test.result` is `flagged` MUST NOT be issued as `VALID`. This is the section 3.2.5 rule for `poisoning_scan`, unchanged in substance: an assessment that ran and failed is evidence against the configuration, and carrying it while claiming `VALID` would make the field decorative.
+- `result: not-assessed`, and an absent `assurance_test` block, are permitted at every conformance level in v0.2. A verifier MUST report the distinction rather than collapsing it: section 5.2 defines `configuration_assurance`, so a relying party can tell *approved and assessed* from *approved and unassessed*. Which conformance level, if any, requires an assessment is deliberately left open; see below.
+- `assessed_at` is REQUIRED when `result` is `passed` or `flagged`, and MAY be omitted when `not-assessed`.
+- `harness_version` MUST carry the tool name and a semantic version, format `"<tool-name>/<semver>"`, matching the `scanner_version` rule in 3.2.5. `suite_id` and `suite_version` MUST identify the scenario suite precisely enough that a second party can obtain it; a result whose suite cannot be identified is not reproducible and carries no more weight than `safety_level`.
+- `evidence_digest`, when present, MUST be the digest of the record at `evidence_uri`. A verifier that cannot fetch the record still knows which record was claimed.
+- The block is inside `artifacts` and therefore inside the signing pre-image (3.6). An assessment result outside the signature is one the operator can revise after approval.
+
+What this does not establish. A `passed` result is evidence that a named suite, at a named version, run by a named harness, did not find a violation. It is not proof that the configuration is safe, and the suite's coverage bounds the claim entirely. A relying party MUST treat `passed` as the assertion "this suite found nothing" rather than "nothing is there", which is the same reading 3.2.5 requires of a clean poisoning scan.
+
+Deliberately open. Whether Level 2 conformance should require `result: passed`, as Level 1 already requires a scanned corpus, is a decision about what conformance costs every adopter and is not settled by this section. Until it is settled, an assessment is evidence a deployment may choose to carry, and the verification result reports its absence plainly rather than treating absence as a pass.
 
 #### 3.2.2 Policy Bundle Binding
 
@@ -351,6 +401,9 @@ The system prompt hash binds the complete byte sequence of the prompt as deliver
 The policy bundle hash covers the complete Cedar policy set, including all policy templates and entity schemas. The `enforcement_mode` field is normative - a verifying party MUST reject a manifest whose `enforcement_mode` is `advisory` when the context requires `enforce`. This field aligns with cMCP's `enforcement_mode` attestation field.
 
 For `policy_language: composite`, the `hash` field MUST be a Merkle root over the hashes of each sub-bundle, sorted by policy language identifier in lexicographic order (`cedar`, `rego`, `yaml-agt`). Each sub-bundle MUST be hashed independently using the same hash algorithm as the manifest. The `agt_version` field MUST reference the AGT version used to assemble the composite bundle, even if individual sub-bundles were produced by other tools.
+
+<!-- CHANGED: #149 - pin the composite Merkle leaf encoding, which ADR-0003 defined for 3.2.3 and 3.2.5 but not here -->
+The composite tree is constructed per ADR-0003, and **`leaf_data` for it is the raw digest bytes of each sub-bundle hash**: the bytes the hash algorithm produces, not the `sha256:`-prefixed hex string and not a JSON descriptor. Each leaf is therefore `SHA-256(0x00 || <raw digest bytes>)`. This is normative rather than editorial: all three readings satisfy "a Merkle root over the hashes of each sub-bundle", they produce different roots from identical inputs, and a verifier holding a manifest cannot tell which one it is checking.
 
 AGT policy scope identifiers use the form `<namespace>:<resource-type>:<action>`, e.g., `finance:ledger:write`. For the full scope identifier registry, refer to the AGT specification.
 
@@ -591,6 +644,8 @@ proof to the 2-operation log is the single node
 `42effb8d6d6bf9904585248b30b039a5ede7a447a5f8fd21cc0a8b0b850c566f`. Implementations MUST
 reproduce these values.
 
+Scope. A governed checkpoint advance establishes integrity, ordering, freshness and budget. It does not establish that retrieval behaviour over the new memory state remained acceptable, and nothing in this protocol assesses it. A checkpoint can satisfy every rule above while an appended correction stays less salient than the fact it corrects, while authorized additions displace a safety or identity anchor, while memory from another role or tenant becomes retrievable, or while states that should retrieve differently collapse to the same context. None of those requires a forged signature, a rewritten checkpoint, an expired TTL, or an invalid consistency proof. Assessing them is a separate evidence artifact over a pinned retriever and probe suite, out of scope for this specification and tracked in [agent-manifest#298](https://github.com/agentrust-io/agent-manifest/issues/298).
+
 Limitations (v0.2). Log compaction / checkpoint re-baseline is not yet defined: a
 deployment MUST re-baseline (full re-approval per Section 3.2.6.1) before the cumulative
 operation count approaches implementation limits. HITL co-signing of a checkpoint advance and
@@ -625,11 +680,64 @@ operation count approaches implementation limits. HITL co-signing of a checkpoin
 | `entry_count` | OPTIONAL | Total number of entries in the chain; allows verifiers to detect entry deletion |
 | `bound_at` | REQUIRED | When this binding was captured |
 
-This object is a commitment to the audit-chain state observed at manifest signing time, not an embedded account of decisions the agent will make later. Per-invocation decisions produced after `bound_at` MUST travel as separate TRACE envelopes or equivalent runtime evidence. A verifier MUST use the manifest identifier, agent identity, signing-key binding, and chain continuity to join those records to this baseline. A valid signature on a later record proves that record was not altered; it does not by itself prove that the record is complete or faithful to every action that occurred.
+This object is a commitment to the audit-chain state observed at manifest signing time, not an embedded account of decisions the agent will make later. Section 3.2.7.1 defines how a verifier checks that a chain served later is an append-only extension of that commitment. Per-invocation decisions produced after `bound_at` MUST travel as separate TRACE envelopes or equivalent runtime evidence. A verifier MUST use the manifest identifier, agent identity, signing-key binding, and chain continuity to join those records to this baseline. A valid signature on a later record proves that record was not altered; it does not by itself prove that the record is complete or faithful to every action that occurred.
 
-The `audit_chain_root` in this binding MUST match the `audit_chain_root` field in the cMCP attestation report (Section 6.2). A mismatch between these two values indicates the manifest was signed against a different audit chain than the one currently running, which MUST cause verification to return MISMATCH.
+The `audit_chain_root` in this binding MUST match the `audit_chain_root` field in the cMCP attestation report (Section 6.2), or the running root MUST be shown to descend from it by the continuity protocol in Section 3.2.7.1. A difference that is neither an exact match nor a proven append-only extension indicates the manifest was signed against a different audit chain than the one currently running, which MUST cause verification to return MISMATCH.
 
 `audit_key_sealed: false` does not invalidate the manifest but MUST be surfaced in the verification result as a warning. A verifying party that requires hardware-rooted evidence (e.g., Level 1+ conformance, regulatory audit) MUST treat `audit_key_sealed: false` as equivalent to NOT_BOUND for attestation purposes.
+
+##### 3.2.7.1 Audit Chain Checkpoint and Continuity <!-- CHANGED: #273 - post-signing continuity for artifact #7 -->
+
+Section 3.2.7 binds the audit chain as a snapshot root at signing time. Decisions are produced after signing. `entry_count` lets a verifier detect deletion *below* the signed count, but nothing above the signed root is constrained: a verifier fetching the chain at T+n can confirm it is internally consistent and still contains the signed root, and cannot distinguish an append-only extension from a chain rebuilt around that prefix. Section 3.2.6.2 already solves exactly this problem for the other artifact that grows after signing. This subsection applies the same mechanism to the audit chain.
+
+A checkpoint binds `{audit_chain_root, tree_size, seq, observed_at, ttl_seconds}` (see `AuditCheckpointBinding`). The checkpoint signed into the manifest is `decision_trace.audit_chain_root` with `entry_count` as its `tree_size`, observed at `bound_at`. `seq` is a strictly monotonic checkpoint counter.
+
+```json
+"audit_checkpoint": {
+  "audit_chain_root": "sha256:<64-hex-chars>  -- REQUIRED",
+  "tree_size": "<integer>  -- REQUIRED (entries for hash-chained, leaves for merkle-log)",
+  "seq": "<integer>  -- REQUIRED (strictly monotonic)",
+  "observed_at": "<ISO 8601 UTC>  -- REQUIRED",
+  "ttl_seconds": "<integer 60..7776000>  -- REQUIRED",
+  "checkpoint_signature": "<signature by the TEE-sealed audit key>  -- OPTIONAL"
+}
+```
+
+Entry leaves. An entry leaf is `H(0x00 || "am-trace-entry\x00" || canonical_entry)`, where `canonical_entry` is the RFC 8785 canonical JSON (Section 4.3) of the audit entry. The tag domain-separates a trace entry from a memory operation or a corpus document that canonicalizes to the same bytes.
+
+Continuity evidence. The shape depends on the signed `trace_type`, and the verifier MUST use the `trace_type` bound in the manifest rather than one asserted at fetch time.
+
+- `merkle-log`: an RFC 9162 §2.1.2 consistency proof between the signed root and the current root. O(log n), verified from the two roots and the two tree sizes alone. The tree is the RFC 9162 Merkle Tree Hash over entry leaves in append order (NOT sorted).
+- `hash-chained`: the ordered entry leaves appended after the signed position. The verifier folds them forward from the signed root: `chain_i = H(0x02 || chain_{i-1} || leaf_i)`, with `chain_0 = leaf_0` and the empty chain equal to `H("")`. O(n). A sequential chain admits no logarithmic proof; a linear proof is the honest alternative to no proof. `0x02` is used rather than the RFC 9162 internal-node byte `0x01` so that a sequential root can never be read as a merkle root over the same entries.
+
+Acceptance. A verifier presented with the signed checkpoint, a current checkpoint, and continuity evidence MUST accept the advance as continuous if and only if, in this order:
+
+1. the current `tree_size` is not below the signed `tree_size`, the signed `tree_size` is non-zero, and both roots use the same hash algorithm;
+2. the continuity evidence verifies that the signed root is an append-only prefix of the current root (RFC 9162 §2.1.4.2 for `merkle-log`; the forward fold above for `hash-chained`);
+3. `current.seq >= signed.seq`, and if the sizes differ then `current.seq > signed.seq` (else `rollback`);
+4. the current checkpoint is within its TTL window, `now <= observed_at + ttl_seconds` (else `expired`).
+
+If step 2 fails, the running chain is not demonstrably the chain the manifest was signed against. The verifier MUST return `MISMATCH` for `decision_trace`, which is the treatment Section 3.2.7 already requires when the signed and running roots disagree. Absence of continuity evidence never grants acceptance: a diverged root with no proof is `MISMATCH`, not a warning.
+
+Unlike a memory delta there is no budget stage. An audit chain is expected to grow without bound, so a growth ceiling would be a constraint the artifact cannot honestly carry.
+
+Scope. A verified consistency proof establishes that no entry below the current head was rewritten or removed. It does not establish that every action the agent took produced an entry. Completeness of the record against real behaviour is out of scope for this specification (Section 7.2), and a continuity proof MUST NOT be presented as evidence of it.
+
+Test vectors. Three entries, canonicalized per Section 4.3, where entry *i* is `{"decision":"allow","seq":i,"tool":"kyc.lookup"}`:
+
+| Value | Digest |
+|---|---|
+| leaf 0 | `60254cf11420c61e878667adc185b683d261a19e9c74da5d224687758db65267` |
+| leaf 1 | `933612cc73106c049a8b4c4ea20103c997d26f9ff45f4eda83eac569f0c82cf5` |
+| leaf 2 | `d2a1bd03e6ea0d31241263f59252f5fab5f4f9a6625c8b89c90d0d116b17d441` |
+| `hash-chained` root at size 2 | `sha256:0d313a1b8e77e6f1c7a585f99ca9c877f75dd6876229c2164d25694df3f3f0ba` |
+| `hash-chained` root at size 3 | `sha256:ce399e52ed691feeb4703b1b259d4ef166350b6a23363209943e2a57276990bb` |
+| `merkle-log` root at size 2 | `sha256:478f71a93107b464fedfb132180fe3b881ee09950aaace2aeced2e4fdb59b406` |
+| `merkle-log` root at size 3 | `sha256:4974beaa3bbe693aa96414258aec1854551edcabd564108f4485e0bed4cc3ddb` |
+
+The `merkle-log` consistency proof from size 2 to size 3 is the single node `d2a1bd03e6ea0d31241263f59252f5fab5f4f9a6625c8b89c90d0d116b17d441`; the `hash-chained` evidence for the same advance is leaf 2. Implementations MUST reproduce these values.
+
+Limitations (v0.2). Checkpoint co-signing by the TEE-sealed audit key is OPTIONAL (`checkpoint_signature`), so a checkpoint served without one is authenticated only by the transport and by the proof itself. Chain compaction and re-baselining are not defined: a deployment MUST re-sign the manifest against a new `audit_chain_root` rather than re-base a chain in place.
 
 #### 3.2.8 Supply Chain Binding
 
@@ -708,6 +816,10 @@ The attestation block binds the manifest to a specific TEE hardware measurement.
 `manifest_hash_in_report` pre-image <!-- CHANGED: SPEC-09 - normative pre-image definition -->
 
 The `manifest_hash_in_report` pre-image is the RFC 8785 canonical JSON serialization of the full manifest document including the `signature` block and excluding only the `attestation` block. The `attestation` key MUST NOT be present in the pre-image document. The `transparency_log_entry` key MUST also be absent from the pre-image (it is populated after log submission). The hash MUST be computed over the UTF-8 encoding of this canonical form with no BOM.
+
+Because the pre-image covers the `signature` block, re-signing a manifest changes its `manifest_hash_in_report` even when no artifact value changed. An attestation carried forward onto a re-signed document therefore binds the previous document, not the one being verified.
+
+A verifier that finds an `attestation` block whose `manifest_hash_in_report` does not equal the hash computed above MUST return `MISMATCH`, whether or not `enforce_attestation` is set. <!-- CHANGED: #265 --> `enforce_attestation` governs whether an attestation is *required*; it does not govern whether a wrong one counts. An absent attestation and a present attestation that binds a different manifest are different conditions: the first is a policy question and the second is a report about some other document.
 
 The `audit_key_sealed` field (JSON boolean) MUST be `true` for production deployments. It indicates that the audit log signing key was generated inside the TEE and has never been exported to operator-readable memory. A manifest with `audit_key_sealed: false` MUST be treated as software-attested and MUST NOT satisfy regulatory requirements that call for hardware-rooted evidence.
 
@@ -805,7 +917,7 @@ A Runtime Attestation Report does not prove that the values in `context_hash` ar
 
 Scheduling
 
-The frequency of `attest_runtime_state()` calls is not mandated by this standard. Verifiers that require freshness guarantees SHOULD supply a new nonce per challenge and require a response within a bounded time window. The SDK provides the primitive; scheduling and enforcement are the responsibility of the caller or a runtime enforcement layer (e.g., cMCP).
+The frequency of `attest_runtime_state()` calls is not mandated by this standard. Verifiers that require freshness guarantees SHOULD supply a new nonce per challenge and require a response within a bounded time window. When a runtime report is used in the same decision as a section 5.1.2 verification challenge, its nonce MUST be the domain-separated derivation of that challenge given in 5.1.2 rule 6, so the two freshness domains cannot be replayed independently of one another. The SDK provides the primitive; scheduling and enforcement are the responsibility of the caller or a runtime enforcement layer (e.g., cMCP).
 
 TPM note
 
@@ -896,10 +1008,23 @@ For agents operating under EU AI Act Article 14 requirements or any policy that 
 
 `approver_id` MUST be a human-attributable identity. SPIFFE SVIDs MUST NOT be used as `approver_id` values - SPIFFE SVIDs identify machine workloads, not natural persons. The preferred form is an OIDC `sub` claim paired with an `approver_oidc_issuer` URI (e.g., `sub: "1234567890"` + `iss: "https://accounts.google.com"`), an email address as a URI (`mailto:approver@example.com`), or a W3C DID bound to a hardware authenticator. For EU AI Act Art. 14 compliance, the approver identity MUST be traceable to a natural person in the deployer's HR or IAM system.
 
+`risk_tier` is assigned on the reversibility and operational-boundary axis below. It is not an operator's estimate of likelihood or severity and MUST NOT be lowered because an action is routine. The approver MUST assign the highest tier of any action permitted by the approved scope or its bound policy:
+
+| Tier | Falsifiable assignment rule |
+|---|---|
+| `low` | The scope permits no durable external effect. Its effects are confined to the evaluated system and disappear when the operation ends or can be withdrawn completely without a compensating action. |
+| `medium` | The scope permits a durable effect, but the effect remains wholly within the deployer's control and can be withdrawn completely by that deployer. |
+| `high` | The scope permits an effect outside the deployer's control, but a documented external or compensating action can reverse the effect. |
+| `critical` | The scope permits an effect that cannot be fully recalled or reversed after execution, including an external party acting on released information or an irreversible safety, legal, or financial action. |
+
+If the permitted actions span tiers, the highest tier applies. If reversibility or the operational boundary cannot be established from the bound policy, tool catalog, and approval evidence, the approver MUST use `critical`. A verifier proves only that the declared tier and approval method were signed and satisfy the mechanical ordering below; it does not infer that the tier is truthful. A reviewer or deployment policy compares the declaration with the bound capabilities. A `VALID` result therefore MUST NOT be represented as proof that the tier assignment was correct.
+
 `approval_method` trust ordering for regulatory compliance: <!-- CHANGED: SCHEMA F-11 -->
 - `hardware-key` (FIDO2 passkey, HSM, or smartcard): satisfies EU AI Act Art. 14 non-repudiation requirements. REQUIRED for `risk_tier: high` or `critical` at Level 2 conformance.
-- `mfa-backed` (software key protected by MFA): acceptable for medium-risk approvals only.
+- `mfa-backed` (software key protected by MFA): acceptable for `low` or `medium` at Level 2 conformance.
 - `software-key`: acceptable only for Level 0 non-regulated deployments.
+
+At Level 2, a verifier MUST return `APPROVAL_INSUFFICIENT` when any otherwise-current approval uses `software-key`, or when a `high` or `critical` approval uses anything other than `hardware-key`. The overall result MUST be `MISMATCH`. Level 0 records the declared method without making a regulatory-strength claim; Level 1 deployments define their minimum method in relying-party policy.
 
 `hitl_runtime` block declares the runtime human oversight capabilities required by EU AI Act Art. 14(4) operational oversight obligations. The `hitl_record.approvals` structure satisfies Art. 14 pre-deployment documentation obligations (Art. 14(4)(b)-(e)). The `hitl_runtime` block separately addresses the runtime stop/override capability requirement (Art. 14(4)(a)). Both are required for full Art. 14 compliance. See section 9.1 for the regulatory mapping. <!-- CHANGED: REG-001 -->
 
@@ -915,7 +1040,7 @@ Each `approval_signature` is produced by the approver's hardware-backed key (FID
   "key_id": "<key identifier>  -- REQUIRED",
   "key_type": "software | hsm | tee-sealed  -- REQUIRED",
   "signed_at": "<ISO 8601 UTC>  -- REQUIRED",
-  "signed_fields": ["@context", "@type", "manifest_id", "previous_manifest_id", "agent_id", "version", "min_verifier_version", "issued_at", "expires_at", "issuer", "crypto_profile", "profile", "unbound_artifacts", "source_bundle", "artifacts", "delegation_chain", "hitl_record", "prior_transparency_log_entry", "log_retention", "data_scope", "operational_lifecycle", "intent"],
+  "signed_fields": ["@context", "@type", "manifest_id", "previous_manifest_id", "agent_id", "agent_instance_id", "version", "min_verifier_version", "issued_at", "expires_at", "issuer", "crypto_profile", "profile", "unbound_artifacts", "source_bundle", "artifacts", "delegation_chain", "hitl_record", "prior_transparency_log_entry", "log_retention", "data_scope", "operational_lifecycle", "intent"],
   "signature_value": "<base64url-encoded signature over RFC 8785 canonical JSON>  -- CONDITIONALLY REQUIRED: REQUIRED when algorithm is Ed25519 or ML-DSA-65",
   "classical_signature": "<base64url-encoded Ed25519 signature>  -- CONDITIONALLY REQUIRED: REQUIRED when algorithm is hybrid-Ed25519-ML-DSA-65",
   "pq_signature": "<base64url-encoded ML-DSA-65 signature>  -- CONDITIONALLY REQUIRED: REQUIRED when algorithm is hybrid-Ed25519-ML-DSA-65"
@@ -933,6 +1058,7 @@ Signing coverage table (normative)
 | `manifest_id` | Signed | |
 | `previous_manifest_id` | Signed | Binds re-issuance audit chain continuity. |
 | `agent_id` | Signed | |
+| `agent_instance_id` | Signed | The instance this manifest governs (section 6.4.2). An instance identity outside the signature is one an operator can retarget after the fact, which is precisely the correlation a runtime-evidence consumer depends on. |
 | `version` | Signed | |
 | `min_verifier_version` | Signed | Prevents post-signing downgrade of the required verifier version. |
 | `issued_at` | Signed | |
@@ -1172,11 +1298,13 @@ POST /verify
 Content-Type: application/json
 {
   "manifest_id": "<UUID v7>  -- REQUIRED",
+  "challenge_nonce": "<hex, at least 128 bits of CSPRNG output>  -- OPTIONAL, REQUIRED for a freshness-dependent decision",
   "verification_context": {
     "purpose": "tool-call | audit | delegation | regulatory  -- REQUIRED",
     "verifier_id": "<SPIFFE URI of verifying party>  -- OPTIONAL",
     "required_fields": ["system_prompt", "policy_bundle", "tool_manifest"],
     "enforce_hitl": "<boolean>  -- OPTIONAL, default false",
+    "approver_public_keys": "<object mapping approver_id to trusted base64url Ed25519 public key>  -- REQUIRED when a HITL approval is evaluated",
     "enforce_attestation": "<boolean>  -- OPTIONAL, default false",
     "min_slsa_level": "1 | 2 | 3 | 4  -- OPTIONAL"
   }
@@ -1195,6 +1323,25 @@ Conformance level requirements:
 - Level 0/1: Either hosting model is acceptable.
 - Level 2+: hosted mode is REQUIRED, or SDK-hosted mode with TEE-sealed attestation of the running hash state.
 
+##### 5.1.2 Challenge and Context Binding <!-- CHANGED: #266 - relying-party challenge for the verification result -->
+
+`verification_id` is generated by the verification service and `verified_at` is a producer-selected timestamp. Neither is evidence that a result was produced for a particular relying party's live request, so a signed `VALID` result is replayable: to a different relying party, for a different `purpose`, against a weaker context than the one now being asked for, or after runtime state has changed but before a local age heuristic expires. Section 3.3.2 already defines a verifier-supplied nonce for the separate Runtime Attestation Report. These rules carry the same challenge into the main result and compose the two freshness domains.
+
+1. A relying party whose decision depends on freshness MUST supply `challenge_nonce`: at least 128 bits from a cryptographically secure generator, used once. A verification service MUST echo it unchanged in the result.
+2. The result MUST carry `verification_context_hash`, the `sha256:` digest of the RFC 8785 canonical JSON of the `verification_context` object as received. Every context input that affected the decision MUST be inside that object, including `purpose`, `verifier_id`, `required_fields`, `enforce_hitl`, `enforce_attestation`, and `min_slsa_level`. An implementation with additional decision-affecting inputs MUST include them; one that silently drops an input from the hash is asserting a decision it did not make.
+3. `challenge_nonce` is echoed as its own field and is NOT an input to `verification_context_hash`. The relying party compares the nonce directly; keeping it out of the hash lets two requests that ask the same question produce the same context hash, which is what makes the hash comparable across requests.
+4. `verification_signature` MUST cover the whole result, `challenge_nonce` and `verification_context_hash` included. A signature over a result whose nonce is outside it authenticates the verdict and not the question.
+5. A relying party that supplied a challenge MUST reject a result unless: `challenge_nonce` equals its outstanding challenge; that challenge has not already been consumed; and the response arrived within a locally bounded acceptance window. It MUST also recompute `verification_context_hash` from the context it sent and reject a mismatch. A `verified_at` timestamp chosen by the producer MUST NOT be treated as satisfying the freshness check on its own.
+6. When `enforce_attestation` is `true` and a Runtime Attestation Report (section 3.3.2) is used in the same decision, the report's nonce MUST be derived from the same challenge rather than chosen independently:
+
+   ```
+   runtime_nonce = sha256("am-runtime-nonce" || challenge_nonce_bytes)
+   ```
+
+   Domain separation keeps the derived value from being usable as a verification challenge in its own right. A report whose nonce is not this derivation is evidence about some other challenge, and the two freshness domains are then not composed: an attacker who can replay either one independently has defeated both.
+
+A service that receives no `challenge_nonce` returns a result without one, and a relying party reading such a result knows it is unbound to any request. That is a conformant answer to an unauthenticated question, not a freshness guarantee, and section 5.3 says what it may be relied on for.
+
 ### 5.2 Verification Result Schema
 
 <!-- CHANGED: CRYPTO-008 - model_identity returns PROVIDER_ASSERTED when model_hash is null; SCHEMA F-13 - added error schemas and ATTESTATION_UNAVAILABLE result; SCHEMA F-14 - added INCOMPATIBLE_VERSION result; SCHEMA F-11 - fixed attestation_verified to JSON boolean; SPEC-12 - added evidence pack format note -->
@@ -1204,6 +1351,8 @@ Conformance level requirements:
   "verification_id": "<UUID v7>  -- REQUIRED",
   "manifest_id": "<UUID v7>  -- REQUIRED",
   "verified_at": "<ISO 8601 UTC>  -- REQUIRED",
+  "challenge_nonce": "<hex, echoed unchanged from the request>  -- REQUIRED when the request carried one",
+  "verification_context_hash": "sha256:<64-hex-chars>  -- REQUIRED",
   "result": "VALID | MISMATCH | EXPIRED | REVOKED | INCOMPLETE | ATTESTATION_UNAVAILABLE | INCOMPATIBLE_VERSION  -- REQUIRED",
   "attestation_verified": "<boolean>  -- REQUIRED",
   "fields_verified": {
@@ -1213,11 +1362,12 @@ Conformance level requirements:
     "model_identity": "MATCH | PROVIDER_ASSERTED | MISMATCH | NOT_BOUND  -- REQUIRED",
     "rag_corpus": "MATCH | MISMATCH | NOT_BOUND  -- REQUIRED",
     "memory_baseline": "MATCH | MISMATCH | NOT_BOUND | EXPIRED  -- REQUIRED",
-    "decision_trace": "MATCH | MISMATCH | NOT_BOUND  -- REQUIRED",
+    "decision_trace": "MATCH | EXTENDED | MISMATCH | NOT_BOUND  -- REQUIRED",
     "supply_chain": "MATCH | MISMATCH | NOT_BOUND  -- REQUIRED",
     "delegation_chain": "VALID | INVALID | NOT_PRESENT | UNVERIFIABLE  -- REQUIRED",
-    "hitl_record": "APPROVED | EXPIRED | NOT_REQUIRED | MISSING | APPROVAL_INSUFFICIENT  -- REQUIRED"
+    "hitl_record": "APPROVED | EXPIRED | NOT_REQUIRED | MISSING | APPROVAL_INSUFFICIENT | INVALID | UNVERIFIABLE  -- REQUIRED"
   },
+  "configuration_assurance": "PASSED | FLAGGED | NOT_ASSESSED  -- REQUIRED",
   "mismatch_details": [
     {
       "field": "<field name>",
@@ -1226,6 +1376,11 @@ Conformance level requirements:
       "delta_detected_at": "<ISO 8601 UTC>"
     }
   ],
+  "correlation": {
+    "agent_uid": "<the manifest agent_id>  -- REQUIRED when agent_id is present",
+    "agent_instance_uid": "<the manifest agent_instance_id, or null>  -- REQUIRED",
+    "manifest_id": "<UUID v7>  -- REQUIRED"
+  },
   "evidence_pack": {
     "trace_id": "<TRACE envelope ID>",
     "signed_by": "<TEE-sealed key identifier>",
@@ -1238,9 +1393,19 @@ Conformance level requirements:
 
 `model_identity` returns `PROVIDER_ASSERTED` when `model_attestation_type` is `provider-asserted` (i.e., `model_hash` is null for API-deployed models), so verifiers have an explicit signal distinguishing hardware-rooted model identity from an operator assertion. See section 3.2.4.
 
+`decision_trace` returns `EXTENDED` when the running `audit_chain_root` is not the root signed at `bound_at` but continuity evidence proves the signed root is an append-only prefix of it, per Section 3.2.7.1. `EXTENDED` is a passing result and does not make the overall result `MISMATCH`; it is reported distinctly from `MATCH` so a relying party can tell an unmoved chain from a proven extension. A diverged root with absent, malformed, or failing continuity evidence returns `MISMATCH`.
+
 `delegation_chain` returns `UNVERIFIABLE` when any `scope_grant.constraints` element is a non-empty array of Cedar statements and the verifier does not support Cedar evaluation - rather than treating the chain as `VALID`.
 
+`configuration_assurance` reports the state of `system_prompt.assurance_test` (section 3.2.1.1): `PASSED` when an assessment ran and found no violation, `FLAGGED` when one ran and did, and `NOT_ASSESSED` when the block is absent or carries `not-assessed`. `FLAGGED` MUST cause the overall result to be `MISMATCH`. `NOT_ASSESSED` does not affect the overall result in v0.2 and is reported so that a relying party can tell an assessed configuration from an unassessed one rather than inferring a pass from silence.
+
 `hitl_record` returns `APPROVAL_INSUFFICIENT` when an approval exists but does not meet the `approval_method` requirement for the declared `risk_tier` (e.g., `software-key` approval on a `high` risk tier operation at Level 2).
+
+`hitl_record` returns `INVALID` when an approval's own signature is malformed or does not verify over the current `manifest_id`, `approver_id`, `approved_at`, and exact `approved_scope`. It returns `UNVERIFIABLE` when the verifier has no trusted public key for the approval's `approver_id`. Neither state permits an overall `VALID` result. A manifest or COSE signature does not authenticate approval entries, which attach after issuance and MUST be verified independently.
+
+`challenge_nonce` and `verification_context_hash` bind a result to the request that produced it; see section 5.1.2 for how a relying party checks them and why a `verified_at` timestamp is not a substitute.
+
+The `correlation` object is what a consumer joins this result to runtime evidence with, so the two identities and the exact manifest they came from travel together rather than being reassembled by the consumer. It is always present when the input contains the REQUIRED `agent_id`; a verifier reporting malformed input that omits `agent_id` cannot construct it. `agent_instance_uid` is `null` on a manifest that governs more than one run; see section 6.4.2 for what a producer does in that case.
 
 `ATTESTATION_UNAVAILABLE` is returned when the hardware attestation service cannot be reached and the verification cannot be completed. Verifiers receiving this result MUST NOT treat it as `VALID`.
 
@@ -1268,14 +1433,35 @@ Access control for confidential payloads: Tool call payload fields in TRACE enve
 A `VALID` result means all of the following are true:
 
 - The manifest signature is valid under RFC 8785 canonicalization and the manifest is present in the transparency log. Before checking the issuer signature, the verifier MUST apply the `hitl_record.approvals` normalization rule from section 3.6 (replace `hitl_record.approvals` with `[]` in the signing pre-image); approvals are verified separately against their own `approval_signature`s
+- Receipt presence alone MUST NOT satisfy the transparency-log condition. A verifier MUST authenticate the receipt or inclusion evidence against its configured Transparency Service trust policy. In particular, a receipt carried in a COSE unprotected header is untrusted input until that independent appraisal succeeds.
 - The TEE attestation report confirms the manifest hash is bound to the hardware measurement
-- All fields specified in `required_fields` match their running artifacts
+- All fields specified in `required_fields` match their running artifacts. For `decision_trace`, `EXTENDED` satisfies this condition and `MISMATCH` does not; see Section 3.2.7.1
 - The manifest has not expired
 - The manifest has not been revoked (revocation status endpoint MUST be checked before returning VALID)
 - If `enforce_hitl` is `true`, at least one HITL approval is present, valid, not expired, and meets the `approval_method` requirement for the declared `risk_tier`
 - If `enforce_attestation` is `true`, `audit_key_sealed` is `true` in the attestation block
 
+**Issuer key authorization is not covered by a `VALID` result unless the verifier configures it (non-normative implementation note).** `signature.key_id` sits outside the signing pre-image (section 3.6), so it identifies a key without authorizing one. The reference SDK checks that the signing key is authorized for the declared `issuer` only when `VerificationContext.trusted_key_issuers` is populated; that field defaults to an empty map, and with it empty the check returns without evaluating anything. A deployment that does not populate it therefore obtains `VALID` results in which nothing has confirmed the signing key belongs to the claimed issuer.
+
+This section does not yet state a normative requirement either way, and the reference implementation's behaviour is not a substitute for one. Whether a verifier MUST reject a key that is not resolved through a defined authorization path, and MUST reject issuer authorization derived from an identifier the attested subject controls, is open and tracked in issue #325. Populate `trusted_key_issuers` in the meantime for any deployment where issuer and subject are not the same party.
+
+A `VALID` result that carries no `challenge_nonce` is a statement about the manifest at the moment the service evaluated it, and nothing binds it to any particular request. It MAY be relied on for a decision whose correctness does not depend on freshness, such as an audit reading of a historical manifest. It MUST NOT be relied on to gate an action, because a result that is not bound to a live challenge is one an attacker may present again later. See section 5.1.2.
+
 A `MISMATCH` result means at least one required field does not match its running artifact. The `mismatch_details` array MUST enumerate every mismatched field. A relying party receiving a `MISMATCH` MUST NOT proceed with the operation that triggered verification.
+
+##### 5.3.2 What `VALID` does not establish <!-- CHANGED: #272 - state the authorization boundary -->
+
+`VALID` establishes that the agent presenting this manifest is the agent that was approved, running the artifacts that were approved, unexpired and unrevoked. It is a statement about provenance, not about permission.
+
+A relying party MUST NOT treat `VALID` as authorization for the action that triggered verification. Specifically, `VALID` does not establish any of the following:
+
+- that the specific call about to be made is permitted. `tool_manifest.catalog_hash` pins which tools were approved and detects mutation of their definitions. Inside one authorized tool, a read and an irreversible write are the same tool, and nothing in this specification bounds the arguments a call may carry;
+- that the action is within the consequence envelope a human approver had in mind. `risk_tier` (section 3.5) describes the approval given at issuance, not the action being attempted now;
+- that the agent's current inputs are trustworthy. Section 7.2 keeps prompt injection out of scope, and a manifest that verifies is fully compatible with an agent being misled.
+
+Authorization is the policy layer's question, and the manifest is one of its inputs: a gateway evaluates its own policy over the call, with `VALID` as the precondition establishing which agent is asking rather than as the answer. A gateway that proceeds on `VALID` alone has an identity check where it needed an access decision.
+
+Stating this is not a narrowing of scope. It is what the specification already does: `delegation_chain` returns `UNVERIFIABLE` rather than `VALID` when a Cedar constraint cannot be evaluated, and `hitl_record` returns `APPROVAL_INSUFFICIENT` when an approval does not meet the bar for its `risk_tier`. Both refuse to let an unevaluated condition become a pass. The rule above says the same thing about the overall result, which had a defined behaviour on `MISMATCH` and none on `VALID`.
 
 #### 5.3.1 Runtime session binding for gateways
 
@@ -1466,9 +1652,9 @@ Every tool call evidence record (TRACE envelope) produced by cMCP MUST include t
 
 Hash conflict resolution <!-- CHANGED: SCHEMA F-21 -->: If `policy_hash` in the TRACE envelope differs from `artifacts.policy_bundle.hash` in the agent manifest, the TRACE MUST set `manifest_verification_result: MISMATCH` for that call. The manifest is the authoritative source for approved artifact hashes; the TRACE reflects runtime measurements. A non-empty `mismatch_details` array in the verification result (section 5.2) MUST be generated for every such discrepancy. The `manifest_verification_result` field MUST use the same enum values as the `result` field in section 5.2 - no additional values. Any TRACE with `manifest_verification_result: MISMATCH` or `EXPIRED` MUST NOT be accepted as evidence of a valid tool call for regulatory reporting purposes.
 
-### 6.4 Crosswalk: OCSF Runtime Evidence <!-- CHANGED: #269 - informative crosswalk, no normative binding -->
+### 6.4 Crosswalk: OCSF Runtime Evidence <!-- CHANGED: #269 - identity mapping is now normative; delegation stays informative -->
 
-> **This section is informative.** It defines no conformance requirement and uses no MUST. It records how a producer emitting OCSF events for a manifest-governed session is *intended* to line up with this specification, so implementers stop inventing a second identity mechanism for the same job. A normative binding is deferred; see "Why this is not normative yet" below.
+> **Section 6.4.2 is normative. The rest of section 6.4 is informative.** The identity mapping carries conformance requirements for a producer that emits OCSF events for a manifest-governed session. The delegation crosswalk in 6.4.3 does not, and says why.
 
 A manifest attests an agent's identity surface at approval time. OCSF carries the runtime events that agent then produces. Nothing has connected the two: there is no defined join key between a manifest and the OCSF evidence emitted under it, so a consumer holding both cannot tell that they describe the same agent without an out-of-band convention.
 
@@ -1480,12 +1666,23 @@ The `ai_agent` object is contributed by the **`ai_operation` profile**, not by a
 
 | OCSF (`ai_agent`) | OCSF's own definition | Intended manifest counterpart |
 |---|---|---|
-| `uid` | "The stable logical identifier for the agent... Persists across restarts and instances." | The manifest's durable agent identity. Stable across sessions, which is what `agent_id` looks like when it carries no instance segment. |
-| `instance_uid` | "Identifier for a specific running instance or session of the agent, **distinct from the stable logical uid**. An instance is a single materialization of the agent: a conversation, session, or run." | The session-scoped value, and the per-event join key. This is what `agent_id` looks like when its optional `/agent/<name>/<instance>` path carries a UUID v7 instance segment. |
+| `uid` | "The stable logical identifier for the agent... Persists across restarts and instances." | `agent_id` (section 3.1), which is defined as the stable identity. |
+| `instance_uid` | "Identifier for a specific running instance or session of the agent, **distinct from the stable logical uid**. An instance is a single materialization of the agent: a conversation, session, or run." | `agent_instance_id` (section 3.1) when the manifest declares one. Otherwise the producer SHOULD use its own session identifier and MAY omit the field if none is available; it MUST NOT use `agent_id`. |
 | `version` | "the agent's own code or configuration revision... distinct from the version of the model backing it" | Not a join key. Static across a session. |
 | `charter` | "A document that defines an AI agent's durable role, responsibilities, constraints, and operating boundaries." | Closest to the manifest itself, though the manifest is signed and scoped more narrowly. Not a join key. |
 
 `session_uid` is **not** an attribute of `ai_agent`; where an event carries a session identifier it comes from elsewhere in the event, so it is not part of this crosswalk.
+
+A producer emitting an `ai_agent` object for a session governed by an Agent Manifest:
+
+1. MUST populate `ai_agent.uid` with the manifest `agent_id`.
+2. MUST populate `ai_agent.instance_uid` with the manifest `agent_instance_id` when the manifest declares one.
+3. MUST NOT populate `ai_agent.instance_uid` with `agent_id` when the manifest declares no `agent_instance_id`. It SHOULD populate that field with its own session-scoped identifier and MAY omit the field if no such identifier is available.
+4. MUST carry the `manifest_id` of the exact manifest in force, on any event class whose schema can express it, so the join is to a signed document rather than to a name.
+
+Rule 3 is the one that matters and the one an implementation is most likely to get wrong. Reusing `agent_id` as `instance_uid` makes the two OCSF fields equal on every event, which silently destroys the distinction between "every run of this agent" and "this run" for a consumer that has no way to tell the collapse happened. A producer SHOULD supply its own session identifier; if it cannot, omission preserves the distinction more safely than a stable value would.
+
+These rules bind the producer, not the manifest issuer: a manifest that declares no `agent_instance_id` is fully conformant, and rule 3 is how a producer stays conformant alongside it.
 
 #### 6.4.3 Delegation
 
@@ -1498,15 +1695,15 @@ That is a closer correspondence than the identity fields, and it is the more use
 
 Closing that gap is a data-model change to section 3.4, not a crosswalk, and it is not proposed here.
 
-#### 6.4.4 Why this is not normative yet
+#### 6.4.4 How the `agent_id` question was settled
 
-Making the identity mapping a requirement would mean choosing what `agent_id` is, and that is not yet settled:
+The identity mapping was informative in the first revision of this section because `agent_id` was one field serving both of OCSF's roles, and a requirement binding it to `instance_uid` would have forced a stable identifier into the field OCSF defines as the non-stable one. Section 3.1 now settles it: `agent_id` is the stable identity, instance scope is declared in `agent_instance_id` rather than parsed out of a SPIFFE path, and a manifest that declares nothing governs every run.
 
-`agent_id` is one field currently serving both roles in the table above. Section 3.1 states that the `/agent/<name>/<instance>` path structure "is a convention, not a requirement", so a conformant `agent_id` may legitimately be stable and carry no instance scope at all. OCSF makes `uid` and `instance_uid` explicitly distinct. A requirement binding `agent_id` to `instance_uid` would therefore force a stable identifier into the field OCSF defines as the non-stable one whenever a deployment takes the convention at its word — and a consumer would lose the ability to separate "every run of this agent" from "this run", which is the distinction `instance_uid` exists to express.
+That is deliberately not the mapping proposed in issue #269, which asked that `instance_uid` equal `agent_id`. Taken at face value it would have made the two OCSF fields identical for every deployment that follows section 3.1's stated convention, which is the collapse rule 3 now forbids. What the proposal was right about is that a join key was missing and that `instance_uid` is the field it belongs in; splitting the declaration is how that key exists without overloading a field that already had a job.
 
-The resolution is to decide whether `agent_id` splits into a stable identifier and a session-scoped one. Until it does, a normative binding would have to be revised rather than refined, and revising a MUST is a breaking change where revising this section is not.
+The remaining OCSF question is delegation (6.4.3), which needs a per-hop durable identifier in section 3.4 and a decision about issued rather than self-asserted authority. That is a data-model change, it is not settled here, and it stays informative until it is.
 
-Per section 3.1, the CoSAI WS4 working stream already owns the canonical `@context` URL for this specification. An OCSF correlation mapping belongs in the same venue, alongside the `agent_id` question above, rather than being settled here first.
+Per section 3.1, the CoSAI WS4 working stream will assign the canonical `@context` URL for this specification, and an OCSF correlation mapping is the kind of thing that belongs in the same venue. Publishing the rules here rather than waiting is what gives that venue something specific to reject.
 
 ### 6.5 Relationship to Agent Plugins
 
@@ -1610,6 +1807,8 @@ The following threats are explicitly out of scope for this specification:
 - Side-channel attacks on the TEE - hardware vulnerabilities in AMD SEV-SNP, Intel TDX, or NVIDIA Blackwell that allow measurement extraction are out of scope. These are platform-level threats addressed by hardware vendors.
 - Denial of service against the verification endpoint - availability of the verification service is an operational concern, not a correctness concern.
 - Human approver compromise - if an authorized approver's hardware key is compromised, the HITL record is valid despite the fraudulent approval. Key management and approver identity assurance are out of scope.
+- Whether an approved configuration is a good one - every threat in 7.1 is a substitution, mutation, or forgery by an adversary. A system prompt authored in good faith, approved, signed, sealed and verified `VALID` may still specify behaviour the deploying organisation would reject if it were tested rather than read, with no adversary present and no digest changed. The manifest binds which configuration was approved. Section 3.2.1.1 defines where evidence about the approved configuration's behaviour is carried, and section 3.2.6.2 states the equivalent boundary for memory.
+- Per-call authorization - the manifest binds which tools were approved, not what a call through one of them may do. Argument-level policy, consequence bounds, and the read versus irreversible-write distinction inside a single tool belong to the policy layer that consumes a verification result. See section 5.3.2.
 
 ## 8. Conformance Requirements
 
@@ -1821,7 +2020,7 @@ Target: Q1 2027. Contribution to CoSAI Working Stream 4 (Secure Design Patterns 
 - Reference implementation contributed as a CoSAI Open Project deliverable
 - Conformance certification program defined
 - Transfer of `manifest.agentrust-io.com` (or successor provisional domain) to CoSAI/OASIS-controlled infrastructure as a condition of v1.0 acceptance. The canonical `@context` URL will be updated to a CoSAI-controlled namespace at this point.
-- Opaque's participation terms under the OASIS Open Projects IPR Policy, including the CLA and the patent non-assert covering non-trivial contributions, reviewed and signed off by counsel before any contribution is filed. See [CHARTER.md](../CHARTER.md) section 4.
+- Opaque's participation terms under the OASIS Open Projects IPR Policy, including the CLA and the patent non-assert covering non-trivial contributions, reviewed and signed off by counsel before any contribution is filed. See [CHARTER.md](https://github.com/agentrust-io/agent-manifest/blob/main/CHARTER.md) section 4.
 
 ### 10.4 Relationship to Existing Standards
 

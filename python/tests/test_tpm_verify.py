@@ -21,6 +21,7 @@ from agent_manifest._tpm_verify import (  # noqa: E402
     parse_tpm_attest,
     parse_tpm_nv_certify,
     parse_tpm_quote,
+    parse_tpmt_signature,
     verify_tpm_quote,
 )
 
@@ -109,6 +110,27 @@ def _sign(ak_key, attest):
     if isinstance(ak_key, ec.EllipticCurvePrivateKey):
         return ak_key.sign(attest, ec.ECDSA(hashes.SHA256()))
     return ak_key.sign(attest, padding.PKCS1v15(), hashes.SHA256())
+
+
+def _tpmt_signature(ak_key, attest, *, sig_alg, hash_alg, digest):
+    if isinstance(ak_key, ec.EllipticCurvePrivateKey):
+        from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
+
+        signature = ak_key.sign(attest, ec.ECDSA(digest))
+        r, s = decode_dss_signature(signature)
+        r_bytes = r.to_bytes((r.bit_length() + 7) // 8, "big")
+        s_bytes = s.to_bytes((s.bit_length() + 7) // 8, "big")
+        body = len(r_bytes).to_bytes(2, "big") + r_bytes
+        body += len(s_bytes).to_bytes(2, "big") + s_bytes
+    else:
+        scheme = (
+            padding.PKCS1v15()
+            if sig_alg == 0x0014
+            else padding.PSS(mgf=padding.MGF1(digest), salt_length=digest.digest_size)
+        )
+        signature = ak_key.sign(attest, scheme, digest)
+        body = len(signature).to_bytes(2, "big") + signature
+    return sig_alg.to_bytes(2, "big") + hash_alg.to_bytes(2, "big") + body
 
 
 NONCE = bytes(range(32))
@@ -262,6 +284,54 @@ def test_verify_rejects_wrong_ak_key():
     other = ec.generate_private_key(ec.SECP256R1())
     sig = _sign(other, attest)  # signed by a key that is not the AK
     assert verify_tpm_quote(attest, sig, chain, trusted_roots_pem=roots) is False
+
+
+@pytest.mark.parametrize(
+    ("kind", "sig_alg"),
+    [("rsa", 0x0014), ("rsa", 0x0016), ("ec", 0x0018)],
+)
+def test_verify_accepts_sha384_tpmt_signature(kind, sig_alg):
+    ak_key, chain, roots = _ak_chain(kind)
+    attest = _build_attest(NONCE, PCR)
+    signature = _tpmt_signature(
+        ak_key,
+        attest,
+        sig_alg=sig_alg,
+        hash_alg=0x000C,
+        digest=hashes.SHA384(),
+    )
+
+    assert verify_tpm_quote(attest, signature, chain, trusted_roots_pem=roots) is True
+
+
+def test_verify_rejects_tpmt_signature_with_unsupported_hash():
+    ak_key, chain, roots = _ak_chain("rsa")
+    attest = _build_attest(NONCE, PCR)
+    signature = _tpmt_signature(
+        ak_key,
+        attest,
+        sig_alg=0x0014,
+        hash_alg=0x0004,
+        digest=hashes.SHA1(),
+    )
+
+    with pytest.raises(TpmVerificationError, match="unsupported hash algorithm"):
+        verify_tpm_quote(attest, signature, chain, trusted_roots_pem=roots)
+
+
+def test_tpmt_signature_rejects_trailing_bytes():
+    ak_key, _chain, _roots = _ak_chain("rsa")
+    attest = _build_attest(NONCE, PCR)
+    signature = _tpmt_signature(
+        ak_key,
+        attest,
+        sig_alg=0x0014,
+        hash_alg=0x000B,
+        digest=hashes.SHA256(),
+    )
+
+    with pytest.raises(TpmVerificationError, match="trailing bytes"):
+        parse_tpmt_signature(signature + b"extra")
 
 
 def test_verify_rejects_untrusted_root():

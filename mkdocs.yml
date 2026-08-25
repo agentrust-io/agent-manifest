@@ -6,6 +6,9 @@ repo_name: agentrust-io/agent-manifest
 edit_uri: edit/main/docs/
 docs_dir: docs
 
+exclude_docs: |
+  adr/0000-template.md
+
 theme:
   name: material
   custom_dir: overrides
@@ -13,18 +16,18 @@ theme:
   logo: assets/icon.svg
   favicon: assets/icon.svg
   palette:
-    - scheme: slate
-      primary: custom
-      accent: custom
-      toggle:
-        icon: material/brightness-7
-        name: Switch to light mode
     - scheme: default
       primary: custom
       accent: custom
       toggle:
         icon: material/brightness-4
         name: Switch to dark mode
+    - scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/brightness-7
+        name: Switch to light mode
   features:
     - navigation.instant
     - navigation.tracking
@@ -105,7 +108,9 @@ markdown_extensions:
   - pymdownx.highlight:
       anchor_linenums: true
   - pymdownx.inlinehilite
-  - pymdownx.snippets
+  - pymdownx.snippets:
+      base_path: ["."]
+      check_paths: true
   - pymdownx.emoji:
       emoji_index: !!python/name:material.extensions.emoji.twemoji
       emoji_generator: !!python/name:material.extensions.emoji.to_svg
@@ -138,7 +143,10 @@ extra:
           note: Thanks for your feedback — open an issue to let us know.
 
 extra_css:
-  - stylesheets/extra.css
+  # Shared AgenTrust editorial design system. Deliberately the only stylesheet:
+  # a local override here is how this site drifted to the Material default
+  # violet last time. Change the shared file instead.
+  - https://agentrust-io.com/design-system.css
 
 nav:
   - Home: index.md
@@ -202,12 +210,18 @@ nav:
       - Monitoring: operations/monitoring.md
   - Specification:
       - Overview: spec-overview.md
+      - Agent Memory Governance: memory-governance.md
+      # These pages include the normative text from spec/ at the repository
+      # root, which stays the single source of truth.
+      - Agent Manifest v0.2: spec/agent-manifest-v0.2.md
+      - COSE Envelope v0.2: spec/agent-manifest-cose-envelope-v0.2.md
   - Project:
       - Roadmap: roadmap.md
       - Limitations: limitations.md
       - Changelog: changelog.md
       - Contributing: contributing.md
       - Governance: governance.md
+      - Sponsors: sponsors.md
 
 extra_javascript:
   - https://agentrust-io.com/supernav.js

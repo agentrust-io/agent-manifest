@@ -20,8 +20,11 @@ import pathlib
 import pytest
 
 from agent_manifest._snp_verify import (
+    PLATFORM_INFO_BITS,
     SnpVerificationError,
+    appraise_platform_info,
     parse_hcl_report,
+    parse_platform_info,
     parse_snp_report,
     verify_runtime_data_binding,
     verify_snp_signature,
@@ -361,3 +364,111 @@ def test_public_offsets_match_the_genuine_capture():
     assert raw[SNP_OFFSETS["report_data"]:SNP_OFFSETS["report_data"] + 64] == rep.report_data
     assert raw[SNP_OFFSETS["chip_id"]:SNP_OFFSETS["chip_id"] + 64] == rep.chip_id
     assert int.from_bytes(raw[SNP_OFFSETS["sig_algo"]:SNP_OFFSETS["sig_algo"] + 4], "little") == 1
+
+
+# ------------------------------------------------------------ PLATFORM_INFO
+#
+# The platform-state half of a report: what kind of machine this came from, as
+# opposed to what workload ran on it. Added 2026-08-20 alongside
+# google/go-sev-guest#195.
+
+
+def _pi(**flags):
+    """Build a PLATFORM_INFO word from named flags."""
+    word = 0
+    for name, on in flags.items():
+        if on:
+            word |= 1 << PLATFORM_INFO_BITS[name]
+    return word
+
+
+def test_platform_info_is_parsed_from_the_genuine_capture():
+    """0x40 is inside the signed body, so it is covered by the report signature."""
+    raw = (pathlib.Path(__file__).parent / "vectors/snp/azure_snp_report_redacted.bin").read_bytes()
+    rep = parse_snp_report(raw)
+    assert isinstance(rep.platform_info, int)
+    assert rep.platform_info == int.from_bytes(raw[0x40:0x48], "little")
+    assert 0x40 + 8 <= _OFF_SIGNATURE, "PLATFORM_INFO must fall inside the signed body"
+
+
+def test_every_named_bit_decodes_independently():
+    for name, bit in PLATFORM_INFO_BITS.items():
+        info = parse_platform_info(1 << bit)
+        assert getattr(info, name) is True, name
+        others = [n for n in PLATFORM_INFO_BITS if n != name]
+        assert not any(getattr(info, n) for n in others), name
+        assert info.unrecognized_bits == 0
+
+
+def test_reserved_bit_six_is_reported_as_unrecognized_not_silently_dropped():
+    info = parse_platform_info(1 << 6)
+    assert info.unrecognized_bits == 1 << 6
+    assert not any(getattr(info, n) for n in PLATFORM_INFO_BITS)
+    appraise_platform_info(info)  # not an error on its own
+    with pytest.raises(SnpVerificationError, match="cannot name"):
+        appraise_platform_info(info, reject_unrecognized_bits=True)
+
+
+def test_empty_policy_asserts_nothing_and_says_so():
+    """The vacuous default is deliberate and documented; pin it so it stays deliberate."""
+    appraise_platform_info(parse_platform_info(0))
+    appraise_platform_info(parse_platform_info(0xFF))
+
+
+def test_require_is_a_floor_and_forbid_is_a_ceiling():
+    """The direction lives in the argument name. This is the go-sev-guest#195 bug, inverted."""
+    on = parse_platform_info(_pi(alias_check_complete=True))
+    off = parse_platform_info(0)
+
+    appraise_platform_info(on, require={"alias_check_complete"})
+    with pytest.raises(SnpVerificationError, match="requires alias_check_complete"):
+        appraise_platform_info(off, require={"alias_check_complete"})
+
+    appraise_platform_info(off, forbid={"alias_check_complete"})
+    with pytest.raises(SnpVerificationError, match="forbids alias_check_complete"):
+        appraise_platform_info(on, forbid={"alias_check_complete"})
+
+
+def test_the_badram_posture_is_expressible_in_one_call():
+    """The whole reason this exists: require the alias check, forbid SMT."""
+    good = parse_platform_info(_pi(alias_check_complete=True, ecc_enabled=True))
+    appraise_platform_info(
+        good, require={"alias_check_complete", "ecc_enabled"}, forbid={"smt_enabled"}
+    )
+    smt = parse_platform_info(
+        _pi(alias_check_complete=True, ecc_enabled=True, smt_enabled=True)
+    )
+    with pytest.raises(SnpVerificationError, match="forbids smt_enabled"):
+        appraise_platform_info(
+            smt, require={"alias_check_complete", "ecc_enabled"}, forbid={"smt_enabled"}
+        )
+
+
+def test_rapl_disabled_keeps_its_negative_sense():
+    """Bit 3 set means RAPL is disabled. Requiring the field requires the bit."""
+    quiet = parse_platform_info(_pi(rapl_disabled=True))
+    noisy = parse_platform_info(0)
+    appraise_platform_info(quiet, require={"rapl_disabled"})
+    with pytest.raises(SnpVerificationError, match="requires rapl_disabled"):
+        appraise_platform_info(noisy, require={"rapl_disabled"})
+
+
+def test_policy_naming_an_unknown_field_is_an_error_not_a_no_op():
+    """A typo must fail loudly; silently ignoring it is how a check stops running."""
+    info = parse_platform_info(0)
+    with pytest.raises(SnpVerificationError, match="unknown PLATFORM_INFO field"):
+        appraise_platform_info(info, require={"AliasCheckComplete"})
+    with pytest.raises(SnpVerificationError, match="unknown PLATFORM_INFO field"):
+        appraise_platform_info(info, forbid={"smt"})
+
+
+def test_contradictory_policy_is_rejected_before_it_is_evaluated():
+    info = parse_platform_info(_pi(smt_enabled=True))
+    with pytest.raises(SnpVerificationError, match="both requires and forbids"):
+        appraise_platform_info(info, require={"smt_enabled"}, forbid={"smt_enabled"})
+
+
+def test_platform_info_offset_is_published_for_downstreams():
+    from agent_manifest._snp_verify import SNP_OFFSETS
+
+    assert SNP_OFFSETS["platform_info"] == 0x40

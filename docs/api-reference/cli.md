@@ -112,16 +112,41 @@ Usage: manifest verify [OPTIONS] MANIFEST_FILE
 
   Use --crl-path to load a revocation list and check for revoked manifests.
 
+  HITL approvals attach outside the manifest signature, so supply the
+  approver keys you trust with --approver-key. Without them an approval is
+  UNVERIFIABLE and the manifest can never verify.
+
   Example:
     manifest verify attested.json --crl-path revocations.jsonl
+    manifest verify signed.json --public-key pub.hex --enforce-hitl
+      --approver-key mailto:alice@example.com=alice.hex
 
 Options:
-  --enforce-hitl         Fail unless a required HITL approval is present and unexpired
-  --enforce-attestation  Fail unless the attestation report matches the manifest hash
-  --crl-path TEXT        Path to a FileCRL JSON-Lines file for revocation checks
-  --public-key TEXT      Path to a trusted raw Ed25519 public key hex file
-  -o, --output TEXT      Write output to file (default: stdout)
-  --help                 Show this message and exit.
+  --enforce-hitl                  Fail unless a required HITL approval is present and
+                                  unexpired
+  --enforce-attestation           Fail unless the attestation report matches the
+                                  manifest hash
+  --crl-path TEXT                 Path to a FileCRL JSON-Lines file for revocation
+                                  checks
+  --public-key TEXT               Path to a trusted raw Ed25519 public key hex file
+  --approver-key APPROVER_ID=PATH
+                                  Trusted HITL approver key as approver_id=path to a raw
+                                  Ed25519 public key hex file (repeatable)
+  --require-transparency          Fail unless transparency evidence was independently
+                                  verified
+  --verified-transparency-entry-id TEXT
+                                  Legacy entry UUID independently verified for this
+                                  manifest (repeatable)
+  --verified-transparency-receipt-hash TEXT
+                                  SHA-256 hex of a raw COSE receipt independently
+                                  verified for this manifest (repeatable)
+  --transparency-evidence-manifest-id TEXT
+                                  Manifest ID to which the independent transparency
+                                  appraisal was bound
+  --signature-only                Authenticate only the manifest signature; explicitly
+                                  allow bound runtime artifacts to remain unchecked
+  -o, --output TEXT               Write output to file (default: stdout)
+  --help                          Show this message and exit.
 ```
 
 ### manifest revoke

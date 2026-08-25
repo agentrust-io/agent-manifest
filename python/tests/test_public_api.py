@@ -85,8 +85,8 @@ def test_public_verify_roundtrip_valid_then_mismatch():
 def test_partial_context_leaves_unprovided_fields_not_bound():
     # A verifier only checks what it can observe at runtime. With a partial
     # context (system prompt provided, policy bundle omitted), the unprovided
-    # field is reported NOT_BOUND rather than a mismatch, and the overall result
-    # stays VALID.
+    # field is reported NOT_BOUND rather than a mismatch, and the safe default
+    # makes the overall result INCOMPLETE.
     keypair = agent_manifest.generate_ed25519()
     manifest, sha_a, _sha_b = _signed_manifest(keypair)
     trusted = {keypair.key_id: keypair.public_b64url()}
@@ -98,5 +98,5 @@ def test_partial_context_leaves_unprovided_fields_not_bound():
     result = agent_manifest.verify_manifest(
         manifest, partial, agent_manifest.RevocationStore()
     )
-    assert result.result == agent_manifest.OverallResult.VALID
+    assert result.result == agent_manifest.OverallResult.INCOMPLETE
     assert result.fields_verified.policy_bundle == agent_manifest.FieldResult.NOT_BOUND

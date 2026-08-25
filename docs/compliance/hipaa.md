@@ -80,7 +80,7 @@ The HITL approval mechanism provides documented human oversight for AI agent dep
 - The approval was time-bounded (typically to a single session or shift)
 - The approval covered only the declared scope
 
-The approver's key is separate from the issuer key, ensuring that a compromised issuer cannot retroactively forge approvals. See [Tutorial: HITL approval workflows](../tutorials/hitl-approvals.md) for implementation details.
+The approver's key is separate from the issuer key, ensuring that a compromised issuer cannot retroactively forge approvals. See [Tutorial: HITL approval workflows](../tutorials/hitl-approval-workflows.md) for implementation details.
 
 ---
 
@@ -94,7 +94,7 @@ The approver's key is separate from the issuer key, ensuring that a compromised 
 
 **Containment:** Revoke the agent's manifest via the CRL endpoint. Propagation to all verifiers checking the endpoint is immediate (next poll cycle, typically <30s).
 
-**Correction:** Re-issue the manifest under a new signing key after rotating the compromised key. The key rotation procedure is documented in the [Revocation and key rotation tutorial](../tutorials/revocation.md).
+**Correction:** Re-issue the manifest under a new signing key after rotating the compromised key. The key rotation procedure is documented in the [Revocation and key rotation tutorial](../tutorials/revocation-and-key-rotation.md).
 
 ---
 

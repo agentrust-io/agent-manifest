@@ -8,7 +8,10 @@ from pathlib import Path
 from click.testing import CliRunner
 
 from agent_manifest.cli import cli
+from agent_manifest._delegation import HitlApprovalSigner
 from agent_manifest._signing import Ed25519Signer, generate_ed25519
+
+APPROVER_ID = "mailto:alice@example.com"
 
 
 def _signed_manifest(keypair):
@@ -85,7 +88,10 @@ def test_cli_verify_with_matching_public_key_is_valid(tmp_path):
 
     result = CliRunner().invoke(
         cli,
-        ["verify", str(signed_path), "--public-key", str(public_path)],
+        [
+            "verify", str(signed_path), "--public-key", str(public_path),
+            "--signature-only",
+        ],
     )
 
     payload = _json_stdout(result)
@@ -147,10 +153,10 @@ def test_cli_verify_with_missing_public_key_file_fails_cleanly(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_cli_verify_bound_artifacts_without_runtime_hashes_qualifies_valid(tmp_path):
+def test_cli_verify_bound_artifacts_without_runtime_hashes_is_incomplete(tmp_path):
     # The manifest binds system_prompt and policy_bundle hashes, but the CLI
     # supplies no runtime hashes, so those bindings are never compared. The
-    # output must qualify the VALID status and warn - never a bare "VALID".
+    # safe default must not turn signature validity into artifact validity.
     keypair = generate_ed25519()
     signed_path = _write_signed_manifest(tmp_path, keypair)
     public_path = _write_public_key(tmp_path, keypair)
@@ -160,16 +166,65 @@ def test_cli_verify_bound_artifacts_without_runtime_hashes_qualifies_valid(tmp_p
         ["verify", str(signed_path), "--public-key", str(public_path)],
     )
 
-    # Signature is genuinely valid (exit 0), but the status must be qualified.
+    assert result.exit_code == 1
+    payload = _json_stdout(result)
+    assert payload["result"] == "INCOMPLETE"
+    assert "Result: INCOMPLETE" in result.output
+    assert any("artifact bindings NOT verified" in w for w in payload["warnings"])
+
+
+def test_cli_required_transparency_missing_is_incomplete(tmp_path):
+    keypair = generate_ed25519()
+    signed_path = _write_signed_manifest(tmp_path, keypair)
+    public_path = _write_public_key(tmp_path, keypair)
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "verify", str(signed_path), "--public-key", str(public_path),
+            "--signature-only", "--require-transparency",
+        ],
+    )
+
+    assert result.exit_code == 1
+    payload = _json_stdout(result)
+    assert payload["result"] == "INCOMPLETE"
+    assert payload["transparency_verified"] is False
+
+
+def test_cli_verified_legacy_transparency_entry_is_valid(tmp_path):
+    keypair = generate_ed25519()
+    manifest = _signed_manifest(keypair)
+    entry_id = "rekor-cli-entry"
+    manifest["transparency_log_entry"] = {
+        "log_id": "0" * 64,
+        "log_index": 1,
+        "entry_uuid": entry_id,
+        "integrated_time": 1,
+        "inclusion_proof": {
+            "checkpoint": "signed-checkpoint",
+            "hashes": [],
+            "tree_size": 1,
+        },
+    }
+    signed_path = tmp_path / "signed-with-receipt.json"
+    signed_path.write_text(json.dumps(manifest))
+    public_path = _write_public_key(tmp_path, keypair)
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "verify", str(signed_path), "--public-key", str(public_path),
+            "--signature-only", "--require-transparency",
+            "--verified-transparency-entry-id", entry_id,
+            "--transparency-evidence-manifest-id", manifest["manifest_id"],
+        ],
+    )
+
     assert result.exit_code == 0
     payload = _json_stdout(result)
     assert payload["result"] == "VALID"
-    assert "VALID (signature only - artifact bindings NOT verified)" in result.output
-    assert "WARNING" in result.output
-    # The bare "Result: VALID" line must NOT be emitted in this case.
-    assert "Result: VALID\n" not in result.output
-    # And the result payload carries the machine-readable warning too.
-    assert any("artifact bindings NOT verified" in w for w in payload["warnings"])
+    assert payload["transparency_verified"] is True
 
 
 # ---------------------------------------------------------------------------
@@ -196,7 +251,10 @@ def test_deprecated_nested_invocation_still_works(tmp_path):
 
     result = CliRunner().invoke(
         cli,
-        ["manifest", "verify", str(signed_path), "--public-key", str(public_path)],
+        [
+            "manifest", "verify", str(signed_path), "--public-key", str(public_path),
+            "--signature-only",
+        ],
     )
 
     assert result.exit_code == 0
@@ -211,3 +269,196 @@ def test_deprecated_group_is_hidden_from_help():
     assert "verify" in result.output
     # The alias exists for old scripts but must not be advertised.
     assert "\n  manifest " not in result.output
+
+
+# ---------------------------------------------------------------------------
+# HITL approver keys
+#
+# Approvals attach outside the manifest signature, so the relying party has to
+# supply the approver keys it trusts. Without --approver-key there is no CLI
+# input that can populate approver_public_keys, and every approval is
+# UNVERIFIABLE regardless of whether it is genuine.
+# ---------------------------------------------------------------------------
+
+
+def _hitl_approval(approver_keypair, *, manifest_id, signature=None):
+    approved_at = (
+        datetime.now(timezone.utc) - timedelta(minutes=30)
+    ).isoformat().replace("+00:00", "Z")
+    scope = {"approval_duration_seconds": 7200}
+    approval = {
+        "approver_id": APPROVER_ID,
+        "approved_at": approved_at,
+        "approved_scope": scope,
+        "approval_method": "hardware-key",
+    }
+    approval["approval_signature"] = signature or HitlApprovalSigner(
+        approver_keypair
+    ).sign_approval(
+        manifest_id=manifest_id,
+        approved_at=approved_at,
+        approved_scope=scope,
+        approver_id=APPROVER_ID,
+    )
+    return approval
+
+
+def _write_hitl_manifest(tmp_path: Path, keypair, approval) -> Path:
+    """Sign a manifest whose hitl_record already carries *approval*.
+
+    Approvals are normalized out of the signing pre-image (spec 3.6), so the
+    manifest signature stays valid with the approval attached.
+    """
+    manifest = _signed_manifest(keypair)
+    manifest["hitl_record"] = {"required": True, "approvals": [approval]}
+    manifest["signature"] = Ed25519Signer(keypair).sign(manifest)
+    signed_path = tmp_path / "hitl.json"
+    signed_path.write_text(json.dumps(manifest))
+    return signed_path
+
+
+def _write_approver_key(tmp_path: Path, keypair) -> Path:
+    approver_path = tmp_path / "approver.hex"
+    approver_path.write_text(keypair.public_bytes.hex())
+    return approver_path
+
+
+def test_cli_verify_hitl_with_trusted_approver_key_is_valid(tmp_path):
+    keypair = generate_ed25519()
+    approver = generate_ed25519()
+    manifest_path = _write_hitl_manifest(
+        tmp_path,
+        keypair,
+        _hitl_approval(approver, manifest_id=_signed_manifest(keypair)["manifest_id"]),
+    )
+
+    result = CliRunner().invoke(cli, [
+        "verify", str(manifest_path),
+        "--public-key", str(_write_public_key(tmp_path, keypair)),
+        "--approver-key", f"{APPROVER_ID}={_write_approver_key(tmp_path, approver)}",
+        "--enforce-hitl", "--signature-only",
+    ])
+
+    payload = _json_stdout(result)
+    assert result.exit_code == 0
+    assert payload["result"] == "VALID"
+    assert payload["fields_verified"]["hitl_record"] == "APPROVED"
+
+
+def test_cli_verify_hitl_without_approver_key_is_unverifiable(tmp_path):
+    keypair = generate_ed25519()
+    approver = generate_ed25519()
+    manifest_path = _write_hitl_manifest(
+        tmp_path,
+        keypair,
+        _hitl_approval(approver, manifest_id=_signed_manifest(keypair)["manifest_id"]),
+    )
+
+    result = CliRunner().invoke(cli, [
+        "verify", str(manifest_path),
+        "--public-key", str(_write_public_key(tmp_path, keypair)),
+        "--enforce-hitl", "--signature-only",
+    ])
+
+    payload = _json_stdout(result)
+    assert result.exit_code == 1
+    assert payload["result"] == "UNVERIFIABLE"
+    assert payload["fields_verified"]["hitl_record"] == "UNVERIFIABLE"
+    # The operator is told which input is missing, not just that it failed.
+    assert "--approver-key" in result.output
+
+
+def test_cli_verify_hitl_runs_without_enforce_hitl(tmp_path):
+    # hitl_record.required drives the check, so a manifest declaring HITL
+    # reaches the approver-key path even when the caller never asked for it.
+    keypair = generate_ed25519()
+    approver = generate_ed25519()
+    manifest_path = _write_hitl_manifest(
+        tmp_path,
+        keypair,
+        _hitl_approval(approver, manifest_id=_signed_manifest(keypair)["manifest_id"]),
+    )
+
+    result = CliRunner().invoke(cli, [
+        "verify", str(manifest_path),
+        "--public-key", str(_write_public_key(tmp_path, keypair)),
+        "--signature-only",
+    ])
+
+    assert _json_stdout(result)["result"] == "UNVERIFIABLE"
+
+
+def test_cli_verify_rejects_forged_approval_signature(tmp_path):
+    keypair = generate_ed25519()
+    approver = generate_ed25519()
+    manifest_path = _write_hitl_manifest(
+        tmp_path,
+        keypair,
+        _hitl_approval(
+            approver,
+            manifest_id=_signed_manifest(keypair)["manifest_id"],
+            signature="c2ln",
+        ),
+    )
+
+    result = CliRunner().invoke(cli, [
+        "verify", str(manifest_path),
+        "--public-key", str(_write_public_key(tmp_path, keypair)),
+        "--approver-key", f"{APPROVER_ID}={_write_approver_key(tmp_path, approver)}",
+        "--enforce-hitl", "--signature-only",
+    ])
+
+    payload = _json_stdout(result)
+    assert result.exit_code == 1
+    assert payload["fields_verified"]["hitl_record"] == "INVALID"
+
+
+def test_cli_verify_rejects_approval_replayed_from_another_manifest(tmp_path):
+    keypair = generate_ed25519()
+    approver = generate_ed25519()
+    manifest_path = _write_hitl_manifest(
+        tmp_path,
+        keypair,
+        _hitl_approval(
+            approver, manifest_id="018f4a3b-2c1d-7e5f-a8b9-ffffffffffff"
+        ),
+    )
+
+    result = CliRunner().invoke(cli, [
+        "verify", str(manifest_path),
+        "--public-key", str(_write_public_key(tmp_path, keypair)),
+        "--approver-key", f"{APPROVER_ID}={_write_approver_key(tmp_path, approver)}",
+        "--enforce-hitl", "--signature-only",
+    ])
+
+    payload = _json_stdout(result)
+    assert result.exit_code == 1
+    assert payload["fields_verified"]["hitl_record"] == "INVALID"
+
+
+def test_cli_verify_rejects_malformed_approver_key_spec(tmp_path):
+    keypair = generate_ed25519()
+    signed_path = _write_signed_manifest(tmp_path, keypair)
+
+    result = CliRunner().invoke(cli, [
+        "verify", str(signed_path),
+        "--public-key", str(_write_public_key(tmp_path, keypair)),
+        "--approver-key", "no-separator-here",
+    ])
+
+    assert result.exit_code != 0
+    assert "APPROVER_ID=PATH" in result.output
+
+
+def test_cli_verify_rejects_missing_approver_key_file(tmp_path):
+    keypair = generate_ed25519()
+    signed_path = _write_signed_manifest(tmp_path, keypair)
+
+    result = CliRunner().invoke(cli, [
+        "verify", str(signed_path),
+        "--public-key", str(_write_public_key(tmp_path, keypair)),
+        "--approver-key", f"{APPROVER_ID}={tmp_path / 'absent.hex'}",
+    ])
+
+    assert result.exit_code != 0
+    assert "Approver key file not found" in result.output

@@ -15,6 +15,8 @@ import cbor2
 import pytest
 from cryptography.exceptions import InvalidSignature
 
+from agent_manifest._delegation import HitlApprovalSigner
+
 from agent_manifest._cose import (
     ALG_ED25519,
     ALG_EDDSA,
@@ -91,6 +93,8 @@ SHA_B = "sha256:" + "b" * 64
 
 KP = generate_ed25519()
 TRUSTED_KEYS = {KP.key_id: KP.public_b64url()}
+APPROVER_KP = generate_ed25519()
+APPROVER_ID = "mailto:alice@example.com"
 
 
 def base_manifest(**overrides):
@@ -121,6 +125,7 @@ def base_context(**overrides):
         policy_bundle_hash=SHA_B,
         model_version="claude-3",
         trusted_keys=dict(TRUSTED_KEYS),
+        approver_public_keys={APPROVER_ID: APPROVER_KP.public_b64url()},
     )
     for k, v in overrides.items():
         setattr(ctx, k, v)
@@ -135,7 +140,7 @@ def approval(**overrides):
     """A schema-valid HITL approval, authenticated by its own signature."""
     a = {
         "approval_id": "018f4a3b-2c1d-7e5f-a8b9-0d1e2f3a4b60",
-        "approver_id": "mailto:alice@example.com",
+        "approver_id": APPROVER_ID,
         "approver_identity_type": "email",
         "approver_role": "ciso",
         "approved_at": NOW.isoformat().replace("+00:00", "Z"),
@@ -144,11 +149,18 @@ def approval(**overrides):
             "risk_tier": "high",
             "approval_duration_seconds": 3600,
         },
-        "approval_signature": "c2ln",
         "approval_method": "hardware-key",
         "evidence_uri": "https://evidence.example/approvals/1",
     }
     a.update(overrides)
+    if "approval_signature" not in overrides:
+        a["approval_signature"] = HitlApprovalSigner(APPROVER_KP).sign_approval(
+            manifest_id=overrides.get("manifest_id", base_manifest()["manifest_id"]),
+            approved_at=a["approved_at"],
+            approved_scope=a["approved_scope"],
+            approver_id=a["approver_id"],
+        )
+    a.pop("manifest_id", None)
     return a
 
 
@@ -765,9 +777,48 @@ def test_engine_verifies_a_cose_manifest():
 
 def test_engine_warns_when_no_receipt_is_attached():
     result = verify_manifest(
-        sign_cose_sign1(base_manifest(), KP), base_context(), store()
+        sign_cose_sign1(base_manifest(), KP),
+        base_context(require_transparency=True),
+        store(),
     )
     assert any("transparency receipt" in w for w in result.warnings)
+
+
+def test_required_cose_receipt_missing_is_incomplete():
+    result = verify_manifest(
+        sign_cose_sign1(base_manifest(), KP),
+        base_context(require_transparency=True),
+        store(),
+    )
+    assert result.result == OverallResult.INCOMPLETE
+    assert result.transparency_verified is False
+
+
+def test_attacker_supplied_cose_receipt_is_not_treated_as_verified():
+    envelope = attach_receipt(
+        sign_cose_sign1(base_manifest(), KP), b"attacker-controlled-receipt"
+    )
+    result = verify_manifest(
+        envelope, base_context(require_transparency=True), store()
+    )
+    assert result.result == OverallResult.UNVERIFIABLE
+    assert result.transparency_verified is False
+
+
+def test_independently_verified_cose_receipt_satisfies_requirement():
+    receipt = b"trusted-transparency-service-receipt"
+    envelope = attach_receipt(sign_cose_sign1(base_manifest(), KP), receipt)
+    result = verify_manifest(
+        envelope,
+        base_context(
+            require_transparency=True,
+            verified_transparency_receipt_hashes={hashlib.sha256(receipt).hexdigest()},
+            transparency_evidence_manifest_id=base_manifest()["manifest_id"],
+        ),
+        store(),
+    )
+    assert result.result == OverallResult.VALID
+    assert result.transparency_verified is True
 
 
 def test_engine_reports_unverifiable_without_trusted_keys():
@@ -850,6 +901,33 @@ def test_engine_evaluates_approvals_from_the_unprotected_header():
     signed = attach_approvals(signed, [approval()])
     result = verify_manifest(signed, base_context(enforce_hitl=True), store())
     assert result.fields_verified.hitl_record == HitlResult.APPROVED
+
+
+def test_engine_rejects_approval_bound_to_another_manifest():
+    manifest = base_manifest(hitl_record={"required": True})
+    other_manifest_id = "018f4a3b-2c1d-7e5f-a8b9-0d1e2f3a4b61"
+    signed = attach_approvals(
+        sign_cose_sign1(manifest, KP),
+        [approval(manifest_id=other_manifest_id)],
+    )
+
+    result = verify_manifest(signed, base_context(enforce_hitl=True), store())
+
+    assert result.fields_verified.hitl_record == HitlResult.INVALID
+    assert result.result == OverallResult.MISMATCH
+
+
+def test_engine_rejects_dummy_approval_signature():
+    manifest = base_manifest(hitl_record={"required": True})
+    signed = attach_approvals(
+        sign_cose_sign1(manifest, KP),
+        [approval(approval_signature="c2ln")],
+    )
+
+    result = verify_manifest(signed, base_context(enforce_hitl=True), store())
+
+    assert result.fields_verified.hitl_record == HitlResult.INVALID
+    assert result.result == OverallResult.MISMATCH
 
 
 def test_signed_hitl_requirement_cannot_be_satisfied_by_editing_the_header():

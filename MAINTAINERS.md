@@ -2,9 +2,9 @@
 
 ## Project Lead
 
-| Name | Affiliation | GitHub | Role |
+| Name | Project affiliation | GitHub | Role |
 |------|-------------|--------|------|
-| Imran Siddique | OPAQUE Systems | @agentrust-io | Project Lead, Spec Author |
+| Imran Siddique | AgenTrust-io | @agentrust-io | Project Lead, Spec Author |
 
 The Project Lead has final decision authority on specification changes, standards contribution scope, and maintainer appointments.
 
@@ -14,7 +14,9 @@ The Project Lead has final decision authority on specification changes, standard
 
 **Maintainer**: Active Reviewer for 60+ days, 5+ merged PRs, demonstrated judgment on spec or SDK design questions. Nominated by any Maintainer, approved by Project Lead. Maintainers have PyPI publish rights on the `agent-manifest` package.
 
-We are actively recruiting maintainers from organizations outside OPAQUE Systems. If you are using agent-manifest in a product and want to participate in governance, open an issue tagged `maintainer-interest`.
+We are actively recruiting maintainers across independent organizations. If you are using agent-manifest in a product and want to participate in governance, open an issue tagged `maintainer-interest`.
+
+Affiliations identify a maintainer's project context; they do not give an affiliated organization ownership or additional governance rights. See [GOVERNANCE.md](GOVERNANCE.md) and [SPONSORS.md](SPONSORS.md).
 
 ## Emeritus
 

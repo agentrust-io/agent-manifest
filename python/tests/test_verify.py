@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from agent_manifest import _signing
+from agent_manifest._delegation import HitlApprovalSigner
 from agent_manifest._signing import Ed25519Signer, _b64url_encode, generate_ed25519
 from agent_manifest._verify import (
     DelegationResult,
@@ -21,11 +22,14 @@ NOW = datetime.now(timezone.utc)
 FUTURE = (NOW + timedelta(days=90)).isoformat().replace("+00:00", "Z")
 PAST = (NOW - timedelta(days=1)).isoformat().replace("+00:00", "Z")
 SHA = "sha256:" + "a" * 64
+TRANSPARENCY_ENTRY_ID = "rekor-entry-123"
 
 # Module-level signing key - the verifier is fail-closed, so VALID results
 # require a signed manifest and the matching trusted key in the context.
 KP = generate_ed25519()
 TRUSTED_KEYS = {KP.key_id: KP.public_b64url()}
+APPROVER_KP = generate_ed25519()
+APPROVER_ID = "mailto:alice@example.com"
 ISSUER_A = "spiffe://trust.example/issuer/a"
 ISSUER_B = "spiffe://trust.example/issuer/b"
 
@@ -67,6 +71,7 @@ def base_context(**overrides):
         policy_bundle_hash="sha256:" + "b" * 64,
         model_version="claude-3",
         trusted_keys=dict(TRUSTED_KEYS),
+        approver_public_keys={APPROVER_ID: APPROVER_KP.public_b64url()},
     )
     for k, v in overrides.items():
         setattr(ctx, k, v)
@@ -75,6 +80,38 @@ def base_context(**overrides):
 
 def store():
     return RevocationStore()
+
+
+def attach_transparency_entry(manifest):
+    """Attach a structurally valid post-signing Rekor entry."""
+    manifest["transparency_log_entry"] = {
+        "log_id": "0" * 64,
+        "log_index": 1,
+        "entry_uuid": TRANSPARENCY_ENTRY_ID,
+        "integrated_time": int(NOW.timestamp()),
+        "inclusion_proof": {
+            "checkpoint": "signed-checkpoint",
+            "hashes": [],
+            "tree_size": 1,
+        },
+    }
+    return manifest
+
+
+def hitl_approval(approved_at, approved_scope, **overrides):
+    approval = {
+        "approver_id": APPROVER_ID,
+        "approved_at": approved_at,
+        "approved_scope": approved_scope,
+    }
+    approval.update(overrides)
+    approval["approval_signature"] = HitlApprovalSigner(APPROVER_KP).sign_approval(
+        manifest_id=base_manifest()["manifest_id"],
+        approved_at=approval["approved_at"],
+        approved_scope=approval["approved_scope"],
+        approver_id=approval["approver_id"],
+    )
+    return approval
 
 
 # ---------------------------------------------------------------------------
@@ -88,6 +125,52 @@ def test_valid_all_match():
     assert result.fields_verified.system_prompt == FieldResult.MATCH
     assert result.fields_verified.policy_bundle == FieldResult.MATCH
     assert result.mismatch_details == []
+
+
+def test_required_transparency_missing_is_incomplete():
+    result = verify_manifest(
+        base_manifest(), base_context(require_transparency=True), store()
+    )
+    assert result.result == OverallResult.INCOMPLETE
+    assert result.transparency_verified is False
+
+
+def test_present_but_untrusted_transparency_entry_is_unverifiable():
+    result = verify_manifest(
+        attach_transparency_entry(base_manifest()),
+        base_context(require_transparency=True),
+        store(),
+    )
+    assert result.result == OverallResult.UNVERIFIABLE
+    assert result.transparency_verified is False
+
+
+def test_independently_verified_transparency_entry_satisfies_requirement():
+    result = verify_manifest(
+        attach_transparency_entry(base_manifest()),
+        base_context(
+            require_transparency=True,
+            verified_transparency_entry_ids={TRANSPARENCY_ENTRY_ID},
+            transparency_evidence_manifest_id=base_manifest()["manifest_id"],
+        ),
+        store(),
+    )
+    assert result.result == OverallResult.VALID
+    assert result.transparency_verified is True
+
+
+def test_verified_transparency_entry_cannot_be_replayed_to_another_manifest():
+    result = verify_manifest(
+        attach_transparency_entry(base_manifest()),
+        base_context(
+            require_transparency=True,
+            verified_transparency_entry_ids={TRANSPARENCY_ENTRY_ID},
+            transparency_evidence_manifest_id="018f4a3b-2c1d-7e5f-a8b9-ffffffffffff",
+        ),
+        store(),
+    )
+    assert result.result == OverallResult.UNVERIFIABLE
+    assert result.transparency_verified is False
 
 
 @pytest.mark.parametrize(
@@ -213,10 +296,9 @@ def test_hitl_approved():
     approval_time = (NOW - timedelta(hours=1)).isoformat().replace("+00:00", "Z")
     m = base_manifest(hitl_record={
         "required": True,
-        "approvals": [{
-            "approved_at": approval_time,
-            "approved_scope": {"approval_duration_seconds": 7200},
-        }],
+        "approvals": [hitl_approval(
+            approval_time, {"approval_duration_seconds": 7200}
+        )],
     })
     result = verify_manifest(m, base_context(), store())
     assert result.fields_verified.hitl_record == HitlResult.APPROVED
@@ -317,12 +399,16 @@ def test_attestation_hash_mismatch_with_enforce_raises_mismatch():
     assert any(d.field == "attestation" for d in result.mismatch_details)
 
 
-def test_attestation_hash_mismatch_without_enforce_is_valid():
+def test_attestation_hash_mismatch_is_fatal_without_enforce():
+    """Issue #265: a present attestation that binds a different manifest is
+    a report about some other document. enforce_attestation governs whether
+    an attestation is required, not whether a wrong one counts."""
     m = base_manifest()
     m["attestation"] = {"platform": "tpm", "manifest_hash_in_report": "sha256:" + "00" * 32}
     result = verify_manifest(m, base_context(), store())
     assert result.attestation_verified is False
-    assert result.result == OverallResult.VALID
+    assert result.result == OverallResult.MISMATCH
+    assert [d for d in result.mismatch_details if d.field == "attestation"]
 
 
 # ---------------------------------------------------------------------------
@@ -627,12 +713,60 @@ def test_enforce_hitl_with_valid_approval_passes():
     approval_time = (NOW - timedelta(minutes=30)).isoformat().replace("+00:00", "Z")
     m = base_manifest(hitl_record={
         "required": True,
-        "approvals": [{
-            "approved_at": approval_time,
-            "approved_scope": {"approval_duration_seconds": 7200},
-        }],
+        "approvals": [hitl_approval(
+            approval_time, {"approval_duration_seconds": 7200}
+        )],
     })
     result = verify_manifest(m, base_context(enforce_hitl=True), store())
+    assert result.fields_verified.hitl_record == HitlResult.APPROVED
+    assert result.result == OverallResult.VALID
+
+
+def test_level_2_rejects_software_key_for_high_risk_approval():
+    approval_time = (NOW - timedelta(minutes=30)).isoformat().replace("+00:00", "Z")
+    m = base_manifest(hitl_record={
+        "required": True,
+        "approvals": [{
+            "approved_at": approval_time,
+            "approved_scope": {
+                "approval_duration_seconds": 7200,
+                "risk_tier": "high",
+            },
+            "approval_method": "software-key",
+        }],
+    })
+    result = verify_manifest(
+        m,
+        base_context(enforce_hitl=True, conformance_level=2),
+        store(),
+    )
+    assert result.fields_verified.hitl_record == HitlResult.APPROVAL_INSUFFICIENT
+    assert result.result == OverallResult.MISMATCH
+
+
+def test_level_2_accepts_hardware_key_for_high_risk_approval():
+    approval_time = (NOW - timedelta(minutes=30)).isoformat().replace("+00:00", "Z")
+    m = base_manifest(hitl_record={
+        "required": True,
+        "approvals": [hitl_approval(
+            approval_time, {
+                "approval_duration_seconds": 7200,
+                "risk_tier": "high",
+            },
+            approval_method="hardware-key",
+        )],
+    })
+    attach_transparency_entry(m)
+    result = verify_manifest(
+        m,
+        base_context(
+            enforce_hitl=True,
+            conformance_level=2,
+            verified_transparency_entry_ids={TRANSPARENCY_ENTRY_ID},
+            transparency_evidence_manifest_id=m["manifest_id"],
+        ),
+        store(),
+    )
     assert result.fields_verified.hitl_record == HitlResult.APPROVED
     assert result.result == OverallResult.VALID
 

@@ -18,10 +18,11 @@ import hmac
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Optional, Union
+from typing import Any, Callable, Optional, Union
 
 from pydantic import BaseModel, Field
 
+from ._audit_continuity import AuditCheckpoint, verify_continuity
 from ._cose import (
     COSE_MANIFEST_VERSION,
     MEDIA_TYPE_MANIFEST_COSE,
@@ -56,6 +57,10 @@ class FieldResult(str, Enum):
     MISMATCH = "MISMATCH"
     NOT_BOUND = "NOT_BOUND"
     EXPIRED = "EXPIRED"
+    # decision_trace only (spec 3.2.7.1): the running audit chain is not the
+    # root signed at T0, but continuity evidence proves it descends from it by
+    # append only. Without that proof a diverged root stays MISMATCH.
+    EXTENDED = "EXTENDED"
 
 
 class DelegationResult(str, Enum):
@@ -67,12 +72,24 @@ class DelegationResult(str, Enum):
     UNVERIFIABLE = "UNVERIFIABLE"
 
 
+class ConfigurationAssurance(str, Enum):
+    """Spec 3.2.1.1 / 5.2. Reported separately from `system_prompt` because the
+    two answer different questions: the field result says which prompt is
+    running, this says whether the approved prompt was ever assessed."""
+
+    PASSED = "PASSED"
+    FLAGGED = "FLAGGED"
+    NOT_ASSESSED = "NOT_ASSESSED"
+
+
 class HitlResult(str, Enum):
     APPROVED = "APPROVED"
     EXPIRED = "EXPIRED"
     NOT_REQUIRED = "NOT_REQUIRED"
     MISSING = "MISSING"
     APPROVAL_INSUFFICIENT = "APPROVAL_INSUFFICIENT"
+    INVALID = "INVALID"
+    UNVERIFIABLE = "UNVERIFIABLE"
 
 
 class MismatchDetail(BaseModel):
@@ -102,16 +119,50 @@ class EvidencePack(BaseModel):
     pack_uri: Optional[str] = None
 
 
+class AgentCorrelation(BaseModel):
+    """The join key between a manifest and the runtime evidence emitted
+    under it (spec 6.4.2).
+
+    `agent_uid` is the stable logical identity and `agent_instance_uid` the
+    session-scoped one, mirroring the OCSF `ai_agent` split. The latter is
+    None on a manifest that governs more than one run; a producer supplies its
+    own session identifier there and must not reuse `agent_uid` for it, or the
+    two concepts collapse and "every run of this agent" stops being a query.
+    """
+
+    agent_uid: str
+    agent_instance_uid: Optional[str] = None
+    manifest_id: str
+
+
 class VerificationResult(BaseModel):
     verification_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     manifest_id: str
     verified_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    # Spec 5.1.2. The nonce is echoed unchanged so a relying party can tell this
+    # result was produced for its live request; the context hash is what it
+    # asked for. Neither verification_id nor verified_at can do that job:
+    # the service picks both.
+    challenge_nonce: Optional[str] = None
+    verification_context_hash: Optional[str] = None
     result: OverallResult
     signature_verified: bool = False
+    # True only when a receipt/entry was independently appraised against the
+    # relying party's transparency-service trust policy. Presence alone is not
+    # verification because COSE unprotected headers are attacker-malleable.
+    transparency_verified: bool = False
     attestation_verified: bool = False
     fields_verified: FieldsVerified = Field(default_factory=FieldsVerified)
+    # Spec 5.2. NOT_ASSESSED is the default because absence of an assessment is
+    # not a pass, and reporting it is what lets a relying party tell the two
+    # apart instead of inferring one from silence.
+    configuration_assurance: ConfigurationAssurance = ConfigurationAssurance.NOT_ASSESSED
     mismatch_details: list[MismatchDetail] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    # Spec 5.2 / 6.4.2: what a consumer joins this manifest to its runtime
+    # evidence with. Conforming manifests always carry agent_id, so this is
+    # absent only when reporting malformed input that omitted the required ID.
+    correlation: Optional[AgentCorrelation] = None
     evidence_pack: Optional[EvidencePack] = None
     verification_signature: Optional[str] = None
 
@@ -143,6 +194,11 @@ class VerifyRequest(BaseModel):
     ``trusted_key_issuers`` maps each trusted key_id to the issuer SPIFFE URIs
     authorized to sign manifests with that key. When supplied, key-to-issuer
     authorization is fail-closed.
+
+    ``approver_public_keys`` maps the human-attributable ``approver_id`` on a
+    HITL approval to its trusted Ed25519 public key. HITL verification is
+    fail-closed: an approval without a trusted key is ``UNVERIFIABLE`` and an
+    invalid signature is ``INVALID``; neither can produce ``VALID``.
     """
 
     manifest_id: str
@@ -154,6 +210,13 @@ class VerifyRequest(BaseModel):
     trusted_key_issuers: dict[str, list[str]] = Field(default_factory=dict)
     # principal_id -> base64url-encoded public key bytes (for delegation chain)
     delegation_public_keys: dict[str, str] = Field(default_factory=dict)
+    # approver_id -> base64url-encoded Ed25519 public key bytes (for HITL)
+    approver_public_keys: dict[str, str] = Field(default_factory=dict)
+    # Digests/IDs produced by an independently trusted transparency verifier.
+    verified_transparency_entry_ids: set[str] = Field(default_factory=set)
+    verified_transparency_receipt_hashes: set[str] = Field(default_factory=set)
+    transparency_evidence_manifest_id: Optional[str] = None
+    require_transparency: bool = False
     # When True, a manifest without a delegation_chain is a verification failure
     require_delegation: bool = False
 
@@ -161,6 +224,31 @@ class VerifyRequest(BaseModel):
 # ---------------------------------------------------------------------------
 # Verification engine
 # ---------------------------------------------------------------------------
+
+
+class AuditChainContinuity(BaseModel):
+    """Evidence that a running audit chain descends from the signed root.
+
+    Spec Section 3.2.7.1. The runtime supplies this alongside
+    `audit_chain_root` whenever the chain has advanced past the state bound at
+    manifest signing time. Hex strings, not bytes, so the whole context stays
+    JSON-serializable over the Section 5.1 endpoint.
+    """
+
+    # Chain state at manifest signing time, as served by the runtime. Both
+    # MUST agree with decision_trace.audit_chain_root / entry_count when the
+    # manifest carries them; a disagreement is discontinuity, not a hint.
+    signed_tree_size: int = Field(ge=0)
+    current_tree_size: int = Field(ge=0)
+    signed_seq: int = Field(default=0, ge=0)
+    current_seq: int = Field(default=0, ge=0)
+    observed_at: Optional[datetime] = None
+    ttl_seconds: int = Field(default=300, ge=60, le=7_776_000)
+    # merkle-log: RFC 9162 consistency proof nodes, lowercase hex.
+    consistency_proof: list[str] = Field(default_factory=list)
+    # hash-chained: entry leaf hashes appended after the signed position, in
+    # order, lowercase hex (see _audit_continuity.entry_leaf).
+    appended_entry_leaves: list[str] = Field(default_factory=list)
 
 
 class VerificationContext(BaseModel):
@@ -173,7 +261,19 @@ class VerificationContext(BaseModel):
     rag_corpus_merkle_root: Optional[str] = None
     memory_snapshot_hash: Optional[str] = None
     audit_chain_root: Optional[str] = None
+    # Present only when the running chain has advanced past the signed
+    # root (spec 3.2.7.1). Absent + diverged root = MISMATCH, unchanged.
+    audit_chain_continuity: Optional[AuditChainContinuity] = None
     container_image_digest: Optional[str] = None
+    # Spec 5.1.2: the relying party's challenge, hex, at least 128 bits from a
+    # CSPRNG, used once. Optional here because a caller verifying a historical
+    # manifest has no freshness requirement to bind.
+    challenge_nonce: Optional[str] = None
+    # Spec 5.1 request context. These do not change what is verified; they are
+    # what the caller declared it was asking, and they travel into the context
+    # hash so the answer is bound to the question.
+    purpose: Optional[str] = None
+    verifier_id: Optional[str] = None
     enforce_hitl: bool = False
     enforce_attestation: bool = False
     min_slsa_level: int = 0
@@ -183,8 +283,23 @@ class VerificationContext(BaseModel):
     trusted_key_issuers: dict[str, list[str]] = Field(default_factory=dict)
     # principal_id -> base64url-encoded public key bytes (for delegation chain)
     delegation_public_keys: dict[str, str] = Field(default_factory=dict)
+    # approver_id -> base64url-encoded Ed25519 public key bytes (for HITL)
+    approver_public_keys: dict[str, str] = Field(default_factory=dict)
+    # Legacy Rekor entry UUIDs and sha256 hex digests of raw COSE receipt bytes
+    # that the relying party has independently verified against a trusted log.
+    # These are evidence inputs, not presence assertions made by the envelope.
+    verified_transparency_entry_ids: set[str] = Field(default_factory=set)
+    verified_transparency_receipt_hashes: set[str] = Field(default_factory=set)
+    # The manifest to which the independent appraisal bound those IDs/digests.
+    # This prevents a verified receipt allow-list from becoming replayable.
+    transparency_evidence_manifest_id: Optional[str] = None
+    # Level 1+ implies this requirement even when the flag is false.
+    require_transparency: bool = False
     # When True, bound artifacts without runtime hashes cause INCOMPLETE result
-    strict_artifact_verification: bool = False
+    # Safe by default: an authentic manifest is not proof that the running
+    # artifacts match it. Callers performing an intentional signature-only
+    # appraisal must opt out explicitly.
+    strict_artifact_verification: bool = True
     # When True, manifest must have a delegation chain
     require_delegation: bool = False
     # Conformance level for enforcing spec §3.2.5.1 poisoning_scan rules.
@@ -311,6 +426,160 @@ def _strict_schema_violations(manifest: dict[str, Any]) -> list[tuple[str, str]]
     return []
 
 
+def _check_decision_trace(
+    dt: dict[str, Any],
+    context: "VerificationContext",
+    mismatches: list["MismatchDetail"],
+    check: Callable[[str, Optional[str], Optional[str]], FieldResult],
+) -> FieldResult:
+    """Verify artifact #7 against the running audit chain (spec 3.2.7 / 3.2.7.1).
+
+    `audit_chain_root` is the chain state at manifest signing time, so a
+    running chain that has recorded a single decision since then no longer
+    matches it. Three outcomes, and the middle one is the point of #273:
+
+      MATCH      roots identical - the chain has not moved.
+      EXTENDED   roots differ, and continuity evidence proves the signed root
+                 is an append-only prefix of the running root.
+      MISMATCH   roots differ with no proof, a failed proof, a rollback, or a
+                 stale checkpoint. Unchanged fail-closed behaviour: an
+                 unproven divergence is exactly the rebuilt-chain case
+                 Section 3.2.7 already requires a verifier to reject.
+    """
+    signed_root = dt.get("audit_chain_root")
+    running_root = context.audit_chain_root
+    if signed_root is None or running_root is None:
+        # Unbound, or bound with nothing to compare against: the inner _check
+        # owns NOT_BOUND and the strict_artifact_verification bookkeeping.
+        return check("decision_trace", signed_root, running_root)
+    if hmac.compare_digest(signed_root, running_root):
+        return FieldResult.MATCH
+
+    continuity = context.audit_chain_continuity
+    if continuity is None:
+        mismatches.append(MismatchDetail(
+            field="decision_trace",
+            expected_hash=signed_root,
+            actual_hash=running_root,
+        ))
+        return FieldResult.MISMATCH
+
+    signed_count = dt.get("entry_count")
+    if signed_count is not None and signed_count != continuity.signed_tree_size:
+        # entry_count is the only size the issuer signed. If the runtime
+        # reports a different signed size, the proof is being anchored at a
+        # position the manifest never committed to.
+        mismatches.append(MismatchDetail(
+            field="decision_trace",
+            expected_hash=signed_root,
+            actual_hash=running_root,
+        ))
+        return FieldResult.MISMATCH
+
+    observed_at = continuity.observed_at or datetime.now(timezone.utc)
+    verdict = verify_continuity(
+        AuditCheckpoint(
+            audit_chain_root=signed_root,
+            tree_size=continuity.signed_tree_size,
+            seq=continuity.signed_seq,
+            observed_at=observed_at,
+            ttl_seconds=continuity.ttl_seconds,
+        ),
+        AuditCheckpoint(
+            audit_chain_root=running_root,
+            tree_size=continuity.current_tree_size,
+            seq=continuity.current_seq,
+            observed_at=observed_at,
+            ttl_seconds=continuity.ttl_seconds,
+        ),
+        trace_type=dt.get("trace_type") or "hash-chained",
+        consistency_proof=_hex_nodes(continuity.consistency_proof),
+        appended_entry_leaves=_hex_nodes(continuity.appended_entry_leaves),
+    )
+    if verdict.accepted:
+        return FieldResult.EXTENDED
+    mismatches.append(MismatchDetail(
+        field="decision_trace",
+        expected_hash=signed_root,
+        actual_hash=running_root,
+    ))
+    return FieldResult.MISMATCH
+
+
+def _hex_nodes(values: list[str]) -> list[bytes]:
+    """Decode hex proof nodes, mapping anything malformed to a value that
+    cannot verify. Raising here would turn a hostile proof into a 500."""
+    nodes: list[bytes] = []
+    for value in values:
+        try:
+            nodes.append(bytes.fromhex(value))
+        except (ValueError, TypeError):
+            nodes.append(b"")
+    return nodes
+
+
+# Spec 5.1.2 rule 6. Domain separated so the derived value cannot be presented
+# as a verification challenge in its own right.
+_RUNTIME_NONCE_DOMAIN = b"am-runtime-nonce"
+
+# The context inputs this implementation lets affect a verification decision.
+# Spec 5.1.2 rule 2 requires every such input to be inside the hash; an
+# implementation that drops one is asserting a decision it did not make. The
+# runtime artifact hashes and key material in VerificationContext are not in
+# this list because they are the evidence being checked and the trust anchors
+# doing the checking, not the question the relying party asked.
+_CONTEXT_HASH_FIELDS: tuple[str, ...] = (
+    "conformance_level",
+    "enforce_attestation",
+    "enforce_hitl",
+    "min_slsa_level",
+    "purpose",
+    "require_delegation",
+    "require_transparency",
+    "strict_artifact_verification",
+    "verifier_id",
+)
+
+
+def verification_context_hash(context: "VerificationContext") -> str:
+    """`sha256:` digest of the RFC 8785 canonical JSON of the request context.
+
+    Spec 5.1.2 rule 2. `challenge_nonce` is deliberately excluded (rule 3): the
+    relying party compares the nonce directly, and leaving it out means two
+    requests asking the same question hash the same, which is what makes the
+    value comparable across requests at all.
+    """
+    from ._canonicalize import canonicalize
+
+    declared = {
+        name: getattr(context, name)
+        for name in _CONTEXT_HASH_FIELDS
+        if getattr(context, name, None) is not None
+    }
+    return "sha256:" + hashlib.sha256(canonicalize(declared)).hexdigest()
+
+
+def derive_runtime_nonce(challenge_nonce: str) -> bytes:
+    """Derive the section 3.3.2 runtime-report nonce from a 5.1.2 challenge.
+
+    `sha256("am-runtime-nonce" || challenge_nonce_bytes)`. A runtime report
+    whose nonce is not this derivation is evidence about a different challenge,
+    which leaves the two freshness domains replayable independently of each
+    other -- the composition failure spec 5.1.2 rule 6 exists to prevent.
+
+    Raises ValueError if *challenge_nonce* is not hex or is under 128 bits.
+    """
+    try:
+        raw = bytes.fromhex(challenge_nonce)
+    except (ValueError, TypeError) as exc:
+        raise ValueError("challenge_nonce must be hex") from exc
+    if len(raw) < 16:
+        raise ValueError(
+            f"challenge_nonce must carry at least 128 bits, got {len(raw) * 8}"
+        )
+    return hashlib.sha256(_RUNTIME_NONCE_DOMAIN + raw).digest()
+
+
 def verify_manifest(
     manifest: Union[dict[str, Any], bytes],
     context: VerificationContext,
@@ -345,6 +614,8 @@ def verify_manifest(
       result is ``UNVERIFIABLE`` (spec 3.4.1 / 5.2).
     - ``enforce_hitl=True`` with no ``hitl_record`` in the manifest is a
       failure (``HitlResult.MISSING`` and a non-VALID overall result).
+    - An approval is never ``APPROVED`` unless its own signature verifies with
+      a trusted approver key and binds the current manifest ID and scope.
 
     The ``_envelope`` parameter is internal: it carries an already-appraised
     COSE envelope into the shared pipeline and is not part of the public API.
@@ -356,8 +627,20 @@ def verify_manifest(
 
     manifest_id = manifest.get("manifest_id", "unknown")
     result = VerificationResult(manifest_id=manifest_id, result=OverallResult.VALID)
+    agent_uid = manifest.get("agent_id")
+    if isinstance(agent_uid, str) and agent_uid:
+        instance_uid = manifest.get("agent_instance_id")
+        result.correlation = AgentCorrelation(
+            agent_uid=agent_uid,
+            agent_instance_uid=instance_uid if isinstance(instance_uid, str) else None,
+            manifest_id=manifest_id,
+        )
+    result.verification_context_hash = verification_context_hash(context)
+    result.challenge_nonce = context.challenge_nonce
     mismatches: list[MismatchDetail] = []
     fields = result.fields_verified
+    transparency_present = False
+    transparency_unverifiable = False
 
     # --- Schema validation (fail-closed). verify_manifest accepts a raw dict,
     # so it must run the manifest through the Pydantic guards before trusting
@@ -635,6 +918,32 @@ def verify_manifest(
         context.rag_corpus_merkle_root,
     )
 
+    # --- Configuration assurance (spec §3.2.1.1, issue #254)
+    # Same rule shape as the poisoning scan below, and the same reasoning: an
+    # assessment that ran and failed is evidence against the configuration, so
+    # carrying it while returning VALID would make the field decorative. An
+    # absent or not-assessed block is reported, never inferred as a pass, and
+    # does not affect the overall result in v0.2 -- which conformance level
+    # requires an assessment is deliberately still open.
+    assurance = (artifacts.get("system_prompt") or {}).get("assurance_test") or {}
+    assurance_result = assurance.get("result")
+    if assurance_result == "passed":
+        result.configuration_assurance = ConfigurationAssurance.PASSED
+    elif assurance_result == "flagged":
+        result.configuration_assurance = ConfigurationAssurance.FLAGGED
+        mismatches.append(MismatchDetail(
+            field="system_prompt.assurance_test",
+            expected_hash="<result: passed or not-assessed>",
+            actual_hash="<result: flagged>",
+        ))
+    else:
+        result.configuration_assurance = ConfigurationAssurance.NOT_ASSESSED
+        if assurance_result == "not-assessed":
+            result.warnings.append(
+                "system_prompt.assurance_test.result is 'not-assessed'; the "
+                "approved prompt's behaviour has not been assessed"
+            )
+
     # --- Poisoning scan rules (spec §3.2.5.1)
     poisoning_scan = rc.get("poisoning_scan") or {}
     poisoning_result = poisoning_scan.get("result")
@@ -680,11 +989,7 @@ def verify_manifest(
             )
 
     dt = artifacts.get("decision_trace") or {}
-    fields.decision_trace = _check(
-        "decision_trace",
-        dt.get("audit_chain_root"),
-        context.audit_chain_root,
-    )
+    fields.decision_trace = _check_decision_trace(dt, context, mismatches, _check)
 
     sc = artifacts.get("supply_chain") or {}
     fields.supply_chain = _check(
@@ -747,9 +1052,19 @@ def verify_manifest(
                 ))
             fields.hitl_record = HitlResult.MISSING
         else:
-            # Check if any approval has expired (HITL-001: parse failure must set all_ok=False)
+            # Approval entries attach outside the manifest/COSE signature and
+            # MUST be authenticated independently (spec 3.5, 3.6, and 5.3).
+            # Presence, lifetime, and method checks alone do not prove that a
+            # human approved this manifest: the signature pre-image binds the
+            # manifest ID, approver, timestamp, and exact scope.
+            from ._delegation import verify_hitl_approval
+            from ._signing import _b64url_decode
+
             now = datetime.now(timezone.utc)
             all_ok = True
+            approval_insufficient = False
+            approval_invalid = False
+            approval_unverifiable = False
             for approval in approvals:
                 approved_at = approval.get("approved_at", "")
                 duration = approval.get("approved_scope", {}).get("approval_duration_seconds", 0)
@@ -763,14 +1078,61 @@ def verify_manifest(
                     # Unparseable timestamp - treat as expired to fail safe (HITL-001)
                     all_ok = False
                     break
-            if not all_ok:
+                if context.conformance_level >= 2:
+                    scope = approval.get("approved_scope") or {}
+                    risk_tier = scope.get("risk_tier")
+                    method = approval.get("approval_method")
+                    if method == "software-key" or (
+                        risk_tier in {"high", "critical"} and method != "hardware-key"
+                    ):
+                        approval_insufficient = True
+                        break
+
+                approver_id = approval.get("approver_id")
+                public_key_b64 = context.approver_public_keys.get(approver_id)
+                if public_key_b64 is None:
+                    approval_unverifiable = True
+                    break
+                try:
+                    verify_hitl_approval(
+                        approval,
+                        manifest_id,
+                        _b64url_decode(public_key_b64),
+                    )
+                except (InvalidSignature, KeyError, TypeError, ValueError):
+                    approval_invalid = True
+                    break
+
+            if approval_unverifiable:
+                fields.hitl_record = HitlResult.UNVERIFIABLE
+                result.warnings.append(
+                    "HITL approval could not be authenticated: no trusted "
+                    "approver key is available for its approver_id"
+                )
+            elif approval_invalid:
+                mismatches.append(MismatchDetail(
+                    field="hitl_record.approval_signature",
+                    expected_hash="<valid approval signature bound to this manifest>",
+                    actual_hash="<invalid or malformed approval signature>",
+                ))
+                fields.hitl_record = HitlResult.INVALID
+            elif approval_insufficient:
+                mismatches.append(MismatchDetail(
+                    field="hitl_record",
+                    expected_hash="<approval method sufficient for declared risk tier>",
+                    actual_hash="<approval method insufficient>",
+                ))
+                fields.hitl_record = HitlResult.APPROVAL_INSUFFICIENT
+            elif not all_ok:
                 # Expired approvals always add to mismatches regardless of enforce_hitl (HITL-002)
                 mismatches.append(MismatchDetail(
                     field="hitl_record",
                     expected_hash="<valid unexpired approval>",
                     actual_hash="<approval expired or unparseable>",
                 ))
-            fields.hitl_record = HitlResult.APPROVED if all_ok else HitlResult.EXPIRED
+                fields.hitl_record = HitlResult.EXPIRED
+            else:
+                fields.hitl_record = HitlResult.APPROVED
     elif context.enforce_hitl:
         # enforce_hitl with no hitl_record at all - fail closed. Omitting the
         # record entirely MUST NOT be weaker than declaring it with no approvals.
@@ -808,12 +1170,57 @@ def verify_manifest(
                 expected_attest_hash = "sha256:" + _hashlib.sha256(_canonicalize(subset)).hexdigest()
             if hmac.compare_digest(reported_hash, expected_attest_hash):
                 result.attestation_verified = True
-            elif context.enforce_attestation:
+            else:
+                # A present attestation that binds a different manifest is a
+                # mismatch whether or not the caller asked for enforcement
+                # (spec 3.3, issue #265). Absent is a policy question and
+                # enforce_attestation still governs it; present-and-wrong is
+                # not: it is a report about some other document, and the case
+                # that produces it is the stale attestation left on a re-signed
+                # manifest. Gating it on enforce_attestation meant the default
+                # verifier returned VALID for exactly that.
                 mismatches.append(MismatchDetail(
                     field="attestation",
                     expected_hash=expected_attest_hash,
                     actual_hash=reported_hash,
                 ))
+
+    # --- Transparency receipt. The envelope field/header is untrusted input;
+    # only an entry ID or receipt digest supplied by an independent log
+    # appraisal can make this true. Level 1+ is production conformance and
+    # therefore requires transparency under spec sections 3.6 and 5.3.
+    require_transparency = context.require_transparency or context.conformance_level >= 1
+    transparency_evidence_bound = context.transparency_evidence_manifest_id == manifest_id
+    if _envelope is not None:
+        for receipt in _envelope.receipts:
+            if not isinstance(receipt, bytes):
+                continue
+            transparency_present = True
+            digest = hashlib.sha256(receipt).hexdigest()
+            if (
+                transparency_evidence_bound
+                and digest in context.verified_transparency_receipt_hashes
+            ):
+                result.transparency_verified = True
+    else:
+        entry = manifest.get("transparency_log_entry")
+        if isinstance(entry, dict):
+            entry_id = entry.get("entry_uuid")
+            transparency_present = isinstance(entry_id, str) and bool(entry_id)
+            if (
+                transparency_evidence_bound
+                and entry_id in context.verified_transparency_entry_ids
+            ):
+                result.transparency_verified = True
+
+    if require_transparency and transparency_present and not result.transparency_verified:
+        result.warnings.append(
+            "transparency receipt is present but was not independently verified "
+            "against a trusted transparency-service policy"
+        )
+        transparency_unverifiable = require_transparency
+    elif require_transparency and not transparency_present:
+        result.warnings.append("no transparency receipt was supplied")
 
     # --- Final result (fail-closed: VALID requires a verified signature and
     # a verifiable delegation chain - spec 5.3)
@@ -826,13 +1233,19 @@ def verify_manifest(
         # Signature present but no trusted keys (or verification never ran) -
         # the manifest cannot be authenticated. Never VALID.
         result.result = OverallResult.UNVERIFIABLE
+    elif transparency_unverifiable and OverallResult.VALID == result.result:
+        result.result = OverallResult.UNVERIFIABLE
     elif fields.delegation_chain == DelegationResult.UNVERIFIABLE:
+        result.result = OverallResult.UNVERIFIABLE
+    elif fields.hitl_record == HitlResult.UNVERIFIABLE:
         result.result = OverallResult.UNVERIFIABLE
     elif OverallResult.VALID == result.result:
         # A composition-only document authenticates a contribution to a future
         # agent, not a complete agent instance. INCOMPLETE is deliberate: it
         # can be verified and inspected but cannot be mistaken for Level 0.
         if manifest.get("profile") == "composition-only":
+            result.result = OverallResult.INCOMPLETE
+        elif require_transparency and not transparency_present:
             result.result = OverallResult.INCOMPLETE
         # VERIFY-001: bound artifacts with no runtime hashes in strict mode
         elif context.strict_artifact_verification and unverified_bound:
@@ -946,11 +1359,6 @@ def _verify_cose_envelope(
         payload_manifest, context, revocation_store, _envelope=envelope
     )
 
-    if not envelope.receipts:
-        result.warnings.append(
-            "no transparency receipt in the unprotected header (label 394); "
-            "a production manifest is expected to carry one"
-        )
     return result
 
 
@@ -1106,8 +1514,10 @@ def create_router(
         The request body carries ``trusted_keys`` (key_id -> base64url public
         key) used for manifest signature verification, optionally
         ``trusted_key_issuers`` (key_id -> issuer SPIFFE URIs) for key issuer
-        authorization, and optionally ``delegation_public_keys`` (principal_id
-        -> base64url public key) for delegation chain verification.
+        authorization, optionally ``delegation_public_keys`` (principal_id ->
+        base64url public key) for delegation chain verification, and optionally
+        ``approver_public_keys`` (approver_id -> base64url Ed25519 public key)
+        for HITL approval verification.
         Verification is fail-closed - see :func:`verify_manifest`.
         """
         manifest = _lookup_manifest(request.manifest_id)
@@ -1117,6 +1527,11 @@ def create_router(
             trusted_keys=request.trusted_keys,
             trusted_key_issuers=request.trusted_key_issuers,
             delegation_public_keys=request.delegation_public_keys,
+            approver_public_keys=request.approver_public_keys,
+            verified_transparency_entry_ids=request.verified_transparency_entry_ids,
+            verified_transparency_receipt_hashes=request.verified_transparency_receipt_hashes,
+            transparency_evidence_manifest_id=request.transparency_evidence_manifest_id,
+            require_transparency=request.require_transparency,
             require_delegation=request.require_delegation,
         )
         return verify_manifest(manifest, ctx, revocation_store)

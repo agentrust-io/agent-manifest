@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from agent_manifest._delegation import HitlApprovalSigner
 from agent_manifest._signing import Ed25519Signer, generate_ed25519
 from agent_manifest._verify import (
     DelegationResult,
@@ -33,6 +34,8 @@ MID   = "018f4a3b-2c1d-7e5f-a8b9-0d1e2f3a4b5c"
 # trusted key in the verification context.
 KP = generate_ed25519()
 TRUSTED_KEYS = {KP.key_id: KP.public_b64url()}
+APPROVER_KP = generate_ed25519()
+APPROVER_ID = "mailto:alice@example.com"
 ISSUER_A = "spiffe://trust.example/issuer/a"
 ISSUER_B = "spiffe://trust.example/issuer/b"
 
@@ -71,6 +74,7 @@ def ctx(**overrides):
         model_version="claude-3",
         audit_chain_root=SHA_C,
         trusted_keys=dict(TRUSTED_KEYS),
+        approver_public_keys={APPROVER_ID: APPROVER_KP.public_b64url()},
     )
     for k, v in overrides.items():
         setattr(c, k, v)
@@ -79,6 +83,20 @@ def ctx(**overrides):
 
 def store():
     return RevocationStore()
+
+
+def hitl_approval(approved_at, approved_scope):
+    return {
+        "approver_id": APPROVER_ID,
+        "approved_at": approved_at,
+        "approved_scope": approved_scope,
+        "approval_signature": HitlApprovalSigner(APPROVER_KP).sign_approval(
+            manifest_id=MID,
+            approved_at=approved_at,
+            approved_scope=approved_scope,
+            approver_id=APPROVER_ID,
+        ),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -301,7 +319,7 @@ def test_hitl_not_required():
 def test_hitl_approved():
     ago = (NOW - timedelta(minutes=30)).isoformat().replace("+00:00", "Z")
     m = manifest(hitl_record={"required": True, "approvals": [
-        {"approved_at": ago, "approved_scope": {"approval_duration_seconds": 3600}}
+        hitl_approval(ago, {"approval_duration_seconds": 3600})
     ]})
     r = verify_manifest(m, ctx(), store())
     assert r.fields_verified.hitl_record == HitlResult.APPROVED
@@ -376,14 +394,14 @@ def test_http_get_verify_without_keys_is_unverifiable():
 
 
 @require_fastapi
-def test_http_post_verify_with_trusted_keys_is_valid():
+def test_http_post_verify_with_trusted_keys_is_incomplete_without_runtime_evidence():
     client, _ = _client()
     r = client.post("/verify", json={
         "manifest_id": MID,
         "trusted_keys": TRUSTED_KEYS,
     })
     assert r.status_code == 200
-    assert r.json()["result"] == "VALID"
+    assert r.json()["result"] == "INCOMPLETE"
     assert r.json()["signature_verified"] is True
 
 

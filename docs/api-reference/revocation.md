@@ -1,6 +1,6 @@
 # Revocation
 
-Certificate Revocation List (CRL) for agent manifests. See [Tutorial: Revocation and key rotation](../tutorials/revocation.md) for usage examples.
+Certificate Revocation List (CRL) for agent manifests. See [Tutorial: Revocation and key rotation](../tutorials/revocation-and-key-rotation.md) for usage examples.
 
 ## Signing and verification
 

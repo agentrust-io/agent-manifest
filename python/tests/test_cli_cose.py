@@ -91,7 +91,7 @@ def test_verify_detects_the_envelope_from_the_cbor_tag(workspace):
 
     out = workspace / "result.json"
     result = run(
-        "verify", signed, "--public-key", workspace / "pub.hex", "-o", out
+        "verify", signed, "--public-key", workspace / "pub.hex", "--signature-only", "-o", out
     )
     assert result.exit_code == 0, result.output
     assert json.loads(out.read_text())["result"] == "VALID"

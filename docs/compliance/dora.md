@@ -28,7 +28,7 @@ Every field is signed by the issuer key, making the record tamper-evident. An in
 
 **What agent-manifest provides**
 
-**Key rotation:** The [Revocation and key rotation tutorial](../tutorials/revocation.md) documents a zero-downtime rotation procedure. The procedure allows issuing new manifests under a new signing key without interrupting agent operations, satisfying DORA's requirement for continuity under ICT disruption.
+**Key rotation:** The [Revocation and key rotation tutorial](../tutorials/revocation-and-key-rotation.md) documents a zero-downtime rotation procedure. The procedure allows issuing new manifests under a new signing key without interrupting agent operations, satisfying DORA's requirement for continuity under ICT disruption.
 
 **Revocation:** The `FileCRL` component provides an append-only, signed certificate revocation list. A compromised agent can be revoked in under one second by appending a signed `SignedRevocationRecord`. All verifiers checking the CRL endpoint immediately begin rejecting the revoked agent.
 
@@ -79,7 +79,7 @@ The DORA Regulatory Technical Standards (RTS) require documented key management 
 |-------------|-----------|
 | Key generation in a secure environment | `generate_ed25519()` / `generate_ml_dsa_65()` produce keys in-process; production deployments use HSM-backed generation |
 | Key storage separated from signing operations | Issuer key never stored in the manifest; only the public key is embedded |
-| Key rotation procedure | Documented in [Tutorial: Revocation and key rotation](../tutorials/revocation.md) |
+| Key rotation procedure | Documented in [Tutorial: Revocation and key rotation](../tutorials/revocation-and-key-rotation.md) |
 | Key revocation mechanism | `FileCRL` + `.well-known/agent-manifest/revocation` endpoint |
 | Audit trail of key usage | Every manifest signature is a timestamped key-use record |
 

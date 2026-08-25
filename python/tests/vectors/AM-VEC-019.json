@@ -52,6 +52,7 @@
         "manifest_id",
         "previous_manifest_id",
         "agent_id",
+        "agent_instance_id",
         "version",
         "min_verifier_version",
         "issued_at",

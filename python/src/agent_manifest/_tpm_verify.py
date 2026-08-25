@@ -12,8 +12,9 @@ Verification is fail-closed, in four steps:
 2. The attestation-key (AK) certificate chain is verified up to a
    caller-supplied trusted root (leaf issued-by next, root pinned by
    SHA-256 fingerprint). A self-signed AK is never trusted on its own.
-3. The AK signature over the ``TPMS_ATTEST`` blob is verified (ECDSA-P256 or
-   RSA PKCS#1 v1.5, both over SHA-256).
+3. The AK signature over the ``TPMS_ATTEST`` blob is verified. Bare signatures
+   retain the legacy SHA-256 behavior; a ``TPMT_SIGNATURE`` selects RSASSA,
+   RSAPSS, or ECDSA and SHA-256, SHA-384, or SHA-512 from its signed envelope.
 4. The qualifying data (the verifier's nonce, carried in ``extraData``) and the
    PCR digest (the platform measurement) are checked against expected values
    with constant-time compares.
@@ -285,7 +286,10 @@ def parse_tpmt_signature(blob: bytes) -> ParsedSignature:
             offset += 2
             if len(blob) < offset + size:
                 raise TpmVerificationError("TPMT_SIGNATURE truncated inside the RSA signature")
-            return ParsedSignature(sig_alg, hash_alg, blob[offset:offset + size])
+            offset += size
+            if offset != len(blob):
+                raise TpmVerificationError("TPMT_SIGNATURE has trailing bytes")
+            return ParsedSignature(sig_alg, hash_alg, blob[offset - size:offset])
 
         if sig_alg == _ALG_ECDSA:
             from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
@@ -300,6 +304,8 @@ def parse_tpmt_signature(blob: bytes) -> ParsedSignature:
                     )
                 parts.append(blob[offset:offset + size])
                 offset += size
+            if offset != len(blob):
+                raise TpmVerificationError("TPMT_SIGNATURE has trailing bytes")
             return ParsedSignature(
                 sig_alg,
                 hash_alg,
@@ -347,7 +353,7 @@ def _verify_ak_chain(ak_chain_pem: bytes, trusted_roots_pem: bytes) -> "object":
 
 def verify_tpm_quote(
     attest: bytes,
-    signature: bytes,
+    signature: bytes | ParsedSignature,
     ak_chain_pem: bytes,
     *,
     trusted_roots_pem: bytes,
@@ -358,8 +364,10 @@ def verify_tpm_quote(
 
     Args:
         attest: the raw ``TPMS_ATTEST`` blob the TPM signed.
-        signature: the AK signature over ``attest`` (DER ECDSA-P256 or RSA
-            PKCS#1 v1.5, SHA-256).
+        signature: either the legacy bare AK signature (DER ECDSA or RSA
+            PKCS#1 v1.5 over SHA-256), a parsed :class:`ParsedSignature`, or a
+            marshalled ``TPMT_SIGNATURE``. Envelopes select RSASSA, RSAPSS, or
+            ECDSA and SHA-256, SHA-384, or SHA-512 from their algorithm ids.
         ak_chain_pem: the AK certificate chain (PEM, leaf first).
         trusted_roots_pem: the caller's trusted vendor EK/AK roots (PEM).
         expected_qualifying_data: if given, the quote's ``extraData`` (nonce)
@@ -375,8 +383,8 @@ def verify_tpm_quote(
     """
     try:
         from cryptography.exceptions import InvalidSignature
+        from cryptography.hazmat.primitives import hashes
         from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
-        from cryptography.hazmat.primitives.hashes import SHA256
     except ImportError as e:  # pragma: no cover
         raise TpmVerificationError(
             "TPM quote verification requires the 'cryptography' package"
@@ -403,11 +411,55 @@ def verify_tpm_quote(
     # signed the inner structure, so verifying over the outer bytes would fail a
     # genuine quote.
     signed = quote.raw
+    parsed_signature: ParsedSignature | None = None
+    if isinstance(signature, ParsedSignature):
+        parsed_signature = signature
+    elif len(signature) >= 2 and int.from_bytes(signature[:2], "big") in (
+        _ALG_RSASSA,
+        _ALG_RSAPSS,
+        _ALG_ECDSA,
+    ):
+        parsed_signature = parse_tpmt_signature(signature)
+
+    if parsed_signature is None:
+        assert isinstance(signature, bytes)
+        bare_signature = signature
+        signature_algorithm = None
+        digest: hashes.HashAlgorithm = hashes.SHA256()
+    else:
+        bare_signature = parsed_signature.signature
+        signature_algorithm = parsed_signature.sig_alg
+        if parsed_signature.hash_alg == 0x000B:
+            digest = hashes.SHA256()
+        elif parsed_signature.hash_alg == 0x000C:
+            digest = hashes.SHA384()
+        elif parsed_signature.hash_alg == 0x000D:
+            digest = hashes.SHA512()
+        else:
+            raise TpmVerificationError(
+                f"unsupported hash algorithm 0x{parsed_signature.hash_alg:04x}"
+            )
+
     try:
         if isinstance(ak_key, ec.EllipticCurvePublicKey):
-            ak_key.verify(signature, signed, ec.ECDSA(SHA256()))
+            if signature_algorithm not in (None, _ALG_ECDSA):
+                raise TpmVerificationError(
+                    "TPMT_SIGNATURE algorithm does not match the EC attestation key"
+                )
+            ak_key.verify(bare_signature, signed, ec.ECDSA(digest))
         elif isinstance(ak_key, rsa.RSAPublicKey):
-            ak_key.verify(signature, signed, padding.PKCS1v15(), SHA256())
+            signature_padding: padding.AsymmetricPadding
+            if signature_algorithm in (None, _ALG_RSASSA):
+                signature_padding = padding.PKCS1v15()
+            elif signature_algorithm == _ALG_RSAPSS:
+                signature_padding = padding.PSS(
+                    mgf=padding.MGF1(digest), salt_length=digest.digest_size
+                )
+            else:
+                raise TpmVerificationError(
+                    "TPMT_SIGNATURE algorithm does not match the RSA attestation key"
+                )
+            ak_key.verify(bare_signature, signed, signature_padding, digest)
         else:
             raise TpmVerificationError("unsupported AK public-key type for TPM quote")
     except InvalidSignature:

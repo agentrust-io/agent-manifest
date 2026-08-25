@@ -62,6 +62,15 @@ context. It does not make required claims optional in the signed manifest:
 For legacy v0.1 compatibility, a missing `issuer` is rejected when
 `trusted_key_issuers` authorization is configured.
 
+`trusted_key_issuers` defaults to an empty map, and while it is empty
+`verify_manifest()` performs no issuer-key authorization at all: `signature.key_id`
+names a key, and nothing checks that the key is authorized for the manifest's
+`issuer`. A `VALID` result from a default context is a statement that the signature
+verifies under a key you trusted, not that the key belongs to the issuer the
+manifest names. Populate the map for any deployment where the issuer and the
+attested subject are not the same party. The open question of whether the
+specification should require this is tracked in issue #325.
+
 ```python
 import hashlib
 
@@ -164,7 +173,7 @@ if not result.attestation_verified:
 | `EXPIRED` | `expires_at` is in the past | Block; agent must re-issue the manifest |
 | `MISMATCH` | One or more artifact hashes differ | Block; agent may have drifted or been tampered with |
 | `ATTESTATION_UNAVAILABLE` | `enforce_attestation` set but no attestation present | Block in prod, warn in dev |
-| `INCOMPLETE` | `strict_artifact_verification` set and bound fields lack runtime hashes | Block |
+| `INCOMPLETE` | Bound fields lack runtime hashes; this is the safe default | Block |
 | `INCOMPATIBLE_VERSION` | Manifest spec version not supported | Upgrade the SDK |
 
 Inspect `mismatch_details` to identify which artifacts failed:
@@ -174,6 +183,17 @@ if result.result == OverallResult.MISMATCH:
     for detail in result.mismatch_details:
         print(f"  [{detail.field}] expected={detail.expected_hash} got={detail.actual_hash}")
 ```
+
+An auditor that intentionally wants to authenticate only the manifest document, without making any claim about the running artifacts, can construct `VerificationContext(strict_artifact_verification=False)`. This is an explicit scope reduction: callers must label the result as signature-only and must not use it as an authorization decision about the deployed agent.
+
+For production/Level 1+ verification, transparency is also fail-closed. First
+appraise the Rekor entry or SCITT receipt against your trusted transparency
+service, then pass the verified legacy `entry_uuid` in
+`verified_transparency_entry_ids` or the SHA-256 hex digest of the raw COSE
+receipt in `verified_transparency_receipt_hashes`, together with the appraised
+manifest ID in `transparency_evidence_manifest_id`. Receipt presence alone never
+sets `transparency_verified`: COSE receipts live in an unprotected header and
+are attacker-malleable until independently verified.
 
 ---
 

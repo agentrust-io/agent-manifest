@@ -310,6 +310,7 @@ def test_signed_fields_match_spec_coverage_table():
         "manifest_id",
         "previous_manifest_id",
         "agent_id",
+        "agent_instance_id",
         "version",
         "min_verifier_version",
         "issued_at",

@@ -148,7 +148,7 @@ The same manifest after registration and hardware attestation, showing only the 
 
 ## 9. Open items for phase 2
 
-These are implementation decisions, not envelope decisions, and are listed so phase 2 does not rediscover them. The first two are now settled in [ADR-0013](../docs/adr/0013-cbor-library-for-cose.md):
+These are implementation decisions, not envelope decisions, and are listed so phase 2 does not rediscover them. The first two are now settled in [ADR-0013](https://github.com/agentrust-io/agent-manifest/blob/main/docs/adr/0013-cbor-library-for-cose.md):
 
 - ~~Which CBOR and COSE library the Python SDK takes.~~ **Decided:** `cbor2` only, with the COSE structures built in the SDK. No COSE library is taken, so the crypto surface stays `cryptography` plus optional `pyoqs`.
 - ~~Whether the SDK emits `COSE_Sign1` with a zero-length unprotected header map or omits it before registration.~~ **Decided:** always a zero-length map. Only one of the two is a valid `COSE_Sign1` — omitting the element yields a three-element array, which RFC 9052 section 4.2 does not define. Pinned byte-for-byte in `AM-VEC-COSE-001` (`unprotected_hex` is `a0`).

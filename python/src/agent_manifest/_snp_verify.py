@@ -46,6 +46,7 @@ _OFF_GUEST_SVN = 0x04
 _OFF_POLICY = 0x08
 _OFF_VMPL = 0x30
 _OFF_SIG_ALGO = 0x34
+_OFF_PLATFORM_INFO = 0x40
 _OFF_REPORT_DATA = 0x50
 _OFF_MEASUREMENT = 0x90
 _OFF_HOST_DATA = 0xC0
@@ -75,6 +76,7 @@ SNP_OFFSETS: dict[str, int] = {
     "policy": _OFF_POLICY,
     "vmpl": _OFF_VMPL,
     "sig_algo": _OFF_SIG_ALGO,
+    "platform_info": _OFF_PLATFORM_INFO,
     "report_data": _OFF_REPORT_DATA,
     "measurement": _OFF_MEASUREMENT,
     "host_data": _OFF_HOST_DATA,
@@ -100,6 +102,7 @@ class SnpReport:
     policy: int
     vmpl: int
     signature_algo: int
+    platform_info: int  # PLATFORM_INFO bitfield at 0x40, see SnpPlatformInfo
     report_data: bytes  # 64 bytes
     measurement: bytes  # 48 bytes
     host_data: bytes  # 32 bytes
@@ -128,6 +131,7 @@ def parse_snp_report(report: bytes) -> SnpReport:
         policy=struct.unpack_from("<Q", report, _OFF_POLICY)[0],
         vmpl=struct.unpack_from("<I", report, _OFF_VMPL)[0],
         signature_algo=struct.unpack_from("<I", report, _OFF_SIG_ALGO)[0],
+        platform_info=struct.unpack_from("<Q", report, _OFF_PLATFORM_INFO)[0],
         report_data=report[_OFF_REPORT_DATA:_OFF_REPORT_DATA + 64],
         measurement=report[_OFF_MEASUREMENT:_OFF_MEASUREMENT + 48],
         host_data=report[_OFF_HOST_DATA:_OFF_HOST_DATA + 32],
@@ -137,6 +141,134 @@ def parse_snp_report(report: bytes) -> SnpReport:
         signed_body=report[:_OFF_SIGNATURE],
         raw=report[:_SNP_REPORT_LEN],
     )
+
+
+# ---------------------------------------------------------------- PLATFORM_INFO
+#
+# PLATFORM_INFO (ABI Table 22, offset 0x40) reports the state of the machine the
+# report came from, as opposed to the identity of the workload on it. Signature,
+# certificate chain and measurement together establish authenticity and identity;
+# none of them say anything about the platform. This is the part that does.
+#
+# The bit assignments below were read from google/go-sev-guest `abi/abi.go` at
+# commit c930ed67bebfe7245c0309888ec185bd9ad35899 on 2026-08-20 and cross-checked
+# against the AMD SEV-SNP ABI.
+
+PLATFORM_INFO_BITS: dict[str, int] = {
+    "smt_enabled": 0,
+    "tsme_enabled": 1,
+    "ecc_enabled": 2,
+    "rapl_disabled": 3,
+    "ciphertext_hiding_dram_enabled": 4,
+    "alias_check_complete": 5,
+    # bit 6 is reserved and MBZ
+    "tio_enabled": 7,
+}
+
+_PLATFORM_INFO_RESERVED_MASK = ~sum(1 << b for b in PLATFORM_INFO_BITS.values()) & 0xFFFFFFFFFFFFFFFF
+
+
+@dataclass(frozen=True)
+class SnpPlatformInfo:
+    """Decoded PLATFORM_INFO bitfield.
+
+    Every field is a plain statement about the platform, phrased so that the
+    field name matches what a set bit means. ``rapl_disabled`` is true when RAPL
+    is disabled, because that is what bit 3 means; it is deliberately not
+    inverted into a ``rapl_enabled`` convenience, since a negative-sense field
+    that silently flips is how policy mistakes get made.
+    """
+
+    smt_enabled: bool
+    tsme_enabled: bool
+    ecc_enabled: bool
+    rapl_disabled: bool
+    ciphertext_hiding_dram_enabled: bool
+    alias_check_complete: bool
+    tio_enabled: bool
+    raw: int
+    unrecognized_bits: int
+    """Bits set in PLATFORM_INFO that this library does not know how to name.
+
+    Not an error on its own, and deliberately surfaced rather than masked away:
+    an unrecognized bit means the silicon is telling you something this code was
+    not written to understand. :func:`appraise_platform_info` can be asked to
+    reject on it.
+    """
+
+
+def parse_platform_info(platform_info: int) -> SnpPlatformInfo:
+    """Decode the PLATFORM_INFO bitfield from a report."""
+    return SnpPlatformInfo(
+        **{name: bool(platform_info & (1 << bit)) for name, bit in PLATFORM_INFO_BITS.items()},
+        raw=platform_info,
+        unrecognized_bits=platform_info & _PLATFORM_INFO_RESERVED_MASK,
+    )
+
+
+def appraise_platform_info(
+    info: SnpPlatformInfo,
+    *,
+    require: "Optional[set[str]]" = None,
+    forbid: "Optional[set[str]]" = None,
+    reject_unrecognized_bits: bool = False,
+) -> None:
+    """Appraise a decoded PLATFORM_INFO against an explicit policy.
+
+    ``require`` names fields that MUST be true. ``forbid`` names fields that MUST
+    be false. **The direction is in the argument name, never in the field name**,
+    which is the entire point of this signature.
+
+    That is a deliberate departure from the shape the reference verifier uses.
+    ``google/go-sev-guest`` carries a single ``SnpPlatformInfo`` policy struct of
+    booleans, documents it as "the maximum of acceptable PLATFORM_INFO data", and
+    then enforces four of its seven fields as minimums instead. Setting
+    ``AliasCheckComplete = true`` there does not permit the condition, it demands
+    it. Filed as https://github.com/google/go-sev-guest/issues/195 on 2026-08-20.
+    A caller of this function cannot make that mistake, because there is no single
+    bag of booleans whose meaning depends on which field you happened to pick.
+
+    Both arguments default to empty, so **calling this with no policy asserts
+    nothing**. That is the same vacuous default the reference verifier has, and it
+    is stated here rather than left to be discovered: appraisal is opt in, and a
+    caller who wants a platform requirement has to name it.
+
+    :raises SnpVerificationError: on the first unmet requirement.
+    """
+    require = set(require or ())
+    forbid = set(forbid or ())
+
+    unknown = (require | forbid) - set(PLATFORM_INFO_BITS)
+    if unknown:
+        raise SnpVerificationError(
+            "unknown PLATFORM_INFO field(s) in policy: "
+            + ", ".join(sorted(unknown))
+            + "; known fields are "
+            + ", ".join(sorted(PLATFORM_INFO_BITS))
+        )
+    both = require & forbid
+    if both:
+        raise SnpVerificationError(
+            "PLATFORM_INFO policy both requires and forbids: " + ", ".join(sorted(both))
+        )
+
+    for field in sorted(require):
+        if not getattr(info, field):
+            raise SnpVerificationError(
+                f"platform policy requires {field}, but the report reports it false "
+                f"(PLATFORM_INFO=0x{info.raw:x})"
+            )
+    for field in sorted(forbid):
+        if getattr(info, field):
+            raise SnpVerificationError(
+                f"platform policy forbids {field}, but the report reports it true "
+                f"(PLATFORM_INFO=0x{info.raw:x})"
+            )
+    if reject_unrecognized_bits and info.unrecognized_bits:
+        raise SnpVerificationError(
+            f"PLATFORM_INFO carries bits this library cannot name: "
+            f"0x{info.unrecognized_bits:x} (PLATFORM_INFO=0x{info.raw:x})"
+        )
 
 
 def parse_hcl_report(hcl: bytes) -> tuple[bytes, bytes]:

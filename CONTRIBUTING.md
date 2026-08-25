@@ -74,13 +74,13 @@ changes to this gate cannot bypass the repository's normal review checks.
 
 ## Spec changes
 
-Read [who may author normative text](GOVERNANCE.md#who-may-author-normative-text) first. Normative changes, meaning anything with an uppercase RFC 2119 keyword, need an organizational sponsor accountable for the requirement. Anyone may propose one, and a Maintainer carries the PR for an accepted proposal that has no sponsor. Everything else, including informative crosswalks and mappings to external schemas such as OCSF, needs no sponsor.
+Read [who may author normative text](https://github.com/agentrust-io/agent-manifest/blob/main/GOVERNANCE.md#who-may-author-normative-text) first. Normative changes, meaning anything with an uppercase RFC 2119 keyword, need an organizational sponsor accountable for the requirement. Anyone may propose one, and a Maintainer carries the PR for an accepted proposal that has no sponsor. Everything else, including informative crosswalks and mappings to external schemas such as OCSF, needs no sponsor.
 
 Spec changes follow this process:
 
 1. Open a GitHub issue describing the problem and proposed change. Reference the spec section.
 2. Allow 5 business days for design-partner feedback.
-3. Submit a PR against the [current specification](spec/README.md) with the change marked using `<!-- CHANGED: ISSUE-NNN — description -->`.
+3. Submit a PR against the [current specification](https://github.com/agentrust-io/agent-manifest/blob/main/spec/README.md) with the change marked using `<!-- CHANGED: ISSUE-NNN — description -->`.
 4. Update conformance tests in `python/tests/` to cover the changed normative text.
 5. Update `CHANGELOG.md`.
 
@@ -90,7 +90,7 @@ Use the issue templates:
 - **Bug report** — incorrect behavior in the SDK or test suite
 - **Spec change proposal** — normative text issues, gaps, or ambiguities
 
-For security issues, see [SECURITY.md](SECURITY.md).
+For security issues, see [SECURITY.md](https://github.com/agentrust-io/agent-manifest/blob/main/SECURITY.md).
 
 ## Code conventions
 

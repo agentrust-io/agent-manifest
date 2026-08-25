@@ -99,6 +99,11 @@
       "description": "Attestation report hash matching the canonical manifest hash verifies."
     },
     {
+      "id": "AM-VEC-021",
+      "file": "AM-VEC-021.json",
+      "description": "Attestation carried forward onto a re-signed manifest binds the previous document."
+    },
+    {
       "id": "AM-VEC-019",
       "file": "AM-VEC-019.json",
       "description": "Signed single-hop delegation chain bound to the manifest issuer verifies."
@@ -107,6 +112,16 @@
       "id": "AM-VEC-020",
       "file": "AM-VEC-020.json",
       "description": "Post-quantum crypto_profile with an Ed25519 signature is a downgrade."
+    },
+    {
+      "id": "AM-VEC-022",
+      "file": "AM-VEC-022.json",
+      "description": "A trusted key not authorized for the manifest's issuer is rejected."
+    },
+    {
+      "id": "AM-VEC-023",
+      "file": "AM-VEC-023.json",
+      "description": "A key authorized for the subject (agent_id) but not the issuer is rejected."
     },
     {
       "id": "AM-VEC-COSE-001",

@@ -135,7 +135,7 @@ The signature is made over `{manifest_id, approved_at, approved_scope, approver_
 
 Signed artifact bindings create a quality record: the model hash, prompt hash, and tool catalog hash are locked at issuance. Any deviation from the approved configuration produces a manifest verification failure (`MISMATCH` result), giving the quality management system a reliable signal that the deployed agent differs from the approved one.
 
-The issuer key rotation procedure (see [Tutorial: Revocation and key rotation](../tutorials/revocation.md)) documents the governance process for key management, satisfying the quality management system's documentation requirement.
+The issuer key rotation procedure (see [Tutorial: Revocation and key rotation](../tutorials/revocation-and-key-rotation.md)) documents the governance process for key management, satisfying the quality management system's documentation requirement.
 
 ---
 

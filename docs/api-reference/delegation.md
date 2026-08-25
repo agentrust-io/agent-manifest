@@ -1,6 +1,6 @@
 # Delegation and HITL approvals
 
-A2A delegation chain signing, verification, and HITL approval records. See [Tutorial: A2A delegation chains](../tutorials/delegation-chains.md) and [Tutorial: HITL approval workflows](../tutorials/hitl-approvals.md).
+A2A delegation chain signing, verification, and HITL approval records. See [Tutorial: A2A delegation chains](../tutorials/delegation-chains.md) and [Tutorial: HITL approval workflows](../tutorials/hitl-approval-workflows.md).
 
 ## Delegation chain
 

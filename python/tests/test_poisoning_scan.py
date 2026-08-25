@@ -22,6 +22,7 @@ FUTURE = (NOW + timedelta(days=90)).isoformat().replace("+00:00", "Z")
 SHA_A = "sha256:" + "a" * 64
 SHA_B = "sha256:" + "b" * 64
 MID = "018f4a3b-2c1d-7e5f-a8b9-0d1e2f3a4b5c"
+TRANSPARENCY_ENTRY_ID = "rekor-poisoning-suite-entry"
 
 KP = generate_ed25519()
 TRUSTED_KEYS = {KP.key_id: KP.public_b64url()}
@@ -29,6 +30,21 @@ TRUSTED_KEYS = {KP.key_id: KP.public_b64url()}
 
 def sign(m):
     m["signature"] = Ed25519Signer(KP).sign(m)
+    return m
+
+
+def attach_transparency_entry(m):
+    m["transparency_log_entry"] = {
+        "log_id": "0" * 64,
+        "log_index": 1,
+        "entry_uuid": TRANSPARENCY_ENTRY_ID,
+        "integrated_time": int(NOW.timestamp()),
+        "inclusion_proof": {
+            "checkpoint": "signed-checkpoint",
+            "hashes": [],
+            "tree_size": 1,
+        },
+    }
     return m
 
 
@@ -52,7 +68,7 @@ def base_manifest(poisoning_result: str):
         "delegation_chain": [],
         "hitl_record": None,
     }
-    return sign(m)
+    return attach_transparency_entry(sign(m))
 
 
 def base_context(conformance_level: int = 0):
@@ -63,6 +79,8 @@ def base_context(conformance_level: int = 0):
         rag_corpus_merkle_root=SHA_A,
         trusted_keys=dict(TRUSTED_KEYS),
         conformance_level=conformance_level,
+        verified_transparency_entry_ids={TRANSPARENCY_ENTRY_ID},
+        transparency_evidence_manifest_id=MID,
     )
 
 
@@ -159,12 +177,15 @@ def test_no_rag_corpus_no_warnings():
         "hitl_record": None,
     }
     sign(m)
+    attach_transparency_entry(m)
     ctx = VerificationContext(
         system_prompt_hash=SHA_A,
         policy_bundle_hash=SHA_B,
         model_version="claude-3",
         trusted_keys=dict(TRUSTED_KEYS),
         conformance_level=1,
+        verified_transparency_entry_ids={TRANSPARENCY_ENTRY_ID},
+        transparency_evidence_manifest_id=MID,
     )
     result = verify_manifest(m, ctx, store())
     assert result.result == OverallResult.VALID

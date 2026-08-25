@@ -25,7 +25,7 @@ Out of scope: runtime policy enforcement (see Agent Governance Toolkit), MCP pro
 
 Upon CoSAI WS4 acceptance, governance transitions from the current single-maintainer model to a Technical Steering Committee (TSC), aligned with the OASIS Open Projects governance model.
 
-**Composition**: 3–7 members. No single organization may hold more than 40% of TSC seats. The founding Project Lead (Imran Siddique, OPAQUE Systems) holds one permanent founding seat for the v1.0 ratification cycle, after which all seats are elected.
+**Composition**: 3–7 members. No single organization may hold more than 40% of TSC seats. The founding Project Lead (Imran Siddique) holds one permanent founding seat for the v1.0 ratification cycle, after which all seats are elected.
 
 **Election**: TSC members are elected annually by active contributors (defined as: at least one merged PR or accepted spec change in the preceding 12 months). Each contributor has one vote.
 
@@ -88,3 +88,7 @@ This project is targeting contribution to CoSAI Working Stream 4 (Secure Design 
 Phase 1 is a review pass, not a request to accept. Until WS4 accepts a contribution, this charter describes the intended governance and the GOVERNANCE.md file describes the current operating governance.
 
 The Agent Governance Toolkit is governed separately and its own standards destination is not set by this charter.
+
+## 10. Sponsors
+
+Organizations providing financial, engineering, infrastructure, or other material support are recognized in [SPONSORS.md](SPONSORS.md). Sponsorship is separate from project governance and does not confer specification authority, additional voting rights, preferential conformance treatment, or endorsement of a sponsor's implementation.

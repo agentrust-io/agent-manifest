@@ -275,6 +275,7 @@ def test_verification_engine_valid_after_sign():
         system_prompt_hash="sha256:" + "a" * 64,
         policy_bundle_hash="sha256:" + "b" * 64,
         trusted_keys={kp.key_id: kp.public_b64url()},
+        strict_artifact_verification=False,
     )
     result = verify_manifest(raw, ctx, RevocationStore())
     assert result.result == OverallResult.VALID

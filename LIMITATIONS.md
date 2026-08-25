@@ -86,6 +86,57 @@ different trust model from the offline SNP/TDX paths) and is out of scope; it is
 tracked as a follow-up. Use SEV-SNP (`AzureCVMProvider`) on Azure, or a
 non-paravisor TDX guest (e.g. GCP C3) for offline TDX attestation.
 
+## Platform state: appraised only if you ask
+
+Signature, certificate chain and measurement establish that a report is authentic
+and which workload it describes. **None of them say anything about the condition
+of the machine underneath.** A SEV-SNP report carries that separately, in
+`PLATFORM_INFO` at offset 0x40, and until 2026-08-20 this SDK did not read it at
+all: the field was absent from the offset table, so the bytes were never parsed
+and no policy could refer to them.
+
+It is parsed now, and `appraise_platform_info()` will enforce a policy over it:
+
+```python
+from agent_manifest import parse_snp_report, parse_platform_info, appraise_platform_info
+
+info = parse_platform_info(parse_snp_report(raw).platform_info)
+appraise_platform_info(
+    info,
+    require={"alias_check_complete", "ecc_enabled"},
+    forbid={"smt_enabled"},
+)
+```
+
+**The honest limit is that this is opt in and the default asserts nothing.**
+`appraise_platform_info(info)` with no policy passes every report ever produced.
+That is a deliberate choice, because the safe policy is deployment-specific and a
+library that guessed would fail closed on machines that were fine yesterday. It is
+stated here rather than left to be discovered, which is the failure mode described
+below.
+
+`alias_check_complete` is the field worth knowing about. It is the firmware
+reporting that the boot-time DRAM alias check finished and found no aliasing
+addresses, which is AMD's mitigation for BadRAM (security bulletin SB-3015).
+Requiring it is the one platform assertion that bears directly on the standing
+limit stated everywhere in this project, that no confidential computing silicon is
+custody grade against an adversary with physical access. It does not remove that
+limit. It lets a verifier insist the silicon says it did its own check.
+
+**Two things this deliberately does not do.** It does not appraise the mitigation
+vectors (`LAUNCH_MIT_VECTOR`, `CURRENT_MIT_VECTOR`) added in v4 reports, because
+the bit meanings are platform-specific and publishing a mask without hardware to
+validate it against would be guessing. And it is not wired into `verify_manifest()`
+as a default, so an existing caller gets no new failures and also no new checks.
+
+**On the API shape.** `require` and `forbid` are separate named sets rather than one
+struct of booleans. The reference verifier, `google/go-sev-guest`, uses the single
+struct, documents it as "the maximum of acceptable PLATFORM_INFO data", and then
+enforces four of its seven fields as minimums, so setting `AliasCheckComplete = true`
+there demands the condition rather than permitting it. Filed as
+[google/go-sev-guest#195](https://github.com/google/go-sev-guest/issues/195). Putting
+the direction in the argument name makes that class of mistake unavailable here.
+
 ## Hardware attestation scope: boot-time binding only
 
 Hardware attestation in this SDK proves **what was approved at agent startup**,

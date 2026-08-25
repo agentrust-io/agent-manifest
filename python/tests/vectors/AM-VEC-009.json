@@ -31,10 +31,12 @@
       "required": true,
       "approvals": [
         {
+          "approver_id": "mailto:alice@example.com",
           "approved_at": "2025-01-01T00:00:00Z",
           "approved_scope": {
             "approval_duration_seconds": 3153600000
-          }
+          },
+          "approval_signature": "Fyu8qnv_nFNH0AFQaL2waxOjb4bc3f7MxvYoswAjwdaBgQydwyZCUl9t2_eL7csiUJYVOqX_mMQ54HigXAOGCg"
         }
       ]
     },
@@ -50,6 +52,7 @@
         "manifest_id",
         "previous_manifest_id",
         "agent_id",
+        "agent_instance_id",
         "version",
         "min_verifier_version",
         "issued_at",
@@ -77,7 +80,10 @@
     "trusted_keys": {
       "56475aa75463474c0285df5dbf2bcab73da651358839e9b77481b2eab107708c": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
     },
-    "enforce_hitl": true
+    "enforce_hitl": true,
+    "approver_public_keys": {
+      "mailto:alice@example.com": "cSZR9FC6BbY4mLme9fe6RWMujiUn9_cVzWcexAJMxR4"
+    }
   },
   "expected": {
     "result": "VALID",

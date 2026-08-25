@@ -4,7 +4,7 @@
 
 ### Contributor
 
-Anyone who submits a PR, files an issue, or participates in discussion. No formal appointment required. Must follow the [Code of Conduct](CODE_OF_CONDUCT.md) and sign commits with DCO.
+Anyone who submits a PR, files an issue, or participates in discussion. No formal appointment required. Must follow the [Code of Conduct](https://github.com/agentrust-io/agent-manifest/blob/main/CODE_OF_CONDUCT.md) and sign commits with DCO.
 
 ### Reviewer
 
@@ -20,7 +20,7 @@ Full commit and merge rights on designated package areas. PyPI publish rights on
 
 ### Project Lead
 
-Final decision authority on specification changes, standards contribution scope, conformance test disputes, and Maintainer appointments. Currently: Imran Siddique (OPAQUE Systems).
+Final decision authority on specification changes, standards contribution scope, conformance test disputes, and Maintainer appointments. Currently: Imran Siddique.
 
 **Succession**: If the Project Lead is unavailable for 30+ days without notice, the active Maintainers vote to appoint an interim lead. Succession plan will be formalized before v1.0 contribution to CoSAI with a Technical Steering Committee structure.
 
@@ -52,9 +52,13 @@ A normative PR opened without a sponsor is not rejected on that basis. Reviewers
 
 Maintainers must disclose any commercial interest in a proposal before participating in its review. Disclosed conflicts do not disqualify a Maintainer from voting but must be on the record.
 
+## Sponsorship
+
+Project sponsors are recognized in [`SPONSORS.md`](https://github.com/agentrust-io/agent-manifest/blob/main/SPONSORS.md). Project sponsorship is distinct from the organizational sponsorship required for a normative proposal above: supporting the project does not automatically sponsor a normative change. Project sponsorship and participant affiliations are informational and do not confer specification authority, additional decision rights, preferential conformance treatment, or endorsement of a sponsor's implementation.
+
 ## Foundation transition
 
-This project is targeting contribution to CoSAI Working Stream 4, an OASIS Open Project. On acceptance, governance will transition to a TSC structure defined in [CHARTER.md](CHARTER.md). Until then, this document is the governance authority.
+This project is targeting contribution to CoSAI Working Stream 4, an OASIS Open Project. On acceptance, governance will transition to a TSC structure defined in [CHARTER.md](https://github.com/agentrust-io/agent-manifest/blob/main/CHARTER.md). Until then, this document is the governance authority.
 
 ## Amendments
 

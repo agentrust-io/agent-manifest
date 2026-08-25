@@ -1,1 +1,1 @@
---8<-- "../LIMITATIONS.md"
+--8<-- "LIMITATIONS.md"

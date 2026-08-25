@@ -128,6 +128,12 @@ SIGNED_FIELDS: tuple[str, ...] = (
     "manifest_id",
     "previous_manifest_id",
     "agent_id",
+    # Spec 6.4.2. Same compatibility argument as `intent` below: absent
+    # fields are omitted from the pre-image, so every existing signature
+    # still verifies. It has to be signed, because an instance identity a
+    # signature does not cover is one the operator can retarget after the
+    # fact, and the OCSF join is exactly what depends on it.
+    "agent_instance_id",
     "version",
     "min_verifier_version",
     "issued_at",

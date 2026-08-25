@@ -23,7 +23,7 @@
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![PyPI](https://img.shields.io/pypi/v/agent-manifest?label=PyPI)](https://pypi.org/project/agent-manifest/)
 [![Spec](https://img.shields.io/badge/Spec-v0.2_·_197_tests-0ea5e9)](spec/agent-manifest-spec-v0.2.md)
-[![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white&style=flat)](https://discord.gg/9JWNpH7E)
+[![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white&style=flat)](https://discord.gg/grgzFEHgkj)
 
 > **Developer Preview.** Launched at Confidential Computing Summit, June 23 2026.
 

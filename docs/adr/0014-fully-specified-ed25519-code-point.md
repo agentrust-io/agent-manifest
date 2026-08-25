@@ -2,7 +2,7 @@
 
 **Status**: Accepted
 **Date**: 2026-08-05
-**Spec section**: [COSE envelope v0.2](../../spec/agent-manifest-cose-envelope-v0.2.md), section 3
+**Spec section**: [COSE envelope v0.2](https://github.com/agentrust-io/agent-manifest/blob/main/spec/agent-manifest-cose-envelope-v0.2.md), section 3
 **Amends**: [ADR-0011](0011-signature-envelope.md), which named `-8`
 **Tracking**: Issue #243, phase 2
 

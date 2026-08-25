@@ -444,4 +444,4 @@ with patch(
 
 - [Tutorial: Deploying the verification endpoint](deploying-the-verification-endpoint.md)  -  run the verifier in production alongside hardware-attested agents
 - [Tutorial: Server-side verification](server-side-verification.md)  -  enforce minimum attestation level with `enforce_attestation=True`
-- [Known Limitations](../../LIMITATIONS.md)  -  full scope of what attestation does and does not prove
+- [Known Limitations](https://github.com/agentrust-io/agent-manifest/blob/main/LIMITATIONS.md)  -  full scope of what attestation does and does not prove

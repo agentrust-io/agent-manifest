@@ -1,7 +1,8 @@
 """AM-VERIFY-SCOPE: what VALID does and does not establish - issue #272.
 
 These tests assert what the implementation does today, not what it should do.
-They pass against main as written, and they are intended to.
+They pass against main as written, and they are intended to. Spec 5.3.2 now
+states the boundary they demonstrate; the tests came first, deliberately.
 
 A manifest can reach VALID with every artifact intact and its tool catalogue
 matching byte for byte, while the call made through an authorized tool is one

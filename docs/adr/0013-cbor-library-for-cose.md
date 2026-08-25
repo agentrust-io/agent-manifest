@@ -2,7 +2,7 @@
 
 **Status**: Accepted
 **Date**: 2026-08-04
-**Spec section**: [COSE envelope v0.2](../../spec/agent-manifest-cose-envelope-v0.2.md), section 9 (open items 1 and 2)
+**Spec section**: [COSE envelope v0.2](https://github.com/agentrust-io/agent-manifest/blob/main/spec/agent-manifest-cose-envelope-v0.2.md), section 9 (open items 1 and 2)
 **Tracking**: Issue #243, phase 2 of 5
 
 ## Context
@@ -89,4 +89,4 @@ It runs outside the pytest suite, in its own environment, for a reason that rein
 - [RFC 9052](https://www.rfc-editor.org/rfc/rfc9052.html) — COSE structures. Section 4.2 (COSE_Sign1 array), section 4.4 (`Sig_structure`).
 - [RFC 9964](https://www.rfc-editor.org/rfc/rfc9964.html) — ML-DSA for JOSE and COSE. ML-DSA-65 = `alg` -49.
 - [ADR-0011](0011-signature-envelope.md) — the decision to move to COSE_Sign1.
-- [COSE envelope specification v0.2](../../spec/agent-manifest-cose-envelope-v0.2.md) — section 9, open items for phase 2.
+- [COSE envelope specification v0.2](https://github.com/agentrust-io/agent-manifest/blob/main/spec/agent-manifest-cose-envelope-v0.2.md) — section 9, open items for phase 2.

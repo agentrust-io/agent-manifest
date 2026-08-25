@@ -1,1 +1,1 @@
---8<-- "../GOVERNANCE.md"
+--8<-- "GOVERNANCE.md"

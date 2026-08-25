@@ -123,6 +123,16 @@ class PoisoningResult(str, Enum):
     not_scanned = "not-scanned"
 
 
+class AssuranceResult(str, Enum):
+    """Spec 3.2.1.1. Deliberately not reusing PoisoningResult: `clean` reads as
+    a property of the artifact, and an assessment result is a property of the
+    suite that was run."""
+
+    passed = "passed"
+    flagged = "flagged"
+    not_assessed = "not-assessed"
+
+
 class ApprovalMethod(str, Enum):
     hardware_key = "hardware-key"
     software_key = "software-key"
@@ -412,6 +422,40 @@ class SourceBundleBinding(SpecModel):
 # ---------------------------------------------------------------------------
 
 
+class AssuranceTest(SpecModel):
+    """Bound behavioural assessment of artifact #1 - spec Section 3.2.1.1.
+
+    Same shape and the same normative force as PoisoningScan is to the RAG
+    corpus: an assessment that ran and flagged cannot be issued as VALID. The
+    absence of one is reported rather than treated as a pass, because
+    `system_prompt.hash` proves which prompt was approved and nothing about
+    whether the approved prompt behaves acceptably.
+
+    A `passed` result asserts "this suite, at this version, found nothing". It
+    does not assert that nothing is there; the suite's coverage bounds the
+    claim, which is why suite_id and suite_version are REQUIRED.
+    """
+
+    suite_id: str
+    suite_version: str
+    harness_version: str
+    result: AssuranceResult
+    assessed_at: Optional[datetime] = None
+    scenario_count: Optional[int] = Field(default=None, gt=0)
+    evidence_uri: Optional[str] = None
+    evidence_digest: Optional[HashValue] = None
+    assessed_by: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _validate_assessed_at(self) -> "AssuranceTest":
+        if self.result != AssuranceResult.not_assessed and self.assessed_at is None:
+            raise ValueError(
+                "assessed_at is REQUIRED when result is 'passed' or 'flagged' "
+                "(spec Section 3.2.1.1)"
+            )
+        return self
+
+
 class SystemPromptBinding(SpecModel):
     """Artifact #1 - spec Section 3.2.1."""
 
@@ -420,7 +464,11 @@ class SystemPromptBinding(SpecModel):
     version: str
     classification: DataClassification
     language: Optional[str] = None
+    # An operator assertion with no defined value space and no verification
+    # behaviour (spec 3.2.1); named as such so the field name is not read as
+    # the assurance signal it resembles. Evidence goes in assurance_test.
     safety_level: Optional[str] = None
+    assurance_test: Optional[AssuranceTest] = None
     bound_at: datetime
 
 
@@ -618,6 +666,29 @@ class DecisionTraceBinding(SpecModel):
         return self
 
 
+class AuditCheckpointBinding(SpecModel):
+    """Artifact #7 checkpoint anchor - spec Section 3.2.7.1 (v0.2).
+
+    Additive companion to DecisionTraceBinding, mirroring what
+    MemoryCheckpointBinding is to MemoryBaselineBinding. `audit_chain_root` in
+    Section 3.2.7 is the chain state at manifest signing time; this is the
+    chain state a runtime serves later, carrying the `tree_size` and `seq` a
+    verifier needs to check that the later state descends from the signed one
+    (see `_audit_continuity.verify_continuity`). Section 3.2.7 semantics are
+    unchanged: without continuity evidence a diverged root is still MISMATCH.
+
+    ttl_seconds: min 60 (audit freshness is measured in minutes, not hours),
+    max 7776000 (90 days), matching the memory checkpoint ceiling.
+    """
+
+    audit_chain_root: HashValue
+    tree_size: int = Field(ge=0)
+    seq: int = Field(ge=0)
+    observed_at: datetime
+    ttl_seconds: int = Field(ge=60, le=7_776_000)
+    checkpoint_signature: Optional[str] = None
+
+
 class SupplyChainBinding(SpecModel):
     """Artifact #9 - spec Section 3.2.8 (renumbered from 3.2.7 in #24)."""
 
@@ -734,6 +805,10 @@ class Manifest(SpecModel):
     manifest_id: ManifestId
     previous_manifest_id: Optional[ManifestId] = None
     agent_id: str  # SPIFFE URI
+    # OPTIONAL. Present only on an instance-scoped manifest, where it is the
+    # session-scoped identity (OCSF ai_agent.instance_uid); agent_id stays the
+    # stable one (OCSF ai_agent.uid). Spec 3.1 / 6.4.2.
+    agent_instance_id: Optional[ManifestId] = None
     version: str = "0.1"
     min_verifier_version: Optional[str] = None
     issued_at: datetime
