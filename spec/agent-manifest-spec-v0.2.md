@@ -1224,9 +1224,9 @@ The standard cryptographic profile uses the following primitives:
 
 ##### 4.1.1 Merkle Tree Domain Separation <!-- CHANGED: CRYPTO-005 - explicit domain separation per RFC 9162 to prevent length-extension attacks -->
 
-All Merkle tree constructions in this specification (corpus `merkle_root`, tool `catalog_hash`) MUST use the RFC 9162 / RFC 6962 domain-separated hashing convention:
+All Merkle tree constructions in this specification MUST use the RFC 9162 / RFC 6962 domain-separated hashing convention: <!-- CHANGED: #337 - the parenthetical named two of five constructions and went stale twice; the per-section definitions are now the single source -->
 
-- Leaf hash: `SHA-256(0x00 || leaf_data)` where `leaf_data` is the per-item input bytes as defined in the relevant section (section 3.2.3 for catalog, section 3.2.5.1 for corpus).
+- Leaf hash: `SHA-256(0x00 || leaf_data)`, where `leaf_data` is defined by the section specifying that construction.
 - Interior node hash: `SHA-256(0x01 || left_child_hash || right_child_hash)`.
 
 The `0x00` and `0x01` domain separation prefixes prevent second-preimage attacks that are possible with plain Merkle-Damgard SHA-256 trees lacking domain separation (as demonstrated in the Certificate Transparency literature). This construction is referenced in RFC 9162 Section 2.1.
