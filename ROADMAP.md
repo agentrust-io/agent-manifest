@@ -25,6 +25,7 @@ Driven by community and early adopter feedback from the CC Summit period. Curren
 - **Azure confidential VM attestation** — `AzureCVMProvider` (vTPM-rooted SEV-SNP) with AMD VCEK chain verification, hardware-validated on Azure DCasv5. Intel TDX Quote verification (Intel QVL/PCS) remains pending
 - **TypeScript SDK** — community contribution welcome; see issue tracker for scope
 - **Verification server improvements** — evidence pack format, revocation endpoint
+- **MCP 2026 compatibility** — discovery artifact binding, versioned dynamic tool-catalog checkpoints, and separation of workload identity from delegated user authority; tracked in [#340](https://github.com/agentrust-io/agent-manifest/issues/340)
 
 v0.2 will go through the RFC process (14-day comment period) for any normative changes.
 
