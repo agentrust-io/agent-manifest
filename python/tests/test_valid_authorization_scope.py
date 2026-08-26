@@ -80,6 +80,7 @@ def ctx_matching_catalog():
     c = VerificationContext(
         system_prompt_hash=SHA_A,
         policy_bundle_hash=SHA_B,
+        enforcement_mode="enforce",
         model_version="claude-3",
         audit_chain_root=SHA_C,
         trusted_keys=dict(TRUSTED_KEYS),

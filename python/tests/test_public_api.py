@@ -62,6 +62,7 @@ def test_public_verify_roundtrip_valid_then_mismatch():
     matching = agent_manifest.VerificationContext(
         system_prompt_hash=sha_a,
         policy_bundle_hash=sha_b,
+        enforcement_mode="enforce",
         model_version="claude-3",
         trusted_keys=trusted,
     )

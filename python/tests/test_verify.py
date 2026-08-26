@@ -228,6 +228,67 @@ def test_mismatch_includes_all_failing_fields():
 
 
 # ---------------------------------------------------------------------------
+# ENFORCEMENT MODE (spec 6.2) — agentrust-io/cmcp#576
+# ---------------------------------------------------------------------------
+
+
+def test_enforcement_mode_match_is_unaffected():
+    """A manifest that declares a mode, matched by the runtime, still MATCHes."""
+    manifest = base_manifest(artifacts={
+        "system_prompt": {"hash": SHA},
+        "policy_bundle": {"hash": "sha256:" + "b" * 64, "enforcement_mode": "enforce"},
+        "model_identity": {"model_hash": None, "version": "claude-3", "deployment_type": "api"},
+    })
+    ctx = base_context(enforcement_mode="enforce")
+    result = verify_manifest(manifest, ctx, store())
+    assert result.result == OverallResult.VALID
+    assert result.fields_verified.policy_bundle == FieldResult.MATCH
+
+
+def test_enforcement_mode_mismatch_fails_policy_bundle():
+    """Hash matches, but the runtime is attested in a different mode than the
+    manifest declares -- this must fail, not silently pass on the hash alone.
+    """
+    manifest = base_manifest(artifacts={
+        "system_prompt": {"hash": SHA},
+        "policy_bundle": {"hash": "sha256:" + "b" * 64, "enforcement_mode": "enforce"},
+        "model_identity": {"model_hash": None, "version": "claude-3", "deployment_type": "api"},
+    })
+    ctx = base_context(enforcement_mode="advisory")
+    result = verify_manifest(manifest, ctx, store())
+    assert result.result == OverallResult.MISMATCH
+    assert result.fields_verified.policy_bundle == FieldResult.MISMATCH
+    assert any(d.field == "policy_bundle.enforcement_mode" for d in result.mismatch_details)
+
+
+def test_enforcement_mode_declared_but_not_provided_fails_closed():
+    """The manifest declares a required mode; the caller didn't pass one.
+
+    Fail closed rather than silently skipping the check -- an unattested mode
+    is not evidence the runtime is in the declared mode.
+    """
+    manifest = base_manifest(artifacts={
+        "system_prompt": {"hash": SHA},
+        "policy_bundle": {"hash": "sha256:" + "b" * 64, "enforcement_mode": "enforce"},
+        "model_identity": {"model_hash": None, "version": "claude-3", "deployment_type": "api"},
+    })
+    ctx = base_context()  # enforcement_mode left unset
+    result = verify_manifest(manifest, ctx, store())
+    assert result.result == OverallResult.MISMATCH
+    assert result.fields_verified.policy_bundle == FieldResult.MISMATCH
+
+
+def test_enforcement_mode_absent_from_manifest_is_backward_compatible():
+    """A manifest that never declares enforcement_mode is unaffected, even if
+    the caller happens to pass one -- there is nothing to cross-check against.
+    """
+    ctx = base_context(enforcement_mode="enforce")
+    result = verify_manifest(base_manifest(), ctx, store())  # base_manifest has no enforcement_mode
+    assert result.result == OverallResult.VALID
+    assert result.fields_verified.policy_bundle == FieldResult.MATCH
+
+
+# ---------------------------------------------------------------------------
 # EXPIRED
 # ---------------------------------------------------------------------------
 

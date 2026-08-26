@@ -256,6 +256,12 @@ class VerificationContext(BaseModel):
 
     system_prompt_hash: Optional[str] = None
     policy_bundle_hash: Optional[str] = None
+    # Spec 6.2: the runtime's attested policy-enforcement mode ("enforce",
+    # "advisory", or "audit-only"). Compared against
+    # artifacts.policy_bundle.enforcement_mode when the manifest declares one.
+    # A caller whose runtime has no notion of enforcement mode simply leaves
+    # this unset, which skips the check (matches today's behavior).
+    enforcement_mode: Optional[str] = None
     tool_catalog_hash: Optional[str] = None
     model_version: Optional[str] = None
     rag_corpus_merkle_root: Optional[str] = None
@@ -894,6 +900,30 @@ def verify_manifest(
         pb.get("hash"),
         context.policy_bundle_hash,
     )
+    # Spec 6.2: a manifest that declares an enforcement_mode is asserting the
+    # runtime must be attested as operating in that mode. The hash matching
+    # is not sufficient on its own -- the same approved policy bundle could
+    # be loaded while the runtime enforces it differently (e.g. "advisory"
+    # instead of "enforce"), which is exactly the gap this closes. Only
+    # runs when the manifest actually declares a mode, so a manifest that
+    # doesn't (or a caller that doesn't pass context.enforcement_mode) keeps
+    # today's behavior unchanged.
+    declared_mode = pb.get("enforcement_mode")
+    if declared_mode is not None and fields.policy_bundle != FieldResult.NOT_BOUND:
+        if context.enforcement_mode is None:
+            mismatches.append(MismatchDetail(
+                field="policy_bundle.enforcement_mode",
+                expected_hash=declared_mode,
+                actual_hash="<not provided>",
+            ))
+            fields.policy_bundle = FieldResult.MISMATCH
+        elif declared_mode != context.enforcement_mode:
+            mismatches.append(MismatchDetail(
+                field="policy_bundle.enforcement_mode",
+                expected_hash=declared_mode,
+                actual_hash=context.enforcement_mode,
+            ))
+            fields.policy_bundle = FieldResult.MISMATCH
 
     tm = artifacts.get("tool_manifest") or {}
     fields.tool_manifest = _check(

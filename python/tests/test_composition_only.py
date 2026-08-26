@@ -128,6 +128,7 @@ def test_composition_only_verifies_as_incomplete_with_declared_not_bound_fields(
         VerificationContext(
             system_prompt_hash=SHA,
             policy_bundle_hash="sha256:" + "b" * 64,
+            enforcement_mode="enforce",
             trusted_keys={key.key_id: key.public_b64url()},
         ),
         RevocationStore(),

@@ -57,6 +57,7 @@ def main() -> None:
     context = agent_manifest.VerificationContext(
         system_prompt_hash=prompt_hash,
         policy_bundle_hash=policy_hash,
+        enforcement_mode="enforce",
         model_version="release-smoke",
         trusted_keys={keypair.key_id: keypair.public_b64url()},
     )
