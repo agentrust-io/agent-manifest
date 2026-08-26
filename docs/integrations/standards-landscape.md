@@ -11,44 +11,61 @@ specification.
 
 ## How the records relate
 
-```mermaid
-flowchart LR
-    subgraph Registry[Discovery and governance]
-        AR[Agent Registration Record<br/>owner, enrollment, governance ceiling]
-        AC[Agent Card<br/>endpoint, skills, protocols, auth requirements]
-    end
-
-    subgraph Build[Build and deployment evidence]
-        BOM[SPDX or CycloneDX<br/>components and dependencies]
-        SLSA[SLSA provenance<br/>builder, inputs, outputs]
-        AM[Agent Manifest<br/>approved deployment composition]
-        ATT[RATS/EAT or platform evidence<br/>measured workload and key binding]
-    end
-
-    subgraph Decision[Decision-time trust]
-        CRED[Agent Credential<br/>identity, authority, status, audience]
-        RP[Relying party<br/>admission controller, gateway, or peer]
-    end
-
-    subgraph Runtime[Execution and audit]
-        RE[TRACE or OCSF evidence<br/>actions, decisions, changes, receipts]
-    end
-
-    BOM -->|digest + URI| AM
-    SLSA -->|subject digest + URI| AM
-    ATT -->|binds manifest digest<br/>to measured workload| AM
-    AR -->|approved card, issuer,<br/>and manifest references| RP
-    AC -->|manifest reference| RP
-    CRED -->|manifest reference +<br/>decision-time claims| RP
-    AM -->|signed deployment baseline| RP
-    RP -->|admit, restrict, or block| RE
-    AM -->|manifest digest +<br/>agent instance join| RE
-    RE -->|runtime evidence reference| CRED
-```
+![Four-layer standards integration map showing discovery, deployment evidence,
+decision-time verification, and runtime evidence](../assets/standards-integration-landscape.svg)
 
 The arrows are references, not schema ownership transfers. Agent Manifest binds
 the digests and identifiers needed to verify a deployment. It does not copy the
 source records into a new umbrella schema.
+
+## See it working
+
+Pick the depth that fits the question you are trying to answer:
+
+### Five minutes: prove deployment drift is detected
+
+Run the [multi-artifact tamper-detection
+example](https://github.com/agentrust-io/agent-manifest/tree/main/examples/multi-artifact).
+It signs a manifest over a real prompt, model descriptor, tool catalog, and RAG
+corpus, verifies the approved state, changes the prompt, and shows verification
+returning `MISMATCH`.
+
+```bash
+git clone https://github.com/agentrust-io/agent-manifest
+cd agent-manifest
+bash examples/multi-artifact/verify.sh
+```
+
+### Fifteen minutes: follow declaration through enforcement to evidence
+
+The [industrial embodied-AI
+example](https://github.com/agentrust-io/examples/tree/main/industrial-embodied-ai)
+connects all three layers in one scenario:
+
+1. Agent Manifest declares the approved prompt, policy, tools, and artifact
+   hashes.
+2. cMCP evaluates each requested action against the active Cedar policy and
+   tool catalog.
+3. TRACE and the signed audit bundle preserve the session and decisions for
+   offline verification after the processes stop.
+
+The example includes allowed, out-of-scope, and independently safety-rejected
+paths. Its limitations table states exactly what each record proves and what it
+does not prove.
+
+### Browse integrations and runnable demos
+
+- [AgenTrust demos](https://agentrust-io.com/demos/) provides ten runnable
+  policy, attestation, TRACE, and model-custody demonstrations that need no
+  confidential-computing hardware.
+- [AgenTrust Marketplace](https://agentrust-io.com/marketplace/) lists open
+  adapters, plugins, platforms, and evidence exporters. Marketplace presence is
+  discovery, not an endorsement; verify each listing and its evidence for your
+  own deployment.
+- [Your first manifest](../tutorials/your-first-manifest.md) walks through
+  creation and signing, and [server-side
+  verification](../tutorials/server-side-verification.md) shows the relying-party
+  side of the diagram.
 
 ## Record boundaries
 

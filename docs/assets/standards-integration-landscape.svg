@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="980" viewBox="0 0 960 980" role="img" aria-labelledby="title desc">
+  <title id="title">How Agent Manifest relates to adjacent agent standards</title>
+  <desc id="desc">A vertical architecture diagram. Agent Registration Record and Agent Card feed discovery and governance references. SPDX or CycloneDX, SLSA provenance, and platform attestation feed Agent Manifest. Agent Credential and Agent Manifest are verified by a relying party, which admits, restricts, or blocks execution. Runtime actions produce TRACE or OCSF evidence joined back to the exact manifest.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#2867a8"/>
+    </marker>
+    <style>
+      .group { fill:#f7fafc; stroke:#9bb6ce; stroke-width:2; rx:16; }
+      .card { fill:#ffffff; stroke:#2867a8; stroke-width:2; rx:12; }
+      .manifest { fill:#eaf8f1; stroke:#16805d; stroke-width:3; rx:12; }
+      .runtime { fill:#fff4ec; stroke:#d66b2c; stroke-width:2; rx:12; }
+      .label { font:700 20px Arial, sans-serif; fill:#16324a; }
+      .title { font:700 18px Arial, sans-serif; fill:#102a43; }
+      .body { font:15px Arial, sans-serif; fill:#334e68; }
+      .edge { fill:none; stroke:#2867a8; stroke-width:2.5; marker-end:url(#arrow); }
+      .edge-label { font:14px Arial, sans-serif; fill:#16324a; }
+    </style>
+  </defs>
+
+  <rect class="group" x="45" y="25" width="870" height="180"/>
+  <text class="label" x="70" y="60">1. Discovery and governance</text>
+  <rect class="card" x="90" y="85" width="340" height="90"/>
+  <text class="title" x="260" y="120" text-anchor="middle">Agent Registration Record</text>
+  <text class="body" x="260" y="148" text-anchor="middle">owner · enrollment · governance ceiling</text>
+  <rect class="card" x="530" y="85" width="340" height="90"/>
+  <text class="title" x="700" y="120" text-anchor="middle">Agent Card</text>
+  <text class="body" x="700" y="148" text-anchor="middle">endpoint · skills · protocols · auth needs</text>
+  <text class="edge-label" x="480" y="193" text-anchor="middle">The registry approves references to the card, credential issuer, and manifest.</text>
+
+  <rect class="group" x="45" y="245" width="870" height="280"/>
+  <text class="label" x="70" y="280">2. Build and deployment evidence</text>
+  <rect class="card" x="80" y="310" width="240" height="85"/>
+  <text class="title" x="200" y="343" text-anchor="middle">SPDX / CycloneDX</text>
+  <text class="body" x="200" y="370" text-anchor="middle">components and dependencies</text>
+  <rect class="card" x="360" y="310" width="240" height="85"/>
+  <text class="title" x="480" y="343" text-anchor="middle">SLSA provenance</text>
+  <text class="body" x="480" y="370" text-anchor="middle">builder · inputs · outputs</text>
+  <rect class="card" x="640" y="310" width="240" height="85"/>
+  <text class="title" x="760" y="343" text-anchor="middle">Platform attestation</text>
+  <text class="body" x="760" y="370" text-anchor="middle">measurement · key binding</text>
+
+  <path class="edge" d="M200 395 V430 H390"/>
+  <path class="edge" d="M480 395 V430"/>
+  <path class="edge" d="M760 395 V430 H570"/>
+  <text class="edge-label" x="255" y="422">digest + URI</text>
+  <text class="edge-label" x="655" y="422">bound evidence</text>
+
+  <rect class="manifest" x="330" y="445" width="300" height="60"/>
+  <text class="title" x="480" y="472" text-anchor="middle">Agent Manifest</text>
+  <text class="body" x="480" y="494" text-anchor="middle">approved deployment composition</text>
+
+  <rect class="group" x="45" y="565" width="870" height="195"/>
+  <text class="label" x="70" y="600">3. Decision-time trust</text>
+  <rect class="card" x="100" y="630" width="300" height="90"/>
+  <text class="title" x="250" y="663" text-anchor="middle">Agent Credential</text>
+  <text class="body" x="250" y="690" text-anchor="middle">identity · authority · audience · status</text>
+  <rect class="card" x="560" y="630" width="300" height="90"/>
+  <text class="title" x="710" y="663" text-anchor="middle">Relying party</text>
+  <text class="body" x="710" y="690" text-anchor="middle">admission controller · gateway · peer</text>
+  <path class="edge" d="M400 675 H560"/>
+  <text class="edge-label" x="427" y="660">claims + manifest_ref</text>
+  <path class="edge" d="M630 475 H710 V630"/>
+  <text class="edge-label" x="647" y="515">verify exact</text>
+  <text class="edge-label" x="647" y="535">deployment</text>
+
+  <rect class="group" x="45" y="800" width="870" height="150"/>
+  <text class="label" x="70" y="835">4. Runtime and audit</text>
+  <rect class="runtime" x="310" y="855" width="340" height="70"/>
+  <text class="title" x="480" y="884" text-anchor="middle">TRACE or OCSF evidence</text>
+  <text class="body" x="480" y="908" text-anchor="middle">actions · decisions · changes · receipts</text>
+  <path class="edge" d="M710 720 V785 H565 V855"/>
+  <text class="edge-label" x="605" y="780">admit, restrict, or block</text>
+  <text class="edge-label" x="480" y="944" text-anchor="middle">Every runtime record carries the exact manifest digest and agent-instance join.</text>
+</svg>
