@@ -71,6 +71,12 @@ does not prove.
 
 ### Browse integrations and runnable demos
 
+- [cA2A cross-operator delegation](https://github.com/agentrust-io/integrations/tree/main/integrations/agentrust-ca2a-cross-operator)
+  is a runnable 12-check tutorial. It shows one agent giving another agent a
+  smaller set of permissions, the receiving agent applying its own policy, and
+  an auditor checking the delegation and evidence later. Its SEV-SNP evidence is
+  synthetic, so it demonstrates the protocol without claiming a live hardware
+  run.
 - [AgenTrust demos](https://agentrust-io.com/demos/) provides ten runnable
   policy, attestation, TRACE, and model-custody demonstrations that need no
   confidential-computing hardware.
