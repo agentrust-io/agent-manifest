@@ -15,6 +15,15 @@
   stops reading them destroys evidence rather than tidying a codebase. Same reasoning as
   keeping the `-8` Ed25519 code point acceptable indefinitely.
 
+## [0.11.2] — 2026-08-27
+
+### Fixed
+
+- **[SECURITY][SDK]** `verify_manifest` now binds a declared
+  `artifacts.policy_bundle.enforcement_mode` to the runtime's attested mode.
+  A mismatch or an omitted runtime mode fails closed instead of accepting a
+  matching policy hash while the runtime operates with weaker enforcement.
+
 ## [0.11.1] — 2026-08-23
 
 ### Fixed
