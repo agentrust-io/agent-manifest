@@ -4,6 +4,10 @@ An Agent Manifest and an agent credential answer different questions. The manife
 
 This guide describes that three-layer bridge. It is informative: it does not add fields or conformance requirements to the Agent Manifest specification.
 
+For the system-level view across Agent Card, registration, BOM, provenance,
+attestation, and runtime evidence, see the [standards integration
+landscape](standards-landscape.md).
+
 ## How the layers divide the problem
 
 | Layer | Primary question | Typical evidence | What it does not prove |
@@ -119,6 +123,8 @@ Implementations should record the schema version or extension vocabulary they us
 
 ## Related material
 
+- [Standards integration landscape](standards-landscape.md) — record ownership,
+  reference flow, lifecycle changes, and the end-to-end integration diagram
 - [OCSF runtime-evidence crosswalk](https://github.com/agentrust-io/agent-manifest/blob/main/spec/agent-manifest-spec-v0.2.md#64-crosswalk-ocsf-runtime-evidence) — identity and delegation correspondence in the Agent Manifest specification
 - [Server-side verification](../tutorials/server-side-verification.md) — verifying a manifest at a relying party
 - [A2A delegation chains](../tutorials/delegation-chains.md) — narrowing authority between principals
