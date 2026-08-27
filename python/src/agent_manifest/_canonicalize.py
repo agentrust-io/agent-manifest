@@ -19,6 +19,7 @@ Per spec Section 4.3:
 """
 from __future__ import annotations
 
+import decimal
 import hashlib
 import math
 import unicodedata
@@ -26,6 +27,7 @@ from typing import Any
 
 
 _MAX_DEPTH = 64  # DOS-006: prevent RecursionError from deeply nested JSON
+_MAX_SAFE_INTEGER = (1 << 53) - 1  # ECMAScript Number.MAX_SAFE_INTEGER
 
 
 def canonicalize(obj: Any, *, exclude_none: bool = True) -> bytes:
@@ -98,11 +100,12 @@ def _serialize(obj: Any, *, exclude_none: bool, depth: int) -> str:
 
 
 def _serialize_dict(d: dict[str, Any], *, exclude_none: bool, depth: int) -> str:
-    # RFC 8785 §3.2.3: sort keys by Unicode code point order.
-    # Python's str comparison uses Unicode code point order by default — no
-    # special locale or collation needed.
+    # RFC 8785 §3.2.3: sort keys by UTF-16 code unit, not code point. Python's
+    # default str comparison is code-point order, which disagrees with this
+    # exactly when a key contains a supplementary-plane character (see
+    # _utf16_sort_key) — so sorted(d.keys()) alone is not conformant.
     parts: list[str] = []
-    for k in sorted(d.keys()):
+    for k in sorted(d.keys(), key=_utf16_sort_key):
         v = d[k]
         if exclude_none and v is None:
             continue
@@ -110,10 +113,35 @@ def _serialize_dict(d: dict[str, Any], *, exclude_none: bool, depth: int) -> str
     return "{" + ",".join(parts) + "}"
 
 
+def _utf16_sort_key(s: str) -> tuple[int, ...]:
+    """Return *s* as the UTF-16 code unit sequence RFC 8785 §3.2.3 sorts by.
+
+    A supplementary-plane character (code point > U+FFFF) is represented in
+    UTF-16 as a surrogate pair starting at 0xD800-0xDBFF, which sorts below
+    every BMP character above 0xD800 even though the character's own code
+    point sorts above them. Comparing code units instead of code points is
+    the only way to reproduce that ordering.
+    """
+    units: list[int] = []
+    for ch in s:
+        cp = ord(ch)
+        if cp > 0xFFFF:
+            cp -= 0x10000
+            units.append(0xD800 + (cp >> 10))
+            units.append(0xDC00 + (cp & 0x3FF))
+        else:
+            units.append(cp)
+    return tuple(units)
+
+
 def _quote(s: str) -> str:
     """Serialize a Python string as a JSON string per RFC 8785 §3.2.2.2.
 
-    Applies NFC normalization (spec Section 4.3) before escaping.
+    Applies NFC normalization (spec Section 4.3) before escaping. RFC 8785
+    defers to ECMAScript JSON.stringify, which escapes only the quote, the
+    reverse solidus, and U+0000-U+001F. U+007F, the C1 controls (U+0080-
+    U+009F) and the line/paragraph separators (U+2028, U+2029) are emitted
+    literally — they are not part of that escape set.
     """
     s = unicodedata.normalize("NFC", s)
     buf: list[str] = ['"']
@@ -133,8 +161,7 @@ def _quote(s: str) -> str:
             buf.append("\\r")
         elif ch == "\t":
             buf.append("\\t")
-        elif cp <= 0x001F or 0x007F <= cp <= 0x009F or cp in (0x2028, 0x2029):
-            # Control characters and ECMAScript line terminators
+        elif cp <= 0x001F:
             buf.append(f"\\u{cp:04x}")
         else:
             buf.append(ch)
@@ -143,18 +170,33 @@ def _quote(s: str) -> str:
 
 
 def _float_to_str(f: float) -> str:
-    """Serialize a float per RFC 8785 §3.2.2.3 (ECMAScript number formatting).
+    """Serialize a float per RFC 8785 §3.2.2.3 (ECMAScript Number::toString).
+
+    Implements the ECMA-262 Number::toString algorithm directly rather than
+    reformatting Python's `repr`: `repr(f)` already gives the shortest decimal
+    digit string that round-trips to *f* (what the spec calls `s`), and
+    `Decimal(repr(f)).normalize()` recovers that digit string and its exponent
+    without the two shortcuts (integers bounded at 1e15, exponential notation
+    switching over at the wrong magnitude) the previous implementation used.
 
     Raises:
         ValueError: If *f* is NaN or Infinity (not permitted by RFC 8785).
     """
     if math.isnan(f) or math.isinf(f):
         raise ValueError(f"RFC 8785 does not permit NaN or Infinity ({f!r})")
-    # Integers stored as floats: no decimal point
-    if f == math.floor(f) and abs(f) < 1e15:
-        return str(int(f))
-    # Use Python's shortest-round-trip repr, then normalize exponent notation
-    s = repr(f)
-    if "e" in s and "e+" not in s and "e-" not in s:
-        s = s.replace("e", "e+")
-    return s
+    if f == 0.0:
+        return "0"
+    sign = "-" if f < 0 else ""
+    _, digits, exponent = decimal.Decimal(repr(abs(f))).normalize().as_tuple()
+    digit_str = "".join(str(x) for x in digits)
+    k = len(digit_str)
+    n = exponent + k
+    if k <= n <= 21:
+        return sign + digit_str + "0" * (n - k)
+    if 0 < n <= 21:
+        return sign + digit_str[:n] + "." + digit_str[n:]
+    if -6 < n <= 0:
+        return sign + "0." + "0" * (-n) + digit_str
+    e = n - 1
+    mantissa = digit_str[0] if k == 1 else digit_str[0] + "." + digit_str[1:]
+    return sign + mantissa + "e" + ("+" if e >= 0 else "-") + str(abs(e))

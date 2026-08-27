@@ -2,7 +2,7 @@
 
 **Status**: Accepted  
 **Date**: 2026-05-10  
-**Spec section**: Section 4.1.1, Section 3.2.2 (composite policy bundle), Section 3.2.3 (tool catalog hash), Section 3.2.5 (RAG corpus)
+**Spec section**: Section 4.1.1, Section 3.2.2 (composite policy bundle), Section 2.2.3 (composite policy bundle), Section 3.2.3 (tool catalog hash), Section 3.2.5 (RAG corpus)
 
 ## Context
 
@@ -15,9 +15,35 @@ Use the RFC 9162 (Certificate Transparency v2) Merkle tree construction with exp
 - Leaf nodes: `SHA-256(0x00 || leaf_data)`
 - Internal nodes: `SHA-256(0x01 || left_hash || right_hash)`
 
+<<<<<<< HEAD
 Leaf data for tool entries: RFC 8785 canonical JSON of the tool descriptor (schema + description, sorted by tool name).  
 Leaf data for corpus documents: RFC 8785 canonical JSON of the document descriptor (hash + identifier + ingested_at).  
 Leaf data for composite policy sub-bundles (Section 3.2.2): the **raw digest bytes** of each sub-bundle hash, not the `sha256:`-prefixed hex string and not a JSON descriptor. Unlike the two above, this leaf carries no structured descriptor, because the ordering rule already fixes which sub-bundle each leaf is.
+
+<<<<<<< HEAD
+These are the only two Merkle hash operations selected by this ADR. The entries in
+"Alternatives considered" are rejected constructions, not additional supported
+operations.
+=======
+This ADR currently defines three Merkle hash operations.
+The entries in "Alternatives considered" are rejected constructions, not additional
+supported operations.
+>>>>>>> a43da11 (fix: remove non-JCS integer restriction and update ADR)
+
+Section 4.1.1 of the specification is the normative definition of the shared
+construction. Sections 3.2.2, 3.2.3, and 3.2.5.1 normatively define each artifact's leaf
+data and ordering; they take precedence over this ADR for those details. RFC 8785
+<<<<<<< HEAD
+applies only where those sections define JSON as an input to a hash.
+=======
+Leaf data for tool entries: RFC 8785 canonical JSON of the tool descriptor (schema + description, sorted by tool name).  
+Leaf data for corpus documents: RFC 8785 canonical JSON of the document descriptor (hash + identifier + ingested_at).  
+Leaf data for composite policy sub-bundles (Section 3.2.2): the **raw digest bytes** of each sub-bundle hash, not the `sha256:`-prefixed hex string and not a JSON descriptor. Unlike the two above, this leaf carries no structured descriptor, because the ordering rule already fixes which sub-bundle each leaf is.
+>>>>>>> 3bb3ee5a46305bd639e8814308b66d1392a3eaf8
+=======
+applies only where those sections define JSON as an input to a hash. The composite
+policy sub-bundle leaf uses raw digest bytes and does not use JSON canonicalization.
+>>>>>>> a43da11 (fix: remove non-JCS integer restriction and update ADR)
 
 ## Rationale
 
@@ -31,7 +57,7 @@ Leaf data for composite policy sub-bundles (Section 3.2.2): the **raw digest byt
 **Simple concatenation Merkle (no domain separation)**: Vulnerable to second-preimage attacks as described above. Rejected.
 
 **BLAKE3 Merkle**: BLAKE3 has built-in domain separation for its tree construction. Rejected because BLAKE3 is not yet in the standard library of all target languages, and SHA-256 is sufficient for this use case.
-
+id`. Composite policy sub-bundles sorted by policy language identifer (`cear`, `rego`, `yaml-agt), per Section 3.2.2
 **Flat hash (hash of concatenated hashes)**: Not a Merkle tree  -  does not support efficient membership proofs. Rejected because the spec's design supports future membership proof extensions.
 
 ## Consequences
