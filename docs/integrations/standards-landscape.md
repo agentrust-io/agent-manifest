@@ -11,8 +11,24 @@ specification.
 
 ## How the records relate
 
-![Four-layer standards integration map showing discovery, deployment evidence,
-decision-time verification, and runtime evidence](../assets/standards-integration-landscape.svg)
+In simple terms:
+
+1. **Discovery records say what the agent claims to be.** The registration
+   record and Agent Card identify the owner, endpoint, skills, and protocols.
+2. **Build records say what was approved.** The BOM, build provenance, and
+   platform evidence are linked by exact digest from the Agent Manifest.
+3. **A relying party makes the decision.** It checks the credential and the
+   exact manifest, then admits, restricts, or blocks the agent.
+4. **Runtime records say what happened next.** TRACE or OCSF evidence links each
+   action back to the exact manifest and agent instance that was admitted.
+
+<a href="../assets/standards-integration-landscape.svg" target="_blank">
+  <img src="../assets/standards-integration-landscape.svg"
+       alt="Four-layer standards integration map showing discovery, deployment evidence, decision-time verification, and runtime evidence">
+</a>
+
+**[Open the diagram full size](../assets/standards-integration-landscape.svg)**
+for readable labels. Select the image to open it in a new tab.
 
 The arrows are references, not schema ownership transfers. Agent Manifest binds
 the digests and identifiers needed to verify a deployment. It does not copy the
