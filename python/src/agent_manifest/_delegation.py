@@ -13,11 +13,11 @@ form of approved_scope + manifest_id + approved_at.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Optional
+from datetime import datetime, timedelta
+from typing import Any
 
 from ._canonicalize import canonicalize
-from ._signing import Ed25519Verifier, Ed25519KeyPair
-
+from ._signing import Ed25519KeyPair, Ed25519Verifier
 
 # ---------------------------------------------------------------------------
 # A2A Delegation chain
@@ -146,7 +146,7 @@ def verify_delegation_chain(
     delegation_chain: list[dict[str, Any]],
     public_keys: dict[str, bytes],  # principal_id -> public key bytes
     manifest_id: str,
-    manifest_issuer: Optional[str] = None,
+    manifest_issuer: str | None = None,
 ) -> None:
     """Verify all hops in a delegation chain.
 
@@ -205,7 +205,8 @@ def verify_delegation_chain(
             f"root max_delegation_depth {root_max_depth}"
         )
 
-    prev_scope: Optional[dict[str, Any]] = None
+    prev_scope: dict[str, Any] | None = None
+    prev_delegated_at: str | None = None
 
     for i, hop in enumerate(delegation_chain):
         # Structural validation before any field access (raises ValueError on violation)
@@ -238,13 +239,35 @@ def verify_delegation_chain(
 
         # Scope narrowing check
         scope = hop["scope_grant"]
+                # Scope narrowing check
+        scope = hop["scope_grant"]
+        delegated_at = hop["delegated_at"]
         if prev_scope is not None:
-            _check_scope_narrowing(prev_scope, scope, hop_index=i)
+            _check_scope_narrowing(
+                prev_scope,
+                scope,
+                hop_index=i,
+                parent_delegated_at=prev_delegated_at,
+                child_delegated_at=delegated_at,
+            )
 
         prev_scope = scope
+        prev_delegated_at = delegated_at
 
 
-def _check_scope_narrowing(parent: dict[str, Any], child: dict[str, Any], hop_index: int) -> None:
+def _parse_delegated_at(value: str) -> datetime:
+    """Parse a hop's ``delegated_at`` ISO 8601 timestamp (accepts a 'Z' suffix)."""
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def _check_scope_narrowing(
+    parent: dict[str, Any],
+    child: dict[str, Any],
+    hop_index: int,
+    *,
+    parent_delegated_at: str | None = None,
+    child_delegated_at: str | None = None,
+) -> None:
     """Raise ValueError if child scope is broader than parent scope."""
     parent_tools = set(parent.get("tools") or [])
     child_tools = set(child.get("tools") or [])
@@ -306,6 +329,33 @@ def _check_scope_narrowing(parent: dict[str, Any], child: dict[str, Any], hop_in
             f"child ttl_seconds {child_ttl!r} exceeds parent ttl_seconds "
             f"{parent_ttl!r}"
         )
+    # DELEG-005: ttl_seconds is a *duration measured from that hop's own*
+    # delegated_at, not from a shared origin. Comparing the two durations in
+    # isolation (above) is not sufficient: a child hop delegated partway
+    # through its parent's window can carry a duration that does not exceed
+    # the parent's, yet its absolute expiry (its own delegated_at + its own
+    # ttl_seconds) can still fall *after* the parent's absolute expiry
+    # (parent's delegated_at + parent's ttl_seconds) - the grant would then
+    # outlive the authority it was narrowed from. Comparing the two absolute
+    # expiries directly closes this regardless of how far apart the hops'
+    # delegated_at timestamps are.
+    if (
+        parent_ttl is not None
+        and child_ttl is not None
+        and parent_delegated_at is not None
+        and child_delegated_at is not None
+    ):
+        parent_expiry = _parse_delegated_at(parent_delegated_at) + timedelta(seconds=parent_ttl)
+        child_expiry = _parse_delegated_at(child_delegated_at) + timedelta(seconds=child_ttl)
+        if child_expiry > parent_expiry:
+            raise ValueError(
+                f"Scope laundering at hop {hop_index}: child scope_grant "
+                f"expires at {child_expiry.isoformat()}, after the parent's "
+                f"absolute expiry {parent_expiry.isoformat()}, even though "
+                "its ttl_seconds duration does not exceed the parent's "
+                "(the child was delegated later, so the same duration "
+                "outlives the parent's grant)"
+            )
 
     # max_delegation_depth: a child may not authorize a deeper sub-chain than
     # its parent permitted. Omission defaults to the spec value (3).
@@ -383,7 +433,7 @@ def verify_hitl_approval(
         ValueError: If required fields are missing or the approval has expired.
     """
     import base64
-    from datetime import datetime, timezone, timedelta
+    from datetime import datetime, timezone
 
     # HITL-003: enforce approval expiry before verifying signature
     duration = approval.get("approved_scope", {}).get("approval_duration_seconds", 0)
