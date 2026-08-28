@@ -10,9 +10,7 @@ import hashlib
 import math
 
 import pytest
-
 from agent_manifest._canonicalize import canonical_hash, canonicalize
-
 
 # ---------------------------------------------------------------------------
 # Spec Appendix D test vector (SHA-256 verified via bash sha256sum)
@@ -139,7 +137,7 @@ def test_line_separator_escaped():
 
 def test_regular_unicode_verbatim():
     # Non-control chars pass through after NFC normalization
-    assert canonicalize({"v": "é"}) == '{"v":"é"}'.encode("utf-8")
+    assert canonicalize({"v": "é"}) == '{"v":"é"}'.encode()
 
 
 # ---------------------------------------------------------------------------
@@ -199,6 +197,58 @@ def test_float_nan_raises():
 def test_float_infinity_raises():
     with pytest.raises(ValueError, match="Infinity"):
         canonicalize({"v": math.inf})
+
+
+# ---------------------------------------------------------------------------
+# Float formatting must match ECMA-262 Number::toString exactly (RFC 8785
+# §3.2.2.3), not Python's own repr() notation choice the two diverge at
+# several magnitude boundaries and in exponent zero-padding.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (1e-6, "0.000001"),   # ECMAScript keeps this fixed, not exponential
+        (1e-7, "1e-7"),        # ECMAScript switches to exponential here
+        (5e-8, "5e-8"),        # ...with NO leading zero on the exponent
+        (-1e-7, "-1e-7"),
+        (1e15, "1000000000000000"),
+        (1e16, "10000000000000000"),   # Python's repr() already goes exponential here
+        (1e20, "100000000000000000000"),
+        (1e21, "1e+21"),        # ECMAScript's fixed/exponential boundary is 1e21
+        (1.5e21, "1.5e+21"),
+        (123456789012345680000.0, "123456789012345680000"),
+        (0.0, "0"),
+        (-0.0, "0"),
+    ],
+)
+def test_float_matches_ecmascript_tostring(value, expected):
+    assert canonicalize({"v": value}) == f'{{"v":{expected}}}'.encode()
+
+
+def test_float_exponent_not_zero_padded():
+    # Python's repr(1e-7) is "1e-07"; RFC 8785 requires ECMAScript's "1e-7".
+    assert canonicalize({"v": 1e-7}) == b'{"v":1e-7}'
+
+
+# ---------------------------------------------------------------------------
+# Object-key ordering must use UTF-16 code-unit order (RFC 8785 §3.2.3 /
+# ECMA-262 JSON.stringify), which differs from Python's default code-point
+# order for any key with a character outside the Basic Multilingual Plane.
+# ---------------------------------------------------------------------------
+
+
+def test_key_sort_uses_utf16_code_unit_order():
+    # U+1F600 is encoded in UTF-16 as the surrogate pair D83D DE00, whose
+    # first code unit (0xD83D) is less than U+E000. Under plain code-point
+    # comparison (Python's default `sorted()`), U+1F600 > U+E000 instead,
+    # producing the opposite non-conformant order.
+    supplementary = "\U0001F600"
+    bmp_high = "\uE000"
+    obj = {supplementary: 1, bmp_high: 2}
+    result = canonicalize(obj)
+    assert result.index(supplementary.encode()) < result.index(bmp_high.encode())
 
 
 # ---------------------------------------------------------------------------
