@@ -239,8 +239,6 @@ def verify_delegation_chain(
 
         # Scope narrowing check
         scope = hop["scope_grant"]
-                # Scope narrowing check
-        scope = hop["scope_grant"]
         delegated_at = hop["delegated_at"]
         if prev_scope is not None:
             _check_scope_narrowing(
