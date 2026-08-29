@@ -12,7 +12,7 @@ import pytest
 
 crypto = pytest.importorskip("cryptography")
 
-from agent_manifest._tpm_verify import (
+from agent_manifest._tpm_verify import (    # noqa: E402
     TPM_GENERATED_VALUE,
     TPM_ST_ATTEST_NV,
     TPM_ST_ATTEST_QUOTE,
@@ -24,11 +24,11 @@ from agent_manifest._tpm_verify import (
     parse_tpmt_signature,
     verify_tpm_quote,
 )
-from cryptography import x509
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
-from cryptography.hazmat.primitives.serialization import Encoding
-from cryptography.x509.oid import NameOID
+from cryptography import x509  # noqa: E402
+from cryptography.hazmat.primitives import hashes  # noqa: E402
+from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa  # noqa: E402
+from cryptography.hazmat.primitives.serialization import Encoding  # noqa: E402
+from cryptography.x509.oid import NameOID  # noqa: E402
 
 _T0 = datetime.datetime(2020, 1, 1, tzinfo=datetime.timezone.utc)
 

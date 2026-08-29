@@ -23,11 +23,11 @@ from agent_manifest._tdx_verify import (
 
 crypto = pytest.importorskip("cryptography")
 
-from cryptography import x509
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.asymmetric import ec, utils
-from cryptography.hazmat.primitives.serialization import Encoding
-from cryptography.x509.oid import NameOID
+from cryptography import x509  # noqa: E402
+from cryptography.hazmat.primitives import hashes  # noqa: E402
+from cryptography.hazmat.primitives.asymmetric import ec, utils  # noqa: E402
+from cryptography.hazmat.primitives.serialization import Encoding  # noqa: E402
+from cryptography.x509.oid import NameOID  # noqa: E402
 
 _HDR = 48
 _BODY = 584
