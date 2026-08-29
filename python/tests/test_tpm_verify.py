@@ -12,7 +12,7 @@ import pytest
 
 crypto = pytest.importorskip("cryptography")
 
-from agent_manifest._tpm_verify import (  # noqa: E402
+from agent_manifest._tpm_verify import (
     TPM_GENERATED_VALUE,
     TPM_ST_ATTEST_NV,
     TPM_ST_ATTEST_QUOTE,
@@ -24,12 +24,11 @@ from agent_manifest._tpm_verify import (  # noqa: E402
     parse_tpmt_signature,
     verify_tpm_quote,
 )
-
-from cryptography import x509  # noqa: E402
-from cryptography.hazmat.primitives import hashes  # noqa: E402
-from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa  # noqa: E402
-from cryptography.hazmat.primitives.serialization import Encoding  # noqa: E402
-from cryptography.x509.oid import NameOID  # noqa: E402
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
+from cryptography.hazmat.primitives.serialization import Encoding
+from cryptography.x509.oid import NameOID
 
 _T0 = datetime.datetime(2020, 1, 1, tzinfo=datetime.timezone.utc)
 
@@ -250,6 +249,63 @@ def test_nv_certify_parsers_are_public_api():
     assert agent_manifest.parse_tpm_attest is parse_tpm_attest
     assert agent_manifest.parse_nv_certify_info is parse_nv_certify_info
     assert agent_manifest.parse_tpm_nv_certify is parse_tpm_nv_certify
+
+
+def _ak_chain_at(not_before, not_after, kind="ec"):
+    """Like ``_ak_chain`` but with a caller-chosen validity window."""
+    def cert_at(subject, subject_pub, issuer, issuer_key, halg=hashes.SHA256()):
+        return (
+            x509.CertificateBuilder()
+            .subject_name(_name(subject))
+            .issuer_name(_name(issuer))
+            .public_key(subject_pub)
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(not_before)
+            .not_valid_after(not_after)
+            .sign(issuer_key, halg)
+        )
+
+    if kind == "ec":
+        root_key = ec.generate_private_key(ec.SECP256R1())
+        ak_key = ec.generate_private_key(ec.SECP256R1())
+    else:
+        root_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        ak_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    root = cert_at("test-tpm-root", root_key.public_key(), "test-tpm-root", root_key)
+    ak = cert_at("test-ak", ak_key.public_key(), "test-tpm-root", root_key)
+    chain_pem = ak.public_bytes(Encoding.PEM) + root.public_bytes(Encoding.PEM)
+    return ak_key, chain_pem, root.public_bytes(Encoding.PEM)
+
+
+# ---------------------------------------------------------------------------
+# CERT-011: every certificate in the AK chain must be within its validity
+# period. verify_tpm_quote (via _verify_ak_chain) used to check signatures
+# only; an AK certificate or root whose validity window had already expired
+# still verified successfully.
+# ---------------------------------------------------------------------------
+
+
+def test_verify_rejects_expired_ak_chain():
+    ak_key, chain, roots = _ak_chain_at(
+        datetime.datetime(2010, 1, 1, tzinfo=datetime.timezone.utc),
+        datetime.datetime(2011, 1, 1, tzinfo=datetime.timezone.utc),  # expired a decade+ ago
+    )
+    attest = _build_attest(NONCE, PCR)
+    sig = _sign(ak_key, attest)
+    with pytest.raises(TpmVerificationError, match="outside its validity period"):
+        verify_tpm_quote(attest, sig, chain, trusted_roots_pem=roots)
+
+
+def test_verify_accepts_within_pinned_verification_time():
+    not_before = datetime.datetime(2024, 1, 1, tzinfo=datetime.timezone.utc)
+    not_after = datetime.datetime(2025, 1, 1, tzinfo=datetime.timezone.utc)
+    ak_key, chain, roots = _ak_chain_at(not_before, not_after)
+    attest = _build_attest(NONCE, PCR)
+    sig = _sign(ak_key, attest)
+    assert verify_tpm_quote(
+        attest, sig, chain, trusted_roots_pem=roots,
+        verification_time=datetime.datetime(2024, 6, 1, tzinfo=datetime.timezone.utc),
+    ) is True
 
 
 # ---------------------------------------------------------------------------

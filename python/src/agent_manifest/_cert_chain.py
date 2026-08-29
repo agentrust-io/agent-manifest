@@ -19,8 +19,9 @@ each carrying their own chain verifier; the AMD-specific
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Optional, Sequence
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from cryptography import x509
@@ -31,12 +32,44 @@ class CertChainError(Exception):
     """Raised when a certificate chain fails to verify or pin to a trusted root."""
 
 
-def verify_cert_chain(
-    chain: "Sequence[x509.Certificate]",
-    trusted_roots: "Sequence[x509.Certificate]",
+def check_validity_period(
+    cert: x509.Certificate,
     *,
-    root_fingerprint_hash: "Optional[HashAlgorithm]" = None,
-    verification_time: Optional[datetime] = None,
+    label: str,
+    verification_time: datetime | None = None,
+) -> None:
+    """Raise :class:`CertChainError` if *cert* is expired or not yet valid.
+
+    Every certificate-chain verifier in this package (SEV-SNP, TDX, TPM, and
+    this module's own :func:`verify_cert_chain`) needs the same check, so it
+    lives here once rather than as three copies that can silently drift out
+    of sync with each other.
+
+    Args:
+        cert: the certificate to check.
+        label: identifies which certificate this is in the caller's chain
+            (e.g. ``"VCEK"``, ``"PCK chain link 0"``), for the error message.
+        verification_time: UTC-aware time to check against (default: current
+            UTC time). Primarily useful for deterministic tests.
+    """
+    now = verification_time or datetime.now(timezone.utc)
+    if now.tzinfo is None or now.utcoffset() is None:
+        raise CertChainError("verification_time must be timezone-aware")
+    now = now.astimezone(timezone.utc)
+    if not (cert.not_valid_before_utc <= now < cert.not_valid_after_utc):
+        raise CertChainError(
+            f"{label} is outside its validity period "
+            f"({cert.not_valid_before_utc.isoformat()} - "
+            f"{cert.not_valid_after_utc.isoformat()}, checked at {now.isoformat()})"
+        )
+
+
+def verify_cert_chain(
+    chain: Sequence[x509.Certificate],
+    trusted_roots: Sequence[x509.Certificate],
+    *,
+    root_fingerprint_hash: HashAlgorithm | None = None,
+    verification_time: datetime | None = None,
 ) -> bool:
     """Verify a leaf-first certificate chain up to a fingerprint-pinned root.
 
@@ -64,8 +97,8 @@ def verify_cert_chain(
             certificate signing, an unpinned root, or missing ``cryptography``.
     """
     try:
-        from cryptography.exceptions import InvalidSignature
         from cryptography import x509
+        from cryptography.exceptions import InvalidSignature
         from cryptography.hazmat.primitives.hashes import SHA256
     except ImportError as e:  # pragma: no cover - exercised via install extra
         raise CertChainError(
@@ -83,8 +116,7 @@ def verify_cert_chain(
     now = now.astimezone(timezone.utc)
 
     for i, cert in enumerate(chain):
-        if not (cert.not_valid_before_utc <= now < cert.not_valid_after_utc):
-            raise CertChainError(f"certificate at position {i} is outside its validity period")
+        check_validity_period(cert, label=f"certificate at position {i}", verification_time=now)
 
     for i, issuer in enumerate(chain[1:], start=1):
         try:

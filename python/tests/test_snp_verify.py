@@ -18,9 +18,13 @@ import hashlib
 import pathlib
 
 import pytest
-
 from agent_manifest._snp_verify import (
+    _OFF_SIGNATURE,
+    _SIG_COMPONENT_BYTES,
+    _SIG_COMPONENT_STRIDE,
+    _SNP_REPORT_LEN,
     PLATFORM_INFO_BITS,
+    SIG_ALGO_ECDSA_P384_SHA384,
     SnpVerificationError,
     appraise_platform_info,
     parse_hcl_report,
@@ -29,11 +33,6 @@ from agent_manifest._snp_verify import (
     verify_runtime_data_binding,
     verify_snp_signature,
     verify_vcek_chain,
-    _OFF_SIGNATURE,
-    SIG_ALGO_ECDSA_P384_SHA384,
-    _SIG_COMPONENT_BYTES,
-    _SIG_COMPONENT_STRIDE,
-    _SNP_REPORT_LEN,
 )
 
 VECTORS = pathlib.Path(__file__).parent / "vectors" / "snp"
@@ -243,6 +242,73 @@ def test_verify_vcek_chain_requires_two_certs():
 
 
 # ---------------------------------------------------------------------------
+# CERT-011: every certificate in the chain must be within its validity
+# period. verify_vcek_chain used to check signatures only; a VCEK, ASK, or
+# ARK whose validity window had already expired still verified successfully.
+# ---------------------------------------------------------------------------
+
+
+def _rsa_pss_chain_at(not_before, not_after):
+    """Like ``_rsa_pss_chain`` but with a caller-chosen validity window."""
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.asymmetric import padding, rsa
+    from cryptography.hazmat.primitives.serialization import Encoding
+    from cryptography.x509.oid import NameOID
+
+    pss = padding.PSS(mgf=padding.MGF1(hashes.SHA384()), salt_length=48)
+
+    def key():
+        return rsa.generate_private_key(public_exponent=65537, key_size=2048)
+
+    def cert(subj, pub, issuer_name, issuer_key):
+        return (
+            x509.CertificateBuilder()
+            .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, subj)]))
+            .issuer_name(issuer_name)
+            .public_key(pub)
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(not_before)
+            .not_valid_after(not_after)
+            .sign(issuer_key, hashes.SHA384(), rsa_padding=pss)
+        )
+
+    ark_key, ask_key, vcek_key = key(), key(), key()
+    ark_name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "ARK-test")])
+    ask_name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "ASK-test")])
+    ark = cert("ARK-test", ark_key.public_key(), ark_name, ark_key)
+    ask = cert("ASK-test", ask_key.public_key(), ark_name, ark_key)
+    vcek = cert("SEV-VCEK-test", vcek_key.public_key(), ask_name, ask_key)
+    chain = ask.public_bytes(Encoding.PEM) + ark.public_bytes(Encoding.PEM)
+    return vcek.public_bytes(Encoding.DER), chain, ark.public_bytes(Encoding.DER)
+
+
+def test_verify_vcek_chain_rejects_expired_chain():
+    from datetime import datetime, timezone
+
+    vcek_der, chain_pem, _ = _rsa_pss_chain_at(
+        datetime(2015, 1, 1, tzinfo=timezone.utc),
+        datetime(2016, 1, 1, tzinfo=timezone.utc),  # expired a decade ago
+    )
+    with pytest.raises(SnpVerificationError, match="outside its validity period"):
+        verify_vcek_chain(vcek_der, chain_pem)
+
+
+def test_verify_vcek_chain_accepts_within_pinned_verification_time():
+    from datetime import datetime, timezone
+
+    not_before = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    not_after = datetime(2025, 1, 1, tzinfo=timezone.utc)
+    vcek_der, chain_pem, _ = _rsa_pss_chain_at(not_before, not_after)
+    # A verification_time inside the window passes even though "now" (2026)
+    # is well past not_after this is what makes the check testable/
+    # deterministic rather than only ever checkable against wall-clock time.
+    assert verify_vcek_chain(
+        vcek_der, chain_pem, verification_time=datetime(2024, 6, 1, tzinfo=timezone.utc)
+    ) is True
+
+
+# ---------------------------------------------------------------------------
 # Declared signature algorithm and cert-bundle loading (union, agent-manifest 0.9)
 # ---------------------------------------------------------------------------
 
@@ -330,10 +396,9 @@ def test_load_snp_cert_chain_rejects_the_kds_cert_chain_endpoint_output():
     """AMD KDS's `cert_chain` endpoint returns ASK + ARK with no VCEK. Passing it
     whole is a real, recorded deployment mistake, so it must fail loudly rather
     than proceed with two of the three."""
+    from agent_manifest import load_snp_cert_chain
     from cryptography import x509
     from cryptography.hazmat.primitives.serialization import Encoding
-
-    from agent_manifest import load_snp_cert_chain
 
     certs = x509.load_pem_x509_certificates(_snp_shaped_bundle())
     ask_and_ark = b"".join(
