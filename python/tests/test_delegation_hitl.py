@@ -312,6 +312,23 @@ def test_child_delegated_late_with_shorter_ttl_still_within_parent_window_passes
     verify_delegation_chain(chain, keys, MID)  # must not raise
 
 
+def test_mixed_z_and_naive_delegated_at_still_refuses_on_absolute_expiry():
+    # delegated_at is a required field with no format validation, so one hop
+    # in a chain can legitimately be written with a 'Z' offset and another
+    # without one. A naive datetime cannot be compared against an aware one
+    # (TypeError), which is not a refusal verify_delegation_chain documents
+    # raising (its docstring promises InvalidSignature or ValueError). The
+    # parser must treat an offset-less timestamp as UTC so the absolute-expiry
+    # comparison still runs -- and still refuses -- instead of crashing.
+    root_at = "2026-01-01T00:00:00Z"          # aware
+    child_at = "2026-01-01T00:50:00"          # naive, same chain, outlives root
+    root = {"tools": ["t"], "max_delegation_depth": 3, "ttl_seconds": 3600}
+    child = {"tools": ["t"], "max_delegation_depth": 3, "ttl_seconds": 3600}
+    chain, keys = _two_hop_chain_at(root, child, root_at, child_at)
+    with pytest.raises(ValueError, match="Scope laundering.*absolute expiry"):
+        verify_delegation_chain(chain, keys, MID)
+
+
 # ---------------------------------------------------------------------------
 # HITL approval signing
 # ---------------------------------------------------------------------------

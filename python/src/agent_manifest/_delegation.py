@@ -13,7 +13,7 @@ form of approved_scope + manifest_id + approved_at.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from ._canonicalize import canonicalize
@@ -254,8 +254,15 @@ def verify_delegation_chain(
 
 
 def _parse_delegated_at(value: str) -> datetime:
-    """Parse a hop's ``delegated_at`` ISO 8601 timestamp (accepts a 'Z' suffix)."""
-    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    """Parse a hop's ``delegated_at`` ISO 8601 timestamp (accepts a 'Z' suffix).
+
+    A timestamp with no offset is treated as UTC rather than left naive: hops in
+    one chain are written by different parties and need not agree on whether to
+    include one, and comparing a naive against an aware datetime raises
+    TypeError, which is not a refusal.
+    """
+    dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
 
 
 def _check_scope_narrowing(
