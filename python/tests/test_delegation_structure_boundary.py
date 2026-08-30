@@ -126,13 +126,13 @@ def test_signature_type_is_established_before_len(signature) -> None:
         verify_delegation_chain([root], {}, MID)
 
 
-def test_malformed_later_hop_is_rejected_before_crypto_interpretation() -> None:
-    root = _minimal_hop()
+def test_malformed_later_hop_is_rejected_before_its_crypto_interpretation() -> None:
+    root, keys = _signed_hop()
     later = _minimal_hop()
     later["hop"] = 1
     later["scope_grant"] = "bad"
     with pytest.raises(ValueError, match="Delegation hop 1 scope_grant must be an object"):
-        verify_delegation_chain([root, later], {}, MID)
+        verify_delegation_chain([root, later], keys, MID)
 
 
 def test_structurally_valid_root_mismatch_keeps_existing_binding_failure() -> None:
