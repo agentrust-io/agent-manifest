@@ -233,11 +233,9 @@ def verify_delegation_chain(
     if not delegation_chain:
         return
 
-    # Structure is a prerequisite for every later interpretation of a hop.
-    # Establish it once for the complete chain before root binding, depth,
-    # signatures, or scope comparisons consume nested fields.
-    for i, hop in enumerate(delegation_chain):
-        _validate_hop_structure(hop, i)
+    # The root is interpreted before the verification loop, so establish its
+    # structure before the root-binding and depth reads below.
+    _validate_hop_structure(delegation_chain[0], 0)
 
     # Bind the chain root to the manifest's signing identity. The root hop
     # establishes the authority the rest of the chain narrows from, so it must
@@ -271,6 +269,9 @@ def verify_delegation_chain(
     prev_scope: Optional[dict[str, Any]] = None
 
     for i, hop in enumerate(delegation_chain):
+        if i:
+            _validate_hop_structure(hop, i)
+
         if hop.get("hop") != i:
             raise ValueError(f"Hop {i} has wrong hop index: {hop.get('hop')}")
 
