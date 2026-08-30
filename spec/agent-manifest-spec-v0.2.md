@@ -1441,10 +1441,6 @@ A `VALID` result means all of the following are true:
 - If `enforce_hitl` is `true`, at least one HITL approval is present, valid, not expired, and meets the `approval_method` requirement for the declared `risk_tier`
 - If `enforce_attestation` is `true`, `audit_key_sealed` is `true` in the attestation block
 
-**Issuer key authorization is not covered by a `VALID` result unless the verifier configures it (non-normative implementation note).** `signature.key_id` sits outside the signing pre-image (section 3.6), so it identifies a key without authorizing one. The reference SDK checks that the signing key is authorized for the declared `issuer` only when `VerificationContext.trusted_key_issuers` is populated; that field defaults to an empty map, and with it empty the check returns without evaluating anything. A deployment that does not populate it therefore obtains `VALID` results in which nothing has confirmed the signing key belongs to the claimed issuer.
-
-This section does not yet state a normative requirement either way, and the reference implementation's behaviour is not a substitute for one. Whether a verifier MUST reject a key that is not resolved through a defined authorization path, and MUST reject issuer authorization derived from an identifier the attested subject controls, is open and tracked in issue #325. Populate `trusted_key_issuers` in the meantime for any deployment where issuer and subject are not the same party.
-
 A `VALID` result that carries no `challenge_nonce` is a statement about the manifest at the moment the service evaluated it, and nothing binds it to any particular request. It MAY be relied on for a decision whose correctness does not depend on freshness, such as an audit reading of a historical manifest. It MUST NOT be relied on to gate an action, because a result that is not bound to a live challenge is one an attacker may present again later. See section 5.1.2.
 
 A `MISMATCH` result means at least one required field does not match its running artifact. The `mismatch_details` array MUST enumerate every mismatched field. A relying party receiving a `MISMATCH` MUST NOT proceed with the operation that triggered verification.
@@ -1462,6 +1458,27 @@ A relying party MUST NOT treat `VALID` as authorization for the action that trig
 Authorization is the policy layer's question, and the manifest is one of its inputs: a gateway evaluates its own policy over the call, with `VALID` as the precondition establishing which agent is asking rather than as the answer. A gateway that proceeds on `VALID` alone has an identity check where it needed an access decision.
 
 Stating this is not a narrowing of scope. It is what the specification already does: `delegation_chain` returns `UNVERIFIABLE` rather than `VALID` when a Cedar constraint cannot be evaluated, and `hitl_record` returns `APPROVAL_INSUFFICIENT` when an approval does not meet the bar for its `risk_tier`. Both refuse to let an unevaluated condition become a pass. The rule above says the same thing about the overall result, which had a defined behaviour on `MISMATCH` and none on `VALID`.
+
+##### 5.3.3 Issuer Key Authorization
+
+A verifier MUST NOT return `VALID` unless the signing key is authorized for the manifest's declared `issuer` through a trust path the verifier can evaluate independently of the manifest document itself.
+
+Before verifying the signature, a verifier MUST:
+
+1. resolve the signing key through a defined authorization path external to the manifest document; and
+2. confirm that the resolved key is authorized for the declared `issuer`.
+
+The verifier MUST complete both steps before signature verification. A verifier that cannot complete either step MUST NOT return `VALID`.
+
+1. A verifier MUST reject a signing key that is not resolved through a defined authorization path. The key identifier in the signature envelope identifies a key. It does not authorize one. For v0.1 manifests, `signature.key_id` is unauthenticated metadata outside the signing pre-image (section 3.6). Under the v0.2 COSE envelope, `kid` identifies the signing key without establishing issuer authorization.
+
+2. A verifier MUST reject issuer authorization derived from an identifier the attested subject controls. When the authorization path resolves through `agent_id`, a DNS name under the subject's control, or any other identifier the subject can set, issuer and subject collapse into one role.
+
+This does not prohibit issuer and subject from being the same organization. It prohibits the authorization path from resolving through a subject-controlled identifier. The identity may be the same. The trust path may not.
+
+A resolved key that is not authorized for the declared issuer is an authorization failure. Authorization that cannot be determined is a distinct condition. Neither condition permits a `VALID` result. The verifier MUST distinguish an authorization failure from authorization that cannot be determined.
+
+The authorization path mechanism is deployment policy. This section requires the verifier to evaluate an authorization path independent of subject-controlled identifiers.
 
 #### 5.3.1 Runtime session binding for gateways
 
