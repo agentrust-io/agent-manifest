@@ -175,7 +175,7 @@ def verify_transparency_log_entry(
         body = response.json()
         if not isinstance(body, dict):
             return False
-        entry_data = next(iter(body.values()), {})
+        entry_data: Any = next(iter(body.values()), {})
         if not isinstance(entry_data, dict):
             return False
         encoded_body = entry_data.get("body", "e30=")
