@@ -102,7 +102,7 @@ def test_scope_collection_types_are_established_before_set_operations(field, val
         verify_delegation_chain([root], {}, MID)
 
 
-@pytest.mark.parametrize("value", [True, "3", []])
+@pytest.mark.parametrize("value", [True, "3", [], 3.5])
 def test_max_delegation_depth_type_is_established_before_comparison(value) -> None:
     root = _minimal_hop()
     root["scope_grant"] = {**SCOPE, "max_delegation_depth": value}
@@ -110,12 +110,25 @@ def test_max_delegation_depth_type_is_established_before_comparison(value) -> No
         verify_delegation_chain([root], {}, MID)
 
 
-@pytest.mark.parametrize("value", [True, "60", []])
+@pytest.mark.parametrize("value", [True, "60", [], 60.5])
 def test_ttl_type_is_established_before_comparison(value) -> None:
     root = _minimal_hop()
     root["scope_grant"] = {**SCOPE, "ttl_seconds": value}
     with pytest.raises(ValueError, match="ttl_seconds must be a positive integer or null"):
         verify_delegation_chain([root], {}, MID)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("max_delegation_depth", 3.0), ("ttl_seconds", 3600.0)],
+)
+def test_zero_fraction_numbers_keep_json_integer_semantics(field, value) -> None:
+    root, keys = _signed_hop()
+    root["scope_grant"] = {**SCOPE, field: value}
+    # RFC 8785 serializes 3 and 3.0 (likewise 3600 and 3600.0) identically,
+    # so the original signature remains valid and the verifier must not
+    # over-discriminate on Python's host-language representation.
+    verify_delegation_chain([root], keys, MID)
 
 
 @pytest.mark.parametrize("signature", [1, []])
