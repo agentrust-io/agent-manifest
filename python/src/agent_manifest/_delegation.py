@@ -56,6 +56,15 @@ _REQUIRED_HOP_FIELDS = frozenset({
 _SCOPE_LIST_FIELDS = ("tools", "data_classifications", "constraints")
 
 
+def _is_json_integer(value: Any) -> bool:
+    """True for JSON-Schema integer values, excluding Python booleans."""
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, int):
+        return True
+    return isinstance(value, float) and value.is_integer()
+
+
 def delegation_depth_exceeded(chain_length: int, root_max_depth: int) -> bool:
     """Single depth rule shared by the Pydantic models and this verifier.
 
@@ -132,16 +141,14 @@ def _validate_scope_structure(scope: Any, hop_index: int) -> None:
             )
 
     depth = scope.get("max_delegation_depth", DEFAULT_MAX_DELEGATION_DEPTH)
-    if isinstance(depth, bool) or not isinstance(depth, int) or depth < 0:
+    if not _is_json_integer(depth) or depth < 0:
         raise ValueError(
             f"Delegation hop {hop_index} scope_grant.max_delegation_depth "
             "must be a non-negative integer"
         )
 
     ttl = scope.get("ttl_seconds")
-    if ttl is not None and (
-        isinstance(ttl, bool) or not isinstance(ttl, int) or ttl < 1
-    ):
+    if ttl is not None and (not _is_json_integer(ttl) or ttl < 1):
         raise ValueError(
             f"Delegation hop {hop_index} scope_grant.ttl_seconds "
             "must be a positive integer or null"
