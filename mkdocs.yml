@@ -172,6 +172,7 @@ nav:
       - Agent Credentials: integrations/agent-credentials.md
       - Standards landscape: integrations/standards-landscape.md
   - Architecture:
+      - Memory checkpoint assessment: memory-checkpoint-assessment.md
       - Decision Records: adr/index.md
       - ADR-0001 - RFC 8785 Canonical JSON: adr/0001-rfc8785-canonical-json.md
       - ADR-0002 - Ed25519 Standard Profile: adr/0002-ed25519-standard-profile.md
