@@ -178,7 +178,7 @@ At a relying party such as an admission controller, MCP gateway, or A2A peer:
 
 - [Agent Credentials integration](agent-credentials.md) describes the
   credential-to-manifest and runtime-evidence bridge in detail.
-- [Agent Manifest specification](../../spec/agent-manifest-spec-v0.2.md) defines
+- [Agent Manifest specification](../spec/agent-manifest-v0.2.md) defines
   the normative manifest and verification behavior.
 - [CoSAI WS4 Agent Manifest review](https://github.com/cosai-oasis/ws4-secure-design-agentic-systems/issues/149)
   carries the review and disposition record for this boundary.

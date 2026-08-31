@@ -28,11 +28,18 @@ jobs:
           python-version: "3.11"
           cache: pip
 
+      # Matches the install in docs.yml. Without the package, mkdocstrings
+      # cannot resolve API references and the build diverges from the deploy.
       - name: Install docs dependencies
-        run: pip install -r requirements-docs.txt
+        run: |
+          pip install -r requirements-docs.txt
+          pip install -e "python/[server]"
 
+      # Deliberately not --strict. The deploy in docs.yml does not use it, so
+      # requiring it here would gate merges on pre-existing warnings this job
+      # was not added to fix. The check below inspects the built output.
       - name: Build docs
-        run: mkdocs build --strict -d site
+        run: mkdocs build -d site
 
       # The deploy job in docs.yml only runs after merge, so without this a
       # broken asset path is not visible until it is already published.
