@@ -1026,6 +1026,8 @@ If the permitted actions span tiers, the highest tier applies. If reversibility 
 
 At Level 2, a verifier MUST return `APPROVAL_INSUFFICIENT` when any otherwise-current approval uses `software-key`, or when a `high` or `critical` approval uses anything other than `hardware-key`. The overall result MUST be `MISMATCH`. Level 0 records the declared method without making a regulatory-strength claim; Level 1 deployments define their minimum method in relying-party policy.
 
+`approval_duration_seconds` bounds the window in which an approval may be presented, not the period for which the reasoning behind it remains sound. Expiry and admissibility are separate questions: an approval can run out while nothing it relied on has changed, and it can remain unexpired after the basis on which it was given has ceased to hold. A verifier evaluating `approved_at + approval_duration_seconds > now` establishes only that the approval is within its declared window. It does not establish that the approval is still applicable, and a `VALID` result therefore MUST NOT be represented as proof that the grounds for the approval still obtain.
+
 `hitl_runtime` block declares the runtime human oversight capabilities required by EU AI Act Art. 14(4) operational oversight obligations. The `hitl_record.approvals` structure satisfies Art. 14 pre-deployment documentation obligations (Art. 14(4)(b)-(e)). The `hitl_runtime` block separately addresses the runtime stop/override capability requirement (Art. 14(4)(a)). Both are required for full Art. 14 compliance. See section 9.1 for the regulatory mapping. <!-- CHANGED: REG-001 -->
 
 Each `approval_signature` is produced by the approver's hardware-backed key (FIDO2/passkey at minimum, HSM for high-risk approvals).
