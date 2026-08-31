@@ -38,7 +38,7 @@ import hashlib
 import hmac
 import struct
 from dataclasses import dataclass
-from typing import Optional
+from datetime import datetime
 
 # Raw SNP attestation report field offsets (AMD SEV-SNP ABI, Table 22).
 _OFF_VERSION = 0x00
@@ -209,8 +209,8 @@ def parse_platform_info(platform_info: int) -> SnpPlatformInfo:
 def appraise_platform_info(
     info: SnpPlatformInfo,
     *,
-    require: "Optional[set[str]]" = None,
-    forbid: "Optional[set[str]]" = None,
+    require: set[str] | None = None,
+    forbid: set[str] | None = None,
     reject_unrecognized_bits: bool = False,
 ) -> None:
     """Appraise a decoded PLATFORM_INFO against an explicit policy.
@@ -333,7 +333,7 @@ def load_snp_cert_chain(pem_bundle: bytes) -> tuple[object, object, object]:
 
     try:
         certs = x509.load_pem_x509_certificates(pem_bundle)
-    except Exception as exc:  # noqa: BLE001 - any parse failure is a bad bundle
+    except Exception as exc:
         raise SnpVerificationError(f"could not parse the PEM bundle: {exc}") from exc
 
     vcek = next((c for c in certs if isinstance(c.public_key(), ec.EllipticCurvePublicKey)), None)
@@ -399,7 +399,8 @@ def verify_vcek_chain(
     vcek_cert_der: bytes,
     cert_chain_pem: bytes,
     *,
-    trusted_ark_der: Optional[bytes] = None,
+    trusted_ark_der: bytes | None = None,
+    verification_time: datetime | None = None,
 ) -> bool:
     """Verify VCEK <- ASK <- ARK, and that ARK is self-signed (the AMD root).
 
@@ -407,6 +408,10 @@ def verify_vcek_chain(
     ``cert_chain_pem`` is the KDS ``cert_chain`` blob (ASK then ARK). If
     ``trusted_ark_der`` is supplied, the chain's ARK public key must match it,
     pinning the root instead of trusting whatever the chain carries.
+
+    Every certificate in the chain must be within its validity period (see
+    :func:`._cert_chain.check_validity_period`); an expired VCEK, ASK, or ARK
+    is rejected even if every signature in the chain is otherwise valid.
 
     Returns True on success; raises :class:`SnpVerificationError` on a broken
     chain or missing ``cryptography``.
@@ -420,6 +425,8 @@ def verify_vcek_chain(
         from cryptography.hazmat.primitives import hashes, serialization
         from cryptography.hazmat.primitives.asymmetric import padding
         from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
+
+        from ._cert_chain import CertChainError, check_validity_period
     except ImportError as e:  # pragma: no cover
         raise SnpVerificationError(
             "VCEK chain verification requires the 'cryptography' package"
@@ -428,7 +435,7 @@ def verify_vcek_chain(
     pems = re.findall(
         rb"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----",
         cert_chain_pem,
-        re.S,
+        re.DOTALL,
     )
     if len(pems) < 2:
         raise SnpVerificationError("cert_chain must contain ASK and ARK certificates")
@@ -436,6 +443,13 @@ def verify_vcek_chain(
     vcek = x509.load_der_x509_certificate(vcek_cert_der)
     ask = x509.load_pem_x509_certificate(pems[0])
     ark = x509.load_pem_x509_certificate(pems[1])
+
+    try:
+        check_validity_period(vcek, label="VCEK", verification_time=verification_time)
+        check_validity_period(ask, label="ASK", verification_time=verification_time)
+        check_validity_period(ark, label="ARK", verification_time=verification_time)
+    except CertChainError as e:
+        raise SnpVerificationError(str(e)) from e
 
     pss = padding.PSS(mgf=padding.MGF1(hashes.SHA384()), salt_length=48)
 

@@ -14,7 +14,6 @@ import os
 import struct
 
 import pytest
-
 from agent_manifest._tdx_verify import (
     TdxVerificationError,
     parse_tdx_quote,
@@ -128,6 +127,91 @@ def test_parse_rejects_wrong_tee_type():
 def test_verify_full_chain_ok():
     quote, root_pem = _build_quote(hashlib.sha256(b"pre").digest())
     assert verify_tdx_quote(quote, trusted_root_pem=root_pem) is True
+
+
+# ---------------------------------------------------------------------------
+# CERT-011: every certificate in the PCK chain must be within its validity
+# period. verify_tdx_quote used to check signatures only; a PCK leaf,
+# intermediate, or root whose validity window had already expired still
+# verified successfully.
+# ---------------------------------------------------------------------------
+
+
+def _build_quote_at(report_data_digest, not_before, not_after, mrtd: bytes = b"\x11" * 48):
+    """Like ``_build_quote`` but the PCK chain gets a caller-chosen validity window."""
+    def _cert_at(subject, pub, issuer_name, issuer_key, ca=False):
+        b = (
+            x509.CertificateBuilder()
+            .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, subject)]))
+            .issuer_name(issuer_name)
+            .public_key(pub)
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(not_before)
+            .not_valid_after(not_after)
+        )
+        if ca:
+            b = b.add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+        return b.sign(issuer_key, hashes.SHA256())
+
+    header = struct.pack("<HHI", 4, 2, 0x81) + bytes(40)
+    body = bytearray(_BODY)
+    body[136:136 + 48] = mrtd
+    body[520:520 + 32] = report_data_digest
+    signed = header + bytes(body)
+
+    att_key = ec.generate_private_key(ec.SECP256R1())
+    att_pub_nums = att_key.public_key().public_numbers()
+    att_pub = att_pub_nums.x.to_bytes(32, "big") + att_pub_nums.y.to_bytes(32, "big")
+    sig = _raw_sig(att_key, signed)
+
+    qe_auth = b""
+    qe_report = bytearray(384)
+    qe_report[320:352] = hashlib.sha256(att_pub + qe_auth).digest()
+
+    root_key = ec.generate_private_key(ec.SECP256R1())
+    root_name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Test SGX Root CA")])
+    root = _cert_at("Test SGX Root CA", root_key.public_key(), root_name, root_key, ca=True)
+    int_key = ec.generate_private_key(ec.SECP256R1())
+    int_name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Test PCK Platform CA")])
+    intermediate = _cert_at("Test PCK Platform CA", int_key.public_key(), root_name, root_key, ca=True)
+    pck_key = ec.generate_private_key(ec.SECP256R1())
+    pck = _cert_at("Test PCK Cert", pck_key.public_key(), int_name, int_key)
+    qe_report_sig = _raw_sig(pck_key, bytes(qe_report))
+
+    pem = pck.public_bytes(Encoding.PEM) + intermediate.public_bytes(Encoding.PEM) + root.public_bytes(Encoding.PEM)
+    cert_data = (
+        bytes(qe_report)
+        + qe_report_sig
+        + struct.pack("<H", len(qe_auth)) + qe_auth
+        + struct.pack("<HI", 5, len(pem)) + pem
+    )
+    auth = sig + att_pub + struct.pack("<HI", 6, len(cert_data)) + cert_data
+    quote = signed + struct.pack("<I", len(auth)) + auth
+    return quote, root.public_bytes(Encoding.PEM)
+
+
+def test_verify_rejects_expired_pck_chain():
+    from datetime import datetime, timezone
+
+    quote, root_pem = _build_quote_at(
+        hashlib.sha256(b"pre").digest(),
+        datetime(2010, 1, 1, tzinfo=timezone.utc),
+        datetime(2011, 1, 1, tzinfo=timezone.utc),  # expired a decade+ ago
+    )
+    with pytest.raises(TdxVerificationError, match="outside its validity period"):
+        verify_tdx_quote(quote, trusted_root_pem=root_pem)
+
+
+def test_verify_accepts_within_pinned_verification_time():
+    from datetime import datetime, timezone
+
+    not_before = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    not_after = datetime(2025, 1, 1, tzinfo=timezone.utc)
+    quote, root_pem = _build_quote_at(hashlib.sha256(b"pre").digest(), not_before, not_after)
+    assert verify_tdx_quote(
+        quote, trusted_root_pem=root_pem,
+        verification_time=datetime(2024, 6, 1, tzinfo=timezone.utc),
+    ) is True
 
 
 def test_verify_rejects_tampered_body():

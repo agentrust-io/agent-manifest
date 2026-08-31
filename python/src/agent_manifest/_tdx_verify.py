@@ -29,7 +29,8 @@ import hashlib
 import hmac
 import struct
 from dataclasses import dataclass
-from typing import Any, Optional
+from datetime import datetime
+from typing import Any
 
 # Intel SGX Provisioning Certification Root CA (public, long-lived). The PCK
 # chain embedded in every quote must chain to this. Pinning it here makes quote
@@ -239,7 +240,12 @@ def _verify_raw_ecdsa(pub: Any, raw_sig: bytes, msg: bytes) -> None:
     pub.verify(utils.encode_dss_signature(r, s), msg, ec.ECDSA(hashes.SHA256()))
 
 
-def verify_tdx_quote(quote: bytes, *, trusted_root_pem: Optional[bytes] = None) -> bool:
+def verify_tdx_quote(
+    quote: bytes,
+    *,
+    trusted_root_pem: bytes | None = None,
+    verification_time: datetime | None = None,
+) -> bool:
     """Fully verify an Intel TDX v4 DCAP quote (all four steps, fail-closed).
 
     Returns True only when the attestation-key signature, the QE binding, the
@@ -248,6 +254,11 @@ def verify_tdx_quote(quote: bytes, *, trusted_root_pem: Optional[bytes] = None) 
     malformed quote / broken chain or if ``cryptography`` is unavailable; returns
     False on a well-formed-but-invalid signature.
 
+    Every certificate in the PCK chain must be within its validity period (see
+    :func:`._cert_chain.check_validity_period`); an expired PCK leaf,
+    intermediate, or root is rejected even if every signature in the chain is
+    otherwise valid.
+
     ``trusted_root_pem`` overrides the embedded Intel root (for testing).
     """
     try:
@@ -255,6 +266,8 @@ def verify_tdx_quote(quote: bytes, *, trusted_root_pem: Optional[bytes] = None) 
         from cryptography.exceptions import InvalidSignature
         from cryptography.hazmat.primitives import hashes
         from cryptography.hazmat.primitives.asymmetric import ec
+
+        from ._cert_chain import CertChainError, check_validity_period
     except ImportError as e:  # pragma: no cover
         raise TdxVerificationError(
             "TDX quote verification requires the 'cryptography' package"
@@ -280,6 +293,14 @@ def verify_tdx_quote(quote: bytes, *, trusted_root_pem: Optional[bytes] = None) 
     if len(certs) < 2:
         raise TdxVerificationError("PCK chain must contain at least a leaf and the root")
     pck = certs[0]
+
+    for i, c in enumerate(certs):
+        try:
+            check_validity_period(
+                c, label=f"PCK chain certificate at position {i}", verification_time=verification_time
+            )
+        except CertChainError as e:
+            raise TdxVerificationError(str(e)) from e
 
     # Step 3: the PCK certificate signs the QE report.
     pck_pub = pck.public_key()
