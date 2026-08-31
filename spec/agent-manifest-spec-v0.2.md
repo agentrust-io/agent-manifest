@@ -1916,6 +1916,8 @@ Article 50 applies from **2 August 2026** and is the only EU AI Act obligation i
 | Art. 50(3) | Deployers of emotion recognition or biometric categorisation systems must inform exposed persons | **Not satisfied** in the manifest. Enforced at runtime by AGT's `agent_os.transparency` interceptor. Note that a manifest whose `hitl_record.approvals[].approved_scope` covers biometric tooling is evidence the deployment is in Art. 50(3) scope. |
 | Art. 50(4) | Deepfake and public-interest text disclosure | **Not satisfied.** Same gap as Art. 50(2). |
 
+The runtime enforcement named for Art. 50(1) and 50(3) produces no attestable artifact. AGT's `agent_os.transparency` interceptor blocks tool execution until `confirm_disclosure` or `acknowledge_emotion_recognition` is called for a session, but that enforcement leaves no hash, no signature, and no record outside the running process. A party who cannot inspect that process has source code to trust and nothing to verify, so the section's warning above holds in both directions: the manifest is not evidence of Article 50 compliance, and the runtime control it defers to produces none either. This is a known coverage gap rather than a scoping decision.
+
 Implementers MUST NOT read the manifest as evidence of Article 50 compliance. Where the deployment is in Article 50 scope, the disclosure and marking controls are separate and must be documented separately.
 
 ### 9.2 DORA (EU) and Financial Sector Guidance
