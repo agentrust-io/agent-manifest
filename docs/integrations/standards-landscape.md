@@ -22,8 +22,8 @@ In simple terms:
 4. **Runtime records say what happened next.** TRACE or OCSF evidence links each
    action back to the exact manifest and agent instance that was admitted.
 
-<a href="../assets/standards-integration-landscape.svg" target="_blank">
-  <img src="../assets/standards-integration-landscape.svg"
+<a href="../../assets/standards-integration-landscape.svg" target="_blank">
+  <img src="../../assets/standards-integration-landscape.svg"
        alt="Four-layer standards integration map showing discovery, deployment evidence, decision-time verification, and runtime evidence">
 </a>
 
