@@ -31,7 +31,7 @@ from __future__ import annotations
 import hmac
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import Any, Optional
 
 
 class SignatureStatus(str, Enum):
@@ -57,11 +57,11 @@ class ChainVerificationResult:
     passed: bool
     signature: SignatureStatus
     report_data_matched: bool
-    measurement_matched: bool | None  # None = no allow-list supplied
+    measurement_matched: Optional[bool]  # None = no allow-list supplied
     reasons: list[str] = field(default_factory=list)
 
 
-def _report_data_hex(report: Any) -> str | None:
+def _report_data_hex(report: Any) -> Optional[str]:
     """Return the hex of the guest-supplied report-data field, if present."""
     raw = getattr(report, "raw", None)
     if not isinstance(raw, dict):
@@ -73,10 +73,10 @@ def _report_data_hex(report: Any) -> str | None:
 
 def _verify_snp_signature_step(
     report: Any,
-    snp_report_bytes: bytes | None,
-    vcek_cert_der: bytes | None,
-    cert_chain_pem: bytes | None,
-    trusted_ark_der: bytes | None,
+    snp_report_bytes: Optional[bytes],
+    vcek_cert_der: Optional[bytes],
+    cert_chain_pem: Optional[bytes],
+    trusted_ark_der: Optional[bytes],
     reasons: list[str],
 ) -> SignatureStatus:
     """Run the AMD SEV-SNP signature + VCEK-chain check, if material is present.
@@ -122,7 +122,7 @@ def _verify_snp_signature_step(
 
 
 def _verify_tdx_signature_step(
-    report: Any, reasons: list[str], trusted_tdx_root_pem: bytes | None = None
+    report: Any, reasons: list[str], trusted_tdx_root_pem: Optional[bytes] = None
 ) -> SignatureStatus:
     """Verify a self-contained Intel TDX DCAP quote (signature + PCK chain).
 
@@ -148,12 +148,12 @@ def _verify_tdx_signature_step(
 
 
 def _verify_tpm_signature_step(
-    tpm_attest: bytes | None,
-    tpm_signature: bytes | None,
-    tpm_ak_chain_pem: bytes | None,
-    tpm_trusted_roots_pem: bytes | None,
-    expected_qualifying_data: bytes | None,
-    expected_pcr_digest: bytes | None,
+    tpm_attest: Optional[bytes],
+    tpm_signature: Optional[bytes],
+    tpm_ak_chain_pem: Optional[bytes],
+    tpm_trusted_roots_pem: Optional[bytes],
+    expected_qualifying_data: Optional[bytes],
+    expected_pcr_digest: Optional[bytes],
     reasons: list[str],
 ) -> SignatureStatus:
     """Verify a TPM 2.0 quote (AK chain + AK signature + bindings), if supplied.
@@ -192,18 +192,18 @@ def verify_attestation_chain(
     report: Any,
     *,
     expected_manifest_hash: str,
-    expected_measurements: set[str] | None = None,
-    snp_report_bytes: bytes | None = None,
-    vcek_cert_der: bytes | None = None,
-    cert_chain_pem: bytes | None = None,
-    trusted_ark_der: bytes | None = None,
-    trusted_tdx_root_pem: bytes | None = None,
-    tpm_attest: bytes | None = None,
-    tpm_signature: bytes | None = None,
-    tpm_ak_chain_pem: bytes | None = None,
-    tpm_trusted_roots_pem: bytes | None = None,
-    expected_qualifying_data: bytes | None = None,
-    expected_pcr_digest: bytes | None = None,
+    expected_measurements: Optional[set[str]] = None,
+    snp_report_bytes: Optional[bytes] = None,
+    vcek_cert_der: Optional[bytes] = None,
+    cert_chain_pem: Optional[bytes] = None,
+    trusted_ark_der: Optional[bytes] = None,
+    trusted_tdx_root_pem: Optional[bytes] = None,
+    tpm_attest: Optional[bytes] = None,
+    tpm_signature: Optional[bytes] = None,
+    tpm_ak_chain_pem: Optional[bytes] = None,
+    tpm_trusted_roots_pem: Optional[bytes] = None,
+    expected_qualifying_data: Optional[bytes] = None,
+    expected_pcr_digest: Optional[bytes] = None,
 ) -> ChainVerificationResult:
     """Verify a boot-time ``AttestationReport`` against expected values.
 
@@ -265,7 +265,7 @@ def verify_attestation_chain(
                 reasons.append("manifest hash does not match the report_data binding")
 
     # Step 2: launch-measurement allow-list (software-checkable, optional).
-    measurement_matched: bool | None
+    measurement_matched: Optional[bool]
     if expected_measurements is None:
         measurement_matched = None
         reasons.append("no measurement allow-list supplied; launch measurement not checked")
