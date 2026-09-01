@@ -171,12 +171,32 @@ def verify_transparency_log_entry(
     if response.status_code != 200:
         return False
 
-    body = response.json()
-    entry_data: dict[str, Any] = next(iter(body.values()), {})
-    decoded = json.loads(base64.b64decode(entry_data.get("body", "e30=")))
-    actual_hash = (
-        decoded.get("spec", {}).get("data", {}).get("hash", {}).get("value", "")
-    )
+    try:
+        body = response.json()
+        if not isinstance(body, dict):
+            return False
+        entry_data: Any = next(iter(body.values()), {})
+        if not isinstance(entry_data, dict):
+            return False
+        encoded_body = entry_data.get("body", "e30=")
+        if not isinstance(encoded_body, (str, bytes)):
+            return False
+        decoded = json.loads(base64.b64decode(encoded_body))
+        if not isinstance(decoded, dict):
+            return False
+        spec = decoded.get("spec", {})
+        if not isinstance(spec, dict):
+            return False
+        data = spec.get("data", {})
+        if not isinstance(data, dict):
+            return False
+        hash_data = data.get("hash", {})
+        if not isinstance(hash_data, dict):
+            return False
+        actual_hash = hash_data.get("value", "")
+    except (AttributeError, TypeError, ValueError):
+        return False
+
     return bool(actual_hash == expected_hash)
 
 
