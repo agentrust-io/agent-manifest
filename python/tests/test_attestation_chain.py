@@ -9,7 +9,6 @@ signature and VCEK chain verify (synthetic self-consistent crypto).
 import hashlib
 
 import pytest
-
 from agent_manifest._attestation import (
     ChainVerificationResult,
     SignatureStatus,
@@ -100,18 +99,17 @@ pytest.importorskip("cryptography")
 def _synthetic_snp_with_chain(report_data_digest_hex: str, measurement_hex: str):
     from datetime import datetime, timedelta, timezone
 
-    from cryptography import x509
-    from cryptography.hazmat.primitives import hashes
-    from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa, utils
-    from cryptography.hazmat.primitives.serialization import Encoding
-    from cryptography.x509.oid import NameOID
-
     from agent_manifest._snp_verify import (
         _OFF_SIGNATURE,
         _SIG_COMPONENT_BYTES,
         _SIG_COMPONENT_STRIDE,
         _SNP_REPORT_LEN,
     )
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa, utils
+    from cryptography.hazmat.primitives.serialization import Encoding
+    from cryptography.x509.oid import NameOID
 
     ec_key = ec.generate_private_key(ec.SECP384R1())  # the "VCEK" signing key
     body = bytearray(_OFF_SIGNATURE)
@@ -239,3 +237,54 @@ def test_full_chain_reads_snp_bytes_from_report_quote():
     )
     assert result.signature is SignatureStatus.VERIFIED
     assert result.passed is True
+
+
+# ---------------------------------------------------------------------------
+# Azure paravisor SNP: REPORT_DATA is sha256(runtime_data), never the manifest
+# hash (the guest does not control it - see LIMITATIONS.md). Manifest binding
+# is checked separately via AzureCVMProvider.verify_manifest_in_report(), so
+# this function must not gate `passed` on report_data for azure-cvm-sev-snp.
+# ---------------------------------------------------------------------------
+
+
+def test_azure_report_passes_despite_report_data_not_carrying_manifest_hash():
+    # report_data here is sha256(runtime_data) - by construction NOT equal to
+    # the manifest digest. A genuine Azure report always looks like this.
+    runtime_data_hash = hashlib.sha256(b"azure-runtime-data").hexdigest()
+    snp, vcek_der, chain = _synthetic_snp_with_chain(runtime_data_hash, MEASUREMENT)
+    report = AttestationReport(
+        platform="azure-cvm-sev-snp",
+        manifest_hash=MANIFEST_HASH,
+        quote=snp,
+        raw={"report_data": runtime_data_hash + "00" * 32, "measurement": MEASUREMENT},
+    )
+    result = verify_attestation_chain(
+        report,
+        expected_manifest_hash=MANIFEST_HASH,
+        vcek_cert_der=vcek_der,
+        cert_chain_pem=chain,
+    )
+    assert result.signature is SignatureStatus.VERIFIED
+    assert result.report_data_matched is True
+    assert result.passed is True
+    assert any("not applicable on Azure" in r for r in result.reasons)
+
+
+def test_non_azure_snp_still_requires_report_data_to_match():
+    # Confirms the fix is scoped to azure-cvm-sev-snp: a direct-silicon SNP
+    # report (amd-sev-snp) must still bind REPORT_DATA to the manifest hash.
+    snp, vcek_der, chain = _synthetic_snp_with_chain(MEASUREMENT, MEASUREMENT)  # wrong digest
+    report = AttestationReport(
+        platform="amd-sev-snp",
+        manifest_hash=MANIFEST_HASH,
+        quote=snp,
+        raw={"report_data": MEASUREMENT + "00" * 16, "measurement": MEASUREMENT},
+    )
+    result = verify_attestation_chain(
+        report,
+        expected_manifest_hash=MANIFEST_HASH,
+        vcek_cert_der=vcek_der,
+        cert_chain_pem=chain,
+    )
+    assert result.report_data_matched is False
+    assert result.passed is False
