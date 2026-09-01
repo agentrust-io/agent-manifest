@@ -173,6 +173,13 @@ def _validate_hop_structure(hop: Any, hop_index: int) -> None:
             f"Delegation hop {hop_index} missing required fields: {sorted(missing)}"
         )
 
+    hop_value = hop["hop"]
+    if not _is_json_integer(hop_value):
+        raise ValueError(
+            f"Delegation hop {hop_index} hop must be a JSON integer, "
+            f"got {type(hop_value).__name__}"
+        )
+
     principal_type = hop["principal_type"]
     valid_principal_types = _valid_principal_types()
     if not isinstance(principal_type, str) or principal_type not in valid_principal_types:
@@ -186,6 +193,12 @@ def _validate_hop_structure(hop: Any, hop_index: int) -> None:
     if not isinstance(principal_id, str) or not principal_id.strip():
         raise ValueError(
             f"Delegation hop {hop_index} has empty or non-string principal_id"
+        )
+
+    delegated_at = hop["delegated_at"]
+    if not isinstance(delegated_at, str):
+        raise ValueError(
+            f"Delegation hop {hop_index} delegated_at must be a string"
         )
 
     principal_manifest_id = hop.get("principal_manifest_id")
