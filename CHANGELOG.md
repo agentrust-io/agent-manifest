@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+### Fixed
+
+- **[SECURITY][SDK]** `verify_attestation_chain` no longer treats the
+  `azure-cvm-sev-snp` platform label as proof that the manifest binding was
+  verified. REPORT_DATA on Azure is `sha256(runtime_data)`, never the
+  manifest hash, and this function cannot itself establish Azure's real
+  binding (a vTPM AK-signed quote over a PCR derived from the manifest
+  hash). It now takes an explicit `azure_manifest_binding_verified`
+  parameter, and `report_data_matched` is genuinely three-state for Azure
+  (the same discipline already used for `measurement_matched`): `True` only
+  from an authenticated result the caller obtained via
+  `AzureCVMProvider.verify_manifest_in_report()`, `False` for an explicit
+  failure (e.g. a wrong PCR), and `None` - "not established", never assumed
+  fine - when nothing is supplied. `None` and `False` are never treated as
+  a pass. A `platform` value selects which verification procedure applies;
+  it is never itself evidence that the procedure ran.
+
+- **[SECURITY][SDK]** `verify_attestation_chain` platform dispatch is now an
+  explicit allow-list (`amd-sev-snp`, `azure-cvm-sev-snp`, `intel-tdx`,
+  `tpm`, `aws-nitro`) instead of a catch-all `else` that routed any
+  unrecognized platform label through the SNP verifier. Unsupported labels
+  now report `NOT_IMPLEMENTED` and cannot pass. Closes #363.
+
 ### Deprecated
 
 - **[SPEC] Issuing v0.1 manifests ends 2026-11-30** (issue #315, phase 5). From that

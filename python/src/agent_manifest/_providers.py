@@ -18,10 +18,9 @@ import shutil
 import subprocess
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 from ._canonicalize import canonicalize
-
 
 # ---------------------------------------------------------------------------
 # Shared types
@@ -40,10 +39,10 @@ class AttestationUnavailableError(RuntimeError):
 class AttestationReport:
     """Portable attestation report returned by all providers."""
 
-    platform: str  # "tpm" | "sev-snp" | "tdx" | "opaque"
+    platform: str  # "amd-sev-snp" | "azure-cvm-sev-snp" | "intel-tdx" | "tpm" | "aws-nitro" | "opaque"
     manifest_hash: str  # "sha256:<64-hex>" — hash of the signed manifest
     pcr_values: dict[str, str] = field(default_factory=dict)  # {"PCR15": "sha256:..."}
-    quote: Optional[bytes] = None  # raw platform quote/report blob
+    quote: bytes | None = None  # raw platform quote/report blob
     cert_chain: list[bytes] = field(default_factory=list)  # DER-encoded certs
     raw: dict[str, Any] = field(default_factory=dict)  # provider-specific extras
 
@@ -73,7 +72,7 @@ class RuntimeAttestationReport:
     context_hash: str
     # hex of the nonce — verifier checks this matches what it supplied
     nonce_hex: str
-    quote: Optional[bytes] = None
+    quote: bytes | None = None
     raw: dict[str, Any] = field(default_factory=dict)
 
 
@@ -204,8 +203,8 @@ class TPMProvider(AttestationProvider):
 
     def __init__(
         self,
-        pcr_index: Optional[int] = None,
-        ak_context: Optional[str] = None,
+        pcr_index: int | None = None,
+        ak_context: str | None = None,
     ) -> None:
         self._is_nitro = _detect_nitro()
         if pcr_index is not None:
@@ -214,7 +213,7 @@ class TPMProvider(AttestationProvider):
             self._pcr = _NITRO_PCR
         else:
             self._pcr = _TPM_DEFAULT_PCR
-        self._last_manifest_hash: Optional[str] = None
+        self._last_manifest_hash: str | None = None
         # Path to a pre-provisioned Attestation Key context for tpm2_quote.
         # Required only for attest_runtime_state(); boot-time attestation works without it.
         self._ak_context = ak_context
