@@ -29,7 +29,8 @@ import hashlib
 import hmac
 import struct
 from dataclasses import dataclass
-from typing import Any, Optional
+from datetime import datetime
+from typing import Any
 
 # Intel SGX Provisioning Certification Root CA (public, long-lived). The PCK
 # chain embedded in every quote must chain to this. Pinning it here makes quote
@@ -194,13 +195,12 @@ def parse_tdx_quote(quote: bytes, *, strict: bool = True) -> TdxQuote:
 
     Args:
         quote: the raw DCAP quote bytes.
-        strict: when ``True`` (default), enforce the production layout —
-            ``version == 4`` and ``tee_type == 0x81`` — raising on anything
-            else. Pass ``strict=False`` to parse the header/body of an
-            otherwise well-formed quote whose version/tee_type differ (e.g.
-            synthetic test vectors), extracting the fields without asserting the
-            production TDX identity. Signature verification
-            (:func:`verify_tdx_quote`) is unaffected and always strict.
+        strict: when ``True`` (default), enforce the production header —
+            ``version == 4``, ``att_key_type == 2`` (ECDSA-P256), and
+            ``tee_type == 0x81`` — raising on anything else. Pass
+            ``strict=False`` only for diagnostic field extraction from an
+            otherwise well-formed quote; that mode does not authorize any
+            cryptographic interpretation of the declared profile.
     """
     if len(quote) < _QUOTE_HEADER_LEN + _TD_REPORT_LEN:
         raise TdxVerificationError(
@@ -211,6 +211,10 @@ def parse_tdx_quote(quote: bytes, *, strict: bool = True) -> TdxQuote:
     if strict:
         if version != _TDX_QUOTE_VERSION:
             raise TdxVerificationError(f"unsupported TDX quote version {version} (expected 4)")
+        if att_key_type != _ATT_KEY_TYPE_ECDSA_P256:
+            raise TdxVerificationError(
+                f"unsupported TDX attestation key type {att_key_type} (expected 2)"
+            )
         if tee_type != _TEE_TYPE_TDX:
             raise TdxVerificationError(f"not a TDX quote: tee_type {tee_type:#x}")
     body = quote[_QUOTE_HEADER_LEN:_QUOTE_HEADER_LEN + _TD_REPORT_LEN]
@@ -239,22 +243,39 @@ def _verify_raw_ecdsa(pub: Any, raw_sig: bytes, msg: bytes) -> None:
     pub.verify(utils.encode_dss_signature(r, s), msg, ec.ECDSA(hashes.SHA256()))
 
 
-def verify_tdx_quote(quote: bytes, *, trusted_root_pem: Optional[bytes] = None) -> bool:
+def verify_tdx_quote(
+    quote: bytes,
+    *,
+    trusted_root_pem: bytes | None = None,
+    verification_time: datetime | None = None,
+) -> bool:
     """Fully verify an Intel TDX v4 DCAP quote (all four steps, fail-closed).
 
-    Returns True only when the attestation-key signature, the QE binding, the
+    Returns True only when the signed quote header declares the production
+    TDX-v4/ECDSA-P256 profile, the attestation-key signature, the QE binding, the
     PCK signature over the QE report, and the PCK chain up to the pinned Intel
     SGX Root CA all check out. Raises :class:`TdxVerificationError` on a
-    malformed quote / broken chain or if ``cryptography`` is unavailable; returns
-    False on a well-formed-but-invalid signature.
+    malformed/unsupported quote or broken chain, or if ``cryptography`` is
+    unavailable; returns False on a well-formed-but-invalid signature.
+
+    Every certificate in the PCK chain must be within its validity period (see
+    :func:`._cert_chain.check_validity_period`); an expired PCK leaf,
+    intermediate, or root is rejected even if every signature in the chain is
+    otherwise valid.
 
     ``trusted_root_pem`` overrides the embedded Intel root (for testing).
     """
+    # The signed header authorizes the only verification profile implemented
+    # here. Establish it before accepting any signature/certification semantics.
+    parse_tdx_quote(quote, strict=True)
+
     try:
         from cryptography import x509
         from cryptography.exceptions import InvalidSignature
         from cryptography.hazmat.primitives import hashes
         from cryptography.hazmat.primitives.asymmetric import ec
+
+        from ._cert_chain import CertChainError, check_validity_period
     except ImportError as e:  # pragma: no cover
         raise TdxVerificationError(
             "TDX quote verification requires the 'cryptography' package"
@@ -280,6 +301,14 @@ def verify_tdx_quote(quote: bytes, *, trusted_root_pem: Optional[bytes] = None) 
     if len(certs) < 2:
         raise TdxVerificationError("PCK chain must contain at least a leaf and the root")
     pck = certs[0]
+
+    for i, c in enumerate(certs):
+        try:
+            check_validity_period(
+                c, label=f"PCK chain certificate at position {i}", verification_time=verification_time
+            )
+        except CertChainError as e:
+            raise TdxVerificationError(str(e)) from e
 
     # Step 3: the PCK certificate signs the QE report.
     pck_pub = pck.public_key()

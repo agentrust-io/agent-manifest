@@ -274,6 +274,7 @@ def test_verification_engine_valid_after_sign():
     ctx = VerificationContext(
         system_prompt_hash="sha256:" + "a" * 64,
         policy_bundle_hash="sha256:" + "b" * 64,
+        enforcement_mode="enforce",
         trusted_keys={kp.key_id: kp.public_b64url()},
         strict_artifact_verification=False,
     )

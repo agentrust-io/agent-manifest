@@ -1,0 +1,207 @@
+{
+  "format": "MemoryCheckpointAssessmentReferenceVectors/0.1",
+  "profile": {
+    "implementation_id": "reference-vector-table",
+    "implementation_version": "1",
+    "adapter_version": "0.1",
+    "adapter_capability": "deterministic",
+    "distance_metric": "fixture-order",
+    "index_implementation": "reference-vector-table",
+    "top_k": 4,
+    "truncation_rule": "top-k",
+    "tie_policy": "rank_then_item_key_lexical"
+  },
+  "probe_suite": {
+    "version": "0.1",
+    "probes": [
+      {
+        "kind": "correction_precedence",
+        "probe_id": "corr",
+        "query": "correction",
+        "superseded": {"key": "old", "required_in": "both"},
+        "correction": {"key": "new", "required_in": "candidate"}
+      },
+      {
+        "kind": "anchor_preservation",
+        "probe_id": "anchor",
+        "query": "anchor",
+        "anchor": {"key": "anchor", "required_in": "both"},
+        "max_rank": 2
+      },
+      {
+        "kind": "scope_isolation",
+        "probe_id": "scope-key",
+        "query": "scope-key",
+        "forbidden_item_keys": ["tenant-b"]
+      },
+      {
+        "kind": "scope_isolation",
+        "probe_id": "scope-label",
+        "query": "scope-label",
+        "forbidden_scope_labels": ["tenant:b"]
+      },
+      {
+        "kind": "state_conditioned_differentiation",
+        "probe_id": "state",
+        "query": "state",
+        "context_a": {"mood": "a"},
+        "context_b": {"mood": "b"},
+        "a_required_keys": ["state-a"],
+        "b_required_keys": ["state-b"]
+      }
+    ]
+  },
+  "baseline": {
+    "checkpoint_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "retrieval_state_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "item_keys": ["old", "anchor", "other", "tenant-b"],
+    "responses": [
+      {
+        "query": "correction",
+        "context": {},
+        "items": [
+          {"key": "old", "version": "sha256:1111111111111111111111111111111111111111111111111111111111111111", "rank": 1},
+          {"key": "anchor", "version": "sha256:3333333333333333333333333333333333333333333333333333333333333333", "rank": 2}
+        ]
+      },
+      {
+        "query": "anchor",
+        "context": {},
+        "items": [
+          {"key": "anchor", "version": "sha256:3333333333333333333333333333333333333333333333333333333333333333", "rank": 1},
+          {"key": "other", "version": "sha256:4444444444444444444444444444444444444444444444444444444444444444", "rank": 2}
+        ]
+      }
+    ]
+  },
+  "candidate": {
+    "checkpoint_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "retrieval_state_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "item_keys": ["old", "new", "anchor", "other", "tenant-b", "state-a", "state-b"],
+    "responses": [
+      {
+        "query": "correction",
+        "context": {},
+        "items": [
+          {"key": "new", "version": "sha256:2222222222222222222222222222222222222222222222222222222222222222", "rank": 1},
+          {"key": "old", "version": "sha256:1111111111111111111111111111111111111111111111111111111111111111", "rank": 2}
+        ]
+      },
+      {
+        "query": "anchor",
+        "context": {},
+        "items": [
+          {"key": "other", "version": "sha256:4444444444444444444444444444444444444444444444444444444444444444", "rank": 1},
+          {"key": "anchor", "version": "sha256:3333333333333333333333333333333333333333333333333333333333333333", "rank": 2}
+        ]
+      },
+      {
+        "query": "scope-key",
+        "context": {},
+        "items": [
+          {"key": "other", "version": "sha256:4444444444444444444444444444444444444444444444444444444444444444", "rank": 1}
+        ]
+      },
+      {
+        "query": "scope-label",
+        "context": {},
+        "items": [
+          {"key": "other", "version": "sha256:4444444444444444444444444444444444444444444444444444444444444444", "rank": 1}
+        ]
+      },
+      {
+        "query": "state",
+        "context": {"mood": "a"},
+        "items": [
+          {"key": "state-a", "version": "sha256:6666666666666666666666666666666666666666666666666666666666666666", "rank": 1},
+          {"key": "state-b", "version": "sha256:7777777777777777777777777777777777777777777777777777777777777777", "rank": 2}
+        ]
+      },
+      {
+        "query": "state",
+        "context": {"mood": "b"},
+        "items": [
+          {"key": "state-b", "version": "sha256:7777777777777777777777777777777777777777777777777777777777777777", "rank": 1},
+          {"key": "state-a", "version": "sha256:6666666666666666666666666666666666666666666666666666666666666666", "rank": 2}
+        ]
+      }
+    ]
+  },
+  "cases": [
+    {"id": "pass", "expected_result": "pass", "expected_failed_probes": [], "overrides": []},
+    {
+      "id": "correction-missing",
+      "expected_result": "fail",
+      "expected_failed_probes": ["corr"],
+      "overrides": [
+        {"query": "correction", "context": {}, "items": [{"key": "old", "version": "sha256:1111111111111111111111111111111111111111111111111111111111111111", "rank": 1}]}
+      ]
+    },
+    {
+      "id": "correction-outranked",
+      "expected_result": "fail",
+      "expected_failed_probes": ["corr"],
+      "overrides": [
+        {"query": "correction", "context": {}, "items": [
+          {"key": "old", "version": "sha256:1111111111111111111111111111111111111111111111111111111111111111", "rank": 1},
+          {"key": "new", "version": "sha256:2222222222222222222222222222222222222222222222222222222222222222", "rank": 2}
+        ]}
+      ]
+    },
+    {
+      "id": "anchor-missing",
+      "expected_result": "fail",
+      "expected_failed_probes": ["anchor"],
+      "overrides": [
+        {"query": "anchor", "context": {}, "items": [{"key": "other", "version": "sha256:4444444444444444444444444444444444444444444444444444444444444444", "rank": 1}]}
+      ]
+    },
+    {
+      "id": "anchor-demoted",
+      "expected_result": "fail",
+      "expected_failed_probes": ["anchor"],
+      "overrides": [
+        {"query": "anchor", "context": {}, "items": [
+          {"key": "other", "version": "sha256:4444444444444444444444444444444444444444444444444444444444444444", "rank": 1},
+          {"key": "tenant-b", "version": "sha256:5555555555555555555555555555555555555555555555555555555555555555", "rank": 2},
+          {"key": "anchor", "version": "sha256:3333333333333333333333333333333333333333333333333333333333333333", "rank": 3}
+        ]}
+      ]
+    },
+    {
+      "id": "scope-key-leak",
+      "expected_result": "fail",
+      "expected_failed_probes": ["scope-key"],
+      "overrides": [
+        {"query": "scope-key", "context": {}, "items": [{"key": "tenant-b", "version": "sha256:5555555555555555555555555555555555555555555555555555555555555555", "rank": 1}]}
+      ]
+    },
+    {
+      "id": "scope-label-leak",
+      "expected_result": "fail",
+      "expected_failed_probes": ["scope-label"],
+      "overrides": [
+        {"query": "scope-label", "context": {}, "items": [{"key": "other", "version": "sha256:4444444444444444444444444444444444444444444444444444444444444444", "rank": 1, "scope_labels": ["tenant:b"]}]}
+      ]
+    },
+    {
+      "id": "state-collapse",
+      "expected_result": "fail",
+      "expected_failed_probes": ["state"],
+      "overrides": [
+        {"query": "state", "context": {"mood": "b"}, "items": [
+          {"key": "state-a", "version": "sha256:6666666666666666666666666666666666666666666666666666666666666666", "rank": 1},
+          {"key": "state-b", "version": "sha256:7777777777777777777777777777777777777777777777777777777777777777", "rank": 2}
+        ]}
+      ]
+    },
+    {
+      "id": "state-required-missing",
+      "expected_result": "fail",
+      "expected_failed_probes": ["state"],
+      "overrides": [
+        {"query": "state", "context": {"mood": "a"}, "items": [{"key": "state-b", "version": "sha256:7777777777777777777777777777777777777777777777777777777777777777", "rank": 1}]}
+      ]
+    }
+  ]
+}
