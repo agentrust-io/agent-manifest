@@ -5,19 +5,27 @@
 ### Fixed
 
 - **[SECURITY][SDK]** `verify_attestation_chain` no longer treats the
-  `azure-cvm-sev-snp` platform label as proof that the manifest binding was
-  verified. REPORT_DATA on Azure is `sha256(runtime_data)`, never the
-  manifest hash, and this function cannot itself establish Azure's real
-  binding (a vTPM AK-signed quote over a PCR derived from the manifest
-  hash). It now takes an explicit `azure_manifest_binding_verified`
-  parameter, and `report_data_matched` is genuinely three-state for Azure
-  (the same discipline already used for `measurement_matched`): `True` only
-  from an authenticated result the caller obtained via
-  `AzureCVMProvider.verify_manifest_in_report()`, `False` for an explicit
-  failure (e.g. a wrong PCR), and `None` - "not established", never assumed
-  fine - when nothing is supplied. `None` and `False` are never treated as
-  a pass. A `platform` value selects which verification procedure applies;
-  it is never itself evidence that the procedure ran.
+  `azure-cvm-sev-snp` platform label -- or a caller-supplied boolean -- as
+  proof that the manifest binding was verified. REPORT_DATA on Azure is
+  `sha256(runtime_data)`, never the manifest hash, so it cannot be checked
+  directly the way it is on bare-metal SEV-SNP; Azure's real binding is a
+  vTPM AK-signed quote over a PCR derived from the manifest hash, chained to
+  REPORT_DATA via the runtime data. An earlier revision of this fix took an
+  `azure_manifest_binding_verified` parameter and trusted whatever the
+  caller passed in -- which meant any caller (or future code) could get
+  `passed=True` by simply passing `True`, with no evidence ever checked.
+  That parameter is gone. `verify_attestation_chain` now establishes the
+  composite chain itself (PCR-in-quote, AK signature, AK identity in
+  runtime_data, runtime_data->REPORT_DATA binding -- see the new
+  `agent_manifest._azure_verify.verify_azure_manifest_binding`, also used
+  by `AzureCVMProvider.verify_manifest_in_report` so there is exactly one
+  implementation of this security property) directly from evidence carried
+  on the report (`quote_msg`, `quote_sig`, `ak_pub_pem`, `runtime_data_hex`
+  in `report.raw`, and the SNP report bytes). `report_data_matched` is a
+  definite `True`/`False` for Azure, the same as every other platform. A
+  `platform` value selects which verification procedure applies; it is
+  never itself evidence that the procedure ran, and neither is any
+  caller-supplied flag -- there is no longer one to supply.
 
 - **[SECURITY][SDK]** `verify_attestation_chain` platform dispatch is now an
   explicit allow-list (`amd-sev-snp`, `azure-cvm-sev-snp`, `intel-tdx`,

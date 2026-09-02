@@ -6,6 +6,7 @@ supplied, and confirms the overall verdict passes once the AMD SEV-SNP
 signature and VCEK chain verify (synthetic self-consistent crypto).
 """
 
+import base64
 import hashlib
 
 import pytest
@@ -245,100 +246,214 @@ def test_full_chain_reads_snp_bytes_from_report_quote():
 # Azure paravisor SNP + unsupported-platform dispatch.
 #
 # REPORT_DATA on Azure is sha256(runtime_data), never the manifest hash (the
-# guest does not control it). This function cannot itself establish Azure's
-# real manifest binding (a vTPM AK-signed quote over a PCR derived from the
-# manifest hash - see AzureCVMProvider.verify_manifest_in_report()), so a
-# platform label alone must never be treated as evidence that binding was
-# checked. The binding step is three-state: verified (only from an
-# authenticated azure_manifest_binding_verified=True the caller supplies),
-# mismatched (explicit False - e.g. a wrong PCR), or not established (nothing
-# supplied) - and "not established" must be indistinguishable from "failed"
-# as far as `passed` is concerned. Platform dispatch must also be an explicit
-# allow-list, not a catch-all, so an unrecognized platform label can't
-# silently borrow the SNP verifier.
+# guest does not control it). verify_attestation_chain establishes Azure's
+# real manifest binding itself (a vTPM AK-signed quote over a PCR derived
+# from the manifest hash, chained to REPORT_DATA via the runtime data -- see
+# agent_manifest._azure_verify.verify_azure_manifest_binding) directly from
+# evidence carried on the report. There is no caller-supplied boolean
+# anywhere in this API that can substitute for that check -- see #373: an
+# earlier revision accepted an `azure_manifest_binding_verified` flag from
+# the caller, which let anyone construct a report with no real evidence at
+# all and still get passed=True by asserting the flag. Platform dispatch
+# must also be an explicit allow-list, not a catch-all, so an unrecognized
+# platform label can't silently borrow the SNP verifier.
 # ---------------------------------------------------------------------------
 
 
-def _azure_report(*, report_data_hex: str, measurement: str = MEASUREMENT) -> AttestationReport:
+def _azure_build_attest(qualifying_data: bytes, pcr_digest: bytes) -> bytes:
+    """Minimal structurally-valid TPMS_ATTEST (single sha256 PCR selected)."""
+    from agent_manifest._tpm_verify import TPM_GENERATED_VALUE, TPM_ST_ATTEST_QUOTE
+
+    out = TPM_GENERATED_VALUE.to_bytes(4, "big")
+    out += TPM_ST_ATTEST_QUOTE.to_bytes(2, "big")
+    out += (0).to_bytes(2, "big")  # qualifiedSigner: empty TPM2B_NAME
+    out += len(qualifying_data).to_bytes(2, "big") + qualifying_data
+    out += b"\x00" * 17  # clockInfo
+    out += b"\x00" * 8  # firmwareVersion
+    out += (1).to_bytes(4, "big")  # TPML_PCR_SELECTION count
+    out += (0x000B).to_bytes(2, "big")  # hashAlg = sha256
+    out += (3).to_bytes(1, "big")  # sizeofSelect
+    out += b"\x00\x00\x01"  # pcrSelect bitmap
+    out += len(pcr_digest).to_bytes(2, "big") + pcr_digest
+    return out
+
+
+def _azure_tpmt_sign(ak_key, attest: bytes) -> bytes:
+    """RSASSA/SHA-256 TPMT_SIGNATURE over ``attest``."""
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.asymmetric import padding
+
+    sig = ak_key.sign(attest, padding.PKCS1v15(), hashes.SHA256())
+    return (0x0014).to_bytes(2, "big") + (0x000B).to_bytes(2, "big") + len(sig).to_bytes(2, "big") + sig
+
+
+def _azure_good_fixture(*, manifest_digest_hex: str = DIGEST):
+    """Build a fully self-consistent, cryptographically-valid Azure evidence set.
+
+    Every field is genuinely tied together: the AK signs a quote over the
+    manifest PCR, the AK is embedded in runtime_data, and runtime_data is
+    bound (via REPORT_DATA) into the SNP report -- exactly the composite
+    chain verify_attestation_chain must authenticate for an Azure report to
+    pass. Mirrors the fixture in test_hw_providers.py (same crypto, reused
+    here because verify_attestation_chain must establish this chain itself
+    -- it is the object under test, not AzureCVMProvider).
+    """
+    import base64
+    import json
+
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+
+    expected_pcr_value = hashlib.sha256(bytes(32) + bytes.fromhex(manifest_digest_hex)).digest()
+    pcr_digest = hashlib.sha256(expected_pcr_value).digest()
+
+    ak_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    ak_pub_pem = ak_key.public_key().public_bytes(
+        Encoding.PEM, PublicFormat.SubjectPublicKeyInfo
+    ).decode()
+
+    quote_msg = _azure_build_attest(bytes(16), pcr_digest)
+    quote_sig = _azure_tpmt_sign(ak_key, quote_msg)
+
+    numbers = ak_key.public_key().public_numbers()
+    modulus_bytes = numbers.n.to_bytes((numbers.n.bit_length() + 7) // 8, "big")
+    n_b64 = base64.urlsafe_b64encode(modulus_bytes).rstrip(b"=").decode()
+    runtime_data = json.dumps({"keys": [{"kid": "HCLAkPub", "n": n_b64, "e": "AQAB"}]}).encode()
+
+    report_data = hashlib.sha256(runtime_data).digest() + bytes(32)
+    snp, vcek_der, chain = _synthetic_snp_with_chain(report_data.hex()[:64], MEASUREMENT)
+
+    return {
+        "snp": snp,
+        "vcek_der": vcek_der,
+        "chain": chain,
+        "raw": {
+            "ak_pub_pem": ak_pub_pem,
+            "runtime_data_hex": runtime_data.hex(),
+            "quote_msg": base64.b64encode(quote_msg).decode(),
+            "quote_sig": base64.b64encode(quote_sig).decode(),
+            "measurement": MEASUREMENT,
+        },
+        "ak_key": ak_key,
+        "pcr_digest": pcr_digest,
+    }
+
+
+def _azure_report_from_fixture(fx, *, raw_overrides=None):
+    raw = dict(fx["raw"])
+    if raw_overrides:
+        raw.update(raw_overrides)
     return AttestationReport(
-        platform="azure-cvm-sev-snp",
-        manifest_hash=MANIFEST_HASH,
-        raw={"report_data": report_data_hex, "measurement": measurement},
+         platform="azure-cvm-sev-snp",
+         manifest_hash=MANIFEST_HASH,
+        quote=fx["snp"],
+        raw=raw,
     )
 
 
-def test_azure_report_with_valid_snp_signature_and_wrong_pcr_does_not_pass():
-    # The maintainer's exact reproduction shape: a correctly signed SNP
-    # report, but the caller's own PCR/AK-quote check (done outside this
-    # function, e.g. via AzureCVMProvider.verify_manifest_in_report) came
-    # back False. A valid hardware signature must not be enough on its own.
-    snp, vcek_der, chain = _synthetic_snp_with_chain(DIGEST, MEASUREMENT)
-    report = AttestationReport(
-        platform="azure-cvm-sev-snp",
-        manifest_hash=MANIFEST_HASH,
-        quote=snp,
-        raw={"report_data": DIGEST + "00" * 32, "measurement": MEASUREMENT},
-    )
+def test_azure_report_full_composite_chain_passes():
+    # The positive path: verify_attestation_chain establishes the entire
+    # Azure binding itself (PCR-in-quote, AK signature, AK identity,
+    # runtime_data->REPORT_DATA) purely from evidence on the report, plus
+    # the SNP signature/VCEK chain -- and only then can passed be True.
+    fx = _azure_good_fixture()
+    report = _azure_report_from_fixture(fx)
     result = verify_attestation_chain(
         report,
         expected_manifest_hash=MANIFEST_HASH,
-        vcek_cert_der=vcek_der,
-        cert_chain_pem=chain,
-        azure_manifest_binding_verified=False,  # wrong PCR
-    )
-    assert result.signature is SignatureStatus.VERIFIED
-    assert result.report_data_matched is False
-    assert result.passed is False
-
-
-def test_azure_report_with_authenticated_binding_and_valid_signature_passes():
-    # The positive counterpart: this is not a permanent False. When the
-    # caller supplies a genuine authenticated result (their own PCR/AK-quote
-    # check succeeded) and the SNP signature verifies, passed can be True.
-    snp, vcek_der, chain = _synthetic_snp_with_chain(DIGEST, MEASUREMENT)
-    report = AttestationReport(
-        platform="azure-cvm-sev-snp",
-        manifest_hash=MANIFEST_HASH,
-        quote=snp,
-        raw={"report_data": DIGEST + "00" * 32, "measurement": MEASUREMENT},
-    )
-    result = verify_attestation_chain(
-        report,
-        expected_manifest_hash=MANIFEST_HASH,
-        vcek_cert_der=vcek_der,
-        cert_chain_pem=chain,
-        azure_manifest_binding_verified=True,
+        vcek_cert_der=fx["vcek_der"],
+        cert_chain_pem=fx["chain"],
     )
     assert result.signature is SignatureStatus.VERIFIED
     assert result.report_data_matched is True
     assert result.passed is True
 
 
-def test_azure_report_with_no_binding_result_supplied_is_not_established_not_passed():
-    # Nothing supplied at all (the common/default case): must not be quietly
-    # assumed fine, and must be distinguishable from an explicit failure.
-    report = _azure_report(report_data_hex=DIGEST + "00" * 32)
-    result = verify_attestation_chain(report, expected_manifest_hash=MANIFEST_HASH)
-    assert result.report_data_matched is None  # not established, distinct from False
+def test_azure_report_with_valid_snp_signature_and_wrong_pcr_does_not_pass():
+    # The maintainer's exact reproduction shape: a correctly signed SNP
+    # report, but the PCR inside the AK-signed quote is wrong. A valid
+    # hardware signature must not be enough on its own.
+    fx = _azure_good_fixture()
+    wrong_pcr_digest = hashlib.sha256(bytes(32) + b"\x00" * 32).digest()
+    tampered_quote_msg = _azure_build_attest(bytes(16), wrong_pcr_digest)
+    tampered_sig = _azure_tpmt_sign(fx["ak_key"], tampered_quote_msg)
+    report = _azure_report_from_fixture(
+        fx,
+        raw_overrides={
+            "quote_msg": base64.b64encode(tampered_quote_msg).decode(),
+            "quote_sig": base64.b64encode(tampered_sig).decode(),
+        },
+    )
+    result = verify_attestation_chain(
+        report,
+        expected_manifest_hash=MANIFEST_HASH,
+        vcek_cert_der=fx["vcek_der"],
+        cert_chain_pem=fx["chain"],
+    )
+    assert result.signature is SignatureStatus.VERIFIED
+    assert result.report_data_matched is False
     assert result.passed is False
-    assert isinstance(result.passed, bool)  # never leaks a bare None
+
+
+def test_azure_report_with_no_evidence_supplied_fails_closed():
+    # Nothing supplied at all (the common/default case): must not be quietly
+    # assumed fine.
+    report = AttestationReport(
+        platform="azure-cvm-sev-snp",
+        manifest_hash=MANIFEST_HASH,
+        raw={"report_data": DIGEST + "00" * 32, "measurement": MEASUREMENT},
+    )
+
+    result = verify_attestation_chain(report, expected_manifest_hash=MANIFEST_HASH)
+    assert result.report_data_matched is False
+    assert result.passed is False
     assert any("not established" in r for r in result.reasons)
 
 
 @pytest.mark.parametrize("arbitrary_hash", ["sha256:" + "11" * 32, "sha256:" + "22" * 32, "sha256:" + "ff" * 32])
 def test_azure_report_fails_closed_for_any_expected_manifest_hash(arbitrary_hash):
     # The platform label and expected_manifest_hash alone must never combine
-    # into a pass, regardless of which hash is expected.
-    report = _azure_report(report_data_hex=DIGEST + "00" * 32)
+    # into a pass, regardless of which hash is expected -- reproduces the
+    # reviewer's exact finding that a signed report passed for three
+    # unrelated expected_manifest_hash values (11.., 22.., ff..).
+    report = AttestationReport(
+        platform="azure-cvm-sev-snp",
+        manifest_hash=MANIFEST_HASH,
+        raw={"report_data": DIGEST + "00" * 32, "measurement": MEASUREMENT},
+    )
     result = verify_attestation_chain(report, expected_manifest_hash=arbitrary_hash)
     assert result.passed is False
 
 
-def test_azure_report_with_no_report_data_still_fails_closed():
-    report = AttestationReport(platform="azure-cvm-sev-snp", manifest_hash=MANIFEST_HASH, raw={})
+def test_azure_report_only_pcr_read_string_is_not_evidence():
+    # The exact gap the reviewer flagged: a report that "looks Azure" (has a
+    # plausible-looking legacy pcr_read string, a self-reported
+    # runtime_data_binding_verified=True flag) but carries none of the
+    # actual quote/signature/AK material must not pass.
+    report = AttestationReport(
+        platform="azure-cvm-sev-snp",
+        manifest_hash=MANIFEST_HASH,
+        raw={
+            "report_data": DIGEST + "00" * 32,
+            "measurement": MEASUREMENT,
+            "pcr_read": f"  16: 0x{'aa' * 32}",
+            "runtime_data_binding_verified": True,
+            "vcek_cert_chain_verified": True,
+        },
+    )
     result = verify_attestation_chain(report, expected_manifest_hash=MANIFEST_HASH)
-    assert result.report_data_matched is None
+    assert result.report_data_matched is False
     assert result.passed is False
+
+
+def test_verify_attestation_chain_no_longer_accepts_a_binding_boolean():
+    # the parameter itself must be gone, not merely ignored, so no
+    # caller (old or new) can be under the impression that supplying it does
+    # anything.
+    import inspect
+
+    sig = inspect.signature(verify_attestation_chain)
+    assert "azure_manifest_binding_verified" not in sig.parameters
 
 
 @pytest.mark.parametrize("unsupported_platform", ["opaque", "", "quantum-tee-v9"])
@@ -356,12 +471,9 @@ def test_unsupported_platform_label_does_not_borrow_the_snp_verifier(unsupported
 
 def test_non_azure_snp_still_requires_report_data_to_match():
     # Confirms the fix is scoped to azure-cvm-sev-snp: direct-silicon SNP
-    # (amd-sev-snp) must still bind REPORT_DATA to the manifest hash, and
-    # azure_manifest_binding_verified has no effect on it.
+    # (amd-sev-snp) must still bind REPORT_DATA to the manifest hash directly.
     wrong = hashlib.sha256(b"different").hexdigest()
     report = _report(report_data_hex=wrong + "00" * 32)
-    result = verify_attestation_chain(
-        report, expected_manifest_hash=MANIFEST_HASH, azure_manifest_binding_verified=True
-    )
+    result = verify_attestation_chain(report, expected_manifest_hash=MANIFEST_HASH)
     assert result.report_data_matched is False
     assert result.passed is False

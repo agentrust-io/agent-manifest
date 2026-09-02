@@ -16,12 +16,17 @@ verifier has checked three things:
    manifest hash. Implemented below. NOTE: this applies to the *direct* SNP
    model where the guest controls ``REPORT_DATA``. On Azure confidential VMs
    the guest does not control ``REPORT_DATA`` (the paravisor binds the vTPM AK
-   there); manifest binding on Azure is via the vTPM quote produced by
-   ``AzureCVMProvider``, not this field. A ``platform`` value only selects
-   which of the above applies as it never itself evidence that any of them
-   ran. For Azure, this function takes the caller's already-authenticated
-   result as the ``azure_manifest_binding_verified`` argument rather than
-   inferring anything from the platform string.
+   there); manifest binding on Azure is instead a vTPM AK-signed quote over a
+   PCR derived from the manifest hash, chained to REPORT_DATA via the runtime
+   data. This function establishes that chain itself, by calling
+   :func:`._azure_verify.verify_azure_manifest_binding` against evidence
+   carried on the report (``quote_msg``, ``quote_sig``, ``ak_pub_pem``,
+   ``runtime_data_hex`` in ``report.raw``, and the SNP report bytes). A
+   ``platform`` value only selects which of the above applies; it is never
+   itself evidence that any of them ran, and neither is any boolean a caller
+   might supply -- this function does not accept one. The only way Azure's
+   binding step can report ``True`` is for this function to have verified
+   the cryptographic chain itself.
 
 :func:`verify_attestation_chain` **fails closed**: ``passed`` is ``True`` only
 when the hardware signature is ``VERIFIED``, the manifest-hash binding matches,
@@ -58,23 +63,18 @@ class ChainVerificationResult:
     ``reasons`` explains why.
 
     For ``"azure-cvm-sev-snp"`` reports, ``report_data_matched`` reflects the
-    caller-supplied ``azure_manifest_binding_verified`` argument to
-    :func:`verify_attestation_chain`, not the ``report_data`` field itself
-    (which does not carry the manifest hash on Azure). It is genuinely
-    three-state here, the same discipline as ``measurement_matched``:
-    ``True`` only from an authenticated caller-supplied ``True``; ``False``
-    for an explicit caller-supplied ``False`` (checked, and failed --
-    e.g. a wrong PCR); and ``None`` when nothing was supplied at all (never
-    checked, so never established). ``None`` and ``False`` both gate
-    ``passed`` identically -- neither is ever treated as a pass -- but they
-    are represented as distinct values so a caller can tell "we checked and
-    it was wrong" apart from "we never checked at all". Every other platform
-    always reports a definite ``True``/``False`` here, never ``None``.
+    outcome of :func:`._azure_verify.verify_azure_manifest_binding`, run
+    directly by :func:`verify_attestation_chain` against evidence on the
+    report -- never a caller-supplied flag. It is a definite ``True``/
+    ``False`` here, the same as every other platform: ``True`` only when the
+    full composite chain (PCR-in-quote, AK signature, AK identity, runtime
+    data -> REPORT_DATA binding) verified; ``False`` for any missing,
+    malformed, or mismatched evidence, including simply having none at all.
     """
 
     passed: bool
     signature: SignatureStatus
-    report_data_matched: Optional[bool]  # None only for azure-cvm-sev-snp "not established"
+    report_data_matched: bool
     measurement_matched: Optional[bool]  # None = no allow-list supplied
     reasons: list[str] = field(default_factory=list)
 
@@ -222,7 +222,6 @@ def verify_attestation_chain(
     tpm_trusted_roots_pem: Optional[bytes] = None,
     expected_qualifying_data: Optional[bytes] = None,
     expected_pcr_digest: Optional[bytes] = None,
-    azure_manifest_binding_verified: Optional[bool] = None,
 ) -> ChainVerificationResult:
     """Verify a boot-time ``AttestationReport`` against expected values.
 
@@ -243,19 +242,6 @@ def verify_attestation_chain(
         cert_chain_pem: The AMD KDS ``cert_chain`` blob (ASK then ARK, PEM).
         trusted_ark_der: Optional pinned AMD root (ARK) certificate. When given,
             the chain's ARK public key must match it.
-        azure_manifest_binding_verified: For ``"azure-cvm-sev-snp"`` reports
-            only. This function cannot itself check Azure's manifest binding
-            (REPORT_DATA there is ``sha256(runtime_data)``, not the manifest
-            hash — the actual binding is a vTPM AK-signed quote over a PCR
-            derived from the manifest hash). Pass the caller's own
-            authenticated result from
-            ``AzureCVMProvider.verify_manifest_in_report(report, manifest)``
-            here: ``True`` if that call verified the PCR/AK-quote binding for
-            *this* manifest, ``False`` if it did not (wrong PCR, bad AK
-            signature, etc). Leaving this ``None`` means the binding was
-            never established -- reported as ``report_data_matched=None``,
-            never treated as a pass, but distinct from an explicit ``False``.
-            Ignored for every other platform.
 
     Returns:
         A :class:`ChainVerificationResult`. ``passed`` is ``True`` only when the
@@ -266,17 +252,12 @@ def verify_attestation_chain(
         unrecognized ``report.platform`` value also cannot pass: the signature
         step is reported as ``NOT_IMPLEMENTED`` rather than falling through to
         a verifier for a different profile. For ``"azure-cvm-sev-snp"``
-        reports, the manifest-hash binding step has three distinct outcomes:
-        ``True`` only when ``azure_manifest_binding_verified=True`` was
-        supplied (an authenticated result the caller obtained elsewhere);
-        ``False`` for an explicit ``azure_manifest_binding_verified=False``
-        (e.g. a wrong PCR); and ``None`` -- meaning "not established", never
-        "assumed fine" -- when the caller supplied nothing at all. Both
-        ``False`` and ``None`` are treated identically for gating ``passed``
-        (neither ever passes); they are kept distinct only so a caller can
-        tell "checked and failed" apart from "never checked". A
-        ``platform`` value only selects which verification procedure applies;
-        it is never itself evidence that the procedure ran.
+        reports, the manifest-hash binding step is established by this
+        function itself (:func:`._azure_verify.verify_azure_manifest_binding`
+        against evidence carried on the report) -- there is no caller-supplied
+        flag that can substitute for that check. A ``platform`` value only
+        selects which verification procedure applies; it is never itself
+        evidence that the procedure ran.
     """
     reasons: list[str] = []
     platform = getattr(report, "platform", "") or ""
@@ -286,39 +267,43 @@ def verify_attestation_chain(
     # Does not apply on Azure via REPORT_DATA: the guest never controls that
     # field there (the paravisor sets it to sha256(runtime_data) to bind the
     # vTPM AK, not the manifest hash). Azure's real binding is a vTPM
-    # AK-signed quote over a PCR derived from the manifest hash, established
-    # by AzureCVMProvider.verify_manifest_in_report() -- outside this
-    # function's own crypto boundary. So this step must never be set True
-    # from the platform label alone: a `platform` value says which procedure
-    # applies, it is not evidence that the procedure ran. It can only become
-    # True from an authenticated result the caller actually obtained and
-    # passed in via azure_manifest_binding_verified. No such result means
-    # "not established" -- treated the same as a failed check, never as a
-    # pass by default.
+    # AK-signed quote over a PCR derived from the manifest hash, chained to
+    # REPORT_DATA via the runtime data. This step must never be set True from
+    # the platform label alone, and must never be set True from a
+    # caller-supplied flag either -- a `platform` value says which procedure
+    # applies, it is not evidence that the procedure ran, and neither is
+    # someone's say-so. The only way to establish it is to actually run the
+    # composite check, here, against evidence carried on the report itself.
     azure_paravisor = platform == "azure-cvm-sev-snp"
     if azure_paravisor:
-        if azure_manifest_binding_verified is True:
-            report_data_matched = True
+        from ._azure_verify import verify_azure_manifest_binding
+
+        raw_azure = getattr(report, "raw", {}) or {}
+        report_data_matched = verify_azure_manifest_binding(
+            expected_manifest_hash=expected_manifest_hash,
+            quote_msg_b64=raw_azure.get("quote_msg"),
+            quote_sig_b64=raw_azure.get("quote_sig"),
+            ak_pub_pem=raw_azure.get("ak_pub_pem"),
+            runtime_data_hex=raw_azure.get("runtime_data_hex"),
+            snp_report_bytes=snp_report_bytes or getattr(report, "quote", None),
+        )
+        if report_data_matched:
             reasons.append(
-                "Azure manifest binding confirmed by an authenticated result "
-                "supplied by the caller (azure_manifest_binding_verified=True)"
-            )
-        elif azure_manifest_binding_verified is False:
-            report_data_matched = False
-            reasons.append(
-                "Azure manifest binding check failed: caller supplied "
-                "azure_manifest_binding_verified=False (e.g. wrong PCR "
-                "or invalid AK-quote signature)"
+                "Azure manifest binding verified: PCR value is one extension "
+                "of the manifest hash, the AK-signed TPM quote covers that "
+                "PCR, the AK is the one runtime_data names, and runtime_data "
+                "is bound into this report's REPORT_DATA -- all checked "
+                "directly by verify_attestation_chain, not accepted from a "
+                "caller-supplied flag"
             )
         else:
-            report_data_matched = None
             reasons.append(
-                "Azure manifest binding not established: no authenticated "
-                "result was supplied via azure_manifest_binding_verified; "
-                "report_data itself does not carry the manifest hash on "
-                "Azure, so it cannot be checked directly -- run "
-                "AzureCVMProvider.verify_manifest_in_report() and pass its "
-                "result in"
+                "Azure manifest binding not established: the composite "
+                "check (PCR value in the AK-signed quote, AK signature, AK "
+                "identity in runtime_data, runtime_data->REPORT_DATA "
+                "binding) did not fully verify against the evidence on this "
+                "report (quote_msg/quote_sig/ak_pub_pem/runtime_data_hex in "
+                "report.raw and the SNP report bytes)"
             )
     else:
         expected_digest = expected_manifest_hash.split(":", 1)[-1].lower()
