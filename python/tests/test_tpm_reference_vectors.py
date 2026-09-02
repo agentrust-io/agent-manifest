@@ -115,6 +115,31 @@ def test_reference_signature_with_wrong_declared_scheme_is_rejected() -> None:
     assert _verify_vector("rsassa-sha256", misdeclared) is False
 
 
+def test_unsupported_scheme_in_reference_envelope_is_explicitly_rejected() -> None:
+    """Changing only sigAlg must not reclassify an envelope as a bare signature."""
+    tpmt = bytearray(_load_vector("rsassa-sha256")[1])
+    struct.pack_into(">H", tpmt, 0, 0x0015)
+
+    with pytest.raises(
+        TpmVerificationError, match="unsupported signature algorithm 0x0015"
+    ):
+        _verify_vector("rsassa-sha256", bytes(tpmt))
+
+
+@pytest.mark.parametrize(
+    ("offset", "replacement"),
+    [(0, _ALG_RSAPSS), (2, _ALG_SHA384)],
+    ids=["sigAlg", "hashAlg"],
+)
+def test_supported_two_byte_envelope_mutation_never_preserves_success(
+    offset: int, replacement: int
+) -> None:
+    tpmt = bytearray(_load_vector("rsassa-sha256")[1])
+    struct.pack_into(">H", tpmt, offset, replacement)
+
+    assert _verify_vector("rsassa-sha256", bytes(tpmt)) is False
+
+
 def test_ecdsa_scheme_against_an_rsa_key_is_refused() -> None:
     parsed = parse_tpmt_signature(_load_vector("rsassa-sha256")[1])
     mismatched = ParsedSignature(_ALG_ECDSA, parsed.hash_alg, parsed.signature)

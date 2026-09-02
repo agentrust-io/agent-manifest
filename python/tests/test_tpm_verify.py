@@ -7,6 +7,7 @@ binding-mismatch rejection. (The parse + signature/chain logic is exercised
 here; validation against a real TPM quote is tracked as follow-up.)
 """
 import datetime
+from pathlib import Path
 
 import pytest
 
@@ -134,6 +135,7 @@ def _tpmt_signature(ak_key, attest, *, sig_alg, hash_alg, digest):
 
 NONCE = bytes(range(32))
 PCR = bytes(range(32, 64))
+SCHEME_PREFIX_FIXTURE = Path(__file__).parent / "fixtures" / "tpm-signature-framing"
 
 
 # ---------------------------------------------------------------------------
@@ -340,6 +342,62 @@ def test_verify_rejects_wrong_ak_key():
     other = ec.generate_private_key(ec.SECP256R1())
     sig = _sign(other, attest)  # signed by a key that is not the AK
     assert verify_tpm_quote(attest, sig, chain, trusted_roots_pem=roots) is False
+
+
+def test_modulus_sized_bare_rsa_with_scheme_like_prefix_stays_legacy():
+    """A bare RSA signature is identified by key size, not its random prefix."""
+    ak_key, chain, roots = _ak_chain("rsa")
+    attest = _build_attest(NONCE, PCR)
+    signature_size = (ak_key.key_size + 7) // 8
+    invalid_bare_signature = b"\x00\x14" + b"\x00" * (signature_size - 2)
+
+    assert (
+        verify_tpm_quote(
+            attest,
+            invalid_bare_signature,
+            chain,
+            trusted_roots_pem=roots,
+        )
+        is False
+    )
+
+
+def test_valid_bare_rsa_with_scheme_like_prefix_verifies():
+    """A valid legacy signature is not reclassified from its random prefix."""
+    attest = bytes.fromhex(
+        (SCHEME_PREFIX_FIXTURE / "rsa-0014-attest.hex").read_text().strip()
+    )
+    signature = bytes.fromhex(
+        (SCHEME_PREFIX_FIXTURE / "rsa-0014-bare-signature.hex").read_text().strip()
+    )
+    chain = (SCHEME_PREFIX_FIXTURE / "rsa-0014-ak-chain.pem").read_bytes()
+    roots = (SCHEME_PREFIX_FIXTURE / "rsa-0014-root.pem").read_bytes()
+
+    assert len(signature) == 256
+    assert signature[:2] == b"\x00\x14"
+    assert verify_tpm_quote(
+        attest,
+        signature,
+        chain,
+        trusted_roots_pem=roots,
+        expected_qualifying_data=(7585).to_bytes(32, "big"),
+        expected_pcr_digest=PCR,
+        verification_time=datetime.datetime(
+            2026, 9, 1, tzinfo=datetime.timezone.utc
+        ),
+    ) is True
+
+
+def test_sequence_prefixed_non_der_ecdsa_input_does_not_fall_back():
+    """A leading DER tag is insufficient; the full legacy shape must decode."""
+    _ak_key, chain, roots = _ak_chain("ec")
+    attest = _build_attest(NONCE, PCR)
+    malformed = b"\x30\x00\x00\x0b\x00\x00"
+
+    with pytest.raises(
+        TpmVerificationError, match="unsupported signature algorithm 0x3000"
+    ):
+        verify_tpm_quote(attest, malformed, chain, trusted_roots_pem=roots)
 
 
 @pytest.mark.parametrize(

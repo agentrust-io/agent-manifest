@@ -15,6 +15,18 @@
   stops reading them destroys evidence rather than tidying a codebase. Same reasoning as
   keeping the `-8` Ed25519 code point acceptable indefinitely.
 
+### Fixed
+
+- **[SDK]** `verify_tpm_quote()` now distinguishes a legacy bare AK signature
+  from a marshalled `TPMT_SIGNATURE` using the attestation key's signature
+  shape, rather than an allowlist of the envelope's untrusted `sigAlg` prefix.
+  Changing a reference envelope to declare an unsupported scheme now raises the
+  explicit unsupported-algorithm error instead of silently falling through to
+  the legacy verifier and returning `False`; the mutated envelope remains
+  rejected, with only its diagnostic changing. Modulus-sized bare RSA
+  signatures whose random prefix resembles a supported scheme now remain in
+  the documented legacy lane and can verify normally.
+
 ## [0.11.2] — 2026-08-27
 
 ### Fixed
