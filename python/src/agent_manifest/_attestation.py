@@ -296,7 +296,6 @@ def verify_attestation_chain(
     # "not established" -- treated the same as a failed check, never as a
     # pass by default.
     azure_paravisor = platform == "azure-cvm-sev-snp"
-    azure_paravisor = platform == "azure-cvm-sev-snp"
     if azure_paravisor:
         if azure_manifest_binding_verified is True:
             report_data_matched = True
