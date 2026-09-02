@@ -224,7 +224,8 @@ def test_cli_verify_crl_without_trusted_key_still_works_but_warns(tmp_path):
     payload = _json_stdout(result)
     assert result.exit_code == 1
     assert payload["result"] == "REVOKED"
-    assert "WARNING: --crl-path given without --crl-trusted-key" in result.output
+    combined = (result.output or "") + (result.stderr or "")
+    assert "WARNING: --crl-path given without --crl-trusted-key" in combined
 
 
 def test_cli_verify_crl_with_wrong_trusted_key_ignores_untrusted_record(tmp_path):
