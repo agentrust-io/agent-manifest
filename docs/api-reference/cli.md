@@ -117,7 +117,6 @@ Usage: manifest verify [OPTIONS] MANIFEST_FILE
   revoke a compromised manifest simply by deleting its record, or fabricate a revocation
   for a legitimate one.
 
-
   HITL approvals attach outside the manifest signature, so supply the
   approver keys you trust with --approver-key. Without them an approval is
   UNVERIFIABLE and the manifest can never verify.
