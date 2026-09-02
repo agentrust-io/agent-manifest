@@ -57,10 +57,17 @@ def _cert(subject, pub, issuer_name, issuer_key, ca=False):
     return b.sign(issuer_key, hashes.SHA256())
 
 
-def _build_quote(report_data_digest: bytes, mrtd: bytes = b"\x11" * 48):
-    """Return (quote_bytes, test_root_pem) — a self-consistent TDX v4 quote."""
-    # Header (48): version=4, att_key_type=2, tee_type=0x81, + 40 bytes padding.
-    header = struct.pack("<HHI", 4, 2, 0x81) + bytes(40)
+def _build_quote(
+    report_data_digest: bytes,
+    mrtd: bytes = b"\x11" * 48,
+    *,
+    version: int = 4,
+    att_key_type: int = 2,
+    tee_type: int = 0x81,
+):
+    """Return a self-consistent quote whose signed header is caller-controlled."""
+    # Header (48): caller-selected signed profile + 40 bytes padding.
+    header = struct.pack("<HHI", version, att_key_type, tee_type) + bytes(40)
     body = bytearray(_BODY)
     body[136:136 + 48] = mrtd
     body[520:520 + 32] = report_data_digest  # REPORTDATA[:32]
@@ -117,16 +124,52 @@ def test_parse_rejects_short():
 
 
 def test_parse_rejects_wrong_tee_type():
-    quote, _ = _build_quote(hashlib.sha256(b"x").digest())
-    bad = bytearray(quote)
-    struct.pack_into("<I", bad, 4, 0x00)  # tee_type = SGX, not TDX
+    quote, _ = _build_quote(hashlib.sha256(b"x").digest(), tee_type=0x00)
     with pytest.raises(TdxVerificationError, match="not a TDX quote"):
-        parse_tdx_quote(bytes(bad))
+        parse_tdx_quote(quote)
+
+
+def test_parse_rejects_wrong_attestation_key_type():
+    quote, _ = _build_quote(hashlib.sha256(b"keytype").digest(), att_key_type=3)
+    with pytest.raises(TdxVerificationError, match="attestation key type 3"):
+        parse_tdx_quote(quote)
+
+
+def test_parse_non_strict_is_diagnostic_only():
+    quote, _ = _build_quote(
+        hashlib.sha256(b"diagnostic").digest(),
+        version=5,
+        att_key_type=3,
+        tee_type=0x00,
+    )
+    parsed = parse_tdx_quote(quote, strict=False)
+    assert parsed.version == 5
+    assert parsed.tee_type == 0x00
 
 
 def test_verify_full_chain_ok():
     quote, root_pem = _build_quote(hashlib.sha256(b"pre").digest())
     assert verify_tdx_quote(quote, trusted_root_pem=root_pem) is True
+
+
+@pytest.mark.parametrize(
+    ("header_overrides", "message"),
+    [
+        ({"version": 5}, "unsupported TDX quote version 5"),
+        ({"att_key_type": 3}, "attestation key type 3"),
+        ({"tee_type": 0x00}, "not a TDX quote"),
+    ],
+)
+def test_verify_rejects_self_consistent_signed_unsupported_header(
+    header_overrides: dict[str, int], message: str
+):
+    """The header mutation is included in signed_body and re-signed by the same builder."""
+    quote, root_pem = _build_quote(
+        hashlib.sha256(b"profile-binding").digest(),
+        **header_overrides,
+    )
+    with pytest.raises(TdxVerificationError, match=message):
+        verify_tdx_quote(quote, trusted_root_pem=root_pem)
 
 
 # ---------------------------------------------------------------------------

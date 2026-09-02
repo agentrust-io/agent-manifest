@@ -195,13 +195,12 @@ def parse_tdx_quote(quote: bytes, *, strict: bool = True) -> TdxQuote:
 
     Args:
         quote: the raw DCAP quote bytes.
-        strict: when ``True`` (default), enforce the production layout —
-            ``version == 4`` and ``tee_type == 0x81`` — raising on anything
-            else. Pass ``strict=False`` to parse the header/body of an
-            otherwise well-formed quote whose version/tee_type differ (e.g.
-            synthetic test vectors), extracting the fields without asserting the
-            production TDX identity. Signature verification
-            (:func:`verify_tdx_quote`) is unaffected and always strict.
+        strict: when ``True`` (default), enforce the production header —
+            ``version == 4``, ``att_key_type == 2`` (ECDSA-P256), and
+            ``tee_type == 0x81`` — raising on anything else. Pass
+            ``strict=False`` only for diagnostic field extraction from an
+            otherwise well-formed quote; that mode does not authorize any
+            cryptographic interpretation of the declared profile.
     """
     if len(quote) < _QUOTE_HEADER_LEN + _TD_REPORT_LEN:
         raise TdxVerificationError(
@@ -212,6 +211,10 @@ def parse_tdx_quote(quote: bytes, *, strict: bool = True) -> TdxQuote:
     if strict:
         if version != _TDX_QUOTE_VERSION:
             raise TdxVerificationError(f"unsupported TDX quote version {version} (expected 4)")
+        if att_key_type != _ATT_KEY_TYPE_ECDSA_P256:
+            raise TdxVerificationError(
+                f"unsupported TDX attestation key type {att_key_type} (expected 2)"
+            )
         if tee_type != _TEE_TYPE_TDX:
             raise TdxVerificationError(f"not a TDX quote: tee_type {tee_type:#x}")
     body = quote[_QUOTE_HEADER_LEN:_QUOTE_HEADER_LEN + _TD_REPORT_LEN]
@@ -248,11 +251,12 @@ def verify_tdx_quote(
 ) -> bool:
     """Fully verify an Intel TDX v4 DCAP quote (all four steps, fail-closed).
 
-    Returns True only when the attestation-key signature, the QE binding, the
+    Returns True only when the signed quote header declares the production
+    TDX-v4/ECDSA-P256 profile, the attestation-key signature, the QE binding, the
     PCK signature over the QE report, and the PCK chain up to the pinned Intel
     SGX Root CA all check out. Raises :class:`TdxVerificationError` on a
-    malformed quote / broken chain or if ``cryptography`` is unavailable; returns
-    False on a well-formed-but-invalid signature.
+    malformed/unsupported quote or broken chain, or if ``cryptography`` is
+    unavailable; returns False on a well-formed-but-invalid signature.
 
     Every certificate in the PCK chain must be within its validity period (see
     :func:`._cert_chain.check_validity_period`); an expired PCK leaf,
@@ -261,6 +265,10 @@ def verify_tdx_quote(
 
     ``trusted_root_pem`` overrides the embedded Intel root (for testing).
     """
+    # The signed header authorizes the only verification profile implemented
+    # here. Establish it before accepting any signature/certification semantics.
+    parse_tdx_quote(quote, strict=True)
+
     try:
         from cryptography import x509
         from cryptography.exceptions import InvalidSignature
