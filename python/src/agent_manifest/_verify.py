@@ -631,6 +631,16 @@ def verify_manifest(
     if isinstance(manifest, (bytes, bytearray)):
         return _verify_cose_envelope(bytes(manifest), context, revocation_store)
 
+    # Version negotiation is the prerequisite for every current-schema
+    # interpretation below (spec 2.4). Read only the discriminator first. A
+    # future-shaped manifest must not be classified against today's schema.
+    version = manifest.get("version")
+    if version not in SUPPORTED_MANIFEST_VERSIONS:
+        return VerificationResult(
+            manifest_id="unknown",
+            result=OverallResult.INCOMPATIBLE_VERSION,
+        )
+
     manifest_id = manifest.get("manifest_id", "unknown")
     result = VerificationResult(manifest_id=manifest_id, result=OverallResult.VALID)
     agent_uid = manifest.get("agent_id")
@@ -649,11 +659,11 @@ def verify_manifest(
     transparency_unverifiable = False
 
     # --- Schema validation (fail-closed). verify_manifest accepts a raw dict,
-    # so it must run the manifest through the Pydantic guards before trusting
-    # any field. This makes extra="forbid" (unknown fields), enum/type
-    # constraints, the expiry window, and timestamp parsing actually apply on
-    # the verify path. A malformed expires_at is a schema failure here, not a
-    # silently non-expiring manifest.
+    # so it must run a supported manifest through the Pydantic guards before
+    # trusting current-version fields. This makes extra="forbid" (unknown
+    # fields), enum/type constraints, the expiry window, and timestamp parsing
+    # actually apply on the verify path. A malformed expires_at is a schema
+    # failure here, not a silently non-expiring manifest.
     #
     # Required top-level claims fail closed. Missing runtime observations in the
     # VerificationContext still produce NOT_BOUND; legacy omissions nested in
@@ -668,13 +678,6 @@ def verify_manifest(
                 actual_hash=f"<{msg}>",
             ))
         result.mismatch_details = mismatches
-        return result
-
-    # --- Version negotiation (spec 2.2 / 2.4) - MUST be checked before
-    # verifying so unsupported manifests are never silently misinterpreted.
-    version = manifest.get("version")
-    if version not in SUPPORTED_MANIFEST_VERSIONS:
-        result.result = OverallResult.INCOMPATIBLE_VERSION
         return result
 
     # --- Revocation check (must happen before VALID can be returned)
