@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+ 
+### Fixed
+
+- **[SECURITY][CLI]** `manifest verify` gained `--crl-trusted-key PATH` to
+  authenticate `--crl-path` revocation records against the revoking
+  authority's public key. Previously the CLI always constructed `FileCRL`
+  without `trusted_signer_key`, so every CLI-driven CRL load ran in
+  `FileCRL`'s unauthenticated mode regardless of intent: a party who could
+  write to or intercept the CRL file could delete a revocation record to
+  un-revoke a compromised manifest, or fabricate one, and `manifest verify`
+  would accept it without complaint. `--crl-trusted-key` is now required to
+  authenticate the CRL; omitting it still works (unchanged default) but now
+  prints a loud warning, and passing it without `--crl-path` fails cleanly
+  instead of being silently ignored. Same pattern as the `--approver-key`
+  gap fixed in 0.11.1.
+
+
 ### Deprecated
 
 - **[SPEC] Issuing v0.1 manifests ends 2026-11-30** (issue #315, phase 5). From that

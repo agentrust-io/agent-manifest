@@ -110,7 +110,13 @@ Usage: manifest verify [OPTIONS] MANIFEST_FILE
   Prints the VerificationResult as JSON. Exits with code 0 on VALID, 1 on any other
   result.
 
-  Use --crl-path to load a revocation list and check for revoked manifests.
+  Use --crl-path to load a revocation list and check for revoked manifests. Pass --crl-
+  trusted-key with it to authenticate the CRL's records against the revoking authority's
+  public key (spec Section 3.7 / REVOC-003). Without --crl-trusted-key, every line in
+  the CRL file is trusted as-is: a party that can write or intercept that file can un-
+  revoke a compromised manifest simply by deleting its record, or fabricate a revocation
+  for a legitimate one.
+
 
   HITL approvals attach outside the manifest signature, so supply the
   approver keys you trust with --approver-key. Without them an approval is
@@ -128,6 +134,10 @@ Options:
                                   manifest hash
   --crl-path TEXT                 Path to a FileCRL JSON-Lines file for revocation
                                   checks
+  --crl-trusted-key TEXT          Path to the CRL-signing authority's raw Ed25519 public
+                                  key hex file. Required to cryptographically verify
+                                  --crl-path records (REVOC-003); without it every
+                                  record in the file is trusted unauthenticated.
   --public-key TEXT               Path to a trusted raw Ed25519 public key hex file
   --approver-key APPROVER_ID=PATH
                                   Trusted HITL approver key as approver_id=path to a raw

@@ -352,6 +352,13 @@ def attest(manifest_file: str, provider: str, level: int, output: Optional[str])
 @click.option("--enforce-attestation", is_flag=True, default=False,
               help="Fail unless the attestation report matches the manifest hash")
 @click.option("--crl-path", default=None, help="Path to a FileCRL JSON-Lines file for revocation checks")
+@click.option(
+    "--crl-trusted-key",
+    default=None,
+    help="Path to the CRL-signing authority's raw Ed25519 public key hex file. "
+         "Required to cryptographically verify --crl-path records (REVOC-003); "
+         "without it every record in the file is trusted unauthenticated.",
+)
 @click.option("--public-key", default=None, help="Path to a trusted raw Ed25519 public key hex file")
 @click.option("--approver-key", multiple=True, metavar="APPROVER_ID=PATH",
               help="Trusted HITL approver key as approver_id=path to a raw Ed25519 "
@@ -376,6 +383,7 @@ def verify(
     enforce_hitl: bool,
     enforce_attestation: bool,
     crl_path: Optional[str],
+    crl_trusted_key: Optional[str],
     public_key: Optional[str],
     approver_key: tuple[str, ...],
     require_transparency: bool,
@@ -391,6 +399,13 @@ def verify(
     1 on any other result.
 
     Use --crl-path to load a revocation list and check for revoked manifests.
+    Pass --crl-trusted-key with it to authenticate the CRL's records against
+    the revoking authority's public key (spec Section 3.7 / REVOC-003).
+    Without --crl-trusted-key, every line in the CRL file is trusted as-is: a
+    party that can write or intercept that file can un-revoke a compromised
+    manifest simply by deleting its record, or fabricate a revocation for a
+    legitimate one.
+
 
     
     HITL approvals attach outside the manifest signature, so supply the
@@ -403,6 +418,9 @@ def verify(
       manifest verify signed.json --public-key pub.hex --enforce-hitl
         --approver-key mailto:alice@example.com=alice.hex
     """
+    if crl_trusted_key and not crl_path:
+        raise click.ClickException("--crl-trusted-key requires --crl-path.")
+
     subject = _load_manifest_or_envelope(manifest_file)
     trusted_keys = _trusted_key_from_public_hex(public_key) if public_key else {}
     ctx = VerificationContext(
@@ -420,7 +438,30 @@ def verify(
     # REVOC-001: load CRL if provided, otherwise use empty in-memory store
     store: RevocationStore
     if crl_path:
-        store = _CRLRevocationStore(FileCRL(Path(crl_path)))
+        trusted_signer_key: Optional[bytes]
+        if crl_trusted_key:
+            trusted_signer_key = _public_bytes_from_hex_file(
+                crl_trusted_key, "CRL trusted key"
+            )
+        else:
+            trusted_signer_key = None
+            # CRL-CLI-001: FileCRL trusts every record unauthenticated when no
+            # signer key is supplied (development mode). Warn loudly, because
+            # unlike --public-key (whose absence forces UNVERIFIABLE) a CRL
+            # with no --crl-trusted-key silently *succeeds*: a tampered or
+            # incomplete CRL file un-revokes a compromised manifest instead of
+            # failing closed.
+            click.echo(
+                "WARNING: --crl-path given without --crl-trusted-key. "
+                "Revocation records are NOT cryptographically verified; any "
+                "party who can write or intercept this file can suppress a "
+                "real revocation. Pass --crl-trusted-key to authenticate the "
+                "CRL.",
+                err=True,
+            )
+        store = _CRLRevocationStore(
+            FileCRL(Path(crl_path), trusted_signer_key=trusted_signer_key)
+        )
     else:
         store = RevocationStore()
 
