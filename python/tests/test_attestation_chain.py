@@ -9,6 +9,7 @@ signature and VCEK chain verify (synthetic self-consistent crypto).
 import hashlib
 
 import pytest
+
 from agent_manifest._attestation import (
     ChainVerificationResult,
     SignatureStatus,
@@ -99,17 +100,18 @@ pytest.importorskip("cryptography")
 def _synthetic_snp_with_chain(report_data_digest_hex: str, measurement_hex: str):
     from datetime import datetime, timedelta, timezone
 
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa, utils
+    from cryptography.hazmat.primitives.serialization import Encoding
+    from cryptography.x509.oid import NameOID
+
     from agent_manifest._snp_verify import (
         _OFF_SIGNATURE,
         _SIG_COMPONENT_BYTES,
         _SIG_COMPONENT_STRIDE,
         _SNP_REPORT_LEN,
     )
-    from cryptography import x509
-    from cryptography.hazmat.primitives import hashes
-    from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa, utils
-    from cryptography.hazmat.primitives.serialization import Encoding
-    from cryptography.x509.oid import NameOID
 
     ec_key = ec.generate_private_key(ec.SECP384R1())  # the "VCEK" signing key
     body = bytearray(_OFF_SIGNATURE)
