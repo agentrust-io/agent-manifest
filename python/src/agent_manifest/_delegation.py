@@ -520,6 +520,7 @@ def verify_hitl_approval(
             approval has expired.
     """
     import base64
+    import re
 
     # Establish the shapes this function reads before interpreting them, so a
     # malformed approval always produces the documented ValueError rather than
@@ -560,13 +561,16 @@ def verify_hitl_approval(
 
     # HITL-003: enforce approval expiry before verifying signature
     duration = approved_scope.get("approval_duration_seconds", 0)
+    # Type-check unconditionally, before the truthiness gate below: a falsy
+    # malformed value (False, "", [], {}, None) must still be rejected rather
+    # than silently treated the same as an absent/zero duration (no expiry).
+    # bool is an int subclass, but a JSON boolean is not a numeric duration.
+    if not isinstance(duration, (int, float)) or isinstance(duration, bool):
+        raise ValueError(
+            f"HITL approval.approved_scope.approval_duration_seconds must be "
+            f"numeric, got {type(duration).__name__}"
+        )
     if duration:
-        # bool is an int subclass, but a JSON boolean is not a numeric duration.
-        if not isinstance(duration, (int, float)) or isinstance(duration, bool):
-            raise ValueError(
-                f"HITL approval.approved_scope.approval_duration_seconds must be "
-                f"numeric, got {type(duration).__name__}"
-            )
         try:
             approved_at = datetime.fromisoformat(approved_at_str.replace("Z", "+00:00"))
         except ValueError as e:
@@ -590,13 +594,19 @@ def verify_hitl_approval(
         approved_scope=approved_scope,
         approver_id=approver_id,
     )
+    # base64.b64decode(..., altchars=b"-_", validate=True) translates '-'/'_'
+    # to '+'/'/' *before* validating, so it also accepts the standard base64
+    # alphabet mixed in as-is: swapping every '-' for '+' and '_' for '/' in
+    # an otherwise-valid signature decodes to the identical bytes and passes.
+    # Whitelist the URL-safe alphabet explicitly so no other representation
+    # of the same bytes is accepted.
+    if not re.fullmatch(r"[A-Za-z0-9_-]*", sig):
+        raise ValueError(
+            "HITL approval.approval_signature is not valid base64url: "
+            "contains characters outside the URL-safe alphabet"
+        )
     try:
         pad = 4 - len(sig) % 4
-        # base64.urlsafe_b64decode() is permissive: it silently discards any
-        # character outside the alphabet rather than rejecting the input, so a
-        # signature with an illegal-character prefix or suffix around an
-        # otherwise-valid value would decode to the same bytes as the
-        # untampered one. validate=True makes b64decode reject that instead.
         sig_bytes = base64.b64decode(
             sig + ("=" * pad if pad != 4 else ""), altchars=b"-_", validate=True
         )
