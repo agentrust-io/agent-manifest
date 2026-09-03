@@ -391,6 +391,9 @@ def verify_tpm_quote(
             PKCS#1 v1.5 over SHA-256), a parsed :class:`ParsedSignature`, or a
             marshalled ``TPMT_SIGNATURE``. Envelopes select RSASSA, RSAPSS, or
             ECDSA and SHA-256, SHA-384, or SHA-512 from their algorithm ids.
+            Legacy bare input is recognized from the AK's signature shape:
+            modulus-sized bytes for RSA and DER for ECDSA. Other byte input
+            must be a well-formed envelope.
         ak_chain_pem: the AK certificate chain (PEM, leaf first).
         trusted_roots_pem: the caller's trusted vendor EK/AK roots (PEM).
         expected_qualifying_data: if given, the quote's ``extraData`` (nonce)
@@ -404,8 +407,9 @@ def verify_tpm_quote(
         ``True`` only when the structure, AK chain, AK signature, and any
         supplied bindings all check out. Returns ``False`` on a well-formed but
         invalid signature or a binding mismatch. Raises
-        :class:`TpmVerificationError` on a malformed quote / broken chain or if
-        ``cryptography`` is unavailable.
+        :class:`TpmVerificationError` on a malformed quote / broken chain, a
+        malformed signature, an unsupported algorithm, or if ``cryptography``
+        is unavailable.
     """
     try:
         from cryptography.exceptions import InvalidSignature
@@ -440,12 +444,24 @@ def verify_tpm_quote(
     parsed_signature: ParsedSignature | None = None
     if isinstance(signature, ParsedSignature):
         parsed_signature = signature
-    elif len(signature) >= 2 and int.from_bytes(signature[:2], "big") in (
-        _ALG_RSASSA,
-        _ALG_RSAPSS,
-        _ALG_ECDSA,
-    ):
-        parsed_signature = parse_tpmt_signature(signature)
+    elif isinstance(ak_key, rsa.RSAPublicKey):
+        # A bare RSA signature is exactly one modulus wide. Do not use the
+        # untrusted sigAlg prefix as the discriminator: changing an envelope's
+        # scheme must not silently move it into the legacy bare-signature lane.
+        if len(signature) != (ak_key.key_size + 7) // 8:
+            parsed_signature = parse_tpmt_signature(signature)
+    elif isinstance(ak_key, ec.EllipticCurvePublicKey):
+        # cryptography's legacy ECDSA input is a complete DER SEQUENCE. Testing
+        # only its first 0x30 byte would let malformed sequence-prefixed input
+        # fall through too, so require the actual signature representation.
+        from cryptography.hazmat.primitives.asymmetric.utils import (
+            decode_dss_signature,
+        )
+
+        try:
+            decode_dss_signature(signature)
+        except ValueError:
+            parsed_signature = parse_tpmt_signature(signature)
 
     if parsed_signature is None:
         assert isinstance(signature, bytes)
