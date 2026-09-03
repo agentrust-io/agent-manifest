@@ -23,6 +23,7 @@ ML-DSA-65 note (spec #44):
 from __future__ import annotations
 
 import base64
+import binascii
 import hashlib
 import json
 from dataclasses import dataclass
@@ -70,6 +71,9 @@ def publish_to_rekor(
     Raises:
         RuntimeError: If the Rekor API call fails.
         ImportError: If httpx is not installed.
+        ValueError: If public_key_b64url is not valid, strictly-encoded
+            base64url.
+
     """
     try:
         import httpx
@@ -80,15 +84,14 @@ def publish_to_rekor(
         )
 
     from ._canonicalize import canonicalize
-    from ._signing import SIGNED_FIELDS
+    from ._signing import SIGNED_FIELDS, _b64url_decode
 
     # Build the signed bytes (must match what was signed)
     subset = {k: manifest_dict[k] for k in SIGNED_FIELDS if k in manifest_dict}
     canonical_bytes = canonicalize(subset)
 
     # Decode public key from base64url to PEM for Rekor
-    pad = 4 - len(public_key_b64url) % 4
-    pub_raw = base64.urlsafe_b64decode(public_key_b64url + ("=" * pad if pad != 4 else ""))
+    pub_raw = _b64url_decode(public_key_b64url)
     pub_pem = _raw_ed25519_to_pem(pub_raw)
 
     # Rekor hashedrekord entry format
@@ -173,7 +176,16 @@ def verify_transparency_log_entry(
 
     body = response.json()
     entry_data: dict[str, Any] = next(iter(body.values()), {})
-    decoded = json.loads(base64.b64decode(entry_data.get("body", "e30=")))
+    try:
+        # Standard (non-urlsafe) base64 per the Rekor API; validate=True so
+        # malformed bytes fail closed (return False) instead of silently
+        # decoding a corrupted/truncated body to unrelated JSON.
+        decoded = json.loads(base64.b64decode(entry_data.get("body", "e30="), validate=True))
+    except (binascii.Error, ValueError, UnicodeDecodeError, json.JSONDecodeError):
+        return False
+    if not isinstance(decoded, dict):
+        return False
+
     actual_hash = (
         decoded.get("spec", {}).get("data", {}).get("hash", {}).get("value", "")
     )

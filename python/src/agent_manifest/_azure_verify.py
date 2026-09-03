@@ -33,7 +33,41 @@ import binascii
 import hashlib
 import hmac
 import json
+import re
 from typing import Any, Optional
+
+
+# RFC 7515 base64url: unpadded, alphabet A-Za-z0-9-_ only. Python's
+# ``base64.urlsafe_b64decode`` (and ``b64decode`` without ``validate=True``)
+# silently *discards* any character outside the standard base64 alphabet
+# before decoding, rather than rejecting it -- so a JWK member like
+# ``"!!!!<realvalue>"`` decodes to the same bytes as ``"<realvalue>"`` with
+# no error. That lets attacker-corrupted-but-cryptographically-committed
+# JWK material decode "successfully" to whatever bytes survive the silent
+# filtering, defeating the "fail closed on malformed input" contract these
+# helpers document. Reject anything outside the unpadded URL-safe alphabet
+# up front, then decode strictly.
+_B64URL_ALPHABET_RE = re.compile(r"[A-Za-z0-9_-]*")
+
+
+def _strict_b64url_decode(value: str) -> bytes:
+    """Decode a JWK base64url member, rejecting anything but the exact,
+    unpadded, URL-safe alphabet.
+
+    Raises ``binascii.Error`` (caught by callers, which fail closed) if
+    ``value`` contains characters outside ``A-Za-z0-9-_`` -- including
+    standard-base64 ``+``/``/`` (and their padding ``=``), any illegal
+    prefix/suffix such as stray punctuation, and (via ``fullmatch``, not a
+    ``$``-anchored pattern) a trailing newline, which Python's ``$`` would
+    otherwise let slip through one character before the end of the string.
+    This is stricter than ``base64.urlsafe_b64decode``, which silently
+    drops out-of-alphabet characters -- including embedded/trailing
+    newlines -- instead of raising.
+    """
+    if not isinstance(value, str) or not _B64URL_ALPHABET_RE.fullmatch(value):
+        raise binascii.Error("invalid base64url alphabet")
+    padded = value + "=" * ((4 - len(value) % 4) % 4)
+    return base64.urlsafe_b64decode(padded)
 
 
 def _find_hcl_ak_jwk(runtime_data: bytes) -> Optional[dict[str, Any]]:
@@ -75,8 +109,7 @@ def ak_modulus_hex_from_runtime_data(runtime_data: bytes) -> Optional[str]:
     if ak is None or "n" not in ak:
         return None
     try:
-        n_b64 = ak["n"] + "=" * ((4 - len(ak["n"]) % 4) % 4)
-        return base64.urlsafe_b64decode(n_b64).hex()
+        return _strict_b64url_decode(ak["n"]).hex()
     except (binascii.Error, ValueError, TypeError):
         return None
 
@@ -94,10 +127,8 @@ def ak_public_numbers_from_runtime_data(runtime_data: bytes) -> Optional[tuple[s
     if ak is None or "n" not in ak or "e" not in ak:
         return None
     try:
-        n_b64 = ak["n"] + "=" * ((4 - len(ak["n"]) % 4) % 4)
-        n_hex = base64.urlsafe_b64decode(n_b64).hex()
-        e_b64 = ak["e"] + "=" * ((4 - len(ak["e"]) % 4) % 4)
-        e_int = int.from_bytes(base64.urlsafe_b64decode(e_b64), "big")
+        n_hex = _strict_b64url_decode(ak["n"]).hex()
+        e_int = int.from_bytes(_strict_b64url_decode(ak["e"]), "big")
     except (binascii.Error, ValueError, TypeError):
         return None
     return n_hex, e_int

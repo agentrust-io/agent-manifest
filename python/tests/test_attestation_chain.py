@@ -464,6 +464,106 @@ def test_azure_report_ak_exponent_mismatch():
     assert result.passed is False
 
 
+@pytest.mark.parametrize(
+    "corrupt",
+    [
+        pytest.param(lambda n_b64: "!!!!" + n_b64, id="illegal-prefix"),
+        pytest.param(lambda n_b64: n_b64 + "!!!!", id="illegal-suffix"),
+        pytest.param(lambda n_b64: n_b64[:-1] + "+", id="standard-base64-plus-alias"),
+        pytest.param(lambda n_b64: n_b64[:-1] + "/", id="standard-base64-slash-alias"),
+    ],
+)
+def test_azure_report_malformed_jwk_modulus_encoding_fails_closed(corrupt):
+    # base64.urlsafe_b64decode() silently *discards* characters outside the
+    # base64 alphabet instead of raising -- so "!!!!<real n>" used to decode
+    # to the same bytes as "<real n>". Rebind the corrupted n back into a
+    # freshly, validly signed SNP report (report_data = sha256(runtime_data)
+    # still matches exactly) and re-sign the AK quote over the same PCR, so
+    # every other link in the chain is genuinely valid: only the JWK
+    # encoding is malformed. Must fail closed -- a correctly rebound and
+    # signed report must never pass with illegally-encoded JWK material.
+    import json
+
+    fx = _azure_good_fixture()
+    numbers = fx["ak_key"].public_key().public_numbers()
+    modulus_bytes = numbers.n.to_bytes((numbers.n.bit_length() + 7) // 8, "big")
+    good_n_b64 = base64.urlsafe_b64encode(modulus_bytes).rstrip(b"=").decode()
+    corrupt_n_b64 = corrupt(good_n_b64)
+
+    corrupt_runtime_data = json.dumps(
+        {"keys": [{"kid": "HCLAkPub", "n": corrupt_n_b64, "e": "AQAB"}]}
+    ).encode()
+    report_data = hashlib.sha256(corrupt_runtime_data).digest() + bytes(32)
+    snp, vcek_der, chain = _synthetic_snp_with_chain(report_data.hex()[:64], MEASUREMENT)
+    report = _azure_report_from_fixture(
+        fx, raw_overrides={"runtime_data_hex": corrupt_runtime_data.hex()}
+    )
+    report.quote = snp
+    result = verify_attestation_chain(
+        report,
+        expected_manifest_hash=MANIFEST_HASH,
+        vcek_cert_der=vcek_der,
+        cert_chain_pem=chain,
+    )
+    # The runtime data is still cryptographically committed into REPORT_DATA
+    # (report_data_matched would be True under the old permissive decoder),
+    # but the AK identity check must now reject the malformed JWK encoding.
+    assert result.passed is False
+
+
+def test_ak_public_numbers_and_modulus_reject_illegal_alphabet_direct():
+    # Direct unit coverage: the strict decoder must reject illegal
+    # prefixes/suffixes and standard-base64 +/ aliases for both n and e,
+    # in both the (n, e) helper and the modulus-only helper.
+    import json
+
+    from agent_manifest._azure_verify import (
+        ak_modulus_hex_from_runtime_data,
+        ak_public_numbers_from_runtime_data,
+    )
+
+    good_n = base64.urlsafe_b64encode(b"\x01\x00\x01\xff").rstrip(b"=").decode()
+
+    for bad_n in ("!!!!" + good_n, good_n + "!!!!", good_n[:-1] + "+", good_n[:-1] + "/"):
+        runtime_data = json.dumps(
+            {"keys": [{"kid": "HCLAkPub", "n": bad_n, "e": "AQAB"}]}
+        ).encode()
+        assert ak_modulus_hex_from_runtime_data(runtime_data) is None
+        assert ak_public_numbers_from_runtime_data(runtime_data) is None
+
+    # A bad exponent must also be rejected, even when n is well-formed.
+    for bad_e in ("!!!!AQAB", "AQAB!!!!", "AQA+", "AQA/"):
+        runtime_data = json.dumps(
+            {"keys": [{"kid": "HCLAkPub", "n": good_n, "e": bad_e}]}
+        ).encode()
+        assert ak_public_numbers_from_runtime_data(runtime_data) is None
+
+    # Sanity: the well-formed value still decodes fine through both helpers.
+    good_runtime_data = json.dumps(
+        {"keys": [{"kid": "HCLAkPub", "n": good_n, "e": "AQAB"}]}
+    ).encode()
+    assert ak_modulus_hex_from_runtime_data(good_runtime_data) == "010001ff"
+    assert ak_public_numbers_from_runtime_data(good_runtime_data) == ("010001ff", 65537)
+
+
+def test_strict_b64url_decode_rejects_trailing_newline_regex_dollar_hole():
+    # Python's `$` regex anchor matches at end-of-string OR just before a
+    # single trailing '\n' -- so a naive `^[A-Za-z0-9_-]*$` alphabet check
+    # would let "AQAB\n" through even though '\n' isn't in the alphabet,
+    # and base64.urlsafe_b64decode then silently drops the '\n' and decodes
+    # it identically to "AQAB". Must use fullmatch (no '$'/'\Z' hole) so a
+    # trailing newline is rejected like any other illegal character.
+    import binascii
+
+    from agent_manifest._azure_verify import _strict_b64url_decode
+
+    assert _strict_b64url_decode("AQAB") == bytes.fromhex("010001")
+    with pytest.raises(binascii.Error):
+        _strict_b64url_decode("AQAB\n")
+    with pytest.raises(binascii.Error):
+        _strict_b64url_decode("AQAB\n\n")
+
+
 def test_azure_report_malformed_runtime_data_keys_shape():
     # valid JSON `{"keys": 1}`, correctly hash-bound into the signed SNP report.
     # The unpatched helper raised  TypeError: 'int' object is not iterable, which

@@ -205,6 +205,26 @@ def test_b64url_decode_accepts_valid():
     assert result == b"Hello"
 
 
+def test_b64url_decode_rejects_trailing_newline():
+    # Python's `$` regex anchor matches at end-of-string OR just before a
+    # single trailing '\n'. A naive `^[...]*$` CRYPTO-006 check would let
+    # "AQAB\n" through even though '\n' isn't URL-safe-base64, and
+    # base64.urlsafe_b64decode() would then silently drop the '\n' and
+    # decode it to the exact same bytes as "AQAB" -- defeating the guard.
+    # (Chosen deliberately as a 4-char, unpadded base -- for other lengths
+    # the stale padding arithmetic happens to raise "Incorrect padding" for
+    # an unrelated reason, which would make this test pass against the old,
+    # vulnerable regex too and not actually catch a regression.)
+    assert _b64url_decode("AQAB") == bytes.fromhex("010001")
+    with pytest.raises(ValueError, match="non-URL-safe"):
+        _b64url_decode("AQAB\n")
+
+
+def test_b64url_decode_rejects_non_str():
+    with pytest.raises(ValueError, match="non-URL-safe"):
+        _b64url_decode(None)  # type: ignore[arg-type]
+
+
 def test_ed25519_public_key_roundtrip_b64url():
     kp = generate_ed25519()
     b64 = kp.public_b64url()
