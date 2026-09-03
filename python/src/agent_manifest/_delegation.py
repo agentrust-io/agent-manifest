@@ -561,7 +561,8 @@ def verify_hitl_approval(
     # HITL-003: enforce approval expiry before verifying signature
     duration = approved_scope.get("approval_duration_seconds", 0)
     if duration:
-        if not isinstance(duration, (int, float)):
+        # bool is an int subclass, but a JSON boolean is not a numeric duration.
+        if not isinstance(duration, (int, float)) or isinstance(duration, bool):
             raise ValueError(
                 f"HITL approval.approved_scope.approval_duration_seconds must be "
                 f"numeric, got {type(duration).__name__}"
@@ -570,7 +571,14 @@ def verify_hitl_approval(
             approved_at = datetime.fromisoformat(approved_at_str.replace("Z", "+00:00"))
         except ValueError as e:
             raise ValueError(f"HITL approval has invalid approved_at: {e}") from e
-        if datetime.now(timezone.utc) > approved_at + timedelta(seconds=duration):
+        try:
+            expiry = approved_at + timedelta(seconds=duration)
+        except OverflowError as e:
+            raise ValueError(
+                f"HITL approval.approved_scope.approval_duration_seconds is out of "
+                f"range: {duration}"
+            ) from e
+        if datetime.now(timezone.utc) > expiry:
             raise ValueError(
                 f"HITL approval expired: approved_at={approved_at_str}, "
                 f"duration={duration}s"
@@ -584,7 +592,14 @@ def verify_hitl_approval(
     )
     try:
         pad = 4 - len(sig) % 4
-        sig_bytes = base64.urlsafe_b64decode(sig + ("=" * pad if pad != 4 else ""))
+        # base64.urlsafe_b64decode() is permissive: it silently discards any
+        # character outside the alphabet rather than rejecting the input, so a
+        # signature with an illegal-character prefix or suffix around an
+        # otherwise-valid value would decode to the same bytes as the
+        # untampered one. validate=True makes b64decode reject that instead.
+        sig_bytes = base64.b64decode(
+            sig + ("=" * pad if pad != 4 else ""), altchars=b"-_", validate=True
+        )
     except ValueError as e:
         raise ValueError(
             f"HITL approval.approval_signature is not valid base64url: {e}"

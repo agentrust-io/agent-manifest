@@ -477,11 +477,24 @@ def test_non_object_approved_scope_raises_value_error(bad_scope):
         verify_hitl_approval(approval, MID, key)
 
 
-@pytest.mark.parametrize("bad_duration", ["soon", ["not", "a", "number"], {"x": 1}])
+@pytest.mark.parametrize("bad_duration", ["soon", ["not", "a", "number"], {"x": 1}, True])
 def test_non_numeric_approval_duration_raises_value_error(bad_duration):
+    """bool is an int subclass, but a JSON boolean is not a numeric duration.
+    (False is excluded: like {}, it's falsy and never reaches the validation
+    branch at all — same pre-existing, non-buggy short-circuit as the {} case
+    above, not something the isinstance check is meant to catch.)"""
     approval, key = _valid_approval()
     approval["approved_scope"] = {**APPROVAL_SCOPE, "approval_duration_seconds": bad_duration}
     with pytest.raises(ValueError, match="approval_duration_seconds must be numeric"):
+        verify_hitl_approval(approval, MID, key)
+
+
+def test_oversized_approval_duration_raises_value_error():
+    """A duration large enough to overflow timedelta must raise the documented
+    ValueError, not leak OverflowError. Caught in review (#378)."""
+    approval, key = _valid_approval()
+    approval["approved_scope"] = {**APPROVAL_SCOPE, "approval_duration_seconds": 10**20}
+    with pytest.raises(ValueError, match="approval_duration_seconds is out of range"):
         verify_hitl_approval(approval, MID, key)
 
 
@@ -496,6 +509,18 @@ def test_non_string_approval_signature_raises_value_error(bad_sig):
 def test_malformed_base64_signature_raises_value_error():
     approval, key = _valid_approval()
     approval["approval_signature"] = "not valid base64url!!"
+    with pytest.raises(ValueError, match="not valid base64url"):
+        verify_hitl_approval(approval, MID, key)
+
+
+def test_illegal_char_prefixed_signature_raises_value_error_not_silently_accepted():
+    """base64.urlsafe_b64decode() silently discards out-of-alphabet characters,
+    so a garbage prefix around an otherwise-valid signature would decode to the
+    same bytes as the real one and pass verification. Caught in review (#378):
+    the previous fix only covered inputs whose stripped length happened to be
+    unpaddable; strict alphabet validation is required to catch this shape."""
+    approval, key = _valid_approval()
+    approval["approval_signature"] = "!!!!" + approval["approval_signature"]
     with pytest.raises(ValueError, match="not valid base64url"):
         verify_hitl_approval(approval, MID, key)
 
