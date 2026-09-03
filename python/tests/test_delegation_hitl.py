@@ -432,6 +432,89 @@ def test_approval_no_duration_does_not_expire():
 
 
 # ---------------------------------------------------------------------------
+# Malformed approval structure must raise ValueError, never an incidental
+# AttributeError / KeyError / TypeError - issue #360
+# ---------------------------------------------------------------------------
+
+_DUMMY_KEY = generate_ed25519().public_bytes
+
+
+def _valid_approval():
+    kp = generate_ed25519()
+    sig = HitlApprovalSigner(kp).sign_approval(
+        manifest_id=MID, approved_at=NOW,
+        approved_scope=APPROVAL_SCOPE, approver_id="did:web:ciso",
+    )
+    approval = {
+        "manifest_id": MID, "approved_at": NOW,
+        "approved_scope": APPROVAL_SCOPE, "approver_id": "did:web:ciso",
+        "approval_signature": sig,
+    }
+    return approval, kp.public_bytes
+
+
+@pytest.mark.parametrize("bad_approval", ["not-an-object", ["a", "list"], 42, None])
+def test_non_object_approval_raises_value_error(bad_approval):
+    with pytest.raises(ValueError, match="must be an object"):
+        verify_hitl_approval(bad_approval, MID, _DUMMY_KEY)
+
+
+@pytest.mark.parametrize(
+    "field", ["approved_scope", "approved_at", "approver_id", "approval_signature"]
+)
+def test_missing_required_field_raises_value_error(field):
+    approval, key = _valid_approval()
+    del approval[field]
+    with pytest.raises(ValueError, match=f"missing required field '{field}'"):
+        verify_hitl_approval(approval, MID, key)
+
+
+@pytest.mark.parametrize("bad_scope", ["a-string", ["a", "list"], True])
+def test_non_object_approved_scope_raises_value_error(bad_scope):
+    approval, key = _valid_approval()
+    approval["approved_scope"] = bad_scope
+    with pytest.raises(ValueError, match="approved_scope must be an object"):
+        verify_hitl_approval(approval, MID, key)
+
+
+@pytest.mark.parametrize("bad_duration", ["soon", ["not", "a", "number"], {"x": 1}])
+def test_non_numeric_approval_duration_raises_value_error(bad_duration):
+    approval, key = _valid_approval()
+    approval["approved_scope"] = {**APPROVAL_SCOPE, "approval_duration_seconds": bad_duration}
+    with pytest.raises(ValueError, match="approval_duration_seconds must be numeric"):
+        verify_hitl_approval(approval, MID, key)
+
+
+@pytest.mark.parametrize("bad_sig", [12345, ["a", "list"], {"not": "a string"}])
+def test_non_string_approval_signature_raises_value_error(bad_sig):
+    approval, key = _valid_approval()
+    approval["approval_signature"] = bad_sig
+    with pytest.raises(ValueError, match="approval_signature must be a string"):
+        verify_hitl_approval(approval, MID, key)
+
+
+def test_malformed_base64_signature_raises_value_error():
+    approval, key = _valid_approval()
+    approval["approval_signature"] = "not valid base64url!!"
+    with pytest.raises(ValueError, match="not valid base64url"):
+        verify_hitl_approval(approval, MID, key)
+
+
+def test_non_string_approved_at_raises_value_error():
+    approval, key = _valid_approval()
+    approval["approved_at"] = 12345
+    with pytest.raises(ValueError, match="approved_at must be a string"):
+        verify_hitl_approval(approval, MID, key)
+
+
+def test_non_string_approver_id_raises_value_error():
+    approval, key = _valid_approval()
+    approval["approver_id"] = ["not", "a", "string"]
+    with pytest.raises(ValueError, match="approver_id must be a string"):
+        verify_hitl_approval(approval, MID, key)
+
+
+# ---------------------------------------------------------------------------
 # HitlApproval model - approver_id MUST NOT be a SPIFFE URI (ADR-0009 scope note)
 # ---------------------------------------------------------------------------
 

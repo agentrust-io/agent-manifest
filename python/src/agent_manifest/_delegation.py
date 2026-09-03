@@ -516,18 +516,59 @@ def verify_hitl_approval(
 
     Raises:
         InvalidSignature: If the approval signature is invalid.
-        ValueError: If required fields are missing or the approval has expired.
+        ValueError: If required fields are missing, malformed, or the
+            approval has expired.
     """
     import base64
-    from datetime import datetime, timezone
+
+    # Establish the shapes this function reads before interpreting them, so a
+    # malformed approval always produces the documented ValueError rather than
+    # an incidental AttributeError, KeyError, or TypeError from whichever line
+    # happens to touch the bad field first.
+    if not isinstance(approval, dict):
+        raise ValueError(f"HITL approval must be an object, got {type(approval).__name__}")
+
+    for field in ("approved_scope", "approved_at", "approver_id", "approval_signature"):
+        if field not in approval:
+            raise ValueError(f"HITL approval is missing required field '{field}'")
+
+    approved_scope = approval["approved_scope"]
+    if not isinstance(approved_scope, dict):
+        raise ValueError(
+            f"HITL approval.approved_scope must be an object, got "
+            f"{type(approved_scope).__name__}"
+        )
+
+    approved_at_str = approval["approved_at"]
+    if not isinstance(approved_at_str, str):
+        raise ValueError(
+            f"HITL approval.approved_at must be a string, got "
+            f"{type(approved_at_str).__name__}"
+        )
+
+    approver_id = approval["approver_id"]
+    if not isinstance(approver_id, str):
+        raise ValueError(
+            f"HITL approval.approver_id must be a string, got {type(approver_id).__name__}"
+        )
+
+    sig = approval["approval_signature"]
+    if not isinstance(sig, str):
+        raise ValueError(
+            f"HITL approval.approval_signature must be a string, got {type(sig).__name__}"
+        )
 
     # HITL-003: enforce approval expiry before verifying signature
-    duration = approval.get("approved_scope", {}).get("approval_duration_seconds", 0)
+    duration = approved_scope.get("approval_duration_seconds", 0)
     if duration:
-        approved_at_str = approval.get("approved_at", "")
+        if not isinstance(duration, (int, float)):
+            raise ValueError(
+                f"HITL approval.approved_scope.approval_duration_seconds must be "
+                f"numeric, got {type(duration).__name__}"
+            )
         try:
             approved_at = datetime.fromisoformat(approved_at_str.replace("Z", "+00:00"))
-        except (ValueError, AttributeError) as e:
+        except ValueError as e:
             raise ValueError(f"HITL approval has invalid approved_at: {e}") from e
         if datetime.now(timezone.utc) > approved_at + timedelta(seconds=duration):
             raise ValueError(
@@ -537,11 +578,15 @@ def verify_hitl_approval(
 
     pre = _approval_pre_image(
         manifest_id=manifest_id,
-        approved_at=approval["approved_at"],
-        approved_scope=approval["approved_scope"],
-        approver_id=approval["approver_id"],
+        approved_at=approved_at_str,
+        approved_scope=approved_scope,
+        approver_id=approver_id,
     )
-    sig = approval["approval_signature"]
-    pad = 4 - len(sig) % 4
-    sig_bytes = base64.urlsafe_b64decode(sig + ("=" * pad if pad != 4 else ""))
+    try:
+        pad = 4 - len(sig) % 4
+        sig_bytes = base64.urlsafe_b64decode(sig + ("=" * pad if pad != 4 else ""))
+    except ValueError as e:
+        raise ValueError(
+            f"HITL approval.approval_signature is not valid base64url: {e}"
+        ) from e
     Ed25519Verifier(approver_public_key)._pub.verify(sig_bytes, pre)
