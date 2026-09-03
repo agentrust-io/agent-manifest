@@ -62,4 +62,3 @@ def test_manifest_id_json_schema_pattern_still_anchored():
 def test_hash_value_json_schema_pattern_still_anchored():
     assert HashValue._PATTERN.pattern.startswith("^")
     assert HashValue._PATTERN.pattern.endswith("$")
- 

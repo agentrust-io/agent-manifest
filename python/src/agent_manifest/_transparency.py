@@ -23,7 +23,6 @@ ML-DSA-65 note (spec #44):
 from __future__ import annotations
 
 import base64
-import binascii
 import hashlib
 import json
 from dataclasses import dataclass
