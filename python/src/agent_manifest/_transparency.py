@@ -174,21 +174,32 @@ def verify_transparency_log_entry(
     if response.status_code != 200:
         return False
 
-    body = response.json()
-    entry_data: dict[str, Any] = next(iter(body.values()), {})
     try:
-        # Standard (non-urlsafe) base64 per the Rekor API; validate=True so
-        # malformed bytes fail closed (return False) instead of silently
-        # decoding a corrupted/truncated body to unrelated JSON.
-        decoded = json.loads(base64.b64decode(entry_data.get("body", "e30="), validate=True))
-    except (binascii.Error, ValueError, UnicodeDecodeError, json.JSONDecodeError):
-        return False
-    if not isinstance(decoded, dict):
+        body = response.json()
+        if not isinstance(body, dict):
+            return False
+        entry_data: Any = next(iter(body.values()), {})
+        if not isinstance(entry_data, dict):
+            return False
+        encoded_body = entry_data.get("body", "e30=")
+        if not isinstance(encoded_body, (str, bytes)):
+            return False
+        decoded = json.loads(base64.b64decode(encoded_body))
+        if not isinstance(decoded, dict):
+            return False
+        spec = decoded.get("spec", {})
+        if not isinstance(spec, dict):
+            return False
+        data = spec.get("data", {})
+        if not isinstance(data, dict):
+            return False
+        hash_data = data.get("hash", {})
+        if not isinstance(hash_data, dict):
+            return False
+        actual_hash = hash_data.get("value", "")
+    except (AttributeError, TypeError, ValueError):
         return False
 
-    actual_hash = (
-        decoded.get("spec", {}).get("data", {}).get("hash", {}).get("value", "")
-    )
     return bool(actual_hash == expected_hash)
 
 

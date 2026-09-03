@@ -23,6 +23,10 @@
         "model_hash": null,
         "version": "claude-3",
         "deployment_type": "api"
+      },
+      "future_artifact": {
+        "format": "future-v1",
+        "binding": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
       }
     },
     "delegation_chain": [],
@@ -32,7 +36,7 @@
       "key_id": "56475aa75463474c0285df5dbf2bcab73da651358839e9b77481b2eab107708c",
       "key_type": "software",
       "signed_at": "2025-01-01T00:00:00Z",
-      "signature_value": "mVMfp3Rk4iPzy4ry106W4cx774CBni_h7pd3zTGI95Y2pfqUTSTk-460M0_Pyftdsz5LT8wh8lb4BdHbBAlxDQ",
+      "signature_value": "GqQcU6-LkVAsqXvCRALTKmoXkBR62WhBAGC-uhMAo4TaG_ej7mQGUZeSHVlTTPqRC2heOa3wO8vQcdM4L6y3BA",
       "signed_fields": [
         "@context",
         "@type",

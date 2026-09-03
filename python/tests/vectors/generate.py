@@ -681,12 +681,22 @@ def build() -> list[dict[str, Any]]:
         {"result": "UNVERIFIABLE", "signature_verified": False},
     ))
 
-    # 007 - unsupported version
+    # 007 - unsupported version. Make the fixture future-shaped as well as
+    # future-versioned: current schema rejects the extra artifact, so this
+    # vector only reaches INCOMPATIBLE_VERSION when version negotiation truly
+    # precedes current-schema interpretation. Re-sign after the mutation so a
+    # signature failure cannot accidentally satisfy the expected result.
+    future = base_manifest(version="0.3")
+    future["artifacts"]["future_artifact"] = {
+        "format": "future-v1",
+        "binding": "sha256:" + "f" * 64,
+    }
+    _sign(future)
     vectors.append(_vector(
         "AM-VEC-007", "Unsupported manifest version is rejected before verifying.",
         # 0.2 is the COSE envelope and is supported; 0.3 does not exist, which
         # is what makes it the right stand-in for "a version from the future".
-        ["2.4"], base_manifest(version="0.3"), base_context(),
+        ["2.4"], future, base_context(),
         {"result": "INCOMPATIBLE_VERSION"},
     ))
 

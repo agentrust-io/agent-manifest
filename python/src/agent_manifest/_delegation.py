@@ -13,11 +13,11 @@ form of approved_scope + manifest_id + approved_at.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Optional
+from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from ._canonicalize import canonicalize
-from ._signing import Ed25519Verifier, Ed25519KeyPair
-
+from ._signing import Ed25519KeyPair, Ed25519Verifier
 
 # ---------------------------------------------------------------------------
 # A2A Delegation chain
@@ -53,6 +53,16 @@ _REQUIRED_HOP_FIELDS = frozenset({
     "hop", "principal_id", "principal_type", "delegated_at",
     "scope_grant", "delegation_signature",
 })
+_SCOPE_LIST_FIELDS = ("tools", "data_classifications", "constraints")
+
+
+def _is_json_integer(value: Any) -> bool:
+    """True for JSON-Schema integer values, excluding Python booleans."""
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, int):
+        return True
+    return isinstance(value, float) and value.is_integer()
 
 
 def delegation_depth_exceeded(chain_length: int, root_max_depth: int) -> bool:
@@ -115,25 +125,69 @@ class DelegationHopSigner:
         return base64.urlsafe_b64encode(sig_bytes).rstrip(b"=").decode()
 
 
-def _validate_hop_structure(hop: dict[str, Any], hop_index: int) -> None:
+def _validate_scope_structure(scope: Any, hop_index: int) -> None:
+    """Establish the scope types this verifier reads before interpreting them."""
+    if not isinstance(scope, dict):
+        raise ValueError(
+            f"Delegation hop {hop_index} scope_grant must be an object, "
+            f"got {type(scope).__name__}"
+        )
+
+    for field in _SCOPE_LIST_FIELDS:
+        value = scope.get(field, [])
+        if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+            raise ValueError(
+                f"Delegation hop {hop_index} scope_grant.{field} must be a list of strings"
+            )
+
+    depth = scope.get("max_delegation_depth", DEFAULT_MAX_DELEGATION_DEPTH)
+    if not _is_json_integer(depth) or depth < 0:
+        raise ValueError(
+            f"Delegation hop {hop_index} scope_grant.max_delegation_depth "
+            "must be a non-negative integer"
+        )
+
+    ttl = scope.get("ttl_seconds")
+    if ttl is not None and (not _is_json_integer(ttl) or ttl < 1):
+        raise ValueError(
+            f"Delegation hop {hop_index} scope_grant.ttl_seconds "
+            "must be a positive integer or null"
+        )
+
+
+def _validate_hop_structure(hop: Any, hop_index: int) -> None:
     """Raise ValueError for structural A2A conformance violations.
 
-    Validates required fields and principal_type per A2A spec §4.2.
-    Called before cryptographic verification so structural errors surface
-    as distinct ValueError rather than IndexError or KeyError.
+    Establishes the shapes and primitive types this verifier reads before
+    cryptographic verification or scope interpretation, so malformed peer data
+    stays inside the documented ``ValueError`` rejection boundary.
     """
+    if not isinstance(hop, dict):
+        raise ValueError(
+            f"Delegation hop {hop_index} must be an object, got {type(hop).__name__}"
+        )
+
     missing = _REQUIRED_HOP_FIELDS - hop.keys()
     if missing:
         raise ValueError(
             f"Delegation hop {hop_index} missing required fields: {sorted(missing)}"
         )
+
+    hop_value = hop["hop"]
+    if not _is_json_integer(hop_value):
+        raise ValueError(
+            f"Delegation hop {hop_index} hop must be a JSON integer, "
+            f"got {type(hop_value).__name__}"
+        )
+
     principal_type = hop["principal_type"]
     valid_principal_types = _valid_principal_types()
-    if principal_type not in valid_principal_types:
+    if not isinstance(principal_type, str) or principal_type not in valid_principal_types:
         raise ValueError(
             f"Delegation hop {hop_index} has invalid principal_type {principal_type!r}; "
             f"must be one of {sorted(valid_principal_types)}"
         )
+
     # principal_id must be non-empty string (SPIFFE URI, DID, or mailto)
     principal_id = hop["principal_id"]
     if not isinstance(principal_id, str) or not principal_id.strip():
@@ -141,12 +195,31 @@ def _validate_hop_structure(hop: dict[str, Any], hop_index: int) -> None:
             f"Delegation hop {hop_index} has empty or non-string principal_id"
         )
 
+    delegated_at = hop["delegated_at"]
+    if not isinstance(delegated_at, str):
+        raise ValueError(
+            f"Delegation hop {hop_index} delegated_at must be a string"
+        )
+
+    principal_manifest_id = hop.get("principal_manifest_id")
+    if principal_manifest_id is not None and not isinstance(principal_manifest_id, str):
+        raise ValueError(
+            f"Delegation hop {hop_index} principal_manifest_id must be a string when present"
+        )
+
+    if not isinstance(hop["delegation_signature"], str):
+        raise ValueError(
+            f"Delegation hop {hop_index} delegation_signature must be a string"
+        )
+
+    _validate_scope_structure(hop["scope_grant"], hop_index)
+
 
 def verify_delegation_chain(
     delegation_chain: list[dict[str, Any]],
     public_keys: dict[str, bytes],  # principal_id -> public key bytes
     manifest_id: str,
-    manifest_issuer: Optional[str] = None,
+    manifest_issuer: str | None = None,
 ) -> None:
     """Verify all hops in a delegation chain.
 
@@ -173,8 +246,16 @@ def verify_delegation_chain(
         InvalidSignature: If any hop signature is invalid.
         ValueError: If scope laundering is detected or chain is malformed.
     """
+    if not isinstance(delegation_chain, list):
+        raise ValueError(
+            f"delegation_chain must be a list, got {type(delegation_chain).__name__}"
+        )
     if not delegation_chain:
         return
+
+    # The root is interpreted before the verification loop, so establish its
+    # structure before the root-binding and depth reads below.
+    _validate_hop_structure(delegation_chain[0], 0)
 
     # Bind the chain root to the manifest's signing identity. The root hop
     # establishes the authority the rest of the chain narrows from, so it must
@@ -205,11 +286,12 @@ def verify_delegation_chain(
             f"root max_delegation_depth {root_max_depth}"
         )
 
-    prev_scope: Optional[dict[str, Any]] = None
+    prev_scope: dict[str, Any] | None = None
+    prev_delegated_at: str | None = None
 
     for i, hop in enumerate(delegation_chain):
-        # Structural validation before any field access (raises ValueError on violation)
-        _validate_hop_structure(hop, i)
+        if i:
+            _validate_hop_structure(hop, i)
 
         if hop.get("hop") != i:
             raise ValueError(f"Hop {i} has wrong hop index: {hop.get('hop')}")
@@ -237,13 +319,40 @@ def verify_delegation_chain(
 
         # Scope narrowing check
         scope = hop["scope_grant"]
+        delegated_at = hop["delegated_at"]
         if prev_scope is not None:
-            _check_scope_narrowing(prev_scope, scope, hop_index=i)
+            _check_scope_narrowing(
+                prev_scope,
+                scope,
+                hop_index=i,
+                parent_delegated_at=prev_delegated_at,
+                child_delegated_at=delegated_at,
+            )
 
         prev_scope = scope
+        prev_delegated_at = delegated_at
 
 
-def _check_scope_narrowing(parent: dict[str, Any], child: dict[str, Any], hop_index: int) -> None:
+def _parse_delegated_at(value: str) -> datetime:
+    """Parse a hop's ``delegated_at`` ISO 8601 timestamp (accepts a 'Z' suffix).
+
+    A timestamp with no offset is treated as UTC rather than left naive: hops in
+    one chain are written by different parties and need not agree on whether to
+    include one, and comparing a naive against an aware datetime raises
+    TypeError, which is not a refusal.
+    """
+    dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
+
+
+def _check_scope_narrowing(
+    parent: dict[str, Any],
+    child: dict[str, Any],
+    hop_index: int,
+    *,
+    parent_delegated_at: str | None = None,
+    child_delegated_at: str | None = None,
+) -> None:
     """Raise ValueError if child scope is broader than parent scope."""
     parent_tools = set(parent.get("tools") or [])
     child_tools = set(child.get("tools") or [])
@@ -305,6 +414,33 @@ def _check_scope_narrowing(parent: dict[str, Any], child: dict[str, Any], hop_in
             f"child ttl_seconds {child_ttl!r} exceeds parent ttl_seconds "
             f"{parent_ttl!r}"
         )
+    # DELEG-005: ttl_seconds is a *duration measured from that hop's own*
+    # delegated_at, not from a shared origin. Comparing the two durations in
+    # isolation (above) is not sufficient: a child hop delegated partway
+    # through its parent's window can carry a duration that does not exceed
+    # the parent's, yet its absolute expiry (its own delegated_at + its own
+    # ttl_seconds) can still fall *after* the parent's absolute expiry
+    # (parent's delegated_at + parent's ttl_seconds) - the grant would then
+    # outlive the authority it was narrowed from. Comparing the two absolute
+    # expiries directly closes this regardless of how far apart the hops'
+    # delegated_at timestamps are.
+    if (
+        parent_ttl is not None
+        and child_ttl is not None
+        and parent_delegated_at is not None
+        and child_delegated_at is not None
+    ):
+        parent_expiry = _parse_delegated_at(parent_delegated_at) + timedelta(seconds=parent_ttl)
+        child_expiry = _parse_delegated_at(child_delegated_at) + timedelta(seconds=child_ttl)
+        if child_expiry > parent_expiry:
+            raise ValueError(
+                f"Scope laundering at hop {hop_index}: child scope_grant "
+                f"expires at {child_expiry.isoformat()}, after the parent's "
+                f"absolute expiry {parent_expiry.isoformat()}, even though "
+                "its ttl_seconds duration does not exceed the parent's "
+                "(the child was delegated later, so the same duration "
+                "outlives the parent's grant)"
+            )
 
     # max_delegation_depth: a child may not authorize a deeper sub-chain than
     # its parent permitted. Omission defaults to the spec value (3).
@@ -381,7 +517,7 @@ def verify_hitl_approval(
         InvalidSignature: If the approval signature is invalid.
         ValueError: If required fields are missing or the approval has expired.
     """
-    from datetime import datetime, timezone, timedelta
+    from datetime import datetime, timezone
 
     # HITL-003: enforce approval expiry before verifying signature
     duration = approval.get("approved_scope", {}).get("approval_duration_seconds", 0)
