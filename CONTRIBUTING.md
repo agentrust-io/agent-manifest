@@ -6,6 +6,22 @@ Agent Manifest is an open specification and reference SDK. Contributions are wel
 
 The spec is in active design-partner review, and in CoSAI WS4 Phase 1 review ahead of a proposed contribution to WS4. Breaking spec changes (field renames, schema incompatibilities, conformance level changes) require an issue and discussion before a PR. Non-breaking additions and bug fixes can go straight to a PR.
 
+## Using AI to contribute
+
+Use agents. A lot of this was built with them and saying otherwise would be dishonest.
+
+The rule is that you have to understand what you submit. If you cannot explain what your change does and how it interacts with the rest of the system, with the agent closed, do not open the pull request. Reviewing a change nobody can explain costs more than writing it did, and it becomes someone else's problem the moment it merges.
+
+That is a rule about understanding, not about tooling.
+
+## Being vouched
+
+If you have not contributed here before, ask before you build. Open an issue saying what you want to change and why, in your own words. A maintainer will reply and add you with `/vouch`, and after that your pull requests go through the normal review.
+
+A pull request from an account that has not been vouched is closed automatically, with a comment pointing back here. That is not a judgement about you or about the change. It exists because agent-written contributions are cheap to produce and expensive to review, and a short conversation first is better for both sides than a review neither of us can finish.
+
+Anyone who can already push, and anyone with a merged pull request here before this rule existed, is already vouched.
+
 ## DCO sign-off
 
 All commits must be signed off with the [Developer Certificate of Origin](https://developercertificate.org/):
