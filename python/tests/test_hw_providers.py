@@ -288,7 +288,7 @@ def test_azure_verify_manifest_full_chain_passes(monkeypatch):
 def test_azure_verify_manifest_uses_provider_pcr_index_not_self_reported_raw(monkeypatch):
     """A provider configured for PCR 17 must check PCR 17 -- and a self-reported
     ``raw["pcr_index"]`` claiming a different value must not override that.
-    Exercises the fix for the gap: the expected index must come from verifier 
+    Exercises the fix for the gap: the expected index must come from verifier
     configuration, not from the report itself.
     """
     import agent_manifest._hw_providers as hw

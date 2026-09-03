@@ -378,7 +378,7 @@ def test_azure_report_full_composite_chain_passes():
 
 
 def test_azure_report_with_valid_snp_signature_and_wrong_pcr_does_not_pass():
-    # a correctly signed SNP report, but the PCR inside the AK-signed quote is wrong. 
+    # a correctly signed SNP report, but the PCR inside the AK-signed quote is wrong.
     # A valid hardware signature must not be enough on its own.
     fx = _azure_good_fixture()
     wrong_pcr_digest = hashlib.sha256(bytes(32) + b"\x00" * 32).digest()
@@ -403,9 +403,9 @@ def test_azure_report_with_valid_snp_signature_and_wrong_pcr_does_not_pass():
 
 
 def test_azure_report_wrong_pcr_selection_same_digest_bytes():
-    # the signed selection bitmap changed from PCR16 (000001) to PCR17 (000002), 
-    # pcr_digest bytes unchanged, re-signed with the runtime-data-bound AK. 
-    # A verifier checking only pcr_digest returned signature=verified, report_data_matched=True, 
+    # the signed selection bitmap changed from PCR16 (000001) to PCR17 (000002),
+    # pcr_digest bytes unchanged, re-signed with the runtime-data-bound AK.
+    # A verifier checking only pcr_digest returned signature=verified, report_data_matched=True,
     # passed=True. Must fail now: the bank/PCR the quote was actually signed over must be
     # checked, not just the digest value.
     fx = _azure_good_fixture()
@@ -433,8 +433,8 @@ def test_azure_report_wrong_pcr_selection_same_digest_bytes():
 
 
 def test_azure_report_ak_exponent_mismatch():
-    # runtime-data JWK exponent changed to e=3 ("Aw") while the PEM 
-    # AK key keeps e=65537, rebound into a freshly signed SNP report. 
+    # runtime-data JWK exponent changed to e=3 ("Aw") while the PEM
+    # AK key keeps e=65537, rebound into a freshly signed SNP report.
     # A verifier comparing only the modulus returned
     # passed=True. Must fail now: both n and e must match.
     import json
@@ -465,8 +465,8 @@ def test_azure_report_ak_exponent_mismatch():
 
 
 def test_azure_report_malformed_runtime_data_keys_shape():
-    # valid JSON `{"keys": 1}`, correctly hash-bound into the signed SNP report. 
-    # The unpatched helper raised  TypeError: 'int' object is not iterable, which 
+    # valid JSON `{"keys": 1}`, correctly hash-bound into the signed SNP report.
+    # The unpatched helper raised  TypeError: 'int' object is not iterable, which
     # leaked out of verify_attestation_chain despite the "never raises" contract. Must
     # fail closed (return False, no exception) now.
     import json
@@ -557,7 +557,7 @@ def test_azure_report_with_no_evidence_supplied_fails_closed():
 def test_azure_report_fails_closed_for_any_expected_manifest_hash(arbitrary_hash):
     # The platform label and expected_manifest_hash alone must never combine
     # into a pass, regardless of which hash is expected -- reproduces the
-    # that a signed report passed for three unrelated expected_manifest_hash 
+    # that a signed report passed for three unrelated expected_manifest_hash
     # values (11.., 22.., ff..).
     report = AttestationReport(
         platform="azure-cvm-sev-snp",
@@ -569,8 +569,8 @@ def test_azure_report_fails_closed_for_any_expected_manifest_hash(arbitrary_hash
 
 
 def test_azure_report_only_pcr_read_string_is_not_evidence():
-    #  a report that "looks Azure" (has a plausible-looking legacy 
-    # pcr_read string, a self-reported runtime_data_binding_verified=True 
+    #  a report that "looks Azure" (has a plausible-looking legacy
+    # pcr_read string, a self-reported runtime_data_binding_verified=True
     # flag) but carries none of the actual quote/signature/AK material must not pass.
     report = AttestationReport(
         platform="azure-cvm-sev-snp",
