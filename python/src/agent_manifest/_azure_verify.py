@@ -33,7 +33,28 @@ import binascii
 import hashlib
 import hmac
 import json
-from typing import Optional
+from typing import Any, Optional
+
+
+def _find_hcl_ak_jwk(runtime_data: bytes) -> Optional[dict[str, Any]]:
+    """Return the ``HCLAkPub`` JWK dict from Azure HCL runtime-data JSON, or ``None``.
+
+    Fails closed (returns ``None``, never raises) on any malformed input:
+    bad JSON, non-UTF-8 bytes, a top-level value that isn't an object, a
+    ``"keys"`` value that isn't a list (e.g. ``{"keys": 1}``, which would
+    otherwise blow up trying to iterate an int), or list entries that aren't
+    key-shaped objects.
+    """
+    try:
+        parsed = json.loads(runtime_data)
+    except (json.JSONDecodeError, UnicodeDecodeError, TypeError):
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    keys = parsed.get("keys", [])
+    if not isinstance(keys, list):
+        return None
+    return next((k for k in keys if isinstance(k, dict) and k.get("kid") == "HCLAkPub"), None)
 
 
 def ak_modulus_hex_from_runtime_data(runtime_data: bytes) -> Optional[str]:
@@ -42,12 +63,15 @@ def ak_modulus_hex_from_runtime_data(runtime_data: bytes) -> Optional[str]:
     Returns ``None`` on any malformed input (bad JSON, missing key, bad
     base64) rather than raising -- callers treat that as "cannot establish
     the binding", i.e. fail closed.
+
+    An RSA public key is the pair ``(n, e)``, not ``n`` alone: this helper is
+    kept for callers (e.g. matching a vTPM persistent handle by modulus) that
+    only need the modulus, but a security decision that means to authenticate
+    the *exact* key must use :func:`ak_public_numbers_from_runtime_data`
+    instead, which also checks the exponent.
+
     """
-    try:
-        keys = json.loads(runtime_data).get("keys", [])
-    except (json.JSONDecodeError, UnicodeDecodeError, AttributeError):
-        return None
-    ak = next((k for k in keys if isinstance(k, dict) and k.get("kid") == "HCLAkPub"), None)
+    ak = _find_hcl_ak_jwk(runtime_data)
     if ak is None or "n" not in ak:
         return None
     try:
@@ -57,9 +81,32 @@ def ak_modulus_hex_from_runtime_data(runtime_data: bytes) -> Optional[str]:
         return None
 
 
+def ak_public_numbers_from_runtime_data(runtime_data: bytes) -> Optional[tuple[str, int]]:
+    """Extract the ``HCLAkPub`` RSA public numbers ``(n, e)`` from runtime data.
+
+    Returns ``(modulus_hex, exponent_int)``, or ``None`` on any malformed
+    input (bad JSON, missing/malformed ``n`` or ``e``, bad base64) -- never
+    raises. Both values must be checked to authenticate the exact key: a
+    modulus match alone does not establish ``e`` also matches, and a
+    different ``e`` describes a different key even with the same ``n``.
+    """
+    ak = _find_hcl_ak_jwk(runtime_data)
+    if ak is None or "n" not in ak or "e" not in ak:
+        return None
+    try:
+        n_b64 = ak["n"] + "=" * ((4 - len(ak["n"]) % 4) % 4)
+        n_hex = base64.urlsafe_b64decode(n_b64).hex()
+        e_b64 = ak["e"] + "=" * ((4 - len(ak["e"]) % 4) % 4)
+        e_int = int.from_bytes(base64.urlsafe_b64decode(e_b64), "big")
+    except (binascii.Error, ValueError, TypeError):
+        return None
+    return n_hex, e_int
+
+
 def verify_azure_manifest_binding(
     *,
     expected_manifest_hash: str,
+    expected_pcr_index: int,
     quote_msg_b64: Optional[str],
     quote_sig_b64: Optional[str],
     ak_pub_pem: Optional[str],
@@ -72,13 +119,25 @@ def verify_azure_manifest_binding(
     a caller-supplied boolean, or any self-reported flag:
 
       1. the manifest PCR value (one extension of ``expected_manifest_hash``)
-         equals the PCR digest inside the AK-signed TPM quote;
+         equals the PCR digest inside the AK-signed TPM quote, *and* that
+         digest is carried under a selection of exactly one PCR bank
+         (SHA-256) and exactly one PCR index -- ``expected_pcr_index`` -- not
+         merely a digest value that happens to match while the quote was
+         actually signed over a different bank or PCR;
       2. ``quote_sig`` is a valid AK signature over ``quote_msg`` under
          ``ak_pub_pem``;
       3. ``ak_pub_pem`` is the exact key the runtime data names as
-         ``HCLAkPub``;
+         ``HCLAkPub`` -- both the modulus *and* the exponent, since an RSA
+         public key is the pair ``(n, e)`` and a modulus-only match lets a
+         different exponent describe a different key;
       4. the runtime data hashes into ``REPORT_DATA`` of the signed SNP
          report bytes on ``snp_report_bytes``.
+
+    ``expected_pcr_index`` is required and must come from verifier
+    configuration (e.g. the ``AzureCVMProvider`` the caller actually
+    configured), never inferred from a self-reported field like
+    ``report.raw["pcr_index"]`` -- that field is not signed by anything and
+    an attacker who controls the report controls it too.
 
     Returns ``True`` only when all four hold. Any missing, malformed, or
     mismatched input returns ``False`` -- this function never raises.
@@ -91,6 +150,7 @@ def verify_azure_manifest_binding(
     # actually being checked.
     from ._snp_verify import SnpVerificationError, parse_snp_report, verify_runtime_data_binding
     from ._tpm_verify import (
+        TPM_ALG_SHA256,
         TPM_GENERATED_VALUE,
         TPM_ST_ATTEST_QUOTE,
         TpmVerificationError,
@@ -130,6 +190,20 @@ def verify_azure_manifest_binding(
     if not hmac.compare_digest(quote.pcr_digest, expected_quote_pcr_digest):
         return False
 
+    # 1c. The digest must be a digest *of the expected bank and PCR index*,
+    # not merely a byte string that matches while the signed selection names
+    # a different bank or PCR -- pcr_digest alone doesn't say which PCR(s) it
+    # was computed over. Require exactly one selection: exactly one bank
+    # (SHA-256) with exactly one PCR selected, and that PCR must be the one
+    # this verifier is configured to check.
+    if len(quote.pcr_selections) != 1:
+        return False
+    selection = quote.pcr_selections[0]
+    if selection.hash_alg != TPM_ALG_SHA256:
+        return False
+    if selection.indices() != frozenset({expected_pcr_index}):
+        return False
+
     # 2. quote_sig is a valid AK signature over quote_msg under ak_pub_pem.
     try:
         from cryptography.hazmat.primitives.asymmetric import rsa
@@ -144,15 +218,21 @@ def verify_azure_manifest_binding(
     except TpmVerificationError:
         return False
 
-    # 3. ak_pub_pem is the exact key runtime_data describes as HCLAkPub.
+    # 3. ak_pub_pem is the exact key runtime_data describes as HCLAkPub --
+    # both the modulus and the exponent. An RSA public key is the pair
+    # (n, e); comparing n alone would let runtime_data claim a different
+    # exponent (a different key) while still "matching" on modulus.
     if not isinstance(ak_key, rsa.RSAPublicKey):
         return False
     numbers = ak_key.public_numbers()
     ak_modulus_hex = numbers.n.to_bytes((numbers.n.bit_length() + 7) // 8, "big").hex()
-    runtime_ak_modulus_hex = ak_modulus_hex_from_runtime_data(runtime_data)
-    if runtime_ak_modulus_hex is None:
+    runtime_ak_numbers = ak_public_numbers_from_runtime_data(runtime_data)
+    if runtime_ak_numbers is None:
         return False
+    runtime_ak_modulus_hex, runtime_ak_exponent = runtime_ak_numbers
     if not hmac.compare_digest(ak_modulus_hex.lower(), runtime_ak_modulus_hex.lower()):
+        return False
+    if numbers.e != runtime_ak_exponent:
         return False
 
     # 4. runtime_data is bound (via REPORT_DATA) into the signed SNP report

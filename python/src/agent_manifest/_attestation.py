@@ -222,6 +222,7 @@ def verify_attestation_chain(
     tpm_trusted_roots_pem: Optional[bytes] = None,
     expected_qualifying_data: Optional[bytes] = None,
     expected_pcr_digest: Optional[bytes] = None,
+    azure_expected_pcr_index: int = 16,
 ) -> ChainVerificationResult:
     """Verify a boot-time ``AttestationReport`` against expected values.
 
@@ -242,6 +243,13 @@ def verify_attestation_chain(
         cert_chain_pem: The AMD KDS ``cert_chain`` blob (ASK then ARK, PEM).
         trusted_ark_der: Optional pinned AMD root (ARK) certificate. When given,
             the chain's ARK public key must match it.
+        azure_expected_pcr_index: For ``"azure-cvm-sev-snp"`` reports, the PCR
+            index the manifest hash was extended into -- i.e. the value the
+            caller's ``AzureCVMProvider`` was actually configured with (its
+            ``pcr_index``). Defaults to 16, ``AzureCVMProvider``'s own
+            default. This is verifier configuration the caller supplies, not
+            something inferred from a self-reported field on the report
+            (``report.raw`` is not signed by anything).
 
     Returns:
         A :class:`ChainVerificationResult`. ``passed`` is ``True`` only when the
@@ -281,6 +289,7 @@ def verify_attestation_chain(
         raw_azure = getattr(report, "raw", {}) or {}
         report_data_matched = verify_azure_manifest_binding(
             expected_manifest_hash=expected_manifest_hash,
+            expected_pcr_index=azure_expected_pcr_index,
             quote_msg_b64=raw_azure.get("quote_msg"),
             quote_sig_b64=raw_azure.get("quote_sig"),
             ak_pub_pem=raw_azure.get("ak_pub_pem"),

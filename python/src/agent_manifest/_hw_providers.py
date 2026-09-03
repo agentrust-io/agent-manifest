@@ -478,6 +478,11 @@ class AzureCVMProvider(AttestationProvider):
         raw = report.raw or {}
         return verify_azure_manifest_binding(
             expected_manifest_hash=self.manifest_hash_value(manifest_json),
+            # This provider's own configured PCR index -- verifier
+            # configuration -- not raw.get("pcr_index"), which is a
+            # self-reported field on the report that anyone constructing an
+            # AttestationReport can set to whatever they like.
+            expected_pcr_index=self._pcr,
             quote_msg_b64=raw.get("quote_msg"),
             quote_sig_b64=raw.get("quote_sig"),
             ak_pub_pem=raw.get("ak_pub_pem"),

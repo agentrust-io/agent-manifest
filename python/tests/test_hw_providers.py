@@ -192,8 +192,10 @@ from agent_manifest._tpm_verify import (  # noqa: E402
 )
 
 
-def _azure_build_attest(qualifying_data: bytes, pcr_digest: bytes) -> bytes:
-    """Minimal structurally-valid TPMS_ATTEST (single sha256 PCR selected)."""
+def _azure_build_attest(
+    qualifying_data: bytes, pcr_digest: bytes, *, hash_alg: int = 0x000B, bitmap: bytes = b"\x00\x00\x01"
+) -> bytes:
+    """Minimal structurally-valid TPMS_ATTEST (single PCR-bank selection)."""
     out = TPM_GENERATED_VALUE.to_bytes(4, "big")
     out += TPM_ST_ATTEST_QUOTE.to_bytes(2, "big")
     out += (0).to_bytes(2, "big")  # qualifiedSigner: empty TPM2B_NAME
@@ -201,9 +203,9 @@ def _azure_build_attest(qualifying_data: bytes, pcr_digest: bytes) -> bytes:
     out += b"\x00" * 17  # clockInfo
     out += b"\x00" * 8  # firmwareVersion
     out += (1).to_bytes(4, "big")  # TPML_PCR_SELECTION count
-    out += (0x000B).to_bytes(2, "big")  # hashAlg = sha256
-    out += (3).to_bytes(1, "big")  # sizeofSelect
-    out += b"\x00\x00\x01"  # pcrSelect bitmap
+    out += hash_alg.to_bytes(2, "big")
+    out += len(bitmap).to_bytes(1, "big")  # sizeofSelect
+    out += bitmap
     out += len(pcr_digest).to_bytes(2, "big") + pcr_digest
     return out
 
@@ -283,8 +285,44 @@ def test_azure_verify_manifest_full_chain_passes(monkeypatch):
     assert provider.verify_manifest_in_report(report, SAMPLE_MANIFEST) is True
 
 
-def test_azure_reject_reviewer_reproduction(monkeypatch):
-    """Exact shape from the PR #373 review: fabricated pcr_read, no AK evidence.
+def test_azure_verify_manifest_uses_provider_pcr_index_not_self_reported_raw(monkeypatch):
+    """A provider configured for PCR 17 must check PCR 17 -- and a self-reported
+    ``raw["pcr_index"]`` claiming a different value must not override that.
+    Exercises the fix for the gap: the expected index must come from verifier 
+    configuration, not from the report itself.
+    """
+    import agent_manifest._hw_providers as hw
+    from agent_manifest._hw_providers import AzureCVMProvider
+
+    monkeypatch.setattr(hw, "_run_tpm", lambda args: b"ok")
+    provider = AzureCVMProvider(pcr_index=17)
+    # _azure_good_fixture always signs over the PCR16 bitmap regardless of
+    # provider._pcr, so build the PCR17-selection quote by hand here.
+    fx = _azure_good_fixture(provider)
+    quote_msg_17 = _azure_build_attest(bytes(16), fx["pcr_digest"], bitmap=b"\x00\x00\x02")
+    sig_17 = _azure_tpmt_sign(fx["ak_key"], quote_msg_17)
+    # Claim (falsely, and irrelevantly) that this report is about PCR 16.
+    report = _azure_report_from_fixture(
+        fx,
+        raw_overrides={
+            "quote_msg": base64.b64encode(quote_msg_17).decode(),
+            "quote_sig": base64.b64encode(sig_17).decode(),
+            "pcr_index": 16,
+        },
+    )
+    # Still passes: the provider's own configured pcr_index (17) is what's
+    # actually checked, and it genuinely matches the signed selection.
+    assert provider.verify_manifest_in_report(report, SAMPLE_MANIFEST) is True
+
+    other_provider = AzureCVMProvider(pcr_index=16)
+    # The same evidence checked against a *differently configured* provider
+    # (expecting PCR 16, but the quote was signed over PCR 17) must fail --
+    # confirming the check is real and not vacuously true.
+    assert other_provider.verify_manifest_in_report(report, SAMPLE_MANIFEST) is False
+
+
+def test_azure_reject(monkeypatch):
+    """fabricated pcr_read, no AK evidence.
 
     A report whose ``raw`` carries a matching ``pcr_read`` string but omits
     ``ak_pub_pem``, ``quote_msg``, ``quote_sig``, and any runtime-data binding
@@ -335,6 +373,107 @@ def test_azure_reject_wrong_pcr_in_quote(monkeypatch):
             "quote_sig": base64.b64encode(tampered_sig).decode(),
         },
     )
+    assert provider.verify_manifest_in_report(report, SAMPLE_MANIFEST) is False
+
+
+def test_azure_reject_wrong_pcr_selection_with_correct_digest_bytes(monkeypatch):
+    """signed selection bitmap changed from PCR16 to PCR17,
+    same pcr_digest bytes, re-signed with the runtime-data-bound AK. Checking
+    only the digest (and not which bank/PCR it was computed over) let this
+    pass before; it must not pass now.
+    """
+    import agent_manifest._hw_providers as hw
+    from agent_manifest._hw_providers import AzureCVMProvider
+
+    monkeypatch.setattr(hw, "_run_tpm", lambda args: b"ok")
+    provider = AzureCVMProvider(pcr_index=16)
+    fx = _azure_good_fixture(provider)
+    # PCR17 bitmap: bit 1 of byte 2 (byte*8+bit = 2*8+1 = 17).
+    retargeted_quote_msg = _azure_build_attest(bytes(16), fx["pcr_digest"], bitmap=b"\x00\x00\x02")
+    retargeted_sig = _azure_tpmt_sign(fx["ak_key"], retargeted_quote_msg)
+    report = _azure_report_from_fixture(
+        fx,
+        raw_overrides={
+            "quote_msg": base64.b64encode(retargeted_quote_msg).decode(),
+            "quote_sig": base64.b64encode(retargeted_sig).decode(),
+        },
+    )
+    assert provider.verify_manifest_in_report(report, SAMPLE_MANIFEST) is False
+
+
+def test_azure_reject_pcr_selection_wrong_bank(monkeypatch):
+    """Same PCR index (16) but a different bank (SHA-384 alg id) must not pass:
+    the verifier is configured to require the SHA-256 bank specifically.
+    """
+    import agent_manifest._hw_providers as hw
+    from agent_manifest._hw_providers import AzureCVMProvider
+
+    monkeypatch.setattr(hw, "_run_tpm", lambda args: b"ok")
+    provider = AzureCVMProvider(pcr_index=16)
+    fx = _azure_good_fixture(provider)
+    wrong_bank_quote_msg = _azure_build_attest(bytes(16), fx["pcr_digest"], hash_alg=0x000C)
+    wrong_bank_sig = _azure_tpmt_sign(fx["ak_key"], wrong_bank_quote_msg)
+    report = _azure_report_from_fixture(
+        fx,
+        raw_overrides={
+            "quote_msg": base64.b64encode(wrong_bank_quote_msg).decode(),
+            "quote_sig": base64.b64encode(wrong_bank_sig).decode(),
+        },
+    )
+    assert provider.verify_manifest_in_report(report, SAMPLE_MANIFEST) is False
+
+
+def test_azure_reject_ak_exponent_mismatch(monkeypatch):
+    """runtime-data JWK exponent changed to e=3 while the
+    PEM AK key keeps e=65537, rebound into a freshly-signed SNP report.
+    Comparing only the modulus let this pass before; both (n, e) must match.
+    """
+    import agent_manifest._hw_providers as hw
+    from agent_manifest._hw_providers import AzureCVMProvider
+
+    monkeypatch.setattr(hw, "_run_tpm", lambda args: b"ok")
+    provider = AzureCVMProvider(pcr_index=16)
+    fx = _azure_good_fixture(provider)
+
+    numbers = fx["ak_key"].public_key().public_numbers()
+    modulus_bytes = numbers.n.to_bytes((numbers.n.bit_length() + 7) // 8, "big")
+    n_b64 = base64.urlsafe_b64encode(modulus_bytes).rstrip(b"=").decode()
+    # e=3 -> base64url("\x03") without padding, i.e. "Aw".
+    wrong_e_b64 = base64.urlsafe_b64encode((3).to_bytes(1, "big")).rstrip(b"=").decode()
+    runtime_data_wrong_e = json.dumps(
+        {"keys": [{"kid": "HCLAkPub", "n": n_b64, "e": wrong_e_b64}]}
+    ).encode()
+
+    # Rebind REPORT_DATA to the new runtime data so binding step 4 alone
+    # would pass -- isolating that step 3 (exact key: n AND e) rejects.
+    snp_report_bytes = _snp_report_with(hashlib.sha256(runtime_data_wrong_e).digest() + bytes(32))
+    report = _azure_report_from_fixture(
+        fx,
+        raw_overrides={"runtime_data_hex": runtime_data_wrong_e.hex()},
+        quote_override=snp_report_bytes,
+    )
+    assert provider.verify_manifest_in_report(report, SAMPLE_MANIFEST) is False
+
+
+def test_azure_reject_malformed_runtime_data_keys_shape(monkeypatch):
+    """valid JSON `{"keys": 1}`, correctly hash-bound into
+    the signed SNP report, must fail closed (return False) rather than raise.
+    """
+    import agent_manifest._hw_providers as hw
+    from agent_manifest._hw_providers import AzureCVMProvider
+
+    monkeypatch.setattr(hw, "_run_tpm", lambda args: b"ok")
+    provider = AzureCVMProvider(pcr_index=16)
+    fx = _azure_good_fixture(provider)
+
+    malformed_runtime_data = json.dumps({"keys": 1}).encode()
+    snp_report_bytes = _snp_report_with(hashlib.sha256(malformed_runtime_data).digest() + bytes(32))
+    report = _azure_report_from_fixture(
+        fx,
+        raw_overrides={"runtime_data_hex": malformed_runtime_data.hex()},
+        quote_override=snp_report_bytes,
+    )
+    # Must not raise TypeError -- must simply return False.
     assert provider.verify_manifest_in_report(report, SAMPLE_MANIFEST) is False
 
 

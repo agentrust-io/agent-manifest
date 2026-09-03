@@ -63,6 +63,9 @@ _ALG_RSASSA = 0x0014
 _ALG_RSAPSS = 0x0016
 _ALG_ECDSA = 0x0018
 
+# TPM2_ALG_ID value for the SHA-256 PCR bank.
+TPM_ALG_SHA256 = 0x000B
+
 
 class TpmVerificationError(Exception):
     """Raised when a TPM quote or its certificate chain fails verification."""
@@ -101,12 +104,35 @@ class TpmAttest:
 
 
 @dataclass(frozen=True)
+class PcrSelection:
+    """One ``TPMS_PCR_SELECTION`` entry: a bank (hash alg) and its selected PCRs.
+
+    ``pcr_select`` is the raw ``pcrSelect`` bitmap bytes (TCG bit order: byte
+    ``i`` bit ``j`` selects PCR ``i*8+j``). Use :meth:`indices` rather than
+    reading the bitmap by hand.
+    """
+
+    hash_alg: int
+    pcr_select: bytes
+
+    def indices(self) -> frozenset[int]:
+        """Return the set of PCR indices selected by ``pcr_select``."""
+        selected = set()
+        for byte_index, byte in enumerate(self.pcr_select):
+            for bit in range(8):
+                if byte & (1 << bit):
+                    selected.add(byte_index * 8 + bit)
+        return frozenset(selected)
+
+
+@dataclass(frozen=True)
 class TpmQuote:
     """The parsed subset of a TPM 2.0 quote (TPMS_ATTEST) that is appraised."""
 
     magic: int
     attest_type: int
     qualifying_data: bytes  # extraData: the verifier's nonce
+    pcr_selections: tuple[PcrSelection, ...]  # TPML_PCR_SELECTION: bank(s) + PCR(s) selected
     pcr_digest: bytes  # the platform measurement
     raw: bytes
 
@@ -231,21 +257,36 @@ def parse_tpm_quote(attest: bytes) -> TpmQuote:
         )
     attested = common.attested_raw
     pos = 0
-    # TPML_PCR_SELECTION
+    # TPML_PCR_SELECTION. Each TPMS_PCR_SELECTION is hashAlg (2 bytes) +
+    # sizeofSelect (1 byte) + pcrSelect (sizeofSelect bytes). The bank and the
+    # actual PCR bitmap are captured here -- not merely skipped over -- because
+    # pcr_digest alone does not say *which* PCR(s) it is a digest of; a quote
+    # signed over a different PCR (or bank) can carry the same digest bytes
+    # and a caller checking only pcr_digest would be unable to tell.
+
     if pos + 4 > len(attested):
         raise TpmVerificationError("TPM quote truncated reading PCR selection count")
     count = int.from_bytes(attested[pos:pos + 4], "big")
     pos += 4
+    selections = []
     for _ in range(count):
         if pos + 3 > len(attested):
             raise TpmVerificationError("TPM quote truncated reading a PCR selection")
+        hash_alg = int.from_bytes(attested[pos:pos + 2], "big")
         size_of_select = attested[pos + 2]
-        pos += 3 + size_of_select
+        pos += 3
+        if pos + size_of_select > len(attested):
+            raise TpmVerificationError("TPM quote truncated reading a PCR select bitmap")
+        pcr_select = bytes(attested[pos:pos + size_of_select])
+        pos += size_of_select
+        selections.append(PcrSelection(hash_alg=hash_alg, pcr_select=pcr_select))
+
     pcr_digest, _pos = _read_2b(attested, pos)
     return TpmQuote(
         magic=common.magic,
         attest_type=common.attest_type,
         qualifying_data=common.qualifying_data,
+        pcr_selections=tuple(selections),
         pcr_digest=pcr_digest,
         raw=common.raw,
     )
@@ -391,6 +432,13 @@ def verify_ak_signature(
     ``ec.EllipticCurvePublicKey`` or ``rsa.RSAPublicKey``; establishing that
     the key is the *right* one is the caller's responsibility.
 
+    Legacy bare input is recognized from the AK's signature shape: modulus-
+    sized bytes for RSA and DER for ECDSA (not the ``sigAlg`` prefix bytes,
+    which are untrusted input -- an attacker could otherwise flip a well-
+    formed envelope's leading bytes to look like a legacy bare signature and
+    move it into the wrong verification lane). Other byte input must be a
+    well-formed ``TPMT_SIGNATURE`` envelope.
+
     Returns ``True`` only when the signature verifies. Returns ``False`` on a
     well-formed but invalid signature or key/algorithm mismatch. Raises
     :class:`TpmVerificationError` on a malformed ``TPMT_SIGNATURE`` or an
@@ -409,12 +457,24 @@ def verify_ak_signature(
     parsed_signature: ParsedSignature | None = None
     if isinstance(signature, ParsedSignature):
         parsed_signature = signature
-    elif len(signature) >= 2 and int.from_bytes(signature[:2], "big") in (
-        _ALG_RSASSA,
-        _ALG_RSAPSS,
-        _ALG_ECDSA,
-    ):
-        parsed_signature = parse_tpmt_signature(signature)
+    elif isinstance(ak_public_key, rsa.RSAPublicKey):
+        # A bare RSA signature is exactly one modulus wide. Do not use the
+        # untrusted sigAlg prefix as the discriminator: changing an envelope's
+        # scheme must not silently move it into the legacy bare-signature lane.
+        if len(signature) != (ak_public_key.key_size + 7) // 8:
+            parsed_signature = parse_tpmt_signature(signature)
+    elif isinstance(ak_public_key, ec.EllipticCurvePublicKey):
+        # cryptography's legacy ECDSA input is a complete DER SEQUENCE. Testing
+        # only its first 0x30 byte would let malformed sequence-prefixed input
+        # fall through too, so require the actual signature representation.
+        from cryptography.hazmat.primitives.asymmetric.utils import (
+            decode_dss_signature,
+        )
+
+        try:
+            decode_dss_signature(signature)
+        except ValueError:
+            parsed_signature = parse_tpmt_signature(signature)
 
     if parsed_signature is None:
         assert isinstance(signature, bytes)

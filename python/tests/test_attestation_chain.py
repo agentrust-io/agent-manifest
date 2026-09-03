@@ -260,8 +260,16 @@ def test_full_chain_reads_snp_bytes_from_report_quote():
 # ---------------------------------------------------------------------------
 
 
-def _azure_build_attest(qualifying_data: bytes, pcr_digest: bytes) -> bytes:
-    """Minimal structurally-valid TPMS_ATTEST (single sha256 PCR selected)."""
+def _azure_build_attest(
+    qualifying_data: bytes,
+    pcr_digest: bytes,
+    *,
+    hash_alg: int = 0x000B,
+    bitmap: bytes = b"\x00\x00\x01",
+    sizeof_select: int | None = None,
+) -> bytes:
+    """Minimal structurally-valid TPMS_ATTEST (single PCR-bank selection)."""
+
     from agent_manifest._tpm_verify import TPM_GENERATED_VALUE, TPM_ST_ATTEST_QUOTE
 
     out = TPM_GENERATED_VALUE.to_bytes(4, "big")
@@ -271,9 +279,9 @@ def _azure_build_attest(qualifying_data: bytes, pcr_digest: bytes) -> bytes:
     out += b"\x00" * 17  # clockInfo
     out += b"\x00" * 8  # firmwareVersion
     out += (1).to_bytes(4, "big")  # TPML_PCR_SELECTION count
-    out += (0x000B).to_bytes(2, "big")  # hashAlg = sha256
-    out += (3).to_bytes(1, "big")  # sizeofSelect
-    out += b"\x00\x00\x01"  # pcrSelect bitmap
+    out += hash_alg.to_bytes(2, "big")
+    out += (sizeof_select if sizeof_select is not None else len(bitmap)).to_bytes(1, "big")
+    out += bitmap
     out += len(pcr_digest).to_bytes(2, "big") + pcr_digest
     return out
 
@@ -370,9 +378,8 @@ def test_azure_report_full_composite_chain_passes():
 
 
 def test_azure_report_with_valid_snp_signature_and_wrong_pcr_does_not_pass():
-    # The maintainer's exact reproduction shape: a correctly signed SNP
-    # report, but the PCR inside the AK-signed quote is wrong. A valid
-    # hardware signature must not be enough on its own.
+    # a correctly signed SNP report, but the PCR inside the AK-signed quote is wrong. 
+    # A valid hardware signature must not be enough on its own.
     fx = _azure_good_fixture()
     wrong_pcr_digest = hashlib.sha256(bytes(32) + b"\x00" * 32).digest()
     tampered_quote_msg = _azure_build_attest(bytes(16), wrong_pcr_digest)
@@ -395,6 +402,142 @@ def test_azure_report_with_valid_snp_signature_and_wrong_pcr_does_not_pass():
     assert result.passed is False
 
 
+def test_azure_report_wrong_pcr_selection_same_digest_bytes():
+    # the signed selection bitmap changed from PCR16 (000001) to PCR17 (000002), 
+    # pcr_digest bytes unchanged, re-signed with the runtime-data-bound AK. 
+    # A verifier checking only pcr_digest returned signature=verified, report_data_matched=True, 
+    # passed=True. Must fail now: the bank/PCR the quote was actually signed over must be
+    # checked, not just the digest value.
+    fx = _azure_good_fixture()
+    retargeted_quote_msg = _azure_build_attest(
+        bytes(16), fx["pcr_digest"], sizeof_select=3, bitmap=b"\x00\x00\x02"
+    )
+    retargeted_sig = _azure_tpmt_sign(fx["ak_key"], retargeted_quote_msg)
+    report = _azure_report_from_fixture(
+        fx,
+        raw_overrides={
+            "quote_msg": base64.b64encode(retargeted_quote_msg).decode(),
+            "quote_sig": base64.b64encode(retargeted_sig).decode(),
+        },
+    )
+    result = verify_attestation_chain(
+        report,
+        expected_manifest_hash=MANIFEST_HASH,
+        vcek_cert_der=fx["vcek_der"],
+        cert_chain_pem=fx["chain"],
+        azure_expected_pcr_index=16,
+    )
+    assert result.signature is SignatureStatus.VERIFIED
+    assert result.report_data_matched is False
+    assert result.passed is False
+
+
+def test_azure_report_ak_exponent_mismatch():
+    # runtime-data JWK exponent changed to e=3 ("Aw") while the PEM 
+    # AK key keeps e=65537, rebound into a freshly signed SNP report. 
+    # A verifier comparing only the modulus returned
+    # passed=True. Must fail now: both n and e must match.
+    import json
+
+    fx = _azure_good_fixture()
+    numbers = fx["ak_key"].public_key().public_numbers()
+    modulus_bytes = numbers.n.to_bytes((numbers.n.bit_length() + 7) // 8, "big")
+    n_b64 = base64.urlsafe_b64encode(modulus_bytes).rstrip(b"=").decode()
+    wrong_e_b64 = base64.urlsafe_b64encode((3).to_bytes(1, "big")).rstrip(b"=").decode()
+    runtime_data_wrong_e = json.dumps(
+        {"keys": [{"kid": "HCLAkPub", "n": n_b64, "e": wrong_e_b64}]}
+    ).encode()
+
+    report_data = hashlib.sha256(runtime_data_wrong_e).digest() + bytes(32)
+    snp, vcek_der, chain = _synthetic_snp_with_chain(report_data.hex()[:64], MEASUREMENT)
+    report = _azure_report_from_fixture(
+        fx, raw_overrides={"runtime_data_hex": runtime_data_wrong_e.hex()}
+    )
+    report.quote = snp
+    result = verify_attestation_chain(
+        report,
+        expected_manifest_hash=MANIFEST_HASH,
+        vcek_cert_der=vcek_der,
+        cert_chain_pem=chain,
+    )
+    assert result.report_data_matched is False
+    assert result.passed is False
+
+
+def test_azure_report_malformed_runtime_data_keys_shape():
+    # valid JSON `{"keys": 1}`, correctly hash-bound into the signed SNP report. 
+    # The unpatched helper raised  TypeError: 'int' object is not iterable, which 
+    # leaked out of verify_attestation_chain despite the "never raises" contract. Must
+    # fail closed (return False, no exception) now.
+    import json
+
+    fx = _azure_good_fixture()
+    malformed_runtime_data = json.dumps({"keys": 1}).encode()
+    report_data = hashlib.sha256(malformed_runtime_data).digest() + bytes(32)
+    snp, vcek_der, chain = _synthetic_snp_with_chain(report_data.hex()[:64], MEASUREMENT)
+    report = _azure_report_from_fixture(
+        fx, raw_overrides={"runtime_data_hex": malformed_runtime_data.hex()}
+    )
+    report.quote = snp
+    result = verify_attestation_chain(
+        report,
+        expected_manifest_hash=MANIFEST_HASH,
+        vcek_cert_der=vcek_der,
+        cert_chain_pem=chain,
+    )
+    assert result.report_data_matched is False
+    assert result.passed is False
+
+
+def test_verify_azure_manifest_binding_requires_expected_pcr_index_kwarg():
+    # expected_pcr_index must be a real, required parameter -- not something
+    # a caller can omit and have silently inferred from self-reported data.
+    import inspect
+
+    from agent_manifest._azure_verify import verify_azure_manifest_binding
+
+    sig = inspect.signature(verify_azure_manifest_binding)
+    assert "expected_pcr_index" in sig.parameters
+    assert sig.parameters["expected_pcr_index"].default is inspect.Parameter.empty
+
+
+def test_ak_public_numbers_from_runtime_data_malformed_keys_shape_returns_none():
+    # Direct unit coverage of the fail-closed helper fix: {"keys": 1} used to
+    # raise TypeError iterating an int; must now return None like every other
+    # malformed-input case.
+    import json
+
+    from agent_manifest._azure_verify import (
+        ak_modulus_hex_from_runtime_data,
+        ak_public_numbers_from_runtime_data,
+    )
+
+    malformed = json.dumps({"keys": 1}).encode()
+    assert ak_modulus_hex_from_runtime_data(malformed) is None
+    assert ak_public_numbers_from_runtime_data(malformed) is None
+
+
+@pytest.mark.parametrize(
+    "runtime_json",
+    [
+        {"keys": "not-a-list"},
+        {"keys": [1, 2, 3]},
+        {"keys": None},
+        "not-a-dict-at-top-level",
+        123,
+        [],
+    ],
+)
+
+
+def test_ak_public_numbers_from_runtime_data_fails_closed_on_malformed_shapes(runtime_json):
+    import json
+
+    from agent_manifest._azure_verify import ak_public_numbers_from_runtime_data
+
+    assert ak_public_numbers_from_runtime_data(json.dumps(runtime_json).encode()) is None
+
+
 def test_azure_report_with_no_evidence_supplied_fails_closed():
     # Nothing supplied at all (the common/default case): must not be quietly
     # assumed fine.
@@ -414,8 +557,8 @@ def test_azure_report_with_no_evidence_supplied_fails_closed():
 def test_azure_report_fails_closed_for_any_expected_manifest_hash(arbitrary_hash):
     # The platform label and expected_manifest_hash alone must never combine
     # into a pass, regardless of which hash is expected -- reproduces the
-    # reviewer's exact finding that a signed report passed for three
-    # unrelated expected_manifest_hash values (11.., 22.., ff..).
+    # that a signed report passed for three unrelated expected_manifest_hash 
+    # values (11.., 22.., ff..).
     report = AttestationReport(
         platform="azure-cvm-sev-snp",
         manifest_hash=MANIFEST_HASH,
@@ -426,10 +569,9 @@ def test_azure_report_fails_closed_for_any_expected_manifest_hash(arbitrary_hash
 
 
 def test_azure_report_only_pcr_read_string_is_not_evidence():
-    # The exact gap the reviewer flagged: a report that "looks Azure" (has a
-    # plausible-looking legacy pcr_read string, a self-reported
-    # runtime_data_binding_verified=True flag) but carries none of the
-    # actual quote/signature/AK material must not pass.
+    #  a report that "looks Azure" (has a plausible-looking legacy 
+    # pcr_read string, a self-reported runtime_data_binding_verified=True 
+    # flag) but carries none of the actual quote/signature/AK material must not pass.
     report = AttestationReport(
         platform="azure-cvm-sev-snp",
         manifest_hash=MANIFEST_HASH,
