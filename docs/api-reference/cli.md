@@ -117,8 +117,8 @@ Usage: manifest verify [OPTIONS] MANIFEST_FILE
   error, rather than being silently treated as "not revoked".
 
   --crl-trusted-key does NOT prove the CRL file is complete. Per-record signatures
-  authenticate the records that are present but cannot detect that a line or the
-  entire file was deleted. A party who can write or intercept the CRL file can still
+  authenticate the records that are present but cannot detect that a line — or the
+  entire file — was deleted. A party who can write or intercept the CRL file can still
   suppress a real revocation by removing its record entirely; only a signed, versioned
   CRL snapshot (not yet implemented) can close that gap. Without --crl-trusted-key at
   all, every line in the CRL file is additionally trusted unauthenticated: a party who
