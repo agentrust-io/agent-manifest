@@ -8,6 +8,7 @@ Strategy:
     list (empty and populated), get-found, get-404, signature fields present.
   No hardware or network required.
 """
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -15,6 +16,7 @@ import pytest
 from cryptography.exceptions import InvalidSignature
 
 from agent_manifest._revocation import (
+    CRLIntegrityError,
     FileCRL,
     SignedRevocationRecord,
     create_crl_router,
@@ -224,6 +226,92 @@ def test_revocation_rejects_mismatched_signer_key_id(tmp_path):
         crl.revoke(record)
 
     assert not crl.is_revoked(MID)
+
+
+def test_file_crl_authenticated_load_fails_closed_on_tampered_record(tmp_path):
+    # CRL-CLI-002 regression: a tampered record in an authenticated CRL must
+    # raise, not be silently dropped so is_revoked() reports False.
+    authority = generate_ed25519()
+    path = tmp_path / "crl.jsonl"
+    crl = FileCRL(path, trusted_signer_key=authority.public_bytes)
+    crl.revoke(sign_revocation(MID, "key compromise", "admin", authority))
+
+    line = json.loads(path.read_text().splitlines()[0])
+    sig = list(line["revocation_signature"])
+    mid_idx = len(sig) // 2
+    sig[mid_idx] = "A" if sig[mid_idx] != "A" else "B"
+    line["revocation_signature"] = "".join(sig)
+    path.write_text(json.dumps(line) + "\n")
+
+    with pytest.raises(CRLIntegrityError):
+        FileCRL(path, trusted_signer_key=authority.public_bytes)
+
+
+def test_file_crl_authenticated_load_fails_closed_on_wrong_key(tmp_path):
+    real_authority = generate_ed25519()
+    untrusted_authority = generate_ed25519()
+    path = tmp_path / "crl.jsonl"
+    crl = FileCRL(path, trusted_signer_key=untrusted_authority.public_bytes)
+    crl.revoke(sign_revocation(MID, "test", "admin", untrusted_authority))
+
+    with pytest.raises(CRLIntegrityError):
+        FileCRL(path, trusted_signer_key=real_authority.public_bytes)
+
+
+def test_file_crl_authenticated_load_fails_closed_on_malformed_line(tmp_path):
+    authority = generate_ed25519()
+    path = tmp_path / "crl.jsonl"
+    path.write_text("not valid json at all\n")
+
+    with pytest.raises(CRLIntegrityError):
+        FileCRL(path, trusted_signer_key=authority.public_bytes)
+
+
+def test_file_crl_authenticated_load_one_bad_record_poisons_whole_file(tmp_path):
+    # A single tampered/unverifiable line must invalidate the whole load,
+    # not just be excluded otherwise attacker can tamper with the one
+    # record they want suppressed while leaving others intact and still get
+    # a (partially) trusted result.
+    authority = generate_ed25519()
+    path = tmp_path / "crl.jsonl"
+    crl = FileCRL(path, trusted_signer_key=authority.public_bytes)
+    crl.revoke(sign_revocation(MID, "good record", "admin", authority))
+
+    with open(path, "a") as f:
+        f.write("garbage-not-json\n")
+
+    with pytest.raises(CRLIntegrityError):
+        FileCRL(path, trusted_signer_key=authority.public_bytes)
+
+
+def test_file_crl_unauthenticated_load_still_skips_malformed_lines(tmp_path):
+    # Backward-compatible dev-mode behavior (no trusted key) is unchanged:
+    # malformed lines are best-effort skipped rather than raising.
+    path = tmp_path / "crl.jsonl"
+    kp = generate_ed25519()
+    crl = FileCRL(path)
+    crl.revoke(sign_revocation(MID, "test", "admin", kp))
+    with open(path, "a") as f:
+        f.write("not valid json\n")
+
+    crl2 = FileCRL(path)  # must not raise
+    assert crl2.is_revoked(MID)
+
+
+def test_file_crl_authenticated_deleted_record_still_not_revoked(tmp_path):
+    # Documents a known, NOT-fixed limitation: per-record signatures can't
+    # detect deletion of a valid line. This pins current behavior so a
+    # future change can't silently claim more than it delivers without a
+    # test change forcing a conscious decision.
+    authority = generate_ed25519()
+    path = tmp_path / "crl.jsonl"
+    crl = FileCRL(path, trusted_signer_key=authority.public_bytes)
+    crl.revoke(sign_revocation(MID, "key compromise", "admin", authority))
+
+    path.write_text("")  # delete the record
+
+    crl2 = FileCRL(path, trusted_signer_key=authority.public_bytes)  # must not raise
+    assert not crl2.is_revoked(MID)
 
 
 # ---------------------------------------------------------------------------

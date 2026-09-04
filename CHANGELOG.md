@@ -10,13 +10,31 @@
   authority's public key. Previously the CLI always constructed `FileCRL`
   without `trusted_signer_key`, so every CLI-driven CRL load ran in
   `FileCRL`'s unauthenticated mode regardless of intent: a party who could
-  write to or intercept the CRL file could delete a revocation record to
-  un-revoke a compromised manifest, or fabricate one, and `manifest verify`
-  would accept it without complaint. `--crl-trusted-key` is now required to
-  authenticate the CRL; omitting it still works (unchanged default) but now
-  prints a loud warning, and passing it without `--crl-path` fails cleanly
-  instead of being silently ignored. Same pattern as the `--approver-key`
-  gap fixed in 0.11.1.
+  write to or intercept the CRL file could fabricate a revocation record
+  for a legitimate manifest, and `manifest verify` would accept it without
+  complaint. `--crl-trusted-key` is now required to authenticate the CRL;
+  omitting it still works (unchanged default) but now prints a loud
+  warning, and passing it without `--crl-path` fails cleanly instead of
+  being silently ignored. Same pattern as the `--approver-key` gap fixed
+  in 0.11.1.
+
+- **[SECURITY][CRL]** `FileCRL._load()` now fails closed in authenticated
+  mode: a malformed, unsigned, tampered, or wrong-key record used to be
+  silently skipped, which meant a party able to corrupt one line of an
+  authenticated CRL file could make that manifest register as *not*
+  revoked — the exact outcome `--crl-trusted-key` exists to prevent. Any
+  such record now raises `CRLIntegrityError` (surfaced by the CLI as a
+  clean, non-zero-exit error) instead of silently disappearing from the
+  in-memory set before `is_revoked()` runs.
+
+- **[DOCS]** Corrected an overclaim in the `--crl-trusted-key` help text
+  and `manifest verify` docs: authenticating records that are present in
+  a CRL file is not the same as proving the file is complete. Per-record
+  signatures cannot detect that a valid line — or the entire file — was
+  deleted, so `--crl-trusted-key` does not by itself prevent un-revocation
+  by deletion. Closing that gap needs a signed, versioned CRL
+  snapshot/digest mechanism, which is not yet implemented.
+
 
 
 ### Deprecated

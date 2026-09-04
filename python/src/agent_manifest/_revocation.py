@@ -26,6 +26,20 @@ _MAX_CRL_BYTES = 50 * 1024 * 1024  # 50 MB
 _MAX_CRL_RECORDS = 1_000_000
 
 
+class CRLIntegrityError(Exception):
+    """Raised when an authenticated CRL file cannot be trusted as loaded.
+
+    In authenticated mode (``trusted_signer_key`` provided), a malformed,
+    unsigned, tampered, or wrong-key record does not mean "not revoked"
+    which means the CRL's integrity cannot be established. Silently skipping
+    such records would let anyone who can write or intercept the CRL file
+    un-revoke a manifest by corrupting or deleting its record, which is
+    exactly the attack authenticated mode exists to prevent (CRL-CLI-002).
+    Callers must treat this as a hard verification failure, not as
+    evidence of non-revocation.
+    """
+
+
 # ---------------------------------------------------------------------------
 # Signed revocation record
 # ---------------------------------------------------------------------------
@@ -161,11 +175,23 @@ class FileCRL:
                 f"CRL file is {file_size} bytes, exceeding the {_MAX_CRL_BYTES}-byte limit. "
                 "Use a database-backed store for large CRLs."
             )
+        # CRL-CLI-002: in authenticated mode, load into a fresh dict first and
+        # only publish it to self._cache if every line is parseable and every
+        # record verifies. A single malformed/unsigned/tampered/wrong-key
+        # record makes the whole file's integrity unknown and we cannot tell
+        # whether it is an honest data error or a deleted/corrupted
+        # revocation, so we must not selectively keep the records that
+        # happened to still verify. This makes tampering (including
+        # deleting a line outright, which looks identical to "never
+        # existed") raise instead of silently yielding fewer revocations.
+        authenticated = self._trusted_signer_key is not None
+        loaded: dict[str, SignedRevocationRecord] = {}
+
 
         count = 0
         with open(self._path) as f:
-            for line in f:
-                line = line.strip()
+            for lineno, raw_line in enumerate(f, start=1):
+                line = raw_line.strip()
                 if not line:
                     continue
                 if count >= _MAX_CRL_RECORDS:
@@ -174,18 +200,33 @@ class FileCRL:
                     )
                 try:
                     rec = SignedRevocationRecord.model_validate_json(line)
-                except Exception:  # nosec B112 — intentional skip of malformed lines
+                except Exception as exc:
+                    if authenticated:
+                        raise CRLIntegrityError(
+                            f"{self._path}:{lineno}: malformed revocation "
+                            f"record in authenticated CRL ({exc}). Refusing "
+                            "to load a CRL whose integrity cannot be "
+                            "established."
+                        ) from exc
+                    # nosec B112 - dev-mode (no trusted key): best-effort skip
                     continue
 
                 # REVOC-003: verify signature if trusted key is provided
-                if self._trusted_signer_key is not None:
+                if authenticated:
                     try:
-                        verify_revocation_signature(rec, self._trusted_signer_key)
-                    except Exception:  # nosec B112 — intentional skip of unsigned/tampered records
-                        continue
+                        verify_revocation_signature(rec, self._trusted_signer_key)  # type: ignore[arg-type]
+                    except Exception as exc:
+                        raise CRLIntegrityError(
+                            f"{self._path}:{lineno}: revocation record for "
+                            f"manifest {rec.manifest_id!r} failed signature "
+                            "verification against the trusted CRL signer "
+                            f"key ({exc}). Refusing to load a CRL whose "
+                            "integrity cannot be established."
+                        ) from exc
 
-                self._cache[rec.manifest_id] = rec
+                loaded[rec.manifest_id] = rec
                 count += 1
+        self._cache = loaded
 
     def revoke(self, record: SignedRevocationRecord) -> None:
         """Append a revocation record to the CRL file."""

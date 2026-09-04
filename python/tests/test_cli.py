@@ -228,10 +228,14 @@ def test_cli_verify_crl_without_trusted_key_still_works_but_warns(tmp_path):
     assert "WARNING: --crl-path given without --crl-trusted-key" in combined
 
 
-def test_cli_verify_crl_with_wrong_trusted_key_ignores_untrusted_record(tmp_path):
-    # A CRL signed by an authority the caller does NOT trust must not revoke
-    # anything: the record fails REVOC-003 verification on load and is
-    # skipped, exactly like a tampered record would be.
+def test_cli_verify_crl_with_wrong_trusted_key_fails_closed(tmp_path):
+    # A CRL signed by an authority the caller does NOT trust must NOT be
+    # treated as evidence of non-revocation. The record fails REVOC-003
+    # verification on load, which must surface as a hard, non-zero-exit
+    # error — not as a silent "not revoked" / VALID result. Reporting VALID
+    # here would let anyone who can tamper with (or swap the signer of) a
+    # record achieve the same un-revocation outcome --crl-trusted-key exists
+    # to prevent (CRL-CLI-002).
     keypair = generate_ed25519()
     signed_path = _write_signed_manifest(tmp_path, keypair)
     public_path = _write_public_key(tmp_path, keypair)
@@ -253,7 +257,80 @@ def test_cli_verify_crl_with_wrong_trusted_key_ignores_untrusted_record(tmp_path
             "--crl-trusted-key", str(trusted_path),
         ],
     )
+    assert result.exit_code != 0
+    assert "CRL failed integrity verification" in result.output
+    assert "Traceback" not in result.output
+    # Must NOT be reachable as a VALID/REVOKED verdict in stdout — the
+    # command must fail before verify_manifest() ever runs.
+    assert '"result"' not in result.output
 
+
+def test_cli_verify_crl_with_tampered_record_fails_closed(tmp_path):
+    # Directly reproduces the reviewer's repro: flip a byte in a genuinely
+    # signed record's signature and confirm the CLI errors out instead of
+    # reporting the manifest as not revoked.
+    keypair = generate_ed25519()
+    signed_path = _write_signed_manifest(tmp_path, keypair)
+    public_path = _write_public_key(tmp_path, keypair)
+    authority_kp = generate_ed25519()
+    manifest = json.loads(signed_path.read_text())
+    crl_path = _write_crl_with_revocation(
+        tmp_path, manifest["manifest_id"], authority_kp
+    )
+    authority_path = _write_authority_key(tmp_path, authority_kp)
+
+    line = json.loads(crl_path.read_text().splitlines()[0])
+    sig = list(line["revocation_signature"])
+    mid_idx = len(sig) // 2
+    sig[mid_idx] = "A" if sig[mid_idx] != "A" else "B"
+    line["revocation_signature"] = "".join(sig)
+    crl_path.write_text(json.dumps(line) + "\n")
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "verify", str(signed_path),
+            "--public-key", str(public_path),
+            "--signature-only",
+            "--crl-path", str(crl_path),
+            "--crl-trusted-key", str(authority_path),
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "CRL failed integrity verification" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_cli_verify_crl_with_deleted_record_fails_closed(tmp_path):
+    # Deleting a signed record entirely is currently indistinguishable from
+    # "it never existed" (documented limitation see CHANGELOG/docs: this
+    # is NOT fixed by fail-closed verification of present records, and
+    # requires a signed CRL snapshot/digest to close). This test pins down
+    # today's actual behavior so a future regression doesn't silently
+    # loosen it further without anyone noticing.
+    keypair = generate_ed25519()
+    signed_path = _write_signed_manifest(tmp_path, keypair)
+    public_path = _write_public_key(tmp_path, keypair)
+    authority_kp = generate_ed25519()
+    manifest = json.loads(signed_path.read_text())
+    crl_path = _write_crl_with_revocation(
+        tmp_path, manifest["manifest_id"], authority_kp
+    )
+    authority_path = _write_authority_key(tmp_path, authority_kp)
+
+    crl_path.write_text("")  # simulate deletion of the (only) record
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "verify", str(signed_path),
+            "--public-key", str(public_path),
+            "--signature-only",
+            "--crl-path", str(crl_path),
+            "--crl-trusted-key", str(authority_path),
+        ],
+    )
     payload = _json_stdout(result)
     assert result.exit_code == 0
     assert payload["result"] == "VALID"

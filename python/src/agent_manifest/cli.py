@@ -30,7 +30,7 @@ except ImportError:
 from ._auto_provider import select_provider
 from ._cose import COSE_MANIFEST_VERSION
 from ._providers import AttestationUnavailableError
-from ._revocation import FileCRL
+from ._revocation import CRLIntegrityError, FileCRL
 from ._signing import Ed25519Signer, ed25519_from_private_bytes, generate_ed25519
 from ._types import ManifestId
 from ._verify import (
@@ -357,7 +357,9 @@ def attest(manifest_file: str, provider: str, level: int, output: Optional[str])
     default=None,
     help="Path to the CRL-signing authority's raw Ed25519 public key hex file. "
          "Required to cryptographically verify --crl-path records (REVOC-003); "
-         "without it every record in the file is trusted unauthenticated.",
+         "without it every record in the file is trusted unauthenticated. "
+         "Authenticates records that are present in the file; does not prove "
+         "the file is complete or detect a deleted record.",
 )
 @click.option("--public-key", default=None, help="Path to a trusted raw Ed25519 public key hex file")
 @click.option("--approver-key", multiple=True, metavar="APPROVER_ID=PATH",
@@ -399,12 +401,21 @@ def verify(
     1 on any other result.
 
     Use --crl-path to load a revocation list and check for revoked manifests.
-    Pass --crl-trusted-key with it to authenticate the CRL's records against
-    the revoking authority's public key (spec Section 3.7 / REVOC-003).
-    Without --crl-trusted-key, every line in the CRL file is trusted as-is: a
-    party that can write or intercept that file can un-revoke a compromised
-    manifest simply by deleting its record, or fabricate a revocation for a
-    legitimate one.
+    Pass --crl-trusted-key with it to authenticate each record present in the
+    CRL against the revoking authority's public key (spec Section 3.7 /
+    REVOC-003): a record with a missing, malformed, or invalid signature
+    causes verification to fail closed with an error, rather than being
+    silently treated as "not revoked".
+
+    --crl-trusted-key does NOT prove the CRL file is complete. Per-record
+    signatures authenticate the records that are present but cannot detect
+    that a line — or the entire file — was deleted. A party who can write or
+    intercept the CRL file can still suppress a real revocation by removing
+    its record entirely; only a signed, versioned CRL snapshot (not yet
+    implemented) can close that gap. Without --crl-trusted-key at all, every
+    line in the CRL file is additionally trusted unauthenticated: a party who
+    can write or intercept that file can also fabricate a revocation for a
+    legitimate manifest.
 
 
     
@@ -455,13 +466,25 @@ def verify(
                 "WARNING: --crl-path given without --crl-trusted-key. "
                 "Revocation records are NOT cryptographically verified; any "
                 "party who can write or intercept this file can suppress a "
-                "real revocation. Pass --crl-trusted-key to authenticate the "
-                "CRL.",
+                "real revocation or fabricate one. Pass --crl-trusted-key to "
+                "authenticate records present in the CRL — note that even "
+                "with --crl-trusted-key, deleting a record (or the whole "
+                "file) still suppresses a revocation, since per-record "
+                "signatures cannot prove the CRL is complete.",
                 err=True,
             )
-        store = _CRLRevocationStore(
-            FileCRL(Path(crl_path), trusted_signer_key=trusted_signer_key)
-        )
+        try:
+            store = _CRLRevocationStore(
+                FileCRL(Path(crl_path), trusted_signer_key=trusted_signer_key)
+            )
+        except CRLIntegrityError as exc:
+            # CRL-CLI-002: an authenticated CRL that fails to load must not
+            # be treated as "nothing revoked". Fail the whole verify command
+            # closed instead of silently proceeding as if the CRL were
+            # empty (see FileCRL._load's authenticated-mode contract).
+            raise click.ClickException(
+                f"CRL failed integrity verification: {exc}"
+            )
     else:
         store = RevocationStore()
 
