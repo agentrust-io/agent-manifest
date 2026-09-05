@@ -148,12 +148,24 @@ class FileCRL:
     For production, replace with a database-backed store and serve
     the CRL at /.well-known/agent-manifest/revocation.
 
+    Note: a CRL path that does not exist at construction time is treated
+    as an empty CRL and never reaches signature verification, even in
+    authenticated mode - the same outcome as a file that existed and was
+    later emptied or had its records deleted. Authenticated mode's
+    fail-closed guarantee only covers records that are *present but
+    invalid*; it does not, and cannot by itself, detect a missing or
+    truncated file. See the CRL completeness caveat on ``manifest verify``.
+
     Args:
         path: Path to the CRL file. Resolved and confined at construction.
         trusted_signer_key: Raw Ed25519 public key bytes of the authority
-            whose signatures are accepted on load. When provided, records
-            with invalid or absent signatures are skipped (REVOC-003).
-            When None, signatures are not verified (development mode only).
+            whose signatures are accepted on load. When provided
+            (authenticated mode), a malformed, unsigned, tampered, or
+            wrong-key record raises ``CRLIntegrityError`` and invalidates
+            the entire load (REVOC-003, CRL-CLI-002),    see
+            ``CRLIntegrityError`` for why records are not simply skipped.
+            When None, signatures are not verified and malformed lines are
+            best-effort skipped (development mode only).
     """
 
     def __init__(

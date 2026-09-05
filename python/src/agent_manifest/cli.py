@@ -357,9 +357,8 @@ def attest(manifest_file: str, provider: str, level: int, output: Optional[str])
     default=None,
     help="Path to the CRL-signing authority's raw Ed25519 public key hex file. "
          "Required to cryptographically verify --crl-path records (REVOC-003); "
-         "without it every record in the file is trusted unauthenticated. "
-         "Authenticates records that are present in the file; does not prove "
-         "the file is complete or detect a deleted record.",
+         "without it every record in the file is trusted unauthenticated. See "
+         "the command description above for the completeness caveat.",
 )
 @click.option("--public-key", default=None, help="Path to a trusted raw Ed25519 public key hex file")
 @click.option("--approver-key", multiple=True, metavar="APPROVER_ID=PATH",

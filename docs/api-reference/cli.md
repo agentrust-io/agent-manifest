@@ -144,10 +144,8 @@ Options:
   --crl-trusted-key TEXT          Path to the CRL-signing authority's raw Ed25519 public
                                   key hex file. Required to cryptographically verify
                                   --crl-path records (REVOC-003); without it every
-                                  record in the file is trusted unauthenticated.
-                                  Authenticates records that are present in the file;
-                                  does not prove the file is complete or detect a
-                                  deleted record.
+                                  record in the file is trusted unauthenticated. See the
+                                  command description above for the completeness caveat.
   --public-key TEXT               Path to a trusted raw Ed25519 public key hex file
   --approver-key APPROVER_ID=PATH
                                   Trusted HITL approver key as approver_id=path to a raw

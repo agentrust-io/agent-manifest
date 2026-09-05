@@ -314,6 +314,26 @@ def test_file_crl_authenticated_deleted_record_still_not_revoked(tmp_path):
     assert not crl2.is_revoked(MID)
 
 
+def test_file_crl_authenticated_missing_file_same_as_deleted_record(tmp_path):
+    # A CRL path that never existed and a CRL file that existed and was then
+    # emptied are indistinguishable to FileCRL, even in authenticated mode:
+    # __init__ only calls _load() when the path exists, so a missing file
+    # never reaches the fail-closed signature-verification path at all and
+    # is silently treated as "zero revocations," exactly like the emptied
+    # file in test_file_crl_authenticated_deleted_record_still_not_revoked.
+    # This pins that the two cases share the same (documented) completeness
+    # limitation, so a party who can delete the whole CRL file gets the same
+    # silent un-revocation as one who can only blank its contents -
+    # CRLIntegrityError is never raised in either case.
+    authority = generate_ed25519()
+    missing_path = tmp_path / "never_existed.jsonl"
+    assert not missing_path.exists()
+
+    crl = FileCRL(missing_path, trusted_signer_key=authority.public_bytes)  # must not raise
+    assert crl.all_records() == []
+    assert not crl.is_revoked(MID)
+
+
 # ---------------------------------------------------------------------------
 # FastAPI CRL router
 # ---------------------------------------------------------------------------
