@@ -354,6 +354,11 @@ def verify_plugin_manifest_reference(
         return PluginReferenceResult(PluginReferenceStatus.INVALID, str(exc))
 
     source = manifest.get("source_bundle") or {}
+    if not isinstance(source, dict):
+        return PluginReferenceResult(
+            PluginReferenceStatus.INVALID,
+            f"manifest source_bundle must be an object, got {type(source).__name__}",
+        )
     expected_bundle_digest = bundle_reference_digest(path)
     if (
         source.get("format") != "agent-plugins-1.0.0"

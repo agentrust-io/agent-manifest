@@ -364,6 +364,115 @@ def test_resolved_reference_verifies_manifest_and_bundle(tmp_path):
     assert result.manifest_result.signature_verified is True
 
 
+# --- malformed source_bundle must return a result, never raise - issue #361 ---
+#
+# The source_bundle check runs before verify_manifest(), on both the JSON and
+# COSE fetch paths (see verify_plugin_manifest_reference), so a manifest whose
+# bytes exactly match the declared manifest_digest can still carry a truthy
+# non-object source_bundle without ever needing a valid signature. Exercised
+# here via the JSON path; the COSE path converges into the exact same
+# `source = manifest.get("source_bundle") or {}` line once read_payload_manifest
+# has produced its dict, which _parse_payload already guarantees (it raises
+# CoseStructureError, a ValueError subclass, for anything else) - the fix is
+# shared code, not duplicated per format.
+
+
+def _manifest_with_source_bundle(root, source_bundle):
+    now = datetime.now(timezone.utc)
+    manifest = {
+        "manifest_id": "018f4a3b-2c1d-7e5f-a8b9-0d1e2f3a4b5c",
+        "agent_id": "spiffe://trust.example/plugin/demo",
+        "version": "0.1",
+        "issued_at": now.isoformat().replace("+00:00", "Z"),
+        "expires_at": (now + timedelta(days=30)).isoformat().replace("+00:00", "Z"),
+        "issuer": "spiffe://trust.example/issuer/ci",
+        "crypto_profile": "standard",
+        "source_bundle": source_bundle,
+        "artifacts": {
+            "system_prompt": {"hash": "sha256:" + "a" * 64},
+            "policy_bundle": {"hash": "sha256:" + "b" * 64},
+            "model_identity": {
+                "model_hash": None,
+                "version": "chosen-at-runtime",
+                "deployment_type": "api",
+            },
+        },
+    }
+    return json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()
+
+
+@pytest.mark.parametrize(
+    "bad_source_bundle",
+    ["agent-plugins-1.0.0", ["agent-plugins-1.0.0"], True],
+)
+def test_non_object_source_bundle_returns_invalid_not_exception(tmp_path, bad_source_bundle):
+    root = _bundle(tmp_path)
+    manifest_bytes = _manifest_with_source_bundle(root, bad_source_bundle)
+    _attach_reference(root, manifest_bytes)
+
+    result = verify_plugin_manifest_reference(
+        root,
+        fetch=lambda _uri: manifest_bytes,
+        context=VerificationContext(),
+        revocation_store=RevocationStore(),
+    )
+    assert result.status == PluginReferenceStatus.INVALID
+    assert "source_bundle" in result.reason
+
+
+def test_missing_source_bundle_is_mismatch_not_invalid(tmp_path):
+    """Absent source_bundle keeps the existing MISMATCH behaviour (`or {}`
+    still applies), distinct from a present-but-wrong-shaped one."""
+    root = _bundle(tmp_path)
+    now = datetime.now(timezone.utc)
+    manifest = {
+        "manifest_id": "018f4a3b-2c1d-7e5f-a8b9-0d1e2f3a4b5c",
+        "agent_id": "spiffe://trust.example/plugin/demo",
+        "version": "0.1",
+        "issued_at": now.isoformat().replace("+00:00", "Z"),
+        "expires_at": (now + timedelta(days=30)).isoformat().replace("+00:00", "Z"),
+        "issuer": "spiffe://trust.example/issuer/ci",
+        "crypto_profile": "standard",
+        "artifacts": {
+            "system_prompt": {"hash": "sha256:" + "a" * 64},
+            "policy_bundle": {"hash": "sha256:" + "b" * 64},
+            "model_identity": {
+                "model_hash": None,
+                "version": "chosen-at-runtime",
+                "deployment_type": "api",
+            },
+        },
+    }
+    manifest_bytes = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()
+    _attach_reference(root, manifest_bytes)
+
+    result = verify_plugin_manifest_reference(
+        root,
+        fetch=lambda _uri: manifest_bytes,
+        context=VerificationContext(),
+        revocation_store=RevocationStore(),
+    )
+    assert result.status == PluginReferenceStatus.MISMATCH
+
+
+def test_wrong_but_well_formed_source_bundle_is_mismatch(tmp_path):
+    """A well-formed source_bundle with the wrong digest keeps the existing
+    MISMATCH behaviour, unchanged by the new type check."""
+    root = _bundle(tmp_path)
+    manifest_bytes = _manifest_with_source_bundle(
+        root, {"format": "agent-plugins-1.0.0", "digest": "sha256:" + "0" * 64}
+    )
+    _attach_reference(root, manifest_bytes)
+
+    result = verify_plugin_manifest_reference(
+        root,
+        fetch=lambda _uri: manifest_bytes,
+        context=VerificationContext(),
+        revocation_store=RevocationStore(),
+    )
+    assert result.status == PluginReferenceStatus.MISMATCH
+
+
 def test_json_reference_allows_leading_whitespace_without_changing_raw_digest(tmp_path):
     root = _bundle(tmp_path)
     key = generate_ed25519()
