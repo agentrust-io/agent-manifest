@@ -162,7 +162,7 @@ class FileCRL:
             whose signatures are accepted on load. When provided
             (authenticated mode), a malformed, unsigned, tampered, or
             wrong-key record raises ``CRLIntegrityError`` and invalidates
-            the entire load (REVOC-003, CRL-CLI-002),    see
+            the entire load (REVOC-003, CRL-CLI-002), see
             ``CRLIntegrityError`` for why records are not simply skipped.
             When None, signatures are not verified and malformed lines are
             best-effort skipped (development mode only).
