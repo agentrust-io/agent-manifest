@@ -567,7 +567,15 @@ def _check_manifest_binding(
         return warnings
 
     artifacts = manifest.get("artifacts") or {}
+    if not isinstance(artifacts, dict):
+        warnings.append("manifest_artifacts_not_an_object")
+        return warnings
+
     policy_bundle = artifacts.get("policy_bundle") or {}
+    if not isinstance(policy_bundle, dict):
+        warnings.append("manifest_policy_bundle_not_an_object")
+        return warnings
+
     expected_policy_hash = policy_bundle.get("hash")
 
     if expected_policy_hash is None:
