@@ -86,9 +86,8 @@ def verify_revocation_signature(
         cryptography.exceptions.InvalidSignature: If verification fails or
             revocation_signature is absent/null (CRL-001).
     """
-    import base64
     from cryptography.exceptions import InvalidSignature
-    from ._signing import Ed25519Verifier as _Ed25519Verifier, _key_id
+    from ._signing import Ed25519Verifier as _Ed25519Verifier, _b64url_decode, _key_id
 
     # CRL-001: null/empty signature must raise InvalidSignature, not ValueError
     if not record.revocation_signature:
@@ -110,8 +109,14 @@ def verify_revocation_signature(
     }
     pre_image = canonicalize(pre_image_obj)
 
-    pad = 4 - len(sig) % 4
-    sig_bytes = base64.urlsafe_b64decode(sig + ("=" * pad if pad != 4 else ""))
+    try:
+        sig_bytes = _b64url_decode(sig)
+    except ValueError as e:
+        # Preserve this function's documented contract (only
+        # InvalidSignature is raised) even though _b64url_decode raises
+        # ValueError for malformed base64url -- a malformed signature
+        # encoding is itself an invalid signature.
+        raise InvalidSignature(f"revocation_signature is not valid base64url: {e}") from e
     if len(sig_bytes) != 64:
         raise InvalidSignature(
             f"Ed25519 signature must be 64 bytes, got {len(sig_bytes)}"

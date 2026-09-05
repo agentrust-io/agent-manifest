@@ -311,10 +311,9 @@ def verify_delegation_chain(
             manifest_id=manifest_id,
         )
 
-        import base64
+        from ._signing import _b64url_decode
         sig = hop["delegation_signature"]
-        pad = 4 - len(sig) % 4
-        sig_bytes = base64.urlsafe_b64decode(sig + ("=" * pad if pad != 4 else ""))
+        sig_bytes = _b64url_decode(sig)
         verifier = Ed25519Verifier(pub_bytes)
         verifier._pub.verify(sig_bytes, pre)  # raises InvalidSignature on failure
 
@@ -518,7 +517,6 @@ def verify_hitl_approval(
         InvalidSignature: If the approval signature is invalid.
         ValueError: If required fields are missing or the approval has expired.
     """
-    import base64
     from datetime import datetime, timezone
 
     # HITL-003: enforce approval expiry before verifying signature
@@ -541,7 +539,7 @@ def verify_hitl_approval(
         approved_scope=approval["approved_scope"],
         approver_id=approval["approver_id"],
     )
+    from ._signing import _b64url_decode
     sig = approval["approval_signature"]
-    pad = 4 - len(sig) % 4
-    sig_bytes = base64.urlsafe_b64decode(sig + ("=" * pad if pad != 4 else ""))
+    sig_bytes = _b64url_decode(sig)
     Ed25519Verifier(approver_public_key)._pub.verify(sig_bytes, pre)

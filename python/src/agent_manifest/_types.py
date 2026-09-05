@@ -17,6 +17,15 @@ class ManifestId(str):
     The variant nibble (position 19) MUST be one of [89ab].
     """
 
+    # NOTE: keeps `^`/`$` anchors (needed for the JSON-schema `pattern`
+    # exported below to mean "matches exactly", per JSON Schema/ECMA 262
+    # semantics for external consumers). Internal validation below uses
+    # `.fullmatch()`, never `.match()`, since `.match()` with a
+    # `$`-anchored pattern would let "<valid-uuid>\n" through -- Python's
+    # `$` matches at end-of-string OR just before one trailing '\n`.
+    # `.fullmatch()` requires the whole string and has no such exception.
+
+
     _PATTERN = re.compile(
         r"^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
         re.IGNORECASE,
@@ -41,7 +50,7 @@ class ManifestId(str):
     def _validate(cls, v: Any) -> "ManifestId":
         if not isinstance(v, str):
             raise ValueError(f"ManifestId must be a string, got {type(v).__name__}")
-        if not cls._PATTERN.match(v):
+        if not cls._PATTERN.fullmatch(v):
             raise ValueError(
                 f"'{v}' is not a valid UUID v7. "
                 "Expected format: xxxxxxxx-xxxx-7xxx-[89ab]xxx-xxxxxxxxxxxx"
@@ -57,6 +66,7 @@ class HashValue(str):
       shake256:<64 lowercase hex chars>  (256-bit output, per RFC 8785 / FIPS 202)
     """
 
+    # NOTE: same `.fullmatch()`-not-`.match()` reasoning as ManifestId above.
     _PATTERN = re.compile(r"^(sha256|shake256):[0-9a-f]{64}$")
 
     @classmethod
@@ -78,7 +88,7 @@ class HashValue(str):
     def _validate(cls, v: Any) -> "HashValue":
         if not isinstance(v, str):
             raise ValueError(f"HashValue must be a string, got {type(v).__name__}")
-        if not cls._PATTERN.match(v):
+        if not cls._PATTERN.fullmatch(v):
             prefix = v.split(":")[0] if ":" in v else v[:10]
             raise ValueError(
                 f"Invalid hash value (prefix='{prefix}'). "

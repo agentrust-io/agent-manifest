@@ -347,17 +347,14 @@ class AzureCVMProvider(AttestationProvider):
         )
 
     def _ak_modulus_hex(self, runtime_data: bytes) -> str:
-        import base64
-        import json
+        from ._azure_verify import ak_modulus_hex_from_runtime_data
 
-        keys = json.loads(runtime_data).get("keys", [])
-        ak = next((k for k in keys if k.get("kid") == "HCLAkPub"), None)
-        if ak is None:
+        modulus_hex = ak_modulus_hex_from_runtime_data(runtime_data)
+        if modulus_hex is None:
             raise AttestationUnavailableError(
                 "runtime data does not carry the HCLAkPub attestation key."
             )
-        n_b64 = ak["n"] + "=" * ((4 - len(ak["n"]) % 4) % 4)
-        return base64.urlsafe_b64decode(n_b64).hex()
+        return modulus_hex
 
     def extend_manifest_hash(self, manifest_json: dict[str, Any]) -> None:
         pre = self.manifest_pre_image(manifest_json)
@@ -415,7 +412,11 @@ class AzureCVMProvider(AttestationProvider):
             except OSError:
                 pass
         blobs["snp_report"] = snp_raw.hex()
-        blobs["runtime_data"] = runtime.decode("utf-8", "replace")
+        # Exact bytes, not a decoded string: verify_manifest_in_report re-hashes
+        # this to recheck the REPORT_DATA binding, so a lossy decode/re-encode
+        # round trip (e.g. "replace" on non-UTF-8 bytes) must not be able to
+        # change what gets hashed.
+        blobs["runtime_data_hex"] = runtime.hex()
         blobs["measurement"] = rep.measurement.hex()
         blobs["report_data"] = rep.report_data.hex()
         return blobs
@@ -436,37 +437,66 @@ class AzureCVMProvider(AttestationProvider):
             raw={
                 "report_data": blobs["report_data"],
                 "measurement": blobs["measurement"],
-                "runtime_data_binding_verified": True,
+                "runtime_data_hex": blobs["runtime_data_hex"],
                 "ak_pub_pem": blobs["ak_pub_pem"],
                 "pcr_index": self._pcr,
                 "pcr_read": pcr_value,
                 "quote_msg": blobs["quote_msg"],
                 "quote_sig": blobs["quote_sig"],
                 "quote_pcrs": blobs["quote_pcrs"],
-                "vcek_cert_chain_verified": False,
+                # Not "vcek_cert_chain_verified": True/False like SEVSNPProvider
+                # above -- this method never verifies the VCEK chain itself
+                # (verify_attestation_chain does that, given vcek_cert_der /
+                # cert_chain_pem by the caller). We deliberately don't invent
+                # a value for it here.
             },
         )
 
     def verify_manifest_in_report(
         self, report: AttestationReport, manifest_json: dict[str, Any]
     ) -> bool:
-        """Confirm the manifest PCR equals a single extension of the manifest hash.
+        """Authenticate the composite Azure manifest-binding chain end to end.
 
-        A resettable PCR starts at 0x00*32; after one extension its value is
-        ``sha256(0x00*32 || manifest_digest)``. Matching that proves the
-        manifest hash (and nothing else) was measured into the PCR.
+        ``pcr_read`` alone (the old check here) is a plain string on
+        ``report.raw`` that anyone constructing an ``AttestationReport`` can
+        set to whatever they like; it is not signed by anything and proves
+        nothing on its own. This method is the boundary that must actually
+        establish the chain -- see :func:`._azure_verify.verify_azure_manifest_binding`
+        for the four links it checks (PCR-in-quote, AK signature, AK identity
+        in runtime data, runtime-data->REPORT_DATA binding). That same
+        function is also called directly by
+        :func:`agent_manifest._attestation.verify_attestation_chain`, so
+        there is exactly one implementation of this security property --
+        this method does not hand out a boolean for a caller to relay
+        elsewhere as if it were itself trustworthy evidence.
+
+        Any missing/malformed/mismatched field fails closed (``False``),
+        never raises.
         """
-        import hmac as _hmac
+        from ._azure_verify import verify_azure_manifest_binding
 
-        digest = self.manifest_hash_value(manifest_json).split(":", 1)[-1]
-        expected = hashlib.sha256(bytes(32) + bytes.fromhex(digest)).hexdigest()
-        pcr_read = (report.raw or {}).get("pcr_read", "")
-        got = ""
-        for line in pcr_read.splitlines():
-            s = line.strip()
-            if s.startswith(f"{self._pcr}:"):
-                got = s.split(":", 1)[1].strip().lower().removeprefix("0x")
-        return bool(got) and _hmac.compare_digest(got, expected)
+        # report.raw is typed dict[str, Any], but this method receives an
+        # AttestationReport from a caller who can construct one with any
+        # value at all (dataclasses do not enforce field types at runtime) --
+        # a truthy non-dict raw (a str, int, or list) is just as reachable as
+        # a forged report's individual fields. `raw or {}` only guards the
+        # falsy cases (None, {}, ""); a truthy non-dict still reaches
+        # `.get()` below and raises AttributeError, breaking this method's
+        # own fail-closed contract. Require raw to actually be a dict first.
+        raw = report.raw if isinstance(report.raw, dict) else {}
+        return verify_azure_manifest_binding(
+            expected_manifest_hash=self.manifest_hash_value(manifest_json),
+            # This provider's own configured PCR index -- verifier
+            # configuration -- not raw.get("pcr_index"), which is a
+            # self-reported field on the report that anyone constructing an
+            # AttestationReport can set to whatever they like.
+            expected_pcr_index=self._pcr,
+            quote_msg_b64=raw.get("quote_msg"),
+            quote_sig_b64=raw.get("quote_sig"),
+            ak_pub_pem=raw.get("ak_pub_pem"),
+            runtime_data_hex=raw.get("runtime_data_hex"),
+            snp_report_bytes=getattr(report, "quote", None),
+        )
 
     def attest_runtime_state(
         self,

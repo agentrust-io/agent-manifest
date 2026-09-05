@@ -149,6 +149,24 @@ def test_parse_extracts_fields():
     assert q.pcr_digest == PCR
 
 
+def test_parse_captures_pcr_selection_bank_and_indices():
+    # The bank + PCR bitmap must actually be captured, not silently skipped:
+    # pcr_digest alone doesn't say which PCR(s) it is a digest of.
+    q = parse_tpm_quote(_build_attest(NONCE, PCR))
+    assert len(q.pcr_selections) == 1
+    selection = q.pcr_selections[0]
+    assert selection.hash_alg == 0x000B  # TPM_ALG_SHA256
+    assert selection.indices() == frozenset({16})  # bitmap 0x00 0x00 0x01 -> PCR16
+
+
+def test_pcr_selection_indices_multiple_bits():
+    from agent_manifest._tpm_verify import PcrSelection
+
+    # byte0 bits 0 and 7 -> PCR0 and PCR7; byte2 bit 1 -> PCR17.
+    sel = PcrSelection(hash_alg=0x000B, pcr_select=b"\x81\x00\x02")
+    assert sel.indices() == frozenset({0, 7, 17})
+
+
 def test_parse_rejects_truncated():
     with pytest.raises(TpmVerificationError):
         parse_tpm_quote(b"\xff")
@@ -324,6 +342,27 @@ def test_verify_accepts_valid(kind):
         expected_qualifying_data=NONCE,
         expected_pcr_digest=PCR,
     ) is True
+
+
+def test_ak_signature_discriminator_uses_key_shape_not_sig_alg_prefix_bytes():
+    # Regression for the merge-order gap the reviewer flagged: an earlier
+    # revision discriminated a legacy bare signature from a TPMT_SIGNATURE
+    # envelope by sniffing the leading two bytes against known sigAlg ids
+    # (0x0014/0x0016/0x0018). Those bytes are untrusted signature content, not
+    # a length-prefixed framing marker -- a bare RSA signature can coincide
+    # with one by chance. The discriminator must instead be the AK's own
+    # signature shape: exactly one-modulus-width bytes for RSA, or a
+    # decodable DER SEQUENCE for ECDSA.
+    from agent_manifest._tpm_verify import verify_ak_signature
+
+    ak_key, chain, roots = _ak_chain("rsa")
+    attest = _build_attest(NONCE, PCR)
+    bare_sig = _sign(ak_key, attest)
+    # A bare RSA signature is exactly modulus-width; it is never mistaken for
+    # an envelope merely because its first two bytes happen to equal 0x0014.
+    assert len(bare_sig) == 2048 // 8
+    ak_public_key = x509.load_pem_x509_certificates(chain)[0].public_key()
+    assert verify_ak_signature(ak_public_key, attest, bare_sig) is True
 
 
 def test_verify_rejects_tampered_attest():

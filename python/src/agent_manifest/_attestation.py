@@ -16,8 +16,17 @@ verifier has checked three things:
    manifest hash. Implemented below. NOTE: this applies to the *direct* SNP
    model where the guest controls ``REPORT_DATA``. On Azure confidential VMs
    the guest does not control ``REPORT_DATA`` (the paravisor binds the vTPM AK
-   there); manifest binding on Azure is via the vTPM quote produced by
-   ``AzureCVMProvider``, not this field.
+   there); manifest binding on Azure is instead a vTPM AK-signed quote over a
+   PCR derived from the manifest hash, chained to REPORT_DATA via the runtime
+   data. This function establishes that chain itself, by calling
+   :func:`._azure_verify.verify_azure_manifest_binding` against evidence
+   carried on the report (``quote_msg``, ``quote_sig``, ``ak_pub_pem``,
+   ``runtime_data_hex`` in ``report.raw``, and the SNP report bytes). A
+   ``platform`` value only selects which of the above applies; it is never
+   itself evidence that any of them ran, and neither is any boolean a caller
+   might supply -- this function does not accept one. The only way Azure's
+   binding step can report ``True`` is for this function to have verified
+   the cryptographic chain itself.
 
 :func:`verify_attestation_chain` **fails closed**: ``passed`` is ``True`` only
 when the hardware signature is ``VERIFIED``, the manifest-hash binding matches,
@@ -29,9 +38,19 @@ certificate material is supplied, the signature step is reported as
 from __future__ import annotations
 
 import hmac
+import re
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Optional
+
+# `expected_manifest_hash` must be exactly the literal "sha256:" prefix
+# followed by 64 hex characters -- see the call site below (the non-Azure
+# REPORT_DATA binding step) for why a bare `split(":", 1)` is not
+# sufficient: it would accept "md5:<64 hex>" or "foo:<64 hex>" just as
+# readily as "sha256:<64 hex>", leaving the hash algorithm ambiguous and
+# caller-controlled at the exact point this value is compared against the
+# report's bound field.
+_MANIFEST_HASH_RE = re.compile(r"sha256:[0-9a-fA-F]{64}")
 
 
 class SignatureStatus(str, Enum):
@@ -52,6 +71,15 @@ class ChainVerificationResult:
     accepted (or not requested), and the manifest-hash binding matched. Until
     the signature backends land (#204), ``passed`` is always ``False`` and
     ``reasons`` explains why.
+
+    For ``"azure-cvm-sev-snp"`` reports, ``report_data_matched`` reflects the
+    outcome of :func:`._azure_verify.verify_azure_manifest_binding`, run
+    directly by :func:`verify_attestation_chain` against evidence on the
+    report -- never a caller-supplied flag. It is a definite ``True``/
+    ``False`` here, the same as every other platform: ``True`` only when the
+    full composite chain (PCR-in-quote, AK signature, AK identity, runtime
+    data -> REPORT_DATA binding) verified; ``False`` for any missing,
+    malformed, or mismatched evidence, including simply having none at all.
     """
 
     passed: bool
@@ -204,6 +232,7 @@ def verify_attestation_chain(
     tpm_trusted_roots_pem: Optional[bytes] = None,
     expected_qualifying_data: Optional[bytes] = None,
     expected_pcr_digest: Optional[bytes] = None,
+    azure_expected_pcr_index: int = 16,
 ) -> ChainVerificationResult:
     """Verify a boot-time ``AttestationReport`` against expected values.
 
@@ -224,27 +253,121 @@ def verify_attestation_chain(
         cert_chain_pem: The AMD KDS ``cert_chain`` blob (ASK then ARK, PEM).
         trusted_ark_der: Optional pinned AMD root (ARK) certificate. When given,
             the chain's ARK public key must match it.
+        azure_expected_pcr_index: For ``"azure-cvm-sev-snp"`` reports, the PCR
+            index the manifest hash was extended into -- i.e. the value the
+            caller's ``AzureCVMProvider`` was actually configured with (its
+            ``pcr_index``). Defaults to 16, ``AzureCVMProvider``'s own
+            default. This is verifier configuration the caller supplies, not
+            something inferred from a self-reported field on the report
+            (``report.raw`` is not signed by anything).
 
     Returns:
         A :class:`ChainVerificationResult`. ``passed`` is ``True`` only when the
         hardware signature is ``VERIFIED``, the manifest-hash binding matches,
         and the measurement is accepted (or no allow-list was requested).
         Without VCEK material the signature step is not performed and the result
-        cannot pass, because an unverified report proves nothing.
+        cannot pass, because an unverified report proves nothing. An
+        unrecognized ``report.platform`` value also cannot pass: the signature
+        step is reported as ``NOT_IMPLEMENTED`` rather than falling through to
+        a verifier for a different profile. For ``"azure-cvm-sev-snp"``
+        reports, the manifest-hash binding step is established by this
+        function itself (:func:`._azure_verify.verify_azure_manifest_binding`
+        against evidence carried on the report) -- there is no caller-supplied
+        flag that can substitute for that check. A ``platform`` value only
+        selects which verification procedure applies; it is never itself
+        evidence that the procedure ran.
     """
     reasons: list[str] = []
+    platform = getattr(report, "platform", "") or ""
 
     # Step 3: manifest-hash binding (software-checkable).
-    expected_digest = expected_manifest_hash.split(":", 1)[-1].lower()
-    actual_hex = _report_data_hex(report)
-    if actual_hex is None:
+    #
+    # Does not apply on Azure via REPORT_DATA: the guest never controls that
+    # field there (the paravisor sets it to sha256(runtime_data) to bind the
+    # vTPM AK, not the manifest hash). Azure's real binding is a vTPM
+    # AK-signed quote over a PCR derived from the manifest hash, chained to
+    # REPORT_DATA via the runtime data. This step must never be set True from
+    # the platform label alone, and must never be set True from a
+    # caller-supplied flag either -- a `platform` value says which procedure
+    # applies, it is not evidence that the procedure ran, and neither is
+    # someone's say-so. The only way to establish it is to actually run the
+    # composite check, here, against evidence carried on the report itself.
+    azure_paravisor = platform == "azure-cvm-sev-snp"
+    if azure_paravisor:
+        from ._azure_verify import verify_azure_manifest_binding
+
+        # report is typed Any here -- a caller-forged or malformed report
+        # object can have any truthy value on .raw (a str, int, list), not
+        # just the documented dict. `getattr(..., {}) or {}` only guards the
+        # falsy cases (missing attribute, None, {}, ""); a truthy non-dict
+        # still reaches `.get()` below and raises AttributeError, breaking
+        # this function's own fail-closed contract (see the measurement
+        # check further down, which already guards this the same way).
+        raw_azure_candidate = getattr(report, "raw", {}) or {}
+        raw_azure = raw_azure_candidate if isinstance(raw_azure_candidate, dict) else {}
+        report_data_matched = verify_azure_manifest_binding(
+            expected_manifest_hash=expected_manifest_hash,
+            expected_pcr_index=azure_expected_pcr_index,
+            quote_msg_b64=raw_azure.get("quote_msg"),
+            quote_sig_b64=raw_azure.get("quote_sig"),
+            ak_pub_pem=raw_azure.get("ak_pub_pem"),
+            runtime_data_hex=raw_azure.get("runtime_data_hex"),
+            # Only fall back to report.quote when the caller didn't supply
+            # snp_report_bytes at all (None) -- not merely "falsy". `or`
+            # here would treat an explicit `snp_report_bytes=b""` (or any
+            # other falsy-but-supplied value) the same as "not given",
+            # silently discarding the caller's supplied evidence and
+            # substituting self-reported report.quote instead. In a
+            # security-sensitive verifier, supplied (even if invalid)
+            # evidence must be rejected on its own terms --
+            # verify_azure_manifest_binding's own type/emptiness guard
+            # already fails closed on b"" -- never silently replaced with a
+            # different source.
+            snp_report_bytes=(
+                snp_report_bytes
+                if snp_report_bytes is not None
+                else getattr(report, "quote", None)
+            ),
+        )
+        if report_data_matched:
+            reasons.append(
+                "Azure manifest binding verified: PCR value is one extension "
+                "of the manifest hash, the AK-signed TPM quote covers that "
+                "PCR, the AK is the one runtime_data names, and runtime_data "
+                "is bound into this report's REPORT_DATA -- all checked "
+                "directly by verify_attestation_chain, not accepted from a "
+                "caller-supplied flag"
+            )
+        else:
+            reasons.append(
+                "Azure manifest binding not established: the composite "
+                "check (PCR value in the AK-signed quote, AK signature, AK "
+                "identity in runtime_data, runtime_data->REPORT_DATA "
+                "binding) did not fully verify against the evidence on this "
+                "report (quote_msg/quote_sig/ak_pub_pem/runtime_data_hex in "
+                "report.raw and the SNP report bytes)"
+            )
+    elif not isinstance(expected_manifest_hash, str) or not _MANIFEST_HASH_RE.fullmatch(
+        expected_manifest_hash
+    ):
+        # Fail closed on a malformed/wrong-algorithm expected_manifest_hash
+        # instead of silently treating whatever follows a colon as the
+        # SHA-256 digest (see _MANIFEST_HASH_RE above).
         report_data_matched = False
-        reasons.append("report has no 'report_data' field to check the manifest binding against")
+        reasons.append(
+            "expected_manifest_hash is not in the required 'sha256:<64 hex>' form"
+        )
     else:
-        # The first 32 bytes (64 hex chars) of REPORT_DATA carry the digest.
-        report_data_matched = hmac.compare_digest(actual_hex[:64].lower(), expected_digest)
-        if not report_data_matched:
-            reasons.append("manifest hash does not match the report_data binding")
+        expected_digest = expected_manifest_hash[len("sha256:"):].lower()
+        actual_hex = _report_data_hex(report)
+        if actual_hex is None:
+            report_data_matched = False
+            reasons.append("report has no 'report_data' field to check the manifest binding against")
+        else:
+            # The first 32 bytes (64 hex chars) of REPORT_DATA carry the digest.
+            report_data_matched = hmac.compare_digest(actual_hex[:64].lower(), expected_digest)
+            if not report_data_matched:
+                reasons.append("manifest hash does not match the report_data binding")
 
     # Step 2: launch-measurement allow-list (software-checkable, optional).
     measurement_matched: Optional[bool]
@@ -262,11 +385,13 @@ def verify_attestation_chain(
             reasons.append("launch measurement is not in the supplied allow-list")
 
     # Step 1: hardware signature / quote chain, dispatched by platform.
-    # AMD SEV-SNP verifies the report signature + VCEK<-ASK<-ARK chain (needs the
-    # VCEK material). Intel TDX verifies the self-contained DCAP quote + PCK chain
-    # to the pinned Intel SGX Root CA. Either way, without a verifiable signature
-    # the result cannot pass.
-    platform = getattr(report, "platform", "") or ""
+    # AMD SEV-SNP (bare-metal and Azure's paravisor variant, which carries a
+    # real SNP report too) verifies the report signature + VCEK<-ASK<-ARK
+    # chain (needs the VCEK material). Intel TDX verifies the self-contained
+    # DCAP quote + PCK chain to the pinned Intel SGX Root CA. TPM/AWS Nitro
+    # verify an AK-signed quote. Dispatch is an explicit allow-list, not a
+    # catch-all: an unrecognized platform label must fail closed rather than
+    # silently inherit a verifier meant for a different profile.
     if platform == "intel-tdx":
         signature = _verify_tdx_signature_step(report, reasons, trusted_tdx_root_pem)
     elif platform in ("tpm", "aws-nitro"):
@@ -279,7 +404,7 @@ def verify_attestation_chain(
             expected_pcr_digest,
             reasons,
         )
-    else:
+    elif platform in ("amd-sev-snp", "azure-cvm-sev-snp"):
         signature = _verify_snp_signature_step(
             report,
             snp_report_bytes,
@@ -288,8 +413,11 @@ def verify_attestation_chain(
             trusted_ark_der,
             reasons,
         )
+    else:
+        signature = SignatureStatus.NOT_IMPLEMENTED
+        reasons.append(f"platform {platform!r} is not a supported attestation profile")
 
-    passed = (
+    passed = bool(
         signature == SignatureStatus.VERIFIED
         and report_data_matched
         and measurement_matched is not False
