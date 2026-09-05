@@ -312,7 +312,22 @@ def verify_attestation_chain(
             quote_sig_b64=raw_azure.get("quote_sig"),
             ak_pub_pem=raw_azure.get("ak_pub_pem"),
             runtime_data_hex=raw_azure.get("runtime_data_hex"),
-            snp_report_bytes=snp_report_bytes or getattr(report, "quote", None),
+            # Only fall back to report.quote when the caller didn't supply
+            # snp_report_bytes at all (None) -- not merely "falsy". `or`
+            # here would treat an explicit `snp_report_bytes=b""` (or any
+            # other falsy-but-supplied value) the same as "not given",
+            # silently discarding the caller's supplied evidence and
+            # substituting self-reported report.quote instead. In a
+            # security-sensitive verifier, supplied (even if invalid)
+            # evidence must be rejected on its own terms --
+            # verify_azure_manifest_binding's own type/emptiness guard
+            # already fails closed on b"" -- never silently replaced with a
+            # different source.
+            snp_report_bytes=(
+                snp_report_bytes
+                if snp_report_bytes is not None
+                else getattr(report, "quote", None)
+            ),
         )
         if report_data_matched:
             reasons.append(

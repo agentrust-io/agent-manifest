@@ -48,7 +48,20 @@ from typing import Any, Optional
 # filtering, defeating the "fail closed on malformed input" contract these
 # helpers document. Reject anything outside the unpadded URL-safe alphabet
 # up front, then decode strictly.
-_B64URL_ALPHABET_RE = re.compile(r"[A-Za-z0-9_-]*")
+#
+# `+` (one-or-more), not `*` (zero-or-more): this is only ever used to
+# decode a JWK's ``n``/``e`` member, and an RSA public key's modulus and
+# exponent are never legitimately empty. With `*`, ``fullmatch("")``
+# succeeds, so ``{"n": "", "e": ""}`` -- a malformed JWK -- would sail
+# through the alphabet check and decode to ``b""``, reaching
+# ``ak_public_numbers_from_runtime_data`` as ``("", 0)`` instead of the
+# documented ``None`` fail-closed return. That empty key can never match a
+# real AK's ``(n, e)``, so this does not by itself let anything
+# authenticate -- but the validation contract is "reject malformed JWK
+# input", and an empty string is malformed input, not a valid (if unusual)
+# key.
+_B64URL_ALPHABET_RE = re.compile(r"[A-Za-z0-9_-]+")
+
 
 # `expected_manifest_hash` must be exactly this shape: the literal "sha256:"
 # prefix followed by 64 hex characters -- nothing before, nothing after, and
@@ -67,10 +80,13 @@ def _strict_b64url_decode(value: str) -> bytes:
     standard-base64 ``+``/``/`` (and their padding ``=``), any illegal
     prefix/suffix such as stray punctuation, and (via ``fullmatch``, not a
     ``$``-anchored pattern) a trailing newline, which Python's ``$`` would
-    otherwise let slip through one character before the end of the string.
-    This is stricter than ``base64.urlsafe_b64decode``, which silently
-    drops out-of-alphabet characters -- including embedded/trailing
-    newlines -- instead of raising.
+    otherwise let slip through one character before the end of the string --
+    or if ``value`` is the empty string, since a JWK's ``n``/``e`` are never
+    legitimately empty and ``fullmatch`` on a zero-or-more-style pattern
+    would otherwise accept "". This is stricter than
+    ``base64.urlsafe_b64decode``, which silently drops out-of-alphabet
+    characters -- including embedded/trailing newlines -- instead of
+    raising.
     """
     if not isinstance(value, str) or not _B64URL_ALPHABET_RE.fullmatch(value):
         raise binascii.Error("invalid base64url alphabet")

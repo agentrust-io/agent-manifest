@@ -420,6 +420,47 @@ def test_azure_report_full_composite_chain_passes():
     assert result.passed is True
 
 
+def test_azure_explicit_empty_snp_report_bytes_is_not_silently_replaced():
+    # `snp_report_bytes or getattr(report, "quote", None)` would treat an
+    # explicit `snp_report_bytes=b""` the same as "not given" (both are
+    # falsy) and silently fall back to report.quote -- even though the
+    # caller *did* supply a value, just an invalid/empty one. That is wrong
+    # verifier semantics: supplied evidence must be judged on its own terms,
+    # never silently discarded and replaced with a different source. Build
+    # a report whose own report.quote is fully valid, matching SNP evidence
+    # (so a wrongful fallback would make this pass), but pass an explicit
+    # empty snp_report_bytes -- the composite check must still fail closed.
+    fx = _azure_good_fixture()
+    report = _azure_report_from_fixture(fx)
+    result = verify_attestation_chain(
+        report,
+        expected_manifest_hash=MANIFEST_HASH,
+        snp_report_bytes=b"",
+        vcek_cert_der=fx["vcek_der"],
+        cert_chain_pem=fx["chain"],
+    )
+    assert result.report_data_matched is False
+    assert result.passed is False
+
+
+def test_azure_omitted_snp_report_bytes_still_falls_back_to_report_quote():
+    # Sanity check for the positive case: when the caller genuinely doesn't
+    # supply snp_report_bytes at all (the parameter default, None), falling
+    # back to report.quote is still the documented, correct behavior -- the
+    # fix must only change the falsy-but-supplied case, not remove the
+    # None fallback entirely.
+    fx = _azure_good_fixture()
+    report = _azure_report_from_fixture(fx)
+    result = verify_attestation_chain(
+        report,
+        expected_manifest_hash=MANIFEST_HASH,
+        vcek_cert_der=fx["vcek_der"],
+        cert_chain_pem=fx["chain"],
+    )
+    assert result.report_data_matched is True
+    assert result.passed is True
+
+
 def test_azure_report_with_valid_snp_signature_and_wrong_pcr_does_not_pass():
     # a correctly signed SNP report, but the PCR inside the AK-signed quote is wrong.
     # A valid hardware signature must not be enough on its own.
@@ -639,6 +680,38 @@ def test_ak_public_numbers_and_modulus_reject_illegal_alphabet_direct():
     ).encode()
     assert ak_modulus_hex_from_runtime_data(good_runtime_data) == "010001ff"
     assert ak_public_numbers_from_runtime_data(good_runtime_data) == ("010001ff", 65537)
+
+
+def test_ak_public_numbers_and_modulus_reject_empty_n_or_e():
+    # The alphabet regex used to be `[A-Za-z0-9_-]*` (zero-or-more), so
+    # fullmatch("") succeeded and an empty n/e sailed through the alphabet
+    # check straight to base64 decoding as b"" -- turning a malformed JWK
+    # ({"n": "", "e": ""}) into ("", 0) instead of the documented
+    # fail-closed None. An RSA modulus/exponent is never legitimately
+    # empty, so both must be rejected the same way any other malformed
+    # alphabet input is.
+    import json
+
+    from agent_manifest._azure_verify import (
+        ak_modulus_hex_from_runtime_data,
+        ak_public_numbers_from_runtime_data,
+    )
+
+    good_n = base64.urlsafe_b64encode(b"\x01\x00\x01\xff").rstrip(b"=").decode()
+
+    # Empty n, well-formed e.
+    runtime_data = json.dumps({"keys": [{"kid": "HCLAkPub", "n": "", "e": "AQAB"}]}).encode()
+    assert ak_modulus_hex_from_runtime_data(runtime_data) is None
+    assert ak_public_numbers_from_runtime_data(runtime_data) is None
+
+    # Well-formed n, empty e.
+    runtime_data = json.dumps({"keys": [{"kid": "HCLAkPub", "n": good_n, "e": ""}]}).encode()
+    assert ak_public_numbers_from_runtime_data(runtime_data) is None
+
+    # Both empty.
+    runtime_data = json.dumps({"keys": [{"kid": "HCLAkPub", "n": "", "e": ""}]}).encode()
+    assert ak_modulus_hex_from_runtime_data(runtime_data) is None
+    assert ak_public_numbers_from_runtime_data(runtime_data) is None
 
 
 def test_strict_b64url_decode_rejects_trailing_newline_regex_dollar_hole():
