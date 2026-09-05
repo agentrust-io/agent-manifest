@@ -432,6 +432,135 @@ def test_approval_no_duration_does_not_expire():
 
 
 # ---------------------------------------------------------------------------
+# Malformed approval structure must raise ValueError, never an incidental
+# AttributeError / KeyError / TypeError - issue #360
+# ---------------------------------------------------------------------------
+
+_DUMMY_KEY = generate_ed25519().public_bytes
+
+
+def _valid_approval():
+    kp = generate_ed25519()
+    sig = HitlApprovalSigner(kp).sign_approval(
+        manifest_id=MID, approved_at=NOW,
+        approved_scope=APPROVAL_SCOPE, approver_id="did:web:ciso",
+    )
+    approval = {
+        "manifest_id": MID, "approved_at": NOW,
+        "approved_scope": APPROVAL_SCOPE, "approver_id": "did:web:ciso",
+        "approval_signature": sig,
+    }
+    return approval, kp.public_bytes
+
+
+@pytest.mark.parametrize("bad_approval", ["not-an-object", ["a", "list"], 42, None])
+def test_non_object_approval_raises_value_error(bad_approval):
+    with pytest.raises(ValueError, match="must be an object"):
+        verify_hitl_approval(bad_approval, MID, _DUMMY_KEY)
+
+
+@pytest.mark.parametrize(
+    "field", ["approved_scope", "approved_at", "approver_id", "approval_signature"]
+)
+def test_missing_required_field_raises_value_error(field):
+    approval, key = _valid_approval()
+    del approval[field]
+    with pytest.raises(ValueError, match=f"missing required field '{field}'"):
+        verify_hitl_approval(approval, MID, key)
+
+
+@pytest.mark.parametrize("bad_scope", ["a-string", ["a", "list"], True])
+def test_non_object_approved_scope_raises_value_error(bad_scope):
+    approval, key = _valid_approval()
+    approval["approved_scope"] = bad_scope
+    with pytest.raises(ValueError, match="approved_scope must be an object"):
+        verify_hitl_approval(approval, MID, key)
+
+
+@pytest.mark.parametrize(
+    "bad_duration",
+    ["soon", "", ["not", "a", "number"], [], {"x": 1}, {}, True, False, None],
+)
+def test_non_numeric_approval_duration_raises_value_error(bad_duration):
+    """bool is an int subclass, but a JSON boolean is not a numeric duration.
+    The type check runs unconditionally, before the `if duration:` truthiness
+    gate: a falsy malformed value (False, "", [], {}, None) must be rejected
+    the same as a truthy one, not silently treated as absent/zero-duration
+    (no-expiry). Caught in review (#378) — the earlier fix only checked
+    inside the truthiness branch, so falsy malformed values bypassed it."""
+    approval, key = _valid_approval()
+    approval["approved_scope"] = {**APPROVAL_SCOPE, "approval_duration_seconds": bad_duration}
+    with pytest.raises(ValueError, match="approval_duration_seconds must be numeric"):
+        verify_hitl_approval(approval, MID, key)
+
+
+def test_oversized_approval_duration_raises_value_error():
+    """A duration large enough to overflow timedelta must raise the documented
+    ValueError, not leak OverflowError. Caught in review (#378)."""
+    approval, key = _valid_approval()
+    approval["approved_scope"] = {**APPROVAL_SCOPE, "approval_duration_seconds": 10**20}
+    with pytest.raises(ValueError, match="approval_duration_seconds is out of range"):
+        verify_hitl_approval(approval, MID, key)
+
+
+@pytest.mark.parametrize("bad_sig", [12345, ["a", "list"], {"not": "a string"}])
+def test_non_string_approval_signature_raises_value_error(bad_sig):
+    approval, key = _valid_approval()
+    approval["approval_signature"] = bad_sig
+    with pytest.raises(ValueError, match="approval_signature must be a string"):
+        verify_hitl_approval(approval, MID, key)
+
+
+def test_malformed_base64_signature_raises_value_error():
+    approval, key = _valid_approval()
+    approval["approval_signature"] = "not valid base64url!!"
+    with pytest.raises(ValueError, match="not valid base64url"):
+        verify_hitl_approval(approval, MID, key)
+
+
+def test_illegal_char_prefixed_signature_raises_value_error_not_silently_accepted():
+    """base64.urlsafe_b64decode() silently discards out-of-alphabet characters,
+    so a garbage prefix around an otherwise-valid signature would decode to the
+    same bytes as the real one and pass verification. Caught in review (#378):
+    the previous fix only covered inputs whose stripped length happened to be
+    unpaddable; strict alphabet validation is required to catch this shape."""
+    approval, key = _valid_approval()
+    approval["approval_signature"] = "!!!!" + approval["approval_signature"]
+    with pytest.raises(ValueError, match="not valid base64url"):
+        verify_hitl_approval(approval, MID, key)
+
+
+def test_standard_alphabet_signature_raises_value_error_not_silently_accepted():
+    """base64.b64decode(altchars=b"-_", validate=True) translates '-'/'_' to
+    '+'/'/' before validating, so it also accepts '+'/'/' as-is: a signature
+    using the standard base64 alphabet decodes to the identical bytes as its
+    url-safe equivalent and would pass unless the alphabet is whitelisted
+    before translation. Caught in review (#378). Uses a fixed, non-random
+    string (rather than swapping chars in a real signature) so the test
+    doesn't depend on the randomly-generated fixture signature happening to
+    contain a '-' or '_' to swap; this raises before signature verification
+    is ever reached, so the signing key and manifest id are irrelevant here."""
+    approval, key = _valid_approval()
+    approval["approval_signature"] = "AAAA+AAA/AAA"
+    with pytest.raises(ValueError, match="not valid base64url"):
+        verify_hitl_approval(approval, MID, key)
+
+
+def test_non_string_approved_at_raises_value_error():
+    approval, key = _valid_approval()
+    approval["approved_at"] = 12345
+    with pytest.raises(ValueError, match="approved_at must be a string"):
+        verify_hitl_approval(approval, MID, key)
+
+
+def test_non_string_approver_id_raises_value_error():
+    approval, key = _valid_approval()
+    approval["approver_id"] = ["not", "a", "string"]
+    with pytest.raises(ValueError, match="approver_id must be a string"):
+        verify_hitl_approval(approval, MID, key)
+
+
+# ---------------------------------------------------------------------------
 # HitlApproval model - approver_id MUST NOT be a SPIFFE URI (ADR-0009 scope note)
 # ---------------------------------------------------------------------------
 
