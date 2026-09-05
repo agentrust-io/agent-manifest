@@ -455,6 +455,96 @@ def test_azure_reject_ak_exponent_mismatch(monkeypatch):
     assert provider.verify_manifest_in_report(report, SAMPLE_MANIFEST) is False
 
 
+@pytest.mark.parametrize(
+    "corrupt",
+    [
+        pytest.param(lambda b64: "!!!!" + b64, id="illegal-prefix"),
+        pytest.param(lambda b64: b64 + "!!!!", id="illegal-suffix"),
+        pytest.param(lambda b64: b64[:-1] + "+", id="standard-base64-plus-alias"),
+        pytest.param(lambda b64: b64[:-1] + "/", id="standard-base64-slash-alias"),
+    ],
+)
+def test_azure_reject_malformed_jwk_modulus_encoding(monkeypatch, corrupt):
+    """AzureCVMProvider.verify_manifest_in_report twin of
+    test_azure_report_malformed_jwk_modulus_encoding_fails_closed in
+    test_attestation_chain.py. base64.urlsafe_b64decode() silently discards
+    out-of-alphabet characters instead of raising, so an illegally-prefixed/
+    suffixed or standard-base64 (+/) JWK "n" would decode to the same bytes
+    as the genuine value under a naive decoder. n is rebound back into a
+    freshly hash-bound runtime_data (REPORT_DATA = sha256(runtime_data)) so
+    every other link in the chain is genuinely valid -- only the JWK
+    encoding is malformed. Must fail closed, not pass.
+    """
+    import agent_manifest._hw_providers as hw
+    from agent_manifest._hw_providers import AzureCVMProvider
+
+    monkeypatch.setattr(hw, "_run_tpm", lambda args: b"ok")
+    provider = AzureCVMProvider(pcr_index=16)
+    fx = _azure_good_fixture(provider)
+
+    numbers = fx["ak_key"].public_key().public_numbers()
+    modulus_bytes = numbers.n.to_bytes((numbers.n.bit_length() + 7) // 8, "big")
+    good_n_b64 = base64.urlsafe_b64encode(modulus_bytes).rstrip(b"=").decode()
+    corrupt_n_b64 = corrupt(good_n_b64)
+
+    corrupt_runtime_data = json.dumps(
+        {"keys": [{"kid": "HCLAkPub", "n": corrupt_n_b64, "e": "AQAB"}]}
+    ).encode()
+    snp_report_bytes = _snp_report_with(hashlib.sha256(corrupt_runtime_data).digest() + bytes(32))
+    report = _azure_report_from_fixture(
+        fx,
+        raw_overrides={"runtime_data_hex": corrupt_runtime_data.hex()},
+        quote_override=snp_report_bytes,
+    )
+    assert provider.verify_manifest_in_report(report, SAMPLE_MANIFEST) is False
+
+
+@pytest.mark.parametrize(
+    "corrupt",
+    [
+        pytest.param(lambda b64: "!!!!" + b64, id="illegal-prefix"),
+        pytest.param(lambda b64: b64 + "!!!!", id="illegal-suffix"),
+        pytest.param(lambda b64: b64[:-1] + "+", id="standard-base64-plus-alias"),
+        pytest.param(lambda b64: b64[:-1] + "/", id="standard-base64-slash-alias"),
+    ],
+)
+def test_azure_reject_malformed_jwk_exponent_encoding(monkeypatch, corrupt):
+    """Twin of test_azure_reject_malformed_jwk_modulus_encoding, corrupting
+    the JWK "e" member instead of "n". Both members go through the same
+    _strict_b64url_decode() call inside ak_public_numbers_from_runtime_data();
+    the modulus test alone does not prove the exponent path is covered here
+    (AzureCVMProvider.verify_manifest_in_report), since a future edit could
+    special-case or bypass strict decoding for "e" specifically without this
+    test noticing. n is kept well-formed so only the exponent encoding is
+    under test. Must fail closed, not pass.
+    """
+    import agent_manifest._hw_providers as hw
+    from agent_manifest._hw_providers import AzureCVMProvider
+
+    monkeypatch.setattr(hw, "_run_tpm", lambda args: b"ok")
+    provider = AzureCVMProvider(pcr_index=16)
+    fx = _azure_good_fixture(provider)
+
+    numbers = fx["ak_key"].public_key().public_numbers()
+    modulus_bytes = numbers.n.to_bytes((numbers.n.bit_length() + 7) // 8, "big")
+    good_n_b64 = base64.urlsafe_b64encode(modulus_bytes).rstrip(b"=").decode()
+    good_e_b64 = base64.urlsafe_b64encode(
+        numbers.e.to_bytes((numbers.e.bit_length() + 7) // 8, "big")
+    ).rstrip(b"=").decode()
+    corrupt_e_b64 = corrupt(good_e_b64)
+
+    corrupt_runtime_data = json.dumps(
+        {"keys": [{"kid": "HCLAkPub", "n": good_n_b64, "e": corrupt_e_b64}]}
+    ).encode()
+    snp_report_bytes = _snp_report_with(hashlib.sha256(corrupt_runtime_data).digest() + bytes(32))
+    report = _azure_report_from_fixture(
+        fx,
+        raw_overrides={"runtime_data_hex": corrupt_runtime_data.hex()},
+        quote_override=snp_report_bytes,
+    )
+    assert provider.verify_manifest_in_report(report, SAMPLE_MANIFEST) is False
+
+
 def test_azure_reject_malformed_runtime_data_keys_shape(monkeypatch):
     """valid JSON `{"keys": 1}`, correctly hash-bound into
     the signed SNP report, must fail closed (return False) rather than raise.
@@ -474,6 +564,227 @@ def test_azure_reject_malformed_runtime_data_keys_shape(monkeypatch):
         quote_override=snp_report_bytes,
     )
     # Must not raise TypeError -- must simply return False.
+    assert provider.verify_manifest_in_report(report, SAMPLE_MANIFEST) is False
+
+
+@pytest.mark.parametrize(
+    "field,bad_value",
+    [
+        ("quote_msg", 12345),
+        ("quote_msg", ["not", "a", "string"]),
+        ("quote_sig", 12345),
+        ("quote_sig", {"unexpected": "dict"}),
+        ("ak_pub_pem", 12345),
+        ("ak_pub_pem", b"already-bytes-not-str"),
+        ("runtime_data_hex", 12345),
+        ("runtime_data_hex", ["not", "hex"]),
+    ],
+)
+def test_azure_reject_wrong_type_raw_field(monkeypatch, field, bad_value):
+    """Attacker-forged evidence can put any JSON type in report.raw -- an int,
+    list, or dict is just as reachable as a malformed string. Each of these is
+    truthy, so a truthiness-only guard lets it through to
+    base64.b64decode()/bytes.fromhex(), which raise TypeError (not
+    binascii.Error/ValueError) for non-str/bytes input. The function's
+    documented contract is that malformed input returns False and never
+    raises; a wrong-type field must fail closed, not crash the caller.
+    """
+    import agent_manifest._hw_providers as hw
+    from agent_manifest._hw_providers import AzureCVMProvider
+
+    monkeypatch.setattr(hw, "_run_tpm", lambda args: b"ok")
+    provider = AzureCVMProvider(pcr_index=16)
+    fx = _azure_good_fixture(provider)
+    report = _azure_report_from_fixture(fx, raw_overrides={field: bad_value})
+    # Must not raise TypeError -- must simply return False.
+    assert provider.verify_manifest_in_report(report, SAMPLE_MANIFEST) is False
+
+
+@pytest.mark.parametrize(
+    "bad_value",
+    [12345, "not-bytes-a-string", ["not", "bytes"], {"unexpected": "dict"}],
+)
+def test_azure_reject_wrong_type_snp_report_bytes(monkeypatch, bad_value):
+    """snp_report_bytes is the raw SNP report attached to the report object
+    (``report.quote``), not a report.raw JSON field, but it is equally
+    attacker-controlled evidence. A wrong type reaches
+    ``parse_snp_report()``, whose ``len(report)`` / struct-unpack calls raise
+    TypeError for non-bytes-like input -- not the ``SnpVerificationError``
+    the caller catches. Must fail closed, not raise.
+    """
+    import agent_manifest._hw_providers as hw
+    from agent_manifest._hw_providers import AzureCVMProvider
+
+    monkeypatch.setattr(hw, "_run_tpm", lambda args: b"ok")
+    provider = AzureCVMProvider(pcr_index=16)
+    fx = _azure_good_fixture(provider)
+    report = _azure_report_from_fixture(fx, quote_override=bad_value)
+    assert provider.verify_manifest_in_report(report, SAMPLE_MANIFEST) is False
+
+
+@pytest.mark.parametrize(
+    "bad_value",
+    [12345, None, ["sha256:" + "aa" * 32], {"hash": "sha256:" + "aa" * 32}, b"sha256:" + b"aa" * 32],
+)
+def test_azure_reject_wrong_type_expected_manifest_hash(monkeypatch, bad_value):
+    """``expected_manifest_hash`` is a top-level argument of
+    ``verify_azure_manifest_binding`` just like the report-derived evidence
+    fields -- a misconfigured or programmatically-wrong-typed caller is just
+    as real a source of a wrong-type value here as a forged report is for
+    the other fields. ``expected_manifest_hash.split(":", 1)`` raises
+    ``AttributeError`` for a non-str value (``None``, ``int``, ``list``,
+    ``dict``) and ``TypeError`` for ``bytes`` (``bytes.split`` requires a
+    ``bytes`` separator, not the ``str`` ``":"`` literal used here) -- both
+    uncaught previously. Must fail closed, not raise.
+    """
+    import agent_manifest._hw_providers as hw
+    from agent_manifest._azure_verify import verify_azure_manifest_binding
+    from agent_manifest._hw_providers import AzureCVMProvider
+
+    monkeypatch.setattr(hw, "_run_tpm", lambda args: b"ok")
+    provider = AzureCVMProvider(pcr_index=16)
+    fx = _azure_good_fixture(provider)
+    result = verify_azure_manifest_binding(
+        expected_manifest_hash=bad_value,
+        expected_pcr_index=16,
+        quote_msg_b64=fx["raw"]["quote_msg"],
+        quote_sig_b64=fx["raw"]["quote_sig"],
+        ak_pub_pem=fx["raw"]["ak_pub_pem"],
+        runtime_data_hex=fx["raw"]["runtime_data_hex"],
+        snp_report_bytes=fx["snp_report_bytes"],
+    )
+    assert result is False
+
+
+@pytest.mark.parametrize(
+    "bad_hash",
+    [
+        "md5:" + "aa" * 32,  # right length, wrong algorithm name
+        "sha1:" + "aa" * 32,  # right length, wrong algorithm name
+        "foo:" + "aa" * 32,  # nonsense algorithm name
+        "sha256:",  # prefix only, no digest
+        "sha256:" + "aa" * 31,  # 62 hex chars, one short
+        "sha256:" + "aa" * 33,  # 66 hex chars, one too many
+        "sha256:" + "zz" * 32,  # right length, invalid hex
+        "aa" * 32,  # no prefix at all
+        " sha256:" + "aa" * 32,  # leading whitespace
+        "sha256:" + "aa" * 32 + " ",  # trailing whitespace
+        "sha256:" + "AA" * 32 + "\n",  # trailing newline after otherwise-valid hex
+    ],
+)
+def test_azure_reject_malformed_expected_manifest_hash_prefix(monkeypatch, bad_hash):
+    """``expected_manifest_hash`` must be exactly ``"sha256:" + 64 hex chars``.
+
+    A verifier that merely does ``split(":", 1)[-1]`` implicitly assumes
+    "whatever follows a colon is the SHA-256 digest" -- so ``"md5:<64
+    hex>"`` or ``"foo:<64 hex>"`` pass just as readily as a genuine
+    ``"sha256:<64 hex>"`` value, leaving the hash algorithm ambiguous and
+    caller-controlled at the exact point this value is baked into the
+    manifest-to-PCR security binding. Must fail closed for every
+    malformed/wrong-algorithm/wrong-length/non-hex/whitespace-padded shape,
+    even when a genuinely-matching PCR/quote/AK/runtime-data chain is
+    supplied for every other field.
+    """
+    import agent_manifest._hw_providers as hw
+    from agent_manifest._azure_verify import verify_azure_manifest_binding
+    from agent_manifest._hw_providers import AzureCVMProvider
+
+    monkeypatch.setattr(hw, "_run_tpm", lambda args: b"ok")
+    provider = AzureCVMProvider(pcr_index=16)
+    fx = _azure_good_fixture(provider)
+    result = verify_azure_manifest_binding(
+        expected_manifest_hash=bad_hash,
+        expected_pcr_index=16,
+        quote_msg_b64=fx["raw"]["quote_msg"],
+        quote_sig_b64=fx["raw"]["quote_sig"],
+        ak_pub_pem=fx["raw"]["ak_pub_pem"],
+        runtime_data_hex=fx["raw"]["runtime_data_hex"],
+        snp_report_bytes=fx["snp_report_bytes"],
+    )
+    assert result is False
+
+
+def test_azure_accept_well_formed_expected_manifest_hash(monkeypatch):
+    """Sanity check for the positive case: a genuine ``"sha256:" + 64 hex``
+    value (matching the rest of the evidence chain) must still verify --
+    the stricter prefix check must not reject well-formed input."""
+    import agent_manifest._hw_providers as hw
+    from agent_manifest._azure_verify import verify_azure_manifest_binding
+    from agent_manifest._hw_providers import AzureCVMProvider
+
+    monkeypatch.setattr(hw, "_run_tpm", lambda args: b"ok")
+    provider = AzureCVMProvider(pcr_index=16)
+    fx = _azure_good_fixture(provider)
+    result = verify_azure_manifest_binding(
+        expected_manifest_hash=fx["manifest_hash"],
+        expected_pcr_index=16,
+        quote_msg_b64=fx["raw"]["quote_msg"],
+        quote_sig_b64=fx["raw"]["quote_sig"],
+        ak_pub_pem=fx["raw"]["ak_pub_pem"],
+        runtime_data_hex=fx["raw"]["runtime_data_hex"],
+        snp_report_bytes=fx["snp_report_bytes"],
+    )
+    assert result is True
+
+
+@pytest.mark.parametrize(
+    "bad_value",
+    [[16], {16}, {"pcr": 16}, "16", 16.0, True],
+)
+def test_azure_reject_wrong_type_expected_pcr_index(monkeypatch, bad_value):
+    """``expected_pcr_index`` is later put into ``frozenset({expected_pcr_index})``
+    for a PCR-selection comparison. An unhashable value (``list``, ``set``,
+    ``dict``) raises ``TypeError`` constructing that frozenset -- uncaught
+    previously, since it happens outside any ``try`` in the function. Other
+    wrong types (``str``, ``float``, ``bool``) are hashable so would not
+    crash the frozenset call, but are still not the ``int`` the function
+    contract requires and must not silently coerce into passing; explicit
+    type validation rejects all of them up front. Must fail closed, not
+    raise, for every case.
+    """
+    import agent_manifest._hw_providers as hw
+    from agent_manifest._azure_verify import verify_azure_manifest_binding
+    from agent_manifest._hw_providers import AzureCVMProvider
+
+    monkeypatch.setattr(hw, "_run_tpm", lambda args: b"ok")
+    provider = AzureCVMProvider(pcr_index=16)
+    fx = _azure_good_fixture(provider)
+    result = verify_azure_manifest_binding(
+        expected_manifest_hash=fx["manifest_hash"],
+        expected_pcr_index=bad_value,
+        quote_msg_b64=fx["raw"]["quote_msg"],
+        quote_sig_b64=fx["raw"]["quote_sig"],
+        ak_pub_pem=fx["raw"]["ak_pub_pem"],
+        runtime_data_hex=fx["raw"]["runtime_data_hex"],
+        snp_report_bytes=fx["snp_report_bytes"],
+    )
+    assert result is False
+
+
+@pytest.mark.parametrize(
+    "bad_raw",
+    ["attacker-controlled-string", 12345, [1, 2, 3], b"attacker-controlled-bytes"],
+)
+def test_azure_reject_non_dict_raw(monkeypatch, bad_raw):
+    """``AttestationReport.raw`` is typed ``dict[str, Any]``, but dataclasses do
+    not enforce field types at runtime -- a caller building (or forging) a
+    report can set ``raw`` to any truthy non-dict value just as easily as any
+    other field. ``raw = report.raw or {}`` only guards the falsy cases
+    (``None``, ``{}``, ``""``); a truthy non-dict still reaches
+    ``raw.get(...)`` and raises ``AttributeError``, breaking this method's
+    documented fail-closed contract. Must return False, never raise.
+    """
+    import agent_manifest._hw_providers as hw
+    from agent_manifest._hw_providers import AzureCVMProvider
+
+    monkeypatch.setattr(hw, "_run_tpm", lambda args: b"ok")
+    provider = AzureCVMProvider(pcr_index=16)
+    report = AttestationReport(
+        platform="azure-cvm-sev-snp",
+        manifest_hash="sha256:" + "aa" * 32,
+        quote=b"x",
+        raw=bad_raw,
+    )
     assert provider.verify_manifest_in_report(report, SAMPLE_MANIFEST) is False
 
 

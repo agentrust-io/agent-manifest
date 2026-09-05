@@ -52,6 +52,49 @@ def test_missing_report_data_field():
     assert result.report_data_matched is False
 
 
+@ pytest.mark.parametrize(
+    "bad_hash",
+    [
+        f"md5:{DIGEST}",  # right length, wrong algorithm name
+        f"sha1:{DIGEST}",  # right length, wrong algorithm name
+        f"foo:{DIGEST}",  # nonsense algorithm name
+        "sha256:",  # prefix only, no digest
+        "sha256:" + DIGEST[:-2],  # 62 hex chars, one short
+        "sha256:" + DIGEST + "aa",  # 66 hex chars, one too many
+        "sha256:" + "zz" * 32,  # right length, invalid hex
+        DIGEST,  # no prefix at all
+    ],
+)
+def test_report_data_binding_rejects_malformed_expected_manifest_hash_prefix(bad_hash):
+    """The non-Azure REPORT_DATA binding step has the same
+    ``expected_manifest_hash`` contract as the Azure composite check: it
+    must be exactly ``"sha256:" + 64 hex chars``. A verifier that merely
+    does ``split(":", 1)[-1]`` implicitly assumes "whatever follows a colon
+    is the SHA-256 digest", so ``"md5:<64 hex>"`` or a bare hex string with
+    no prefix at all would otherwise be treated as if it were a genuine
+    ``"sha256:<64 hex>"`` value. Even when the report's own report_data
+    happens to carry bytes that would match the trailing hex, a malformed
+    or wrong-algorithm ``expected_manifest_hash`` must fail closed rather
+    than accidentally "matching".
+    """
+    # report_data carries the *real* digest so that, if the algorithm-prefix
+    # check were skipped, the naive split-based comparison would otherwise
+    # spuriously succeed -- this isolates the prefix-validation bug from an
+    # unrelated report_data mismatch.
+    report = _report(report_data_hex=DIGEST + "00" * 32)
+    result = verify_attestation_chain(report, expected_manifest_hash=bad_hash)
+    assert result.report_data_matched is False
+
+
+def test_report_data_binding_accepts_well_formed_expected_manifest_hash():
+    """Sanity check for the positive case: a genuine ``"sha256:" + 64 hex``
+    value must still verify -- the stricter prefix check must not reject
+    well-formed input."""
+    report = _report(report_data_hex=DIGEST + "00" * 32)
+    result = verify_attestation_chain(report, expected_manifest_hash=MANIFEST_HASH)
+    assert result.report_data_matched is True
+
+
 def test_measurement_allow_list_hit():
     report = _report(report_data_hex=DIGEST + "00" * 32, measurement=MEASUREMENT)
     result = verify_attestation_chain(
@@ -511,6 +554,58 @@ def test_azure_report_malformed_jwk_modulus_encoding_fails_closed(corrupt):
     assert result.passed is False
 
 
+@pytest.mark.parametrize(
+    "corrupt",
+    [
+        pytest.param(lambda e_b64: "!!!!" + e_b64, id="illegal-prefix"),
+        pytest.param(lambda e_b64: e_b64 + "!!!!", id="illegal-suffix"),
+        pytest.param(lambda e_b64: e_b64[:-1] + "+", id="standard-base64-plus-alias"),
+        pytest.param(lambda e_b64: e_b64[:-1] + "/", id="standard-base64-slash-alias"),
+    ],
+)
+def test_azure_report_malformed_jwk_exponent_encoding_fails_closed(corrupt):
+    # Twin of test_azure_report_malformed_jwk_modulus_encoding_fails_closed,
+    # but corrupting the JWK "e" member instead of "n". Both members go
+    # through the same _strict_b64url_decode() call inside
+    # ak_public_numbers_from_runtime_data(); the modulus test alone does not
+    # prove the exponent path is covered, since a future edit could special-
+    # case or bypass strict decoding for "e" specifically without this test
+    # noticing. n is kept well-formed here so only the exponent encoding is
+    # under test -- rebind REPORT_DATA to the new runtime data and re-derive
+    # a matching PCR/quote/SNP-report exactly as the modulus test does, so
+    # every other link in the chain is genuinely valid.
+    import json
+
+    fx = _azure_good_fixture()
+    numbers = fx["ak_key"].public_key().public_numbers()
+    modulus_bytes = numbers.n.to_bytes((numbers.n.bit_length() + 7) // 8, "big")
+    good_n_b64 = base64.urlsafe_b64encode(modulus_bytes).rstrip(b"=").decode()
+    good_e_b64 = base64.urlsafe_b64encode(
+        numbers.e.to_bytes((numbers.e.bit_length() + 7) // 8, "big")
+    ).rstrip(b"=").decode()
+    corrupt_e_b64 = corrupt(good_e_b64)
+
+    corrupt_runtime_data = json.dumps(
+        {"keys": [{"kid": "HCLAkPub", "n": good_n_b64, "e": corrupt_e_b64}]}
+    ).encode()
+    report_data = hashlib.sha256(corrupt_runtime_data).digest() + bytes(32)
+    snp, vcek_der, chain = _synthetic_snp_with_chain(report_data.hex()[:64], MEASUREMENT)
+    report = _azure_report_from_fixture(
+        fx, raw_overrides={"runtime_data_hex": corrupt_runtime_data.hex()}
+    )
+    report.quote = snp
+    result = verify_attestation_chain(
+        report,
+        expected_manifest_hash=MANIFEST_HASH,
+        vcek_cert_der=vcek_der,
+        cert_chain_pem=chain,
+    )
+    # REPORT_DATA still matches (it is a hash of the corrupted runtime_data
+    # itself, so corrupting the JWK content inside it does not break step 4);
+    # only the AK-identity check (step 3, which decodes "e") must reject.
+    assert result.passed is False
+
+
 def test_ak_public_numbers_and_modulus_reject_illegal_alphabet_direct():
     # Direct unit coverage: the strict decoder must reject illegal
     # prefixes/suffixes and standard-base64 +/ aliases for both n and e,
@@ -651,6 +746,30 @@ def test_azure_report_with_no_evidence_supplied_fails_closed():
     assert result.report_data_matched is False
     assert result.passed is False
     assert any("not established" in r for r in result.reasons)
+
+
+@pytest.mark.parametrize(
+    "bad_raw",
+    ["attacker-controlled-string", 12345, [1, 2, 3], b"attacker-controlled-bytes"],
+)
+def test_azure_report_non_dict_raw_fails_closed(bad_raw):
+    """``AttestationReport.raw`` is typed ``dict[str, Any]``, but a caller
+    constructing (or forging) a report is not stopped by that type hint at
+    runtime -- a truthy non-dict is just as reachable as any individual
+    malformed field on ``raw``. ``getattr(report, "raw", {}) or {}`` only
+    guards the falsy cases (missing attribute, ``None``, ``{}``, ``""``); a
+    truthy non-dict still reaches ``raw_azure.get(...)`` and raises
+    ``AttributeError``, breaking this function's documented fail-closed
+    contract. Must return False, never raise.
+    """
+    report = AttestationReport(
+        platform="azure-cvm-sev-snp",
+        manifest_hash=MANIFEST_HASH,
+        raw=bad_raw,
+    )
+    result = verify_attestation_chain(report, expected_manifest_hash=MANIFEST_HASH)
+    assert result.report_data_matched is False
+    assert result.passed is False
 
 
 @pytest.mark.parametrize("arbitrary_hash", ["sha256:" + "11" * 32, "sha256:" + "22" * 32, "sha256:" + "ff" * 32])

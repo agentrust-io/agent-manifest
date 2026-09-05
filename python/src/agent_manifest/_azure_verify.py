@@ -34,6 +34,7 @@ import hashlib
 import hmac
 import json
 import re
+import struct
 from typing import Any, Optional
 
 
@@ -48,6 +49,13 @@ from typing import Any, Optional
 # helpers document. Reject anything outside the unpadded URL-safe alphabet
 # up front, then decode strictly.
 _B64URL_ALPHABET_RE = re.compile(r"[A-Za-z0-9_-]*")
+
+# `expected_manifest_hash` must be exactly this shape: the literal "sha256:"
+# prefix followed by 64 hex characters -- nothing before, nothing after, and
+# no other algorithm name accepted. See the call site in
+# ``verify_azure_manifest_binding`` for why a bare ``split(":", 1)`` is not
+# sufficient here.
+_MANIFEST_HASH_RE = re.compile(r"sha256:[0-9a-fA-F]{64}")
 
 
 def _strict_b64url_decode(value: str) -> bytes:
@@ -173,7 +181,40 @@ def verify_azure_manifest_binding(
     Returns ``True`` only when all four hold. Any missing, malformed, or
     mismatched input returns ``False`` -- this function never raises.
     """
-    if not (quote_msg_b64 and quote_sig_b64 and ak_pub_pem and runtime_data_hex and snp_report_bytes):
+    # Truthiness alone is not a type check: a truthy wrong-type value (an
+    # int, list, dict -- all trivially producible from forged JSON evidence
+    # or a caller passing the wrong variable) passes `and`-chained
+    # truthiness checks but then blows up as TypeError/AttributeError inside
+    # base64.b64decode / bytes.fromhex / struct.unpack / str.split below,
+    # which only catch format errors, not type errors. Require the exact
+    # expected type for every top-level argument -- including
+    # ``expected_manifest_hash`` and ``expected_pcr_index``, which are just
+    # as reachable from a misconfigured caller as the report-derived fields
+    # are from a forged report -- before touching any of them, so a
+    # wrong-type argument fails closed here instead of raising deeper in the
+    # chain. ``expected_pcr_index`` in particular must be ``int``: it is
+    # later put into a ``frozenset`` for a PCR-index comparison, and an
+    # unhashable value there (a list or dict) raises ``TypeError`` on the
+    # ``frozenset`` construction itself, not on anything this function
+    # already wraps in a ``try``. ``bool`` is deliberately excluded even
+    # though it is an ``int`` subclass in Python: a boolean PCR index is
+    # always a caller bug, not a legitimate value.
+    if (
+        not isinstance(expected_manifest_hash, str)
+        or not isinstance(expected_pcr_index, int)
+        or isinstance(expected_pcr_index, bool)
+        or not isinstance(quote_msg_b64, str)
+        or not isinstance(quote_sig_b64, str)
+        or not isinstance(ak_pub_pem, str)
+        or not isinstance(runtime_data_hex, str)
+        or not isinstance(snp_report_bytes, (bytes, bytearray))
+        or not expected_manifest_hash
+        or not quote_msg_b64
+        or not quote_sig_b64
+        or not ak_pub_pem
+        or not runtime_data_hex
+        or not snp_report_bytes
+    ):
         return False
 
     # Imports are local to avoid a module-load-time cycle: _snp_verify and
@@ -192,15 +233,36 @@ def verify_azure_manifest_binding(
         quote_msg = base64.b64decode(quote_msg_b64, validate=True)
         quote_sig = base64.b64decode(quote_sig_b64, validate=True)
         runtime_data = bytes.fromhex(runtime_data_hex)
-    except (binascii.Error, ValueError):
+    except (binascii.Error, ValueError, TypeError):
+        # TypeError is defense-in-depth: the isinstance guard above already
+        # rules out non-str inputs reaching this point, but keeping TypeError
+        # here too means this stays fail-closed even if that guard is ever
+        # loosened or bypassed by a future edit.
         return False
 
     # 1a. Expected PCR value: one extension of the manifest hash into a PCR
     # that started at zero.
-    digest = expected_manifest_hash.split(":", 1)[-1].lower()
+    #
+    # `expected_manifest_hash` must be exactly `"sha256:" + 64 hex chars` --
+    # not merely have *some* prefix before the first `:`. A naive
+    # `split(":", 1)[-1]` accepts "md5:<64 hex>" or "foo:<64 hex>" just as
+    # readily as "sha256:<64 hex>", silently treating whatever hex follows
+    # any colon as the SHA-256 digest. That leaves the hash algorithm
+    # ambiguous and caller-controlled at the exact point this value gets
+    # baked into the manifest-to-PCR security binding. Require the literal
+    # "sha256:" prefix explicitly, not just "a colon happens to be present".
+    if not _MANIFEST_HASH_RE.fullmatch(expected_manifest_hash):
+        return False
+    digest = expected_manifest_hash[len("sha256:"):].lower()
     try:
         expected_pcr_value = hashlib.sha256(bytes(32) + bytes.fromhex(digest)).digest()
-    except ValueError:
+    except (AttributeError, TypeError, ValueError):
+        # AttributeError/TypeError are defense-in-depth: the isinstance
+        # guard above already rules out a non-str expected_manifest_hash
+        # reaching this point, and the fullmatch above already guarantees
+        # valid hex, but keeping this try here too means this stays
+        # fail-closed even if either guard is ever loosened or bypassed by a
+        # future edit.
         return False
     # tpm2_quote's PCR digest, for a single sha256 bank with a single PCR
     # selected, is sha256 of that PCR's raw (post-extend) value.
@@ -232,7 +294,17 @@ def verify_azure_manifest_binding(
     selection = quote.pcr_selections[0]
     if selection.hash_alg != TPM_ALG_SHA256:
         return False
-    if selection.indices() != frozenset({expected_pcr_index}):
+    try:
+        expected_indices = frozenset({expected_pcr_index})
+    except TypeError:
+        # Defense-in-depth: the isinstance guard above already rules out an
+        # unhashable expected_pcr_index (list, dict) reaching this point --
+        # frozenset() would otherwise raise TypeError constructing a set
+        # from an unhashable member -- but keeping this here too means this
+        # stays fail-closed even if that guard is ever loosened or bypassed
+        # by a future edit.
+        return False
+    if selection.indices() != expected_indices:
         return False
 
     # 2. quote_sig is a valid AK signature over quote_msg under ak_pub_pem.
@@ -270,7 +342,7 @@ def verify_azure_manifest_binding(
     # bytes actually supplied.
     try:
         parsed_snp = parse_snp_report(snp_report_bytes)
-    except SnpVerificationError:
+    except (SnpVerificationError, TypeError, struct.error):
         return False
     if not verify_runtime_data_binding(parsed_snp, runtime_data):
         return False

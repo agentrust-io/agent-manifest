@@ -475,7 +475,15 @@ class AzureCVMProvider(AttestationProvider):
         """
         from ._azure_verify import verify_azure_manifest_binding
 
-        raw = report.raw or {}
+        # report.raw is typed dict[str, Any], but this method receives an
+        # AttestationReport from a caller who can construct one with any
+        # value at all (dataclasses do not enforce field types at runtime) --
+        # a truthy non-dict raw (a str, int, or list) is just as reachable as
+        # a forged report's individual fields. `raw or {}` only guards the
+        # falsy cases (None, {}, ""); a truthy non-dict still reaches
+        # `.get()` below and raises AttributeError, breaking this method's
+        # own fail-closed contract. Require raw to actually be a dict first.
+        raw = report.raw if isinstance(report.raw, dict) else {}
         return verify_azure_manifest_binding(
             expected_manifest_hash=self.manifest_hash_value(manifest_json),
             # This provider's own configured PCR index -- verifier

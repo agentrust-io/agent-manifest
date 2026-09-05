@@ -38,9 +38,19 @@ certificate material is supplied, the signature step is reported as
 from __future__ import annotations
 
 import hmac
+import re
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Optional
+
+# `expected_manifest_hash` must be exactly the literal "sha256:" prefix
+# followed by 64 hex characters -- see the call site below (the non-Azure
+# REPORT_DATA binding step) for why a bare `split(":", 1)` is not
+# sufficient: it would accept "md5:<64 hex>" or "foo:<64 hex>" just as
+# readily as "sha256:<64 hex>", leaving the hash algorithm ambiguous and
+# caller-controlled at the exact point this value is compared against the
+# report's bound field.
+_MANIFEST_HASH_RE = re.compile(r"sha256:[0-9a-fA-F]{64}")
 
 
 class SignatureStatus(str, Enum):
@@ -286,7 +296,15 @@ def verify_attestation_chain(
     if azure_paravisor:
         from ._azure_verify import verify_azure_manifest_binding
 
-        raw_azure = getattr(report, "raw", {}) or {}
+        # report is typed Any here -- a caller-forged or malformed report
+        # object can have any truthy value on .raw (a str, int, list), not
+        # just the documented dict. `getattr(..., {}) or {}` only guards the
+        # falsy cases (missing attribute, None, {}, ""); a truthy non-dict
+        # still reaches `.get()` below and raises AttributeError, breaking
+        # this function's own fail-closed contract (see the measurement
+        # check further down, which already guards this the same way).
+        raw_azure_candidate = getattr(report, "raw", {}) or {}
+        raw_azure = raw_azure_candidate if isinstance(raw_azure_candidate, dict) else {}
         report_data_matched = verify_azure_manifest_binding(
             expected_manifest_hash=expected_manifest_hash,
             expected_pcr_index=azure_expected_pcr_index,
@@ -314,8 +332,18 @@ def verify_attestation_chain(
                 "report (quote_msg/quote_sig/ak_pub_pem/runtime_data_hex in "
                 "report.raw and the SNP report bytes)"
             )
+    elif not isinstance(expected_manifest_hash, str) or not _MANIFEST_HASH_RE.fullmatch(
+        expected_manifest_hash
+    ):
+        # Fail closed on a malformed/wrong-algorithm expected_manifest_hash
+        # instead of silently treating whatever follows a colon as the
+        # SHA-256 digest (see _MANIFEST_HASH_RE above).
+        report_data_matched = False
+        reasons.append(
+            "expected_manifest_hash is not in the required 'sha256:<64 hex>' form"
+        )
     else:
-        expected_digest = expected_manifest_hash.split(":", 1)[-1].lower()
+        expected_digest = expected_manifest_hash[len("sha256:"):].lower()
         actual_hex = _report_data_hex(report)
         if actual_hex is None:
             report_data_matched = False
