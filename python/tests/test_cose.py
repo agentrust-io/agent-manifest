@@ -870,6 +870,13 @@ def test_a_bare_v02_dict_has_no_signature():
 
 
 def test_engine_binds_attestation_to_the_payload_hash():
+    """The binding is checked, and it is still not hardware evidence.
+
+    GHSA-85fc-3g4g-fjjc. On the COSE path the attestation block lives in the
+    unprotected header, which the envelope spec makes explicitly malleable, so
+    a matching payload hash tells you the report names these bytes and nothing
+    more. Under enforcement that has to fail closed.
+    """
     manifest = base_manifest()
     signed = sign_cose_sign1(manifest, KP)
     signed = attach_attestation(
@@ -877,9 +884,34 @@ def test_engine_binds_attestation_to_the_payload_hash():
         {
             "platform": "amd-sev-snp",
             "manifest_hash_in_report": payload_hash(cose_payload(manifest)),
+            "audit_key_sealed": True,
         },
     )
     result = verify_manifest(signed, base_context(enforce_attestation=True), store())
+    assert result.attestation_verified is False
+    assert result.result == OverallResult.ATTESTATION_UNAVAILABLE
+
+
+def test_engine_accepts_attestation_with_an_independent_appraisal():
+    manifest = base_manifest()
+    signed = sign_cose_sign1(manifest, KP)
+    bound_hash = payload_hash(cose_payload(manifest))
+    signed = attach_attestation(
+        signed,
+        {
+            "platform": "amd-sev-snp",
+            "manifest_hash_in_report": bound_hash,
+            "audit_key_sealed": True,
+        },
+    )
+    ctx = base_context(
+        enforce_attestation=True,
+        verified_attestation_manifest_hashes={bound_hash},
+        attestation_evidence_manifest_id=manifest["manifest_id"],
+    )
+
+    result = verify_manifest(signed, ctx, store())
+
     assert result.attestation_verified is True
     assert result.result == OverallResult.VALID
 

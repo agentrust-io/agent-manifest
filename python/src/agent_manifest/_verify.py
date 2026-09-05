@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Callable, Optional, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, TypeAdapter
 
 from ._audit_continuity import AuditCheckpoint, verify_continuity
 from ._cose import (
@@ -28,6 +28,37 @@ from ._cose import (
     MEDIA_TYPE_MANIFEST_COSE,
     CoseVerification,
 )
+
+
+# ---------------------------------------------------------------------------
+# Timestamp parsing
+# ---------------------------------------------------------------------------
+
+# Manifest timestamps are typed `datetime` on the model, so Pydantic accepts and
+# normalizes several representations that datetime.fromisoformat() rejects:
+# decimal epoch seconds ("1769904000") and a lowercase zone designator
+# ("...T00:00:00z") among them. The schema gate reports no violation for those,
+# which meant a verifier re-parsing the raw signed string with fromisoformat()
+# saw a ValueError for a value the model considers perfectly well formed.
+#
+# Parsing here through the same TypeAdapter the model uses keeps the verifier's
+# reading of a timestamp identical to the model's. Anything it still cannot read
+# is unparseable to this verifier, and the callers below fail closed on it: a
+# validity window that cannot be evaluated is not a validity window that passed.
+_DATETIME_ADAPTER = TypeAdapter(datetime)
+
+
+def _parse_timestamp(value: Any) -> datetime:
+    """Parse a manifest timestamp to an aware UTC datetime, or raise ValueError."""
+    try:
+        parsed = _DATETIME_ADAPTER.validate_python(value)
+    except Exception as exc:  # pydantic ValidationError and anything below it
+        raise ValueError(f"unparseable timestamp: {value!r}") from exc
+    if parsed.tzinfo is None:
+        # An offset-naive timestamp is ambiguous. The spec writes instants in
+        # UTC, so read it as UTC rather than as local time on the verifying host.
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 # ---------------------------------------------------------------------------
@@ -216,6 +247,9 @@ class VerifyRequest(BaseModel):
     verified_transparency_entry_ids: set[str] = Field(default_factory=set)
     verified_transparency_receipt_hashes: set[str] = Field(default_factory=set)
     transparency_evidence_manifest_id: Optional[str] = None
+    # Independent hardware-attestation appraisal results; see VerificationContext.
+    verified_attestation_manifest_hashes: set[str] = Field(default_factory=set)
+    attestation_evidence_manifest_id: Optional[str] = None
     require_transparency: bool = False
     # When True, a manifest without a delegation_chain is a verification failure
     require_delegation: bool = False
@@ -299,6 +333,20 @@ class VerificationContext(BaseModel):
     # The manifest to which the independent appraisal bound those IDs/digests.
     # This prevents a verified receipt allow-list from becoming replayable.
     transparency_evidence_manifest_id: Optional[str] = None
+    # Hardware-attestation evidence, on exactly the same footing as the
+    # transparency inputs above: an appraisal the relying party performed, not
+    # an assertion the document makes about itself.
+    #
+    # Each entry is a manifest hash ("sha256:<hex>") for which an independent
+    # hardware appraisal - verify_attestation_chain(), or an equivalent external
+    # verifier - returned passed=True. The engine matches against the hash it
+    # computes locally, never against the manifest's own manifest_hash_in_report,
+    # so nothing an attacker writes into the attestation block can put a value
+    # in this set.
+    verified_attestation_manifest_hashes: set[str] = Field(default_factory=set)
+    # The manifest the appraisal was bound to, so a passing appraisal for one
+    # manifest cannot be replayed against another.
+    attestation_evidence_manifest_id: Optional[str] = None
     # Level 1+ implies this requirement even when the flag is false.
     require_transparency: bool = False
     # When True, bound artifacts without runtime hashes cause INCOMPLETE result
@@ -690,8 +738,8 @@ def verify_manifest(
     expires_at = manifest.get("expires_at")
     if issued_at and expires_at:
         try:
-            issued = datetime.fromisoformat(issued_at.replace("Z", "+00:00"))
-            exp = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+            issued = _parse_timestamp(issued_at)
+            exp = _parse_timestamp(expires_at)
             now = datetime.now(timezone.utc)
             if issued > now:
                 result.result = OverallResult.MISMATCH
@@ -705,7 +753,17 @@ def verify_manifest(
                 result.result = OverallResult.EXPIRED
                 return result
         except (ValueError, AttributeError):
-            pass
+            # Fail closed. These strings are inside the signing pre-image, so an
+            # unreadable one is not a transport artefact; it is a manifest whose
+            # validity window this verifier cannot evaluate. Skipping the check
+            # let a correctly signed but expired manifest reach VALID.
+            result.result = OverallResult.MISMATCH
+            result.mismatch_details = [MismatchDetail(
+                field="validity.timestamps",
+                expected_hash="<parseable issued_at and expires_at>",
+                actual_hash=f"<issued_at={issued_at!r} expires_at={expires_at!r}>",
+            )]
+            return result
 
     # --- Crypto profile downgrade check (spec 4.2: a verifier MUST reject
     # rather than silently fall back, "this prevents downgrade attacks during
@@ -1007,11 +1065,14 @@ def verify_manifest(
         baseline_expired = False
         if ttl and approved_at:
             try:
-                approved = datetime.fromisoformat(approved_at.replace("Z", "+00:00"))
+                approved = _parse_timestamp(approved_at)
                 if datetime.now(timezone.utc) > approved + timedelta(seconds=ttl):
                     baseline_expired = True
             except (ValueError, AttributeError):
-                pass
+                # Same fail-closed rule as the validity window and the HITL
+                # approval window (HITL-001): a TTL that cannot be evaluated is
+                # treated as elapsed, never as still current.
+                baseline_expired = True
         if baseline_expired:
             fields.memory_baseline = FieldResult.EXPIRED
         else:
@@ -1202,7 +1263,33 @@ def verify_manifest(
                 }
                 expected_attest_hash = "sha256:" + _hashlib.sha256(_canonicalize(subset)).hexdigest()
             if hmac.compare_digest(reported_hash, expected_attest_hash):
-                result.attestation_verified = True
+                # The hash matching proves the report is *about this manifest*.
+                # It proves nothing about hardware: for a v0.1 manifest the
+                # attestation block is outside the signing pre-image (spec 3.3
+                # excludes it), and for a v0.2 COSE envelope it rides in the
+                # unprotected header. Either way a party holding any validly
+                # signed manifest can append a self-asserted digest it computed
+                # itself. Treating that as attestation let a software-only
+                # manifest satisfy enforce_attestation=True and reach VALID.
+                #
+                # So the binding is necessary and not sufficient. The verdict
+                # also needs an independent appraisal, supplied by the caller
+                # and bound to this manifest, exactly as transparency receipts
+                # are handled below.
+                attestation_evidence_bound = (
+                    context.attestation_evidence_manifest_id == manifest_id
+                )
+                if (
+                    attestation_evidence_bound
+                    and expected_attest_hash in context.verified_attestation_manifest_hashes
+                ):
+                    result.attestation_verified = True
+                else:
+                    result.warnings.append(
+                        "attestation block binds this manifest but no independent "
+                        "hardware appraisal was supplied; attestation_verified "
+                        "reflects the binding only, not hardware provenance"
+                    )
             else:
                 # A present attestation that binds a different manifest is a
                 # mismatch whether or not the caller asked for enforcement
@@ -1285,6 +1372,18 @@ def verify_manifest(
             result.result = OverallResult.INCOMPLETE
         elif context.enforce_attestation and not result.attestation_verified:
             result.result = OverallResult.ATTESTATION_UNAVAILABLE
+        elif context.enforce_attestation and attestation_block.get("audit_key_sealed") is not True:
+            # Spec v0.2 5.3 requires audit_key_sealed=true in the attestation
+            # block under enforcement. The engine read audit_chain_root and
+            # reacted to it, but never read this flag, so a manifest declaring
+            # audit_key_sealed=false returned exactly the same VALID as one
+            # declaring true. An unsealed audit key means the audit chain can be
+            # rewritten by whoever holds it, which is the thing sealing prevents.
+            result.result = OverallResult.ATTESTATION_UNAVAILABLE
+            result.warnings.append(
+                "enforce_attestation is set but attestation.audit_key_sealed is "
+                "not true (spec 5.3)"
+            )
 
     # Surface bound-but-unchecked artifacts even in non-strict mode so callers
     # never read a VALID result as proof that artifact bindings were checked.
@@ -1564,6 +1663,8 @@ def create_router(
             verified_transparency_entry_ids=request.verified_transparency_entry_ids,
             verified_transparency_receipt_hashes=request.verified_transparency_receipt_hashes,
             transparency_evidence_manifest_id=request.transparency_evidence_manifest_id,
+            verified_attestation_manifest_hashes=request.verified_attestation_manifest_hashes,
+            attestation_evidence_manifest_id=request.attestation_evidence_manifest_id,
             require_transparency=request.require_transparency,
             require_delegation=request.require_delegation,
         )

@@ -438,11 +438,63 @@ def _manifest_hash(manifest: dict) -> str:
     return "sha256:" + hashlib.sha256(canonicalize(subset)).hexdigest()
 
 
-def test_attestation_verified_true_when_hash_matches():
+# GHSA-85fc-3g4g-fjjc / GHSA-qvg2-j8c5-5x3w: a matching manifest_hash_in_report
+# proves the report is about this manifest. It is not evidence that any hardware
+# produced it. For v0.1 the attestation block is outside the signing pre-image
+# (spec 3.3), so a party holding any validly signed manifest can append a digest
+# it computed itself; for v0.2 COSE the block rides in the unprotected header.
+# attestation_verified therefore needs an independent appraisal as well.
+
+def test_attestation_hash_binding_alone_does_not_verify_attestation():
     m = base_manifest()
     m["attestation"] = {"platform": "tpm", "manifest_hash_in_report": _manifest_hash(m)}
+
     result = verify_manifest(m, base_context(), store())
+
+    assert result.attestation_verified is False
+    assert any("no independent hardware appraisal" in w for w in result.warnings)
+
+
+def test_attestation_verified_true_with_an_independent_appraisal():
+    m = base_manifest()
+    m["attestation"] = {"platform": "tpm", "manifest_hash_in_report": _manifest_hash(m)}
+    ctx = base_context(
+        verified_attestation_manifest_hashes={_manifest_hash(m)},
+        attestation_evidence_manifest_id=m["manifest_id"],
+    )
+
+    result = verify_manifest(m, ctx, store())
+
     assert result.attestation_verified is True
+
+
+def test_appraisal_bound_to_another_manifest_does_not_transfer():
+    """A passing appraisal is not a bearer token for every manifest."""
+    m = base_manifest()
+    m["attestation"] = {"platform": "tpm", "manifest_hash_in_report": _manifest_hash(m)}
+    ctx = base_context(
+        verified_attestation_manifest_hashes={_manifest_hash(m)},
+        attestation_evidence_manifest_id="018f4a3b-0000-7e5f-a8b9-000000000000",
+    )
+
+    result = verify_manifest(m, ctx, store())
+
+    assert result.attestation_verified is False
+
+
+def test_software_only_manifest_cannot_satisfy_enforce_attestation():
+    """The reported impact: a self-asserted digest reaching VALID under enforcement."""
+    m = base_manifest()
+    m["attestation"] = {
+        "platform": "tpm",
+        "manifest_hash_in_report": _manifest_hash(m),
+        "audit_key_sealed": True,
+    }
+
+    result = verify_manifest(m, base_context(enforce_attestation=True), store())
+
+    assert result.attestation_verified is False
+    assert result.result == OverallResult.ATTESTATION_UNAVAILABLE
 
 
 def test_attestation_verified_false_when_no_attestation():
@@ -909,3 +961,52 @@ def test_bad_enum_value_fails_schema():
     result = verify_manifest(m, base_context(), store())
     assert result.result == OverallResult.MISMATCH
     assert any(d.field.startswith("schema") for d in result.mismatch_details)
+
+
+# GHSA-mqqg-9mpc-mpg7: spec v0.2 5.3 requires audit_key_sealed=true under
+# enforce_attestation. The engine read audit_chain_root but never this flag, so
+# true and false produced the same VALID.
+
+def _appraised_ctx(m, **overrides):
+    return base_context(
+        enforce_attestation=True,
+        verified_attestation_manifest_hashes={_manifest_hash(m)},
+        attestation_evidence_manifest_id=m["manifest_id"],
+        **overrides,
+    )
+
+
+def test_audit_key_sealed_true_is_accepted_under_enforcement():
+    m = base_manifest()
+    m["attestation"] = {
+        "platform": "tpm",
+        "manifest_hash_in_report": _manifest_hash(m),
+        "audit_key_sealed": True,
+    }
+
+    result = verify_manifest(m, _appraised_ctx(m), store())
+
+    assert result.result == OverallResult.VALID
+
+
+def test_audit_key_sealed_false_is_rejected_under_enforcement():
+    m = base_manifest()
+    m["attestation"] = {
+        "platform": "tpm",
+        "manifest_hash_in_report": _manifest_hash(m),
+        "audit_key_sealed": False,
+    }
+
+    result = verify_manifest(m, _appraised_ctx(m), store())
+
+    assert result.result == OverallResult.ATTESTATION_UNAVAILABLE
+
+
+def test_audit_key_sealed_absent_is_rejected_under_enforcement():
+    """Absent is not sealed. Spec 5.3 requires the flag to be present and true."""
+    m = base_manifest()
+    m["attestation"] = {"platform": "tpm", "manifest_hash_in_report": _manifest_hash(m)}
+
+    result = verify_manifest(m, _appraised_ctx(m), store())
+
+    assert result.result == OverallResult.ATTESTATION_UNAVAILABLE
