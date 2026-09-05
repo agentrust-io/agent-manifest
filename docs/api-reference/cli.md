@@ -110,7 +110,20 @@ Usage: manifest verify [OPTIONS] MANIFEST_FILE
   Prints the VerificationResult as JSON. Exits with code 0 on VALID, 1 on any other
   result.
 
-  Use --crl-path to load a revocation list and check for revoked manifests.
+  Use --crl-path to load a revocation list and check for revoked manifests. Pass --crl-
+  trusted-key with it to authenticate each record present in the CRL against the
+  revoking authority's public key (spec Section 3.7 / REVOC-003): a record with a
+  missing, malformed, or invalid signature causes verification to fail closed with an
+  error, rather than being silently treated as "not revoked".
+
+  --crl-trusted-key does NOT prove the CRL file is complete. Per-record signatures
+  authenticate the records that are present but cannot detect that a line — or the
+  entire file — was deleted. A party who can write or intercept the CRL file can still
+  suppress a real revocation by removing its record entirely; only a signed, versioned
+  CRL snapshot (not yet implemented) can close that gap. Without --crl-trusted-key at
+  all, every line in the CRL file is additionally trusted unauthenticated: a party who
+  can write or intercept that file can also fabricate a revocation for a legitimate
+  manifest.
 
   HITL approvals attach outside the manifest signature, so supply the
   approver keys you trust with --approver-key. Without them an approval is
@@ -128,6 +141,11 @@ Options:
                                   manifest hash
   --crl-path TEXT                 Path to a FileCRL JSON-Lines file for revocation
                                   checks
+  --crl-trusted-key TEXT          Path to the CRL-signing authority's raw Ed25519 public
+                                  key hex file. Required to cryptographically verify
+                                  --crl-path records (REVOC-003); without it every
+                                  record in the file is trusted unauthenticated. See the
+                                  command description above for the completeness caveat.
   --public-key TEXT               Path to a trusted raw Ed25519 public key hex file
   --approver-key APPROVER_ID=PATH
                                   Trusted HITL approver key as approver_id=path to a raw

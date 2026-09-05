@@ -9,6 +9,7 @@ from click.testing import CliRunner
 
 from agent_manifest.cli import cli
 from agent_manifest._delegation import HitlApprovalSigner
+from agent_manifest._revocation import FileCRL, sign_revocation
 from agent_manifest._signing import Ed25519Signer, generate_ed25519
 
 APPROVER_ID = "mailto:alice@example.com"
@@ -145,6 +146,241 @@ def test_cli_verify_with_missing_public_key_file_fails_cleanly(tmp_path):
 
     assert result.exit_code != 0
     assert "Public key file not found or is not a regular file" in result.output
+    assert "Traceback" not in result.output
+
+
+# ---------------------------------------------------------------------------
+# CRL-CLI-001: --crl-path must be able to authenticate revocation records.
+#
+# FileCRL(trusted_signer_key=...) already verifies each record's signature
+# (REVOC-003), but the CLI's `verify --crl-path` never plumbed that argument
+# through, so every CLI-driven CRL load ran in FileCRL's unauthenticated
+# "development mode" regardless of intent. A party who can write to or
+# intercept the CRL file could delete a revocation record to un-revoke a
+# compromised manifest, or inject a fabricated one, and the CLI would accept
+# it. --crl-trusted-key closes that gap.
+# ---------------------------------------------------------------------------
+
+
+def _write_crl_with_revocation(tmp_path, manifest_id, authority_kp, name="crl.jsonl"):
+    crl_path = tmp_path / name
+    crl = FileCRL(crl_path, trusted_signer_key=authority_kp.public_bytes)
+    crl.revoke(sign_revocation(manifest_id, "key compromise", "admin", authority_kp))
+    return crl_path
+
+
+def _write_authority_key(tmp_path, keypair, name="authority.hex") -> Path:
+    path = tmp_path / name
+    path.write_text(keypair.public_bytes.hex())
+    return path
+
+
+def test_cli_verify_crl_trusted_key_detects_revocation(tmp_path):
+    keypair = generate_ed25519()
+    signed_path = _write_signed_manifest(tmp_path, keypair)
+    public_path = _write_public_key(tmp_path, keypair)
+    authority_kp = generate_ed25519()
+    manifest = json.loads(signed_path.read_text())
+    crl_path = _write_crl_with_revocation(tmp_path, manifest["manifest_id"], authority_kp)
+    authority_path = _write_authority_key(tmp_path, authority_kp)
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "verify", str(signed_path),
+            "--public-key", str(public_path),
+            "--signature-only",
+            "--crl-path", str(crl_path),
+            "--crl-trusted-key", str(authority_path),
+        ],
+    )
+
+    payload = _json_stdout(result)
+    assert result.exit_code == 1
+    assert payload["result"] == "REVOKED"
+    assert "WARNING" not in result.output
+
+
+def test_cli_verify_crl_without_trusted_key_still_works_but_warns(tmp_path):
+    # Backward-compatible: omitting --crl-trusted-key must not break existing
+    # scripts, but it must loudly say the CRL is unauthenticated.
+    keypair = generate_ed25519()
+    signed_path = _write_signed_manifest(tmp_path, keypair)
+    public_path = _write_public_key(tmp_path, keypair)
+    authority_kp = generate_ed25519()
+    manifest = json.loads(signed_path.read_text())
+    crl_path = _write_crl_with_revocation(tmp_path, manifest["manifest_id"], authority_kp)
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "verify", str(signed_path),
+            "--public-key", str(public_path),
+            "--signature-only",
+            "--crl-path", str(crl_path),
+        ],
+    )
+
+    payload = _json_stdout(result)
+    assert result.exit_code == 1
+    assert payload["result"] == "REVOKED"
+    combined = (result.output or "") + (result.stderr or "")
+    assert "WARNING: --crl-path given without --crl-trusted-key" in combined
+
+
+def test_cli_verify_crl_with_wrong_trusted_key_fails_closed(tmp_path):
+    # A CRL signed by an authority the caller does NOT trust must NOT be
+    # treated as evidence of non-revocation. The record fails REVOC-003
+    # verification on load, which must surface as a hard, non-zero-exit
+    # error — not as a silent "not revoked" / VALID result. Reporting VALID
+    # here would let anyone who can tamper with (or swap the signer of) a
+    # record achieve the same un-revocation outcome --crl-trusted-key exists
+    # to prevent (CRL-CLI-002).
+    keypair = generate_ed25519()
+    signed_path = _write_signed_manifest(tmp_path, keypair)
+    public_path = _write_public_key(tmp_path, keypair)
+    real_authority = generate_ed25519()
+    untrusted_authority = generate_ed25519()
+    manifest = json.loads(signed_path.read_text())
+    crl_path = _write_crl_with_revocation(
+        tmp_path, manifest["manifest_id"], untrusted_authority
+    )
+    trusted_path = _write_authority_key(tmp_path, real_authority)
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "verify", str(signed_path),
+            "--public-key", str(public_path),
+            "--signature-only",
+            "--crl-path", str(crl_path),
+            "--crl-trusted-key", str(trusted_path),
+        ],
+    )
+    assert result.exit_code != 0
+    assert "CRL failed integrity verification" in result.output
+    assert "Traceback" not in result.output
+    # Must NOT be reachable as a VALID/REVOKED verdict in stdout — the
+    # command must fail before verify_manifest() ever runs.
+    assert '"result"' not in result.output
+
+
+def test_cli_verify_crl_with_tampered_record_fails_closed(tmp_path):
+    # Directly reproduces the reviewer's repro: flip a byte in a genuinely
+    # signed record's signature and confirm the CLI errors out instead of
+    # reporting the manifest as not revoked.
+    keypair = generate_ed25519()
+    signed_path = _write_signed_manifest(tmp_path, keypair)
+    public_path = _write_public_key(tmp_path, keypair)
+    authority_kp = generate_ed25519()
+    manifest = json.loads(signed_path.read_text())
+    crl_path = _write_crl_with_revocation(
+        tmp_path, manifest["manifest_id"], authority_kp
+    )
+    authority_path = _write_authority_key(tmp_path, authority_kp)
+
+    line = json.loads(crl_path.read_text().splitlines()[0])
+    sig = list(line["revocation_signature"])
+    mid_idx = len(sig) // 2
+    sig[mid_idx] = "A" if sig[mid_idx] != "A" else "B"
+    line["revocation_signature"] = "".join(sig)
+    crl_path.write_text(json.dumps(line) + "\n")
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "verify", str(signed_path),
+            "--public-key", str(public_path),
+            "--signature-only",
+            "--crl-path", str(crl_path),
+            "--crl-trusted-key", str(authority_path),
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "CRL failed integrity verification" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_cli_verify_crl_with_deleted_record_fails_closed(tmp_path):
+    # Deleting a signed record entirely is currently indistinguishable from
+    # "it never existed" (documented limitation see CHANGELOG/docs: this
+    # is NOT fixed by fail-closed verification of present records, and
+    # requires a signed CRL snapshot/digest to close). This test pins down
+    # today's actual behavior so a future regression doesn't silently
+    # loosen it further without anyone noticing.
+    keypair = generate_ed25519()
+    signed_path = _write_signed_manifest(tmp_path, keypair)
+    public_path = _write_public_key(tmp_path, keypair)
+    authority_kp = generate_ed25519()
+    manifest = json.loads(signed_path.read_text())
+    crl_path = _write_crl_with_revocation(
+        tmp_path, manifest["manifest_id"], authority_kp
+    )
+    authority_path = _write_authority_key(tmp_path, authority_kp)
+
+    crl_path.write_text("")  # simulate deletion of the (only) record
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "verify", str(signed_path),
+            "--public-key", str(public_path),
+            "--signature-only",
+            "--crl-path", str(crl_path),
+            "--crl-trusted-key", str(authority_path),
+        ],
+    )
+    payload = _json_stdout(result)
+    assert result.exit_code == 0
+    assert payload["result"] == "VALID"
+
+
+def test_cli_verify_crl_trusted_key_without_crl_path_fails_cleanly(tmp_path):
+    # --crl-trusted-key with no --crl-path has nothing to authenticate and
+    # would otherwise be silently ignored, giving a false sense that
+    # revocation checking is enabled when it is not running at all.
+    keypair = generate_ed25519()
+    signed_path = _write_signed_manifest(tmp_path, keypair)
+    public_path = _write_public_key(tmp_path, keypair)
+    authority_kp = generate_ed25519()
+    authority_path = _write_authority_key(tmp_path, authority_kp)
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "verify", str(signed_path),
+            "--public-key", str(public_path),
+            "--crl-trusted-key", str(authority_path),
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "--crl-trusted-key requires --crl-path." in result.output
+    assert "Traceback" not in result.output
+
+
+def test_cli_verify_crl_trusted_key_malformed_fails_cleanly(tmp_path):
+    keypair = generate_ed25519()
+    signed_path = _write_signed_manifest(tmp_path, keypair)
+    public_path = _write_public_key(tmp_path, keypair)
+    crl_path = tmp_path / "crl.jsonl"
+    crl_path.write_text("")
+    bad_authority_path = tmp_path / "bad-authority.hex"
+    bad_authority_path.write_text("not-hex")
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "verify", str(signed_path),
+            "--public-key", str(public_path),
+            "--crl-path", str(crl_path),
+            "--crl-trusted-key", str(bad_authority_path),
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "CRL trusted key file does not contain valid hex data." in result.output
     assert "Traceback" not in result.output
 
 
