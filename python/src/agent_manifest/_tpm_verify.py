@@ -329,47 +329,37 @@ def _verify_ak_chain(
 ) -> object:
     """Verify a leaf-first AK chain up to a pinned trusted root; return the leaf.
 
-    Every certificate in the chain must be within its validity period (see
-    :func:`._cert_chain.check_validity_period`); an expired AK certificate or
-    an expired link above it is rejected even if every signature in the chain
-    is otherwise valid.
+    Delegates to :func:`._cert_chain.verify_cert_chain`, which is the same
+    appraisal the SEV-SNP and TDX paths use. Checking only "each certificate is
+    signed by the next, and the last one is pinned" is not enough: it accepts an
+    expired or not-yet-valid AK, a non-CA intermediate, and an intermediate whose
+    KeyUsage explicitly forbids certificate signing. Any of those is a chain a
+    relying party should never have treated as rooted in its pinned vendor CA.
 
-    Raises :class:`TpmVerificationError` on any failure.
+    Raises :class:`TpmVerificationError` on any failure, including malformed PEM.
+    The attestation dispatcher above only catches TpmVerificationError, so a raw
+    ValueError out of the certificate parser would escape it.
     """
     from cryptography import x509
-    from cryptography.exceptions import InvalidSignature
-    from cryptography.hazmat.primitives.hashes import SHA256
 
-    from ._cert_chain import CertChainError, check_validity_period
+    from ._cert_chain import CertChainError, verify_cert_chain
 
-    chain = x509.load_pem_x509_certificates(ak_chain_pem)
-    roots = x509.load_pem_x509_certificates(trusted_roots_pem)
+    try:
+        chain = x509.load_pem_x509_certificates(ak_chain_pem)
+        roots = x509.load_pem_x509_certificates(trusted_roots_pem)
+    except (ValueError, TypeError) as exc:
+        raise TpmVerificationError(f"AK certificate material is malformed: {exc}") from exc
+
     if not chain:
         raise TpmVerificationError("empty AK certificate chain")
     if not roots:
         raise TpmVerificationError("no trusted TPM roots supplied")
 
-    for i, cert in enumerate(chain):
-        try:
-            check_validity_period(
-                cert, label=f"AK chain certificate at position {i}", verification_time=verification_time
-            )
-        except CertChainError as e:
-            raise TpmVerificationError(str(e)) from e
+    try:
+        verify_cert_chain(chain, roots, verification_time=verification_time)
+    except CertChainError as exc:
+        raise TpmVerificationError(f"AK chain is not trusted: {exc}") from exc
 
-    for i in range(len(chain) - 1):
-        try:
-            chain[i].verify_directly_issued_by(chain[i + 1])
-        except (ValueError, TypeError, InvalidSignature) as exc:
-            raise TpmVerificationError(
-                f"AK chain certificate at position {i} is not validly issued by the next: {exc}"
-            ) from exc
-
-    trusted = {c.fingerprint(SHA256()) for c in roots}
-    if chain[-1].fingerprint(SHA256()) not in trusted:
-        raise TpmVerificationError(
-            "AK chain root is not among the supplied trusted TPM roots"
-        )
     return chain[0]
 
 
