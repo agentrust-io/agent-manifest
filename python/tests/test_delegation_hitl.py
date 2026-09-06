@@ -414,6 +414,30 @@ def test_approval_expired_raises():
         verify_hitl_approval(approval, MID, kp.public_bytes)
 
 
+@pytest.mark.parametrize("approved_at", ["2026-09-05T23:00:00", "2026-09-05"])
+def test_expiring_approval_requires_timezone(approved_at):
+    approval, public_key = _valid_approval()
+    approval["approved_at"] = approved_at
+    with pytest.raises(ValueError, match="approved_at must include a timezone"):
+        verify_hitl_approval(approval, MID, public_key)
+
+
+@pytest.mark.parametrize("offset_hours", [-7, 0, 5.5])
+def test_expiring_approval_accepts_valid_timezone_offsets(offset_hours):
+    kp = generate_ed25519()
+    approved_at = datetime.now(timezone(timedelta(hours=offset_hours))).isoformat()
+    approval = {
+        "approved_at": approved_at,
+        "approved_scope": APPROVAL_SCOPE,
+        "approver_id": "did:web:ciso",
+        "approval_signature": HitlApprovalSigner(kp).sign_approval(
+            manifest_id=MID, approved_at=approved_at,
+            approved_scope=APPROVAL_SCOPE, approver_id="did:web:ciso",
+        ),
+    }
+    verify_hitl_approval(approval, MID, kp.public_bytes)
+
+
 def test_approval_no_duration_does_not_expire():
     """Approval with no duration limit must not raise expiry error."""
     kp = generate_ed25519()

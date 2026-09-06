@@ -575,6 +575,8 @@ def verify_hitl_approval(
             approved_at = datetime.fromisoformat(approved_at_str.replace("Z", "+00:00"))
         except ValueError as e:
             raise ValueError(f"HITL approval has invalid approved_at: {e}") from e
+        if approved_at.tzinfo is None or approved_at.utcoffset() is None:
+            raise ValueError("HITL approval.approved_at must include a timezone")
         try:
             expiry = approved_at + timedelta(seconds=duration)
         except OverflowError as e:
