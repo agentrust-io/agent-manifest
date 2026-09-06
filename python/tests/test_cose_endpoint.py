@@ -56,6 +56,10 @@ def manifest(**overrides):
         "artifacts": {
             "system_prompt": {"hash": SHA},
             "policy_bundle": {"hash": SHA_B},
+            # A full-binding manifest (no profile) requires all three. This
+            # fixture used to omit it and still verify, which was the masking
+            # reported in GHSA-6hjj-gh3c-r6wv.
+            "model_identity": {"version": "claude-3", "deployment_type": "api"},
         },
     }
     m.update(overrides)
@@ -66,6 +70,7 @@ def trust_store(**overrides):
     ctx = VerificationContext(
         system_prompt_hash=SHA,
         policy_bundle_hash=SHA_B,
+        model_version="claude-3",
         trusted_keys={KP.key_id: KP.public_b64url()},
     )
     for k, v in overrides.items():
@@ -113,19 +118,40 @@ def test_enforce_flags_are_honoured():
     assert response.json()["result"] == "ATTESTATION_UNAVAILABLE"
 
 
-def test_attestation_binding_is_checked_over_http():
+def test_attestation_binding_alone_does_not_pass_enforcement_over_http():
+    """GHSA-85fc-3g4g-fjjc, on the HTTP COSE surface.
+
+    This endpoint takes its flags as query parameters and has no channel for
+    the caller to hand back a hardware appraisal. It therefore cannot establish
+    hardware provenance for anything, and under enforce_attestation it now says
+    so instead of reading a self-asserted digest in the unprotected header as
+    an attested result.
+    """
     m = manifest()
     signed = attach_attestation(
         sign_cose_sign1(m, KP),
         {
             "platform": "amd-sev-snp",
             "manifest_hash_in_report": payload_hash(cose_payload(m)),
+            "audit_key_sealed": True,
         },
     )
     response = post(client(trust_store()), signed, enforce_attestation=True)
     body = response.json()
-    assert body["result"] == "VALID"
-    assert body["attestation_verified"] is True
+    assert body["result"] == "ATTESTATION_UNAVAILABLE"
+    assert body["attestation_verified"] is False
+
+
+def test_attestation_binding_is_still_checked_over_http():
+    """A report naming other bytes is a mismatch, enforcement or not."""
+    m = manifest()
+    signed = attach_attestation(
+        sign_cose_sign1(m, KP),
+        {"platform": "amd-sev-snp", "manifest_hash_in_report": "sha256:" + "c" * 64},
+    )
+    response = post(client(trust_store()), signed)
+    body = response.json()
+    assert body["result"] == "MISMATCH"
 
 
 # ---------------------------------------------------------------------------

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Optional
 
 from ._canonicalize import canonicalize
 from ._signing import Ed25519KeyPair, Ed25519Verifier
@@ -465,14 +465,33 @@ def _approval_pre_image(
     approved_at: str,
     approved_scope: dict[str, Any],
     approver_id: str,
+    approval_method: Optional[str] = None,
 ) -> bytes:
-    """RFC 8785 canonical bytes for HITL approval signing."""
+    """RFC 8785 canonical bytes for HITL approval signing.
+
+    ``approval_method`` is included when the approval carries one. It is
+    verdict-relevant at conformance Level 2, where the integrated verifier
+    treats "software-key" as insufficient and requires "hardware-key" for
+    high and critical risk tiers. Leaving it outside the pre-image meant an
+    approval signed as software-key could be relabelled hardware-key after
+    the fact, keeping its valid signature and changing the Level-2 outcome
+    from APPROVAL_INSUFFICIENT to APPROVED. An authenticated approval did
+    not establish authenticated approval strength.
+
+    Omitting the key entirely when the field is absent keeps the pre-image
+    byte-identical for approvals that never carried a method, so those
+    signatures still verify. Adding, removing or editing the field on a
+    signed approval all change the pre-image and break the signature, which
+    is the whole point.
+    """
     obj = {
         "manifest_id": manifest_id,
         "approved_at": approved_at,
         "approved_scope": approved_scope,
         "approver_id": approver_id,
     }
+    if approval_method is not None:
+        obj["approval_method"] = approval_method
     return canonicalize(obj)
 
 
@@ -494,10 +513,17 @@ class HitlApprovalSigner:
         approved_at: str,
         approved_scope: dict[str, Any],
         approver_id: str,
+        approval_method: Optional[str] = None,
     ) -> str:
-        """Return base64url-encoded approval signature."""
+        """Return base64url-encoded approval signature.
+
+        Pass ``approval_method`` whenever the approval record will carry one,
+        so the signature covers the strength claim the verifier reads.
+        """
         import base64
-        pre = _approval_pre_image(manifest_id, approved_at, approved_scope, approver_id)
+        pre = _approval_pre_image(
+            manifest_id, approved_at, approved_scope, approver_id, approval_method
+        )
         sig_bytes = self.keypair.private_key.sign(pre)
         return base64.urlsafe_b64encode(sig_bytes).rstrip(b"=").decode()
 
@@ -540,6 +566,7 @@ def verify_hitl_approval(
         approved_at=approval["approved_at"],
         approved_scope=approval["approved_scope"],
         approver_id=approval["approver_id"],
+        approval_method=approval.get("approval_method"),
     )
     sig = approval["approval_signature"]
     pad = 4 - len(sig) % 4
