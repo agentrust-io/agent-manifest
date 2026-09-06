@@ -159,6 +159,7 @@ def approval(**overrides):
             approved_at=a["approved_at"],
             approved_scope=a["approved_scope"],
             approver_id=a["approver_id"],
+            approval_method=a.get("approval_method"),
         )
     a.pop("manifest_id", None)
     return a

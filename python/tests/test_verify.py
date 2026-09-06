@@ -110,6 +110,7 @@ def hitl_approval(approved_at, approved_scope, **overrides):
         approved_at=approval["approved_at"],
         approved_scope=approval["approved_scope"],
         approver_id=approval["approver_id"],
+        approval_method=approval.get("approval_method"),
     )
     return approval
 
