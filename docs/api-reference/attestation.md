@@ -5,7 +5,7 @@ Hardware attestation providers for Levels 1–3. See [Tutorial: Hardware attesta
 > **Scope:** `extend_manifest_hash()` + `get_attestation_report()` run once at
 > agent startup and prove which manifest was active when the TEE was initialised.
 > They do not continuously monitor runtime state. For periodic freshness proofs
-> use `attest_runtime_state()` — see [RuntimeAttestationReport](#runtimeattestationreport).
+> use `attest_runtime_state()` — see [RuntimeAttestationReport](#agent_manifest._providers.RuntimeAttestationReport).
 
 ## Base types
 

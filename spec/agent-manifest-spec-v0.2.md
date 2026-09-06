@@ -1,4 +1,4 @@
-﻿# Agent Manifest Specification
+# Agent Manifest Specification
 
 | Field | Value |
 |---|---|

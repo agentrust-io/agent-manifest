@@ -8,7 +8,7 @@ Anyone who submits a PR, files an issue, or participates in discussion. No forma
 
 ### Reviewer
 
-Trusted contributors with triage and review rights. Can approve PRs but cannot merge without a Maintainer approval on security-sensitive paths. See [CODEOWNERS](.github/CODEOWNERS) for path-specific rules.
+Trusted contributors with triage and review rights. Can approve PRs but cannot merge without a Maintainer approval on security-sensitive paths. See [CODEOWNERS](https://github.com/agentrust-io/agent-manifest/blob/main/.github/CODEOWNERS) for path-specific rules.
 
 **Advancement**: 3+ merged substantive PRs. Nominated by any Maintainer, confirmed by Project Lead.
 
