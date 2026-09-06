@@ -1,6 +1,6 @@
 {
-  "id": "AM-VEC-018",
-  "description": "Attestation hash binding alone does not make attestation_verified true.",
+  "id": "AM-VEC-018d",
+  "description": "An independent hardware appraisal bound to this manifest makes attestation_verified true.",
   "spec_refs": [
     "3.3"
   ],
@@ -70,10 +70,14 @@
     "model_version": "claude-3",
     "trusted_keys": {
       "56475aa75463474c0285df5dbf2bcab73da651358839e9b77481b2eab107708c": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
-    }
+    },
+    "verified_attestation_manifest_hashes": [
+      "sha256:f1cbdacb5191606917f4340ab8340c1e0eaa471004430a9811df83200324090d"
+    ],
+    "attestation_evidence_manifest_id": "018f4a3b-2c1d-7e5f-a8b9-0d1e2f3a4b5c"
   },
   "expected": {
     "result": "VALID",
-    "attestation_verified": false
+    "attestation_verified": true
   }
 }

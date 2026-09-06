@@ -4,10 +4,12 @@ The synthetic tests build a self-consistent TDX v4 quote (P-256 attestation key,
 QE report binding, a PCK leaf->intermediate->root chain) and drive all four
 verification steps, plus tamper/pinning rejection — no real platform identifiers.
 
-The full four-step verification was validated on a genuine TDX quote captured
-from a GCP C3 confidential VM; that reproduction is kept out of the repo (the
-PCK certificate identifies the CPU). Set ``AGENT_MANIFEST_TDX_QUOTE`` to a real
-quote file to exercise it against the pinned Intel root.
+The full four-step verification is also driven against the genuine TDX quotes
+captured from a GCP C3 confidential VM and committed under
+``tests/fixtures/hardware/gcp-tdx-2026-07-21/``. Those run unconditionally, so a
+change that breaks real-quote verification cannot pass CI green on synthetic
+vectors alone. Set ``AGENT_MANIFEST_TDX_QUOTE`` to point at a different real
+quote to exercise one that is not committed here.
 """
 import hashlib
 import os
@@ -15,6 +17,8 @@ import struct
 
 import pytest
 from agent_manifest._tdx_verify import (
+    _OFF_MRTD,
+    _QUOTE_HEADER_LEN,
     TdxVerificationError,
     parse_tdx_quote,
     parse_tdx_quote_signature,
@@ -349,3 +353,83 @@ def test_parse_signature_rejects_overstated_qe_auth_size():
     tampered[off:off + 2] = (0xFFFF).to_bytes(2, "little")
     with pytest.raises(TdxVerificationError, match="QE auth data"):
         parse_tdx_quote_signature(bytes(tampered))
+
+
+# --- Committed real-hardware capture ------------------------------------------
+# GCP C3 confidential VM, non-paravisor TDX, captured 2026-07-21 (#305). These
+# ran nowhere until now: the only real-quote test was gated on an environment
+# variable nothing sets, so the committed capture was inert and CI proved
+# verification only against vectors this file mints itself. A synthetic quote
+# cannot catch an offset or chain-walk regression that a genuine one would,
+# which is the entire reason the capture was committed.
+
+_HARDWARE = os.path.join(
+    os.path.dirname(__file__), "fixtures", "hardware", "gcp-tdx-2026-07-21"
+)
+
+# Pinned so a swapped or re-captured file fails loudly rather than silently
+# changing what "verified on real hardware" refers to.
+_CAPTURE_SHA256 = {
+    "tdx_quote.bin":
+        "f9efbac112efe510aa8ccd20703b063591b8c2c54c474d0ff1d6500299bae0ba",
+    "tdx_quote_manifest.bin":
+        "1ae04c74b564ef8795d4c4e4ffd1835d080d9dad4f8879e5cd1e8249503828b2",
+}
+
+# One TD, so one launch measurement across both captures.
+_CAPTURE_MRTD = (
+    "9bf86e6280ec4282b8b5822d8166410a456cdb720109aa799f0011fa63df1de3"
+    "ee5e35e293fc410c061433163acb03a6"
+)
+
+
+def _capture(name):
+    with open(os.path.join(_HARDWARE, name), "rb") as fh:
+        return fh.read()
+
+
+@pytest.mark.parametrize("name", sorted(_CAPTURE_SHA256))
+def test_committed_capture_is_the_one_the_hardware_produced(name):
+    assert hashlib.sha256(_capture(name)).hexdigest() == _CAPTURE_SHA256[name]
+
+
+@pytest.mark.parametrize("name", sorted(_CAPTURE_SHA256))
+def test_real_quote_verifies_against_the_pinned_intel_root(name):
+    """The default root is the embedded Intel SGX Root CA, not a test root."""
+    assert verify_tdx_quote(_capture(name)) is True
+
+
+@pytest.mark.parametrize("name", sorted(_CAPTURE_SHA256))
+def test_real_quote_carries_its_own_pck_chain(name):
+    """Offline verification depends on the chain travelling inside the quote."""
+    parsed = parse_tdx_quote_signature(_capture(name))
+    assert parsed.pck_chain_pem.count(b"-----BEGIN CERTIFICATE-----") == 3
+
+
+@pytest.mark.parametrize("name", sorted(_CAPTURE_SHA256))
+def test_real_quote_binds_a_32_byte_digest_in_report_data(name):
+    """The guest-controlled half carries the digest; the rest stays zero."""
+    parsed = parse_tdx_quote(_capture(name))
+    assert parsed.report_data[:32] != b"\x00" * 32
+    assert parsed.report_data[32:] == b"\x00" * 32
+
+
+def test_both_captures_share_one_mrtd_but_bind_different_digests():
+    """Same TD, two bindings. Guards against a copy of one file under two names."""
+    plain = parse_tdx_quote(_capture("tdx_quote.bin"))
+    manifest = parse_tdx_quote(_capture("tdx_quote_manifest.bin"))
+    assert plain.mrtd.hex() == manifest.mrtd.hex() == _CAPTURE_MRTD
+    assert plain.report_data[:32] != manifest.report_data[:32]
+
+
+def test_a_tampered_real_quote_is_rejected():
+    """Flip a byte of MRTD, inside the region the attestation key signs.
+
+    The quote stays well formed, so this is the False branch and not the raising
+    one: a broken signature over a parseable quote is a verdict, not a parse
+    error. Asserting ``is False`` rather than "falsy" keeps a future early
+    return of None from counting as a rejection.
+    """
+    tampered = bytearray(_capture("tdx_quote.bin"))
+    tampered[_QUOTE_HEADER_LEN + _OFF_MRTD] ^= 0xFF
+    assert verify_tdx_quote(bytes(tampered)) is False
