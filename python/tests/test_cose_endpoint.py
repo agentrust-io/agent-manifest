@@ -56,6 +56,10 @@ def manifest(**overrides):
         "artifacts": {
             "system_prompt": {"hash": SHA},
             "policy_bundle": {"hash": SHA_B},
+            # A full-binding manifest (no profile) requires all three. This
+            # fixture used to omit it and still verify, which was the masking
+            # reported in GHSA-6hjj-gh3c-r6wv.
+            "model_identity": {"version": "claude-3", "deployment_type": "api"},
         },
     }
     m.update(overrides)
@@ -66,6 +70,7 @@ def trust_store(**overrides):
     ctx = VerificationContext(
         system_prompt_hash=SHA,
         policy_bundle_hash=SHA_B,
+        model_version="claude-3",
         trusted_keys={KP.key_id: KP.public_b64url()},
     )
     for k, v in overrides.items():

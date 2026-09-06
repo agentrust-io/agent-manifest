@@ -1011,3 +1011,60 @@ def test_audit_key_sealed_absent_is_rejected_under_enforcement():
     result = verify_manifest(m, _appraised_ctx(m), store())
 
     assert result.result == OverallResult.ATTESTATION_UNAVAILABLE
+
+
+# ---------------------------------------------------------------------------
+# GHSA-6hjj-gh3c-r6wv: an extra omission must not improve the verdict.
+#
+# models._validate_manifest_profile enforces the full-binding requirement, but
+# it is a mode="after" model validator, so Pydantic runs it only once every
+# field has validated. Deleting a nested required field stopped it running, and
+# _strict_schema_violations then filtered that nested "missing" error away for
+# legacy compatibility. Nothing survived: the manifest missing a required
+# binding AND a nested field returned VALID, while the one missing only the
+# required binding returned MISMATCH.
+# ---------------------------------------------------------------------------
+
+def _without_model_identity():
+    m = base_manifest()
+    m["artifacts"] = {k: v for k, v in m["artifacts"].items() if k != "model_identity"}
+    return m
+
+
+def test_full_binding_manifest_without_model_identity_is_a_mismatch():
+    """The B1 baseline: the independent failure on its own."""
+    result = verify_manifest(sign(_without_model_identity()), base_context(), store())
+
+    assert result.result == OverallResult.MISMATCH
+
+
+def test_a_further_nested_omission_does_not_rescue_the_verdict():
+    """The B3 case: removing more must never verify better."""
+    m = _without_model_identity()
+    m["artifacts"]["system_prompt"] = {
+        k: v for k, v in m["artifacts"]["system_prompt"].items() if k != "hash"
+    }
+
+    result = verify_manifest(sign(m), base_context(), store())
+
+    assert result.result == OverallResult.MISMATCH
+    assert any(
+        "full-binding manifest is missing required artifacts" in d.actual_hash
+        for d in result.mismatch_details
+    )
+
+
+def test_nested_omissions_alone_are_still_tolerated():
+    """The legacy compatibility this filter exists for is unchanged.
+
+    An incomplete artifact binding is appraised as NOT_BOUND, not rejected.
+    Only the top-level full-binding requirement stopped being maskable.
+    """
+    m = base_manifest()
+    m["artifacts"]["system_prompt"] = {
+        k: v for k, v in m["artifacts"]["system_prompt"].items() if k != "hash"
+    }
+
+    result = verify_manifest(sign(m), base_context(), store())
+
+    assert result.result != OverallResult.MISMATCH

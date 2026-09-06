@@ -444,6 +444,42 @@ def _signature_key_issuer_mismatch(
     return None
 
 
+# The full-binding requirement, checked on the raw document.
+#
+# models.Manifest enforces this in _validate_manifest_profile, which is a
+# mode="after" model validator: Pydantic runs it only once every field has
+# validated. So an unrelated omission deeper in the document stops it running,
+# and _strict_schema_violations then filters the nested "missing" error away for
+# legacy compatibility. Nothing survives, and a manifest that is missing a
+# required binding *and* a nested field verified while one missing only the
+# required binding was MISMATCH. Removing more made the verdict better.
+#
+# Checking the invariant here as well makes it independent of whether the model
+# validator got a chance to run. It is deliberately a duplicate of the rule in
+# models.py rather than a refactor of it: the model has to keep enforcing it for
+# producers, and this path has to keep enforcing it for verifiers even when the
+# model never completes.
+_FULL_BINDING_REQUIRED = ("system_prompt", "policy_bundle", "model_identity")
+
+
+def _full_binding_violation(manifest: dict[str, Any]) -> Optional[tuple[str, str]]:
+    """Return a violation when a full-binding manifest omits a required artifact."""
+    if manifest.get("profile") is not None:
+        return None  # composition-only declares its own unbound set
+    artifacts = manifest.get("artifacts")
+    if not isinstance(artifacts, dict):
+        return None  # a missing or malformed artifacts block is its own violation
+    missing = [
+        name for name in _FULL_BINDING_REQUIRED if artifacts.get(name) is None
+    ]
+    if not missing:
+        return None
+    return (
+        "artifacts",
+        "full-binding manifest is missing required artifacts: " + ", ".join(missing),
+    )
+
+
 def _strict_schema_violations(manifest: dict[str, Any]) -> list[tuple[str, str]]:
     """Run the manifest through the Pydantic schema and return fail-closed errors.
 
@@ -476,6 +512,13 @@ def _strict_schema_violations(manifest: dict[str, Any]) -> list[tuple[str, str]]
                 continue
             loc = ".".join(str(p) for p in loc_parts)
             violations.append((loc, err.get("msg", "schema error")))
+        # A filtered nested omission may have kept the profile validator from
+        # running at all, so re-check that invariant directly.
+        extra = _full_binding_violation(manifest)
+        if extra is not None and not any(
+            msg.startswith("full-binding manifest is missing") for _loc, msg in violations
+        ):
+            violations.append(extra)
         return violations
     return []
 

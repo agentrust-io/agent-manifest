@@ -265,6 +265,14 @@ def _manifest_with_trace(root, entry_count, trace_type="hash-chained"):
         "expires_at": (now + timedelta(days=90)).isoformat().replace("+00:00", "Z"),
         "crypto_profile": "standard",
         "artifacts": {
+            # A full-binding manifest (no profile) requires system_prompt,
+            # policy_bundle and model_identity. These were absent and the
+            # manifest still verified, which was the masking reported in
+            # GHSA-6hjj-gh3c-r6wv; the subject of these tests is the
+            # decision_trace continuity below.
+            "system_prompt": {"hash": "sha256:" + "a" * 64},
+            "policy_bundle": {"hash": "sha256:" + "b" * 64},
+            "model_identity": {"version": "claude-3", "deployment_type": "api"},
             "decision_trace": {
                 "trace_type": trace_type,
                 "audit_chain_root": root,
