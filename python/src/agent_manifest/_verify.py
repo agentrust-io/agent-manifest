@@ -709,6 +709,10 @@ def verify_manifest(
     - A delegation chain that cannot be verified (no
       ``delegation_public_keys``) is marked ``UNVERIFIABLE`` and the overall
       result is ``UNVERIFIABLE`` (spec 3.4.1 / 5.2).
+    - A delegation chain that verifies signatures and scope narrowing but
+      carries a non-empty ``scope_grant.constraints`` (a Cedar statement this
+      verifier does not parse or evaluate) is also marked ``UNVERIFIABLE``,
+      not ``VALID`` (spec 3.4.1 / 5.2).
     - ``enforce_hitl=True`` with no ``hitl_record`` in the manifest is a
       failure (``HitlResult.MISSING`` and a non-VALID overall result).
     - An approval is never ``APPROVED`` unless its own signature verifies with
@@ -1140,7 +1144,7 @@ def verify_manifest(
     if chain:
         if context.delegation_public_keys:
             try:
-                from ._delegation import verify_delegation_chain
+                from ._delegation import DelegationUnverifiable, verify_delegation_chain
                 from ._signing import _b64url_decode
                 pub_keys = {
                     pid: _b64url_decode(b64)
@@ -1153,6 +1157,12 @@ def verify_manifest(
                     chain, pub_keys, manifest_id, manifest_issuer=manifest_issuer
                 )
                 fields.delegation_chain = DelegationResult.VALID
+            except DelegationUnverifiable:
+                # Spec 3.4.1 / 5.2: the chain is structurally and
+                # cryptographically sound, but carries non-empty Cedar
+                # scope_grant.constraints this verifier cannot parse or
+                # evaluate. This MUST NOT be reported as VALID.
+                fields.delegation_chain = DelegationResult.UNVERIFIABLE
             except (InvalidSignature, ValueError) as e:
                 fields.delegation_chain = DelegationResult.INVALID
                 mismatches.append(MismatchDetail(

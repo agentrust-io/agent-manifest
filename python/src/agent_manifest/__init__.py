@@ -93,6 +93,7 @@ from ._delegation import (
     delegation_depth_exceeded,
     DelegationHopSigner,
     HitlApprovalSigner,
+    DelegationUnverifiable,
 )
 from ._plugins import (
     PluginBundleError,
@@ -177,6 +178,7 @@ __all__ = [
     "TraceStatus", "TraceVerificationResult", "EvidencePackVerificationResult",
     "TRACE_REQUIRED_FIELDS", "TRACE_VERIFICATION_RESULTS", "INADMISSIBLE_RESULTS",
     "verify_delegation_chain", "verify_hitl_approval", "delegation_depth_exceeded",
+    "DelegationUnverifiable",
     "DelegationHopSigner", "HitlApprovalSigner",
     "PluginBundleError", "PluginSkill", "DeclaredMcpServer", "PluginBundle",
     "PluginManifestReference", "PluginReferenceResult", "PluginReferenceStatus",

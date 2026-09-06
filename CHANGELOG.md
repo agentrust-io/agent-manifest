@@ -4,6 +4,17 @@
 
 ### Fixed
 
+- **[SDK]** `verify_delegation_chain()` no longer verifies a delegation chain
+  as `VALID` when a hop's `scope_grant.constraints` is non-empty. Constraints
+  are Cedar statements (spec 3.4.1); this package has no Cedar parser or
+  evaluator, so per spec such a chain MUST be reported `UNVERIFIABLE`, never
+  `VALID`. `_check_scope_narrowing()` only ever did a string-set comparison
+  between parent and child constraints, so two hops carrying the identical,
+  unparseable constraint string (nothing "dropped") verified as `VALID`
+  end-to-end. A new `DelegationUnverifiable` exception now signals this case
+  distinctly from an affirmatively broken chain (`ValueError` → `INVALID`);
+  `verify_manifest()` maps it to `DelegationResult.UNVERIFIABLE`.
+
 - **[SDK]** `_check_manifest_binding()` no longer masks a malformed
   `artifacts` or `artifacts.policy_bundle` as merely absent. Truthy
   non-objects (`"str"`, `[1]`, `True`) already correctly reported
