@@ -94,7 +94,9 @@ def verify_cert_chain(
         CertChainError: on an empty chain, no trusted roots, a link that is not
             validly issued by the next, an expired or not-yet-valid certificate,
             an issuer that is not a CA, an issuer whose key usage forbids
-            certificate signing, an unpinned root, or missing ``cryptography``.
+            certificate signing, an issuer whose ``pathLenConstraint`` is
+            violated by the CA certificates below it, an unpinned root, or
+            missing ``cryptography``.
     """
     try:
         from cryptography import x509
@@ -129,6 +131,23 @@ def verify_cert_chain(
             ) from exc
         if not constraints.ca:
             raise CertChainError(f"issuer certificate at position {i} is not a CA")
+        # RFC 5280 4.2.1.9: pathLenConstraint bounds how many CA certificates
+        # may follow this one on the way to the leaf. Position 0 is the leaf
+        # itself, so positions 1..i-1 are the CA certificates between this
+        # issuer and the leaf - `i - 1` of them.
+        #
+        # Simplification: RFC 5280 excludes self-issued certificates (subject
+        # == issuer, used for CA key rollover) from this count. None of the
+        # three attestation call sites in this codebase (SEV-SNP, TDX, TPM)
+        # ever produce a self-issued intermediate, and treating every CA as
+        # counting is the fail-closed direction - it can only reject a chain
+        # the full RFC algorithm would accept, never the reverse.
+        if constraints.path_length is not None and (i - 1) > constraints.path_length:
+            raise CertChainError(
+                f"issuer certificate at position {i} has path_length="
+                f"{constraints.path_length}, but {i - 1} CA certificate(s) "
+                "follow it toward the leaf"
+            )
         try:
             key_usage = issuer.extensions.get_extension_for_class(x509.KeyUsage).value
         except x509.ExtensionNotFound:

@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Fixed
+
+- **[SDK]** `verify_cert_chain()` now enforces `BasicConstraints.path_length`
+  (RFC 5280 §4.2.1.9). An issuer that declares `path_length=N` but has more
+  than `N` CA certificates between it and the leaf previously verified
+  successfully every other individual check on it (validity period, `ca`
+  flag, key usage) passed on its own, so nothing else caught it. Self-issued
+  certificates (CA key rollover) are not exempted from the count; this is the
+  fail-closed direction relative to the full RFC algorithm.
+
 ### Deprecated
 
 - **[SPEC] Issuing v0.1 manifests ends 2026-11-30** (issue #315, phase 5). From that
