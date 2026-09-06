@@ -96,7 +96,17 @@
     {
       "id": "AM-VEC-018",
       "file": "AM-VEC-018.json",
-      "description": "Attestation report hash matching the canonical manifest hash verifies."
+      "description": "Attestation hash binding alone does not make attestation_verified true."
+    },
+    {
+      "id": "AM-VEC-018d",
+      "file": "AM-VEC-018d.json",
+      "description": "An independent hardware appraisal bound to this manifest makes attestation_verified true."
+    },
+    {
+      "id": "AM-VEC-018e",
+      "file": "AM-VEC-018e.json",
+      "description": "A hardware appraisal bound to another manifest does not transfer."
     },
     {
       "id": "AM-VEC-021",

@@ -299,6 +299,7 @@ def _hitl_approval(approver_keypair, *, manifest_id, signature=None):
         approved_at=approved_at,
         approved_scope=scope,
         approver_id=APPROVER_ID,
+        approval_method=approval["approval_method"],
     )
     return approval
 
