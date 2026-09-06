@@ -18,6 +18,10 @@ An authenticated caller can still run a changed prompt, policy, or tool configur
 
 ## How it works
 
+Scroll the diagram horizontally on smaller screens.
+
+<div class="at-diagram" role="region" aria-label="Manifest verification diagram; scroll horizontally" tabindex="0" markdown>
+
 ```mermaid
 flowchart TB
     config[Approved deployment artifacts] -->|hash and identify| issuer[Manifest issuer]
@@ -28,6 +32,8 @@ flowchart TB
     evidence[Optional appraised hardware evidence] --> verifier
     verifier --> result[Result and per-field checks]
 ```
+
+</div>
 
 The verifier needs its own trusted inputs. A signed manifest does not continuously observe the agent, and attestation does not make every later modification impossible. Runtime activity is recorded separately in [TRACE](https://trace.agentrust-io.com/).
 
