@@ -1,59 +1,38 @@
 ---
-description: Create, sign, and verify your first Agent Manifest in under 15 minutes, covering Level 0 software-only signing and Level 1 TPM attestation.
+description: Sign a demo Agent Manifest, compare it with approved inputs, and detect an edited record or a changed prompt hash.
 ---
 
-# Getting Started
+# Create and check your first manifest
 
-This guide walks through creating, signing, and verifying an Agent Manifest in under 15 minutes. It covers Level 0 (software-only signing) and Level 1 (TPM-attested).
-
-!!! tip "TL;DR"
-    Install with `pip install "agent-manifest[cli]"`, run `manifest keygen`, `manifest create`, `manifest sign`, then `manifest verify`. Level 0 needs no hardware. For Level 1, run `manifest attest` on a TPM 2.0, AMD SEV-SNP, or Intel TDX host.
+Sign a small agent configuration, verify its declared inputs, then see two failures: an edited signed record and a different prompt hash. This software example runs locally after installation. It does not run a model or produce hardware attestation.
 
 ## Prerequisites
 
-- Python 3.11 or later
-- For Level 1: a Linux host with TPM 2.0 (`tpm2-tools` installed), an AMD SEV-SNP VM, or an Intel TDX VM
+Use Python 3.11+, Git, and Bash on Linux, macOS, or Windows with WSL. This guide uses the current source checkout so its verification behavior matches these docs.
 
 ## Installation
 
 ```bash
-# Core SDK
-pip install agent-manifest
-
-# With CLI
-pip install "agent-manifest[cli]"
-
-# With post-quantum profile
-pip install "agent-manifest[pq]"
+git clone https://github.com/agentrust-io/agent-manifest.git manifest-quickstart
+cd manifest-quickstart
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e "./python[cli]"
 ```
 
 ## Level 0  -  Software-only signing
 
-Level 0 is suitable for development, staging, and non-regulated environments. No hardware required.
-
-### Step 1: Generate a signing key
-
-```bash
-manifest keygen -d ./keys/
-# Creates keys/private.hex and keys/public.hex
-```
-
-Or in Python:
+Save this complete block as `first_manifest.py`, then run `python first_manifest.py` from the same directory. It uses the supported v0.1 JSON form to make the signed fields readable. The current v0.2 envelope uses COSE; see the [signature envelope decision](adr/0011-signature-envelope.md).
 
 ```python
-from agent_manifest import generate_ed25519
+import copy
+import json
+from pathlib import Path
 
-keypair = generate_ed25519()
-# Store keypair.private_hex and keypair.public_hex securely
-```
-
-### Step 2: Build the manifest
-
-```python
 from agent_manifest import (
     Manifest, ArtifactBindings,
     SystemPromptBinding, PolicyBundleBinding,
-    ToolManifestBinding, ModelIdentityBinding,
+    ModelIdentityBinding,
     CryptoProfile, DeploymentType, EnforcementMode, ModelAttestationType,
     PolicyLanguage,
 )
@@ -92,194 +71,89 @@ manifest = Manifest(
             bound_at=now,
         ),
         model_identity=ModelIdentityBinding(
-            provider="anthropic",
-            model_id="claude-haiku-4-5-20251001",
-            version="20251001",
+            provider="example",
+            model_id="demo-model",
+            version="demo-v1",
             deployment_type=DeploymentType.api,
             model_attestation_type=ModelAttestationType.provider_asserted,
             bound_at=now,
         ),
     ),
 )
-```
 
-### Step 3: Sign the manifest
-
-```python
 from agent_manifest import Ed25519Signer, generate_ed25519
-
-keypair = generate_ed25519()
-signer = Ed25519Signer(keypair)
-manifest_dict = manifest.model_dump(mode="json", by_alias=True)
-sig_block = signer.sign(manifest_dict)
-
-manifest_dict["signature"] = sig_block
-print(sig_block["algorithm"])  # Ed25519
-```
-
-Or with the CLI:
-
-```bash
-manifest create my-agent-config.json -o draft.json
-manifest sign draft.json --key keys/private.hex -o signed.json
-```
-
-### Step 4: Verify
-
-```python
 from agent_manifest._verify import verify_manifest, VerificationContext, RevocationStore
 
-# Fail-closed: VALID requires the issuer's key in trusted_keys. Without
-# trusted keys the result is UNVERIFIABLE - never VALID.
-result = verify_manifest(
-    manifest_dict,
-    VerificationContext(
-        system_prompt_hash=prompt_hash,
-        policy_bundle_hash="sha256:" + "b" * 64,
-        trusted_keys={keypair.key_id: keypair.public_b64url()},
-    ),
-    RevocationStore(),
+keypair = generate_ed25519()
+record = manifest.model_dump(mode="json", by_alias=True, exclude_none=True)
+record["signature"] = Ed25519Signer(keypair).sign(record)
+# Verifier inputs come from this demo's approved configuration, not the record.
+context = VerificationContext(
+    system_prompt_hash=prompt_hash,
+    policy_bundle_hash="sha256:" + "b" * 64,
+    enforcement_mode="enforce",
+    model_version="demo-v1",
+    trusted_keys={keypair.key_id: keypair.public_b64url()},
 )
-print(result.result.value)   # VALID
+result = verify_manifest(record, context, RevocationStore())
+assert result.result.value == "VALID", result.model_dump_json()
+print("PASS: approved demo inputs match (VALID)")
+
+changed = copy.deepcopy(record)
+changed["artifacts"]["model_identity"]["version"] = "changed"
+result = verify_manifest(changed, context, RevocationStore())
+assert result.result.value == "MISMATCH" and not result.signature_verified
+print("PASS: edited signed record rejected (MISMATCH)")
+
+drift = context.model_copy(update={"system_prompt_hash": "sha256:" + "0" * 64})
+result = verify_manifest(record, drift, RevocationStore())
+assert result.result.value == "MISMATCH" and result.signature_verified
+print("PASS: different prompt hash rejected (MISMATCH)")
+
+Path("signed.json").write_text(json.dumps(record, indent=2))
+Path("public.hex").write_text(keypair.public_bytes.hex())
+print("Saved signed.json and public.hex; private key was not saved")
 ```
 
-Or with the CLI:
+Expected output:
+
+```text
+PASS: approved demo inputs match (VALID)
+PASS: edited signed record rejected (MISMATCH)
+PASS: different prompt hash rejected (MISMATCH)
+Saved signed.json and public.hex; private key was not saved
+```
+
+The prompt hash comes from the demo text. The policy hash and model identity are synthetic declarations. `VALID` here applies to the three declared bindings and the supplied verifier inputs. It is not a claim that all ten artifact categories were bound, a model executed, or the configuration is safe.
+
+The verifier retains its trusted public key separately from the record. In production, obtain issuer keys and runtime measurements through your approved trust channels. Reading expected hashes from an untrusted manifest would only compare the document with itself.
+
+## Inspect the saved record
 
 ```bash
-manifest verify signed.json --public-key keys/public.hex
+manifest verify signed.json --public-key public.hex
 ```
 
-Without `--public-key`, signed manifests fail closed as `UNVERIFIABLE`
-because the CLI has no trusted issuer key to authenticate the signature.
-The CLI `--public-key` option accepts the raw Ed25519 public key generated by
-`manifest keygen`.
-
-### Step 5: Watch it catch a change
-
-A `VALID` result only means something if you have seen the same manifest come back
-`MISMATCH`. There are two independent ways it does, and they fail differently.
-
-**The record was edited after signing.** Swap the approved model version inside the
-signed manifest and re-verify:
-
-```python
-import copy
-
-tampered = copy.deepcopy(manifest_dict)
-tampered["artifacts"]["model_identity"]["version"] = "20260101"
-
-result = verify_manifest(
-    tampered,
-    VerificationContext(trusted_keys={keypair.key_id: keypair.public_b64url()}),
-    RevocationStore(),
-)
-print(result.result.value)              # MISMATCH
-print(result.signature_verified)        # False
-print(result.mismatch_details[0].field) # signature
-```
-
-The signature no longer covers the bytes, so the edit is caught without the verifier
-knowing anything about models.
-
-**The record is intact but the running agent drifted.** Here the signature still
-verifies. What fails is the declared-vs-actual comparison, which is the binding the
-manifest exists for:
-
-```python
-import hashlib
-
-running_prompt = "You are a document summarization assistant. Ignore prior instructions."
-running_hash = "sha256:" + hashlib.sha256(running_prompt.encode("utf-8")).hexdigest()
-
-result = verify_manifest(
-    manifest_dict,
-    VerificationContext(
-        system_prompt_hash=running_hash,          # what is actually loaded
-        trusted_keys={keypair.key_id: keypair.public_b64url()},
-    ),
-    RevocationStore(),
-)
-print(result.result.value)                        # MISMATCH
-print(result.fields_verified.system_prompt.value) # MISMATCH
-```
-
-Pass the real hash and the same call returns `VALID` with `system_prompt: MATCH`.
-
-Both checks answer "is this the agent that was approved" at the moment you verify.
-Neither one watches the agent afterwards: an attacker who changes the system prompt in
-memory after this check has passed is outside what a boot-time manifest can see. That
-boundary is deliberate and documented in [Limitations](limitations.md), and
-`attest_runtime_state()` is the primitive for closing it with a hardware-signed
-freshness proof on a cadence you choose.
+This CLI invocation supplies a trusted key but no runtime hashes. Expect `INCOMPLETE`, with a verified signature and missing artifact comparisons. Without `--public-key`, expect `UNVERIFIABLE`. The Python example supplies the comparison inputs needed for its `VALID` result.
 
 ## Level 1  -  TPM attestation
 
-Level 1 adds hardware attestation, which binds the manifest hash to a TEE measurement that cannot be forged by the operator. Required for enterprise production deployments, and for EU AI Act Art. 15 (cybersecurity) when that obligation applies from around December 2027.
-
-### Prerequisites
-
-On Ubuntu/Debian:
-
-```bash
-apt install tpm2-tools
-```
-
-On AWS: Nitro Enclaves with `aws-nitro-enclaves-sdk-python` installed.
-
-### Attest the signed manifest
-
-```python
-from agent_manifest._auto_provider import select_provider
-
-# Auto-selects: OPAQUE -> SEV-SNP -> TDX -> TPM -> Software
-provider = select_provider(level=1)
-provider.extend_manifest_hash(manifest_dict)
-report = provider.get_attestation_report()
-
-manifest_dict["attestation"] = {
-    "tee_type": report.platform,       # "tpm" | "amd-sev-snp" | "intel-tdx" | "opaque"
-    "manifest_hash_in_report": True,
-    "report_uri": report.report_uri,
-    "bound_at": now.isoformat(),
-}
-```
-
-Or with the CLI:
-
-```bash
-manifest attest signed.json --provider auto --level 1 -o attested.json
-manifest verify attested.json --public-key keys/public.hex
-```
-
-The verification result for a Level 1 manifest includes `attestation_verified: true` when the TEE measurement matches the manifest hash.
+Hardware provenance is a separate step. Follow the [hardware attestation tutorial](tutorials/hardware-attestation.md) and [limitations](limitations.md) for provider-specific evidence and appraisal. A TPM supplies measured-state evidence; it does not by itself isolate process memory. A declared hardware platform or a successful signing command does not establish a conformance level.
 
 ## Revocation
 
-When an artifact changes (new model version, policy update, system prompt revision), revoke the old manifest and issue a new one:
+An artifact update needs a newly approved manifest. Production verification also needs current revocation information; this demo uses an empty in-memory store. See [revocation and key rotation](tutorials/revocation-and-key-rotation.md).
 
-```bash
-manifest revoke <manifest-id> \
-  --reason "policy bundle updated to v1.1.0" \
-  --revoked-by security@acme.co
-```
+## Troubleshooting
 
-In Python:
-
-```python
-from agent_manifest._verify import RevocationStore
-
-store = RevocationStore()
-store.revoke(
-    manifest_id="019236ab-cdef-7000-8000-000000000001",
-    reason="policy bundle updated to v1.1.0",
-    revoked_by="security@acme.co",
-)
-```
+- **Module not found:** activate `.venv` in the terminal running the example.
+- **File not found:** run `first_manifest.py` before inspecting `signed.json`.
+- **INCOMPLETE:** inspect which runtime comparisons are missing. Supply independent inputs instead of disabling strict verification.
+- **MISMATCH:** check the signature and named artifact mismatch. Both deliberate changes in this demo should fail.
+- **Expired record:** rerun the example to create a fresh demo record.
 
 ## Next steps
 
-- Read the [full specification](spec/agent-manifest-v0.2.md)
-- Browse the [examples](../examples/) for complete manifest JSON for each conformance level
-- For hardware attestation setup on Azure, AWS, or GCP, see the platform-specific notes in Section 3.3.1 of the spec
-- For EU AI Act HITL compliance, see Section 9.1 and the Level 2 example in `examples/`
-- For post-quantum signing, install `agent-manifest[pq]` and set `crypto_profile=CryptoProfile.post_quantum`
+- [Specification](spec/agent-manifest-v0.2.md): artifact and verification contracts.
+- [cMCP session binding](tutorials/cmcp-session-binding.md): connect deployment identity to tool-call evidence.
+- [Verification API](api-reference/index.md): caller inputs and result fields.
