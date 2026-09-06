@@ -1,125 +1,68 @@
-# cMCP Session Binding
+# cMCP session binding
 
-By the end of this tutorial you will understand how cMCP binds a signed Agent Manifest to a session at startup, what checks it performs, and what the Trust Record carries as a result.
+Connect a signed manifest to the policy bundle and tool catalog loaded by a cMCP gateway. This guide explains the configuration and evidence boundaries; use the [cMCP quickstart](https://cmcp.agentrust-io.com/docs/quickstart/) to run the gateway first.
 
-## What you'll learn
+## Configure the binding
 
-- What `CMCP_AGENT_MANIFEST_PATH` does and when to set it
-- Which fields cMCP verifies at startup against the running agent
-- What the Trust Record carries from a successful manifest bind
-- What session binding proves and what it does not prove
-
-## Prerequisites
-
-```bash
-pip install agent-manifest
-```
-
-You also need cMCP v0.2.0 or later (includes session binding support).
-
----
-
-## How session binding works
-
-cMCP agent manifest session binding runs at gateway startup. When the env var `CMCP_AGENT_MANIFEST_PATH` points to a signed manifest, cMCP loads that manifest and verifies three things before the session opens:
-
-1. The manifest's cryptographic signature is valid against a configured trusted key.
-2. `manifest.agent_id` matches the authenticated agent subject from the session credentials.
-3. Artifact hashes in the manifest match the hashes of the artifacts actually loaded by the gateway.
-
-If any check fails, the session is rejected before any tool calls can be made. This is fail-closed: an absent or invalid manifest blocks the session rather than allowing it to proceed unverified.
-
----
-
-## Point cMCP at your signed manifest
-
-Set `CMCP_AGENT_MANIFEST_PATH` to the path of your signed `agent-manifest.json` before starting the gateway:
-
-```bash
-export CMCP_AGENT_MANIFEST_PATH=/etc/agent/signed-agent-manifest.json
-cmcp-gateway start
-```
-
-Or in a docker-compose service definition:
+Add this fragment to your complete cMCP configuration, replacing the paths and subject with your approved values:
 
 ```yaml
-services:
-  cmcp-gateway:
-    image: cmcp-gateway:latest
-    environment:
-      CMCP_AGENT_MANIFEST_PATH: /etc/agent/signed-agent-manifest.json
-    volumes:
-      - ./signed-agent-manifest.json:/etc/agent/signed-agent-manifest.json:ro
+agent_manifest:
+  path: /etc/agent/signed-agent-manifest.json
+  trust_anchor_path: /etc/agent/issuer-public-key.json
+  authenticated_subject: spiffe://example.test/agent/summarizer
 ```
 
-The manifest file must be readable by the gateway process. It does not need to be writable - the gateway only reads it at startup.
+Start the gateway with its configuration:
 
----
-
-## What cMCP verifies at startup
-
-cMCP calls `verify_manifest()` from the agent-manifest SDK. The verification context is constructed from the gateway's own runtime state:
-
-```python
-# Illustrative - this runs inside the cMCP gateway, not in your code
-from agent_manifest import verify_manifest, VerificationContext, RevocationStore
-
-ctx = VerificationContext(
-    trusted_keys={configured_key_id: configured_public_key_b64url},
-    policy_bundle_hash=loaded_policy_bundle_hash,
-    tool_catalog_hash=loaded_tool_catalog_hash,
-)
-
-result = verify_manifest(manifest_dict, ctx, RevocationStore())
+```bash
+cmcp start --config cmcp-config.yaml
 ```
 
-The three checks that must all pass:
+The current configuration uses `agent_manifest.path` and `agent_manifest.trust_anchor_path` together. `CMCP_AGENT_MANIFEST_PATH` is not the configuration mechanism, and there is no `cmcp-gateway start` command in this package. Obtain issuer public keys independently from the signed manifest; follow the [cMCP binding implementation](https://github.com/agentrust-io/cmcp/blob/main/src/cmcp_runtime/agent_manifest.py) for accepted trust-anchor file formats.
 
-**Signature verification.** The `signature` block in the manifest must verify against the trusted key configured in the gateway. Without a valid signature, `result.result` is `UNVERIFIABLE` or `SIGNATURE_MISSING` and the session is rejected.
+The manifest must bind the gateway's policy bundle and tool catalog. The general first-manifest example binds different demo artifacts and cannot be used unchanged as a gateway manifest. Issue the manifest for the actual gateway inputs and configure the matching enforcement mode.
 
-**Agent identity match.** cMCP reads `manifest.agent_id` from the verified manifest and compares it to the authenticated agent subject from the session's SPIFFE SVID or mTLS certificate. A mismatch means the manifest was signed for a different agent and the session is rejected.
+## Understand when binding is required
 
-**Artifact hash match.** If the manifest binds a `policy_bundle` hash, cMCP computes the SHA-256 of the loaded policy bundle and compares it to `manifest.artifacts.policy_bundle.hash`. Likewise for `tool_manifest.catalog_hash` and the loaded tool catalog. A mismatch means the running artifacts differ from those reviewed at manifest issue time.
+The default profile permits startup without a manifest binding. If both configured paths are present, loading or verification failure aborts startup. Supplying only one path is a configuration error. The `aarm` conformance profile requires the binding configuration; selecting that profile also carries other requirements and is not a shortcut to conformance.
 
----
+An absent manifest therefore does not universally block a default gateway. Deployments that require identity binding must enforce that requirement in their configuration and deployment policy.
 
-## The Trust Record after successful binding
+## What startup checks
 
-On a successful bind, cMCP writes a Trust Record for the session. The Trust Record includes:
+| Check | Inputs and boundary |
+|-------|---------------------|
+| Signature and validity | Verify the signed JSON document or COSE envelope using the configured issuer keys; reject expired or unacceptable results. Preserve COSE envelope bytes for verification. |
+| Policy and tool bindings | Compare the manifest's policy hash and catalog hash with the loaded gateway values. These bindings are required by the cMCP helper. |
+| Enforcement mode | Compare the running mode with the manifest declaration, mapping cMCP `enforcing`, `advisory`, and `silent` to Manifest `enforce`, `advisory`, and `audit-only`. |
+| Subject match | Compare `agent_id` with the supplied subject. The startup path supplies the configured subject; it does not automatically establish that the connecting peer presented that identity. |
 
-```json
-{
-  "gateway.agent_identity": "spiffe://trust.example/agent/my-agent/prod",
-  "gateway.manifest_id": "018f4a3b-2c1d-7e5f-a8b9-0d1e2f3a4b5c",
-  "gateway.manifest_verified_at": "2026-06-21T09:00:00Z",
-  "gateway.manifest_expires_at": "2026-06-22T09:00:00Z"
-}
-```
+In development mode, the helper can fall back to the manifest's own `agent_id` and mark the source `manifest-dev`. A configured subject is marked `config`. Neither source proves live caller authentication. The binding helper also supports `svid` as a source, but a supported label alone is not evidence that a particular startup path authenticated an SVID.
 
-`gateway.agent_identity` is taken directly from `manifest.agent_id` in the verified manifest. Downstream systems that receive the Trust Record can use this field to identify the agent and look up its authorisations without re-verifying the manifest.
+The current SDK call in the binding helper uses an empty `RevocationStore`. Do not assume publishing a Manifest CRL automatically prevents the gateway from opening a new session. Revocation distribution and enforcement require an explicit integration.
 
----
+## Read the resulting evidence
 
-## What session binding proves
+The session claim contains a nested `gateway.agent_identity` object when a binding is present. Its core fields are:
 
-Session binding gives you a cryptographic guarantee that:
+| Field | Meaning |
+|-------|---------|
+| `manifest_id` | The bound manifest's identifier. |
+| `agent_id` | The manifest's declared agent identity. |
+| `authenticated_subject`, `subject_source` | The compared subject and where it came from; inspect both. |
+| `issuer`, `issuer_key_id` | The issuer declaration and signing-key reference. |
+| `policy_bundle_hash`, `tool_catalog_hash` | The bound configuration digests. |
+| `enforcement_mode` | The checked gateway mode when supplied. |
 
-- The agent connecting to the session is the same agent named in the manifest (`agent_id` match).
-- The policy bundle and tool catalog loaded by the gateway are the same artifacts that were reviewed when the manifest was issued (hash matches).
-- The manifest itself has not been tampered with since it was signed (signature verification).
+The object can also carry an intent hash and agent-key thumbprint when supported and populated. The current session producer does not populate agent-key bytes into the binding, so do not infer a live agent-key binding from field availability. The model has no `gateway.manifest_verified_at` or `gateway.manifest_expires_at` fields.
 
----
+Downstream systems must authenticate the claim, appraise its evidence, and apply their trust and authorization policy. Reading `agent_id` from an unauthenticated object is not a substitute. When verifying against the original manifest, supply that signed document and independently trusted issuer keys to the cMCP verifier.
 
-## What session binding does not prove
+## What to enforce after startup
 
-Session binding is a startup-time check. It does not provide:
+Startup binding establishes a relationship among the checked document and supplied gateway inputs at that point. It does not establish that a human reviewed them, that policies are correct, or that later agent behavior is safe.
 
-- **Continuous runtime integrity.** If the policy bundle or tool catalog is replaced after the session opens, the manifest hashes are no longer valid - but the session is already open. Use a watchdog process or periodic re-verification to detect drift.
-- **Behavioral correctness.** The manifest records what tools and policies were loaded. It does not record what the agent does with them during the session. Use decision traces and audit logs for behavioral accountability.
-- **Forward secrecy.** If the signing key is compromised after session binding, the Trust Record is still valid for that session. Revoke the manifest to prevent new sessions from opening.
+Treat later policy updates, tool-catalog changes, expiry, revocation, and caller identity as explicit runtime policy concerns. cMCP has separate catalog and session controls; consult its current behavior rather than assuming this startup helper continuously re-verifies the manifest. The helper provides no forward-secrecy guarantee.
 
----
-
-## Summary
-
-Setting `CMCP_AGENT_MANIFEST_PATH` causes cMCP to call `verify_manifest()` at gateway startup and reject the session if the signature, agent identity, or artifact hashes do not match. The Trust Record carries `gateway.agent_identity` from the verified manifest, giving downstream systems a cryptographically-backed identity claim. Session binding proves the agent was authorised against the reviewed manifest; it does not prove agent behavior during the session. For signing the manifest, see [Your first manifest](your-first-manifest.md) and [CI/CD signing](ci-cd-signing.md). For revocation if a key is compromised, see [Revocation and key rotation](revocation-and-key-rotation.md).
+For issuing documents, start with [your first manifest](../getting-started.md) and [CI signing](ci-cd-signing.md). For recipient-side checks and rejection handling, see [server-side verification](server-side-verification.md).

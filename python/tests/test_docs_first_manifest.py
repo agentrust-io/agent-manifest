@@ -152,3 +152,57 @@ def test_ci_signing_scripts(tmp_path):
     assert rejected.returncode == 1, rejected.stdout + rejected.stderr
     assert "MISMATCH" in rejected.stderr
     assert "Traceback" not in rejected.stderr
+
+
+def test_deployment_service(tmp_path):
+    docs = Path(__file__).resolve().parents[2] / "docs"
+    if not (docs / "getting-started.md").is_file():
+        pytest.skip("documentation is not included in the sdist")
+    first = re.findall(
+        r"^```python\n(.*?)^```", (docs / "getting-started.md").read_text(encoding="utf-8"),
+        re.MULTILINE | re.DOTALL,
+    )[0]
+    blocks = re.findall(
+        r"^```python\n(.*?)^```",
+        (docs / "tutorials/deploying-the-verification-endpoint.md").read_text(encoding="utf-8"),
+        re.MULTILINE | re.DOTALL,
+    )
+    assert len(blocks) == 2
+    # Exercise the exact file preparation and app factory in the same demo context.
+    checks = '''
+from fastapi.testclient import TestClient
+from cryptography.exceptions import InvalidSignature
+
+with TestClient(create_app()) as client:
+    assert client.get("/ready").status_code == 200
+    assert client.get("/health").status_code == 200
+    assert client.get("/verify", params={"manifest_id": record["manifest_id"]}).json()["result"] == "VALID"
+    assert client.get("/verify", params={"manifest_id": "unknown"}).status_code == 404
+    revoked = sign_revocation(manifest_id=record["manifest_id"], reason="demo", revoked_by="demo", keypair=revoker)
+    (data / "revocations.jsonl").write_text(revoked.model_dump_json() + "\\n")
+    assert client.get("/verify", params={"manifest_id": record["manifest_id"]}).json()["result"] == "VALID"
+with TestClient(create_app()) as refreshed:
+    assert refreshed.get("/verify", params={"manifest_id": record["manifest_id"]}).json()["result"] == "REVOKED"
+for bad_line in ("not JSON", revoked.model_copy(update={"reason": "forged"}).model_dump_json()):
+    (data / "revocations.jsonl").write_text(bad_line + "\\n")
+    try:
+        create_app()
+    except (ValueError, InvalidSignature):
+        pass
+    else:
+        raise AssertionError("Invalid revocation file did not fail startup")
+(data / "context.json").unlink()
+try:
+    create_app()
+except FileNotFoundError:
+    pass
+else:
+    raise AssertionError("Missing approved context did not fail startup")
+print("PASS: deployment readiness, verdicts, refresh, and invalid-input rejection")
+'''
+    run = subprocess.run(
+        [sys.executable, "-c", "\n".join([first, *blocks, checks])], cwd=tmp_path,
+        capture_output=True, text=True, check=False,
+    )
+    assert run.returncode == 0, run.stdout + run.stderr
+    assert "PASS: deployment readiness, verdicts, refresh, and invalid-input rejection" in run.stdout

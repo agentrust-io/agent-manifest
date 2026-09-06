@@ -1,8 +1,8 @@
 # Tutorials
 
-Step-by-step guides for specific agent-manifest features. Each tutorial is self-contained and includes runnable code.
+Start by signing a local demo configuration and testing what happens when it changes. Then choose the guide for the boundary you need to enforce.
 
-If you are new to agent-manifest, start with [Getting Started](../getting-started.md) first  -  it covers creating and signing your first manifest in 15 minutes.
+The [first-manifest example](../getting-started.md) supplies the record, keys, and approved inputs used by several follow-up guides. Those pages say where to append their code. Hardware and cMCP integration guidance identifies additional setup and verification requirements.
 
 ---
 
@@ -11,21 +11,21 @@ If you are new to agent-manifest, start with [Getting Started](../getting-starte
 | Tutorial | What you'll build |
 |----------|-------------------|
 | [Your first manifest](your-first-manifest.md) | A signed Agent Manifest from scratch with Ed25519 key generation and CLI verification |
-| [CI/CD signing](ci-cd-signing.md) | A GitHub Actions workflow that signs your manifest on every release |
-| [cMCP session binding](cmcp-session-binding.md) | A cMCP gateway configured to verify and bind a signed manifest at session startup |
+| [CI/CD signing](ci-cd-signing.md) | Signing and verification scripts, plus a workflow triggered by manifest changes on `main` |
+| [cMCP session binding](cmcp-session-binding.md) | Configuration guidance and the meaning of the gateway's identity evidence |
 
 ## Development
 
 | Tutorial | What you'll build |
 |----------|-------------------|
-| [Server-side manifest verification](server-side-verification.md) | A FastAPI service that verifies incoming agent manifests and gates requests |
+| [Server-side manifest verification](server-side-verification.md) | A local request gate tested with accepted, missing, unknown, and mismatched inputs |
 | [A2A delegation chains](delegation-chains.md) | A two-hop delegation chain with scope narrowing and chain verification |
-| [HITL approval workflows](hitl-approval-workflows.md) | A manifest with a cryptographically signed human approval record |
-| [Revocation and key rotation](revocation-and-key-rotation.md) | A signed revocation record, a live CRL endpoint, and a key rotation procedure |
-| [Hardware attestation](hardware-attestation.md) | Hardware-bound attestation on SEV-SNP, TDX, and OPAQUE |
+| [HITL approval workflows](hitl-approval-workflows.md) | A synthetic approval signed with a software key, with missing and altered approval rejection |
+| [Revocation and key rotation](revocation-and-key-rotation.md) | A signed revocation, explicit reader refresh, untrusted-signer rejection, and rotation guidance |
+| [Hardware attestation](hardware-attestation.md) | A runnable software binding example, hardware provider selection, and evidence appraisal boundaries |
 
 ## Operations
 
 | Tutorial | What you'll build |
 |----------|-------------------|
-| [Deploying the verification endpoint](deploying-the-verification-endpoint.md) | A containerised verifier with health checks, CRL, and Kubernetes deployment |
+| [Run a verification service](deploying-the-verification-endpoint.md) | A local HTTP verifier with startup-loaded trust and signed revocations, plus container packaging |
