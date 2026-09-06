@@ -1,447 +1,88 @@
-# Hardware Attestation (SEV-SNP, TDX, OPAQUE)
+# Hardware attestation
 
-Hardware attestation binds the manifest to a cryptographic measurement from silicon  -  proving the agent was initialised inside a specific, unmodified trusted execution environment. After this tutorial you will be able to:
+Choose a provider, bind a manifest digest to platform evidence, and appraise the result. Start with a local software example, then select the hardware path for your guest.
 
-- Choose the right attestation provider for your infrastructure
-- Extend the manifest hash into hardware using `SEVSNPProvider`, `TDXProvider`, or `OPAQUEProvider`
-- Read and verify the attestation report
-- Request periodic freshness proofs with `attest_runtime_state()`
-- Use the auto-provider when the environment is not known at build time
-- Write tests that work without hardware
+A matching digest alone does not authenticate hardware or establish that current inputs were measured correctly. Hardware appraisal needs approved roots, measurements, and freshness policy. The local example below does not exercise silicon.
 
-> **What boot-time attestation proves — and doesn't prove**
->
-> `extend_manifest_hash()` runs once at agent startup. It proves *which manifest
-> was approved when the TEE was initialised* — it does not continuously monitor
-> whether the agent's runtime state has changed since then. The TEE's boot
-> measurement (`MEASUREMENT` on SEV-SNP, `MRTD` on TDX, PCR values on TPM) is
-> hardware-immutable after launch; no re-measurement is possible.
->
-> For a freshness proof that the agent is *currently* running the approved state,
-> use [`attest_runtime_state()`](#runtime-state-attestation-freshness-proofs).
+## Run the API locally
 
-## Prerequisites
-
-```bash
-pip install agent-manifest              # core SDK
-pip install "agent-manifest[server]"   # adds httpx for OPAQUEProvider
-```
-
-Hardware providers require the VM types listed in the table below. The `SoftwareProvider` fallback works everywhere.
-
----
-
-## Providers and conformance levels
-
-Choosing a provider is not the same as choosing a conformance level. **Any of these providers satisfies the TEE-attestation requirement of Level 1** (spec section 8.1); Level 2 and Level 3 are reached by binding all ten artifacts and by the post-quantum crypto profile respectively, not by swapping the silicon.
-
-| Provider | Infrastructure requirement | Root of trust |
-|----------|--------------------------|---------------|
-| *(none)* | Any  -  software signing only, Level 0 | None |
-| `TPMProvider` | Linux host with TPM 2.0 | AK-signed quote over the boot chain; the host can still see into the VM |
-| `SEVSNPProvider` | AMD EPYC (Milan+): Azure DCasv5, AWS C6a Nitro, GCP N2D | SNP report to the AMD root (VCEK, ASK, ARK) |
-| `TDXProvider` | Intel Xeon (Sapphire Rapids+): Azure DCedsv5, GCP C3 | DCAP quote to the Intel SGX Root CA |
-| `AzureCVMProvider` | Azure confidential VMs | SNP behind a Hyper-V paravisor, read through the vTPM: vTPM-rooted, not direct-silicon. See `LIMITATIONS.md` |
-| `OPAQUEProvider` | Any  -  delegates to OPAQUE's managed TEE | OPAQUE-signed TRACE claim; explicit opt-in, never auto-detected |
-
-The providers differ in what a verifier can conclude, not in the level they unlock. SEV-SNP and TDX attest a confidential VM directly. A managed TEE is the operationally-simpler option and is not inherently higher assurance than a correctly-verified SEV-SNP or TDX deployment; a verifier must still check the returned claim's signature and the full attestation chain, and the signing key must be sealed to the launch measurement.
-
----
-
-## AMD SEV-SNP (Level 2)
-
-### Prerequisites
-
-- AMD EPYC Milan or Genoa CPU with SEV-SNP enabled in BIOS
-- Linux kernel 5.19+ with `CONFIG_AMD_MEM_ENCRYPT=y`
-- Running inside an SEV-SNP VM (Azure DCasv5, AWS C6a Nitro, or GCP N2D Confidential)
-- `/dev/sev-guest` readable by the process (requires `CAP_SYS_ADMIN` or a dedicated udev rule)
-
-### How it works
-
-> **Experimental:** the hardware providers are reference implementations and are not yet validated against real SEV-SNP/TDX hardware. The report field naming, byte offsets, and IOCTL ABI are being corrected (see issue #205). Do not rely on them in production.
-
-`SEVSNPProvider.extend_manifest_hash()` computes `SHA-256(manifest_pre_image)` and places the 32-byte digest in the first half of the guest-controlled `REPORT_DATA` field of the SNP attestation report, populated via the `user_data` member of the report request. `REPORT_DATA` is 64 bytes reserved for guest-supplied binding data. Verifiers check that `REPORT_DATA[:32]` matches the expected manifest hash. (`HOST_DATA` is a separate, host-set field and is not used here.)
-
-### Usage
+Complete the [first-manifest tutorial](../getting-started.md), append this block to `first_manifest.py`, and run it again. It demonstrates a digest binding and a nonce/context binding using software only.
 
 ```python
+import hashlib
 import json
-from agent_manifest._hw_providers import SEVSNPProvider
-from agent_manifest._providers import AttestationUnavailableError
-
-try:
-    provider = SEVSNPProvider()
-except AttestationUnavailableError as e:
-    print(f"SEV-SNP not available: {e}")
-    raise SystemExit(1)
-
-with open("manifest.json") as f:
-    manifest = json.load(f)
-
-# Extends SHA-256(manifest_pre_image) into REPORT_DATA (guest-controlled field)
-provider.extend_manifest_hash(manifest)
-
-# Read the attestation report
-report = provider.get_attestation_report()
-print(f"Platform:      {report.platform}")             # "amd-sev-snp"
-print(f"Manifest hash: {report.manifest_hash}")        # "sha256:..."
-print(f"Measurement:   {report.raw['measurement']}")   # 48-byte hex
-
-# Confirm the report binds to this manifest
-assert provider.verify_manifest_in_report(report, manifest)
-```
-
-### What the report contains
-
-| Field | Description |
-|-------|-------------|
-| `raw['report_data']` | REPORT_DATA (offset 0x50), 64 bytes: first 32 = SHA-256 of manifest pre-image, last 32 = zeros |
-| `raw['measurement']` | 48-byte platform measurement covering firmware and kernel |
-| `raw['vmpl']` | VMPL level (0 = highest privilege) |
-| `raw['vcek_cert_chain_verified']` | Always `False` in the SDK  -  fetch the VCEK from AMD KDS to verify independently |
-
----
-
-## Intel TDX (Level 2)
-
-### Prerequisites
-
-- Intel 4th Gen Xeon (Sapphire Rapids) or later with TDX enabled
-- Linux kernel 6.2+ with TDX guest driver (`/dev/tdx-guest`)
-- Running inside an Intel TDX Trust Domain (Azure DCedsv5 or GCP C3 Confidential)
-
-### How it works
-
-`TDXProvider.extend_manifest_hash()` places `SHA-256(manifest_pre_image)` in the `REPORTDATA` field of the TD report. RTMR[1] is the conventional application-level measurement register  -  RTMR[0] is owned by firmware.
-
-### Usage
-
-```python
-from agent_manifest._hw_providers import TDXProvider
-
-# rtmr_index=1 is the conventional choice for application measurements
-provider = TDXProvider(rtmr_index=1)
-
-provider.extend_manifest_hash(manifest)
-report = provider.get_attestation_report()
-
-print(f"Platform:    {report.platform}")             # "intel-tdx"
-print(f"RTMR index:  {report.raw['rtmr_index']}")   # 1
-print(f"Report data: {report.raw['report_data']}")   # 64-byte hex
-
-assert provider.verify_manifest_in_report(report, manifest)
-```
-
-### RTMR index guidance
-
-| RTMR | Conventional use |
-|------|-----------------|
-| 0 | TD-measured (firmware and boot)  -  do not use |
-| 1 | OS and application-level measurements  -  use this |
-| 2 | Available for additional software measurements |
-| 3 | Available for additional software measurements |
-
----
-
-## OPAQUE Managed TEE (Level 3)
-
-OPAQUE runs attestation inside its own managed TEE and returns a signed TRACE claim. No local hardware is required.
-
-### Prerequisites
-
-- Set `OPAQUE_ATTESTATION_URL` to the OPAQUE attestation service base URL (must be `https://`)
-- Optionally set `OPAQUE_API_KEY` for authenticated access
-- `httpx` installed (`pip install "agent-manifest[server]"`)
-
-### Usage
-
-```python
-import os
-from agent_manifest._hw_providers import OPAQUEProvider
-
-os.environ["OPAQUE_ATTESTATION_URL"] = "https://YOUR_OPAQUE_TENANT.attest.example.com"
-# Replace with your OPAQUE attestation service URL (requires an OPAQUE account)
-# os.environ["OPAQUE_API_KEY"] = "your-key"  # if required
-
-provider = OPAQUEProvider()
-provider.extend_manifest_hash(manifest)
-
-report = provider.get_attestation_report()
-print(f"Platform:      {report.platform}")      # "opaque"
-print(f"Manifest hash: {report.manifest_hash}")
-print(f"TRACE claim:   {report.raw}")
-
-assert provider.verify_manifest_in_report(report, manifest)
-```
-
-### What the TRACE claim contains
-
-```json
-{
-  "eat_profile": "tag:agentrust-io.com,2026:trace-v0.2",
-  "iat": 1749120000,
-  "manifest_hash": "sha256:e3b0c44...",
-  "audit_chain_root": "sha256:a1b2c3...",
-  "tee_platform": "amd-sev-snp",
-  "attestation_report_hash": "sha256:..."
-}
-```
-
-The `audit_chain_root` anchors every decision the agent made to a Merkle chain held inside the OPAQUE TEE. This is the Level 3 guarantee  -  the signing key never leaves the TEE.
-
----
-
-## Choosing the right level
-
-| Use case | Level | Provider |
-|----------|-------|---------|
-| Development and local testing | 0 | `SoftwareProvider` |
-| Enterprise internal deployment | 1 | any TEE provider available on the host |
-| EU AI Act Art. 15 (cybersecurity, from ~Dec 2027) | 1 | `SEVSNPProvider`, `TDXProvider`, or `AzureCVMProvider` |
-| Financial services, regulated workloads (DORA, in force) | 2 | `SEVSNPProvider` or `TDXProvider`, plus all 10 artifacts bound |
-| Sovereign, classified, long-horizon sensitivity | 3 | Level 2 provider plus the post-quantum crypto profile |
-| Operationally-managed TEE, no local hardware | 1 or 2 | `OPAQUEProvider` (explicit opt-in) |
-| Unknown environment, pick best available | any | `select_provider(level=N)` |
-
----
-
-## Auto-detection
-
-Use `select_provider()` when the environment is not known at build time. It probes in order: OPAQUE (if env var set) then SEV-SNP then TDX then TPM then software-only.
-
-```python
-from agent_manifest._auto_provider import select_provider
-from agent_manifest._providers import AttestationUnavailableError
-
-# Raises AttestationUnavailableError if level=1 and no hardware is available
-try:
-    provider = select_provider(level=1)
-except AttestationUnavailableError:
-    # Fallback to Level 0 in development
-    provider = select_provider(level=0)
-
-provider.extend_manifest_hash(manifest)
-report = provider.get_attestation_report()
-print(f"Attested on: {report.platform}")
-# "amd-sev-snp" in an SEV-SNP VM
-# "intel-tdx"   in a TDX Trust Domain
-# "tpm"         on a Linux host with TPM
-# "software"    everywhere else
-```
-
----
-
-## Mocked examples for developers without hardware
-
-All providers raise `AttestationUnavailableError` if the hardware device is absent. In tests, mock the provider rather than skipping tests entirely.
-
-```python
-from unittest.mock import patch
-from agent_manifest._providers import AttestationReport
-
-mock_report = AttestationReport(
-    platform="amd-sev-snp",
-    manifest_hash="sha256:" + "aa" * 32,
-    raw={
-        "report_data": "cc" * 64,
-        "measurement": "bb" * 48,
-        "vmpl": 0,
-        "vcek_cert_chain_verified": False,
-    },
-)
-
-with patch(
-    "agent_manifest._hw_providers.SEVSNPProvider.extend_manifest_hash"
-), patch(
-    "agent_manifest._hw_providers.SEVSNPProvider.get_attestation_report",
-    return_value=mock_report,
-):
-    # your test code here
-    pass
-```
-
-`SoftwareProvider` is useful for unit tests that exercise the attestation flow without mocking:
-
-```python
+import secrets
 from agent_manifest._auto_provider import SoftwareProvider
 
 provider = SoftwareProvider()
-provider.extend_manifest_hash(manifest)
+provider.extend_manifest_hash(record)
 report = provider.get_attestation_report()
-# report.platform == "software"
-# Note: "software" measurement is not accepted for Level 1+ conformance
+assert report.platform == "software"
+assert provider.verify_manifest_in_report(report, record)
+modified = copy.deepcopy(record)
+modified["artifacts"]["model_identity"]["version"] = "different"
+assert not provider.verify_manifest_in_report(report, modified)
+print("PASS: software binding matches the record and rejects an edited record")
+
+# These observations belong to the demo's trusted configuration collector.
+runtime_inputs = {
+    "system_prompt_hash": prompt_hash,
+    "policy_hash": context.policy_bundle_hash,
+    "model_version": context.model_version,
+}
+context_bytes = json.dumps(runtime_inputs, sort_keys=True, separators=(",", ":")).encode()
+context_hash = "sha256:" + hashlib.sha256(context_bytes).hexdigest()
+nonce = secrets.token_bytes(32)  # In a service, the verifier issues this challenge.
+runtime_report = provider.attest_runtime_state(nonce, context_hash)
+assert runtime_report.platform == "software"
+assert runtime_report.nonce_hex == nonce.hex()
+assert runtime_report.context_hash == context_hash
+second = provider.attest_runtime_state(secrets.token_bytes(32), context_hash)
+assert second.report_data_hash != runtime_report.report_data_hash
+print("PASS: a new nonce changes the software binding; no hardware proof was produced")
 ```
 
-Gate hardware-only tests with a skip marker:
+Expect two additional `PASS` lines. These assertions test software behavior. Copying the returned nonce or context into a response would not prove freshness or hardware authenticity.
 
-```python
-import os
-import pytest
+## Select the hardware path
 
-needs_sev_snp = pytest.mark.skipif(
-    not os.path.exists("/dev/sev-guest"),
-    reason="requires AMD SEV-SNP hardware",
-)
+Use the guest's attestation interface to choose a provider. A CPU model or a confidential-VM marketing label alone is insufficient.
 
-@needs_sev_snp
-def test_sev_snp_roundtrip():
-    provider = SEVSNPProvider()
-    provider.extend_manifest_hash(manifest)
-    report = provider.get_attestation_report()
-    assert provider.verify_manifest_in_report(report, manifest)
-```
+| Provider | Current SDK path | Verification boundary |
+|----------|------------------|-----------------------|
+| `SoftwareProvider` | Software digest and nonce binding; no device required | No hardware signature or isolation claim. |
+| `SEVSNPProvider` | Non-paravisor SNP guest; kernel configfs-TSM `sev_guest` provider | Manifest digest goes into guest-controlled `REPORT_DATA`. Request VCEK verification and appraise approved measurements and platform policy. |
+| `TDXProvider` | Non-paravisor TDX guest; configfs-TSM `tdx_guest` provider and quote-generation path | Manifest digest goes into quote `REPORTDATA`. Request DCAP quote verification and appraise approved measurements and platform policy. |
+| `AzureCVMProvider` | Azure SNP through the vTPM/HCL path | Follow the vTPM quote, attestation-key binding, and SNP chain. The guest does not directly control SNP `REPORT_DATA`. |
+| `TPMProvider` | TPM tools and a provisioned attestation key | A TPM quote supplies measured-state evidence; it does not isolate the agent's process memory. |
+| `OPAQUEProvider` | Disabled in the current SDK; construction raises `AttestationUnavailableError` | No usable managed-service verification path is implemented. |
 
----
+The direct SNP and TDX providers use `/sys/kernel/config/tsm/report` and require permission to create report requests. See the [provider implementation and requirements](https://github.com/agentrust-io/agent-manifest/blob/main/python/src/agent_manifest/_hw_providers.py) for the current kernel and driver prerequisites. Azure TDX is not supported by this SDK's offline attestation path; see [platform limitations](../limitations.md).
 
----
+For SNP, construct `SEVSNPProvider(require_vcek_verification=True, product="Milan")`, choosing the product for your actual platform. This fetches AMD verification material and needs network access and `httpx`. For TDX, use `TDXProvider(require_quote_verification=True)`. Import both from `agent_manifest._hw_providers`.
+
+Then call `extend_manifest_hash(record)` and `get_attestation_report()`. The SNP result includes `raw["vcek_cert_chain_verified"]`; TDX includes `raw["quote_verified"]`. Both verification flags default to false when their constructor options are omitted. `TDXProvider` has no `rtmr_index` constructor argument; this binding uses `REPORTDATA` rather than extending an RTMR.
+
+`verify_manifest_in_report()` checks the manifest binding. Treat it as one check in the appraisal, not a complete signature, certificate, freshness, and workload-policy verdict. The recipient must examine authenticated quote bytes and compare the measurements with its own allowlist.
 
 ## Runtime state attestation (freshness proofs)
 
-The boot-time attestation proves *what was approved at startup*. If you need to
-prove the agent has not drifted since then — same system prompt, same policy,
-same tool catalog — call `attest_runtime_state()` periodically or on each
-verifier challenge.
+`attest_runtime_state(nonce, context_hash)` binds caller-supplied context to a challenge. For direct SNP and TDX, the qualifying bytes are `SHA-256(nonce || context_hash_bytes)` and are placed in the report-data field. The SDK's `report_data_hash` is a SHA-256 digest of those qualifying bytes; it is not the raw report-data value.
 
-### How it works
+A signed challenge binding establishes freshness only after the recipient verifies the quote, checks its outstanding nonce, and applies an expiry/replay policy. The provider does not read the agent's prompt, policy, tool catalog, or model for you. A trusted collector must measure the actual state and define the context-hash preimage with the verifier. Otherwise a fresh quote can bind a false self-report.
 
-The hardware's guest-controlled field (`REPORT_DATA` on SEV-SNP, `REPORTDATA`
-on TDX, qualifying data on TPM) is set to:
+The runtime quote needs its own appraisal. Enabling VCEK or quote verification for `get_attestation_report()` does not automatically appraise every `attest_runtime_state()` result. Check returned evidence rather than inheriting a prior report's flags.
 
-```
-sha256(nonce || context_hash_bytes)
-```
+Choose challenge frequency according to the operation and stale-evidence policy. Periodic calls alone do not bound drift detection unless measurement collection, verification, and rejection are all enforced. A report also does not prove what happens after it was collected.
 
-The hardware signs this together with the **unchanged** boot measurement, so the
-verifier receives a single quote that proves both TEE identity (from the
-immutable measurement) and current state (from the fresh REPORT_DATA).
+## Auto-detection
 
-The boot measurement is not re-run — hardware makes that impossible. What changes
-is only the caller-controlled field, which is what carries the freshness proof.
+`select_provider(level=N)` is a convenience selector, not a conformance validator. The current order is an explicitly configured OPAQUE provider, Azure CVM, direct SNP, direct TDX, TPM, then software. Because OPAQUE is disabled, setting `OPAQUE_ATTESTATION_URL` currently raises instead of selecting a working managed provider.
 
-### Computing the context hash
+Without a hardware candidate, requesting `level >= 1` raises `AttestationUnavailableError`. Do not silently retry with `level=0` in a path that requires hardware. For reproducible local tests, choose `SoftwareProvider()` directly rather than depending on the host's devices or environment variables.
 
-```python
-import hashlib, json
+## Apply an acceptance policy
 
-def compute_context_hash(
-    system_prompt_hash: str,
-    policy_hash: str,
-    tool_catalog_hash: str,
-) -> str:
-    """sha256 of canonical JSON over the runtime context fields."""
-    payload = json.dumps(
-        {
-            "system_prompt_hash": system_prompt_hash,
-            "policy_hash": policy_hash,
-            "tool_catalog_hash": tool_catalog_hash,
-        },
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode()
-    return "sha256:" + hashlib.sha256(payload).hexdigest()
-```
+A provider name does not establish a conformance level or regulatory compliance. Apply the [specification's conformance requirements](../spec/agent-manifest-v0.2.md), including artifact coverage, signature profile, required evidence, and recipient policy. Hardware appraisal and application authorization remain separate checks.
 
-Include every field the verifier needs to pin. Add `model_version` or
-`rag_corpus_merkle_root` if those are also in scope.
-
-### Requesting a fresh quote
-
-```python
-import os
-from agent_manifest._hw_providers import SEVSNPProvider
-
-provider = SEVSNPProvider()
-provider.extend_manifest_hash(manifest)      # once at startup
-
-# ... agent runs ...
-
-# Verifier supplies a fresh nonce for each challenge
-nonce = os.urandom(32)
-
-context_hash = compute_context_hash(
-    system_prompt_hash="sha256:aabbcc...",
-    policy_hash="sha256:112233...",
-    tool_catalog_hash="sha256:445566...",
-)
-
-rt_report = provider.attest_runtime_state(nonce, context_hash)
-
-print(f"Platform:         {rt_report.platform}")        # "amd-sev-snp"
-print(f"Nonce (hex):      {rt_report.nonce_hex}")
-print(f"Context hash:     {rt_report.context_hash}")
-print(f"REPORT_DATA hash: {rt_report.report_data_hash}")
-# rt_report.quote — raw hardware quote blob; send to verifier for signature check
-```
-
-The same API works identically with `TDXProvider` and `OPAQUEProvider`. For
-`SoftwareProvider` it produces a software-only binding (Level 0, not hardware
-attested — useful in tests).
-
-### TPM: Attestation Key required
-
-`TPMProvider.attest_runtime_state()` uses `tpm2_quote`, which requires a
-pre-provisioned Attestation Key (AK). Provision one before calling it:
-
-```bash
-tpm2_createprimary -c primary.ctx
-tpm2_create -C primary.ctx -G rsa -u ak.pub -r ak.priv
-tpm2_load -C primary.ctx -u ak.pub -r ak.priv -c ak.ctx
-```
-
-Then pass the path at construction:
-
-```python
-from agent_manifest._providers import TPMProvider
-
-provider = TPMProvider(ak_context="/var/lib/agent-manifest/ak.ctx")
-provider.extend_manifest_hash(manifest)
-
-rt_report = provider.attest_runtime_state(nonce, context_hash)
-```
-
-SEV-SNP and TDX have no equivalent requirement — the IOCTL is available without
-pre-provisioning any key material.
-
-### How often to call it
-
-The SDK provides the primitive; the scheduling policy is yours. Common patterns:
-
-| Pattern | When to use |
-|---------|-------------|
-| Per verifier challenge | Highest assurance — verifier controls nonce freshness |
-| Every N tool calls | Bounds the window of undetected drift |
-| On a fixed interval (e.g., every 5 min) | Simpler to implement; interval sets the worst-case detection lag |
-| At startup only | Equivalent to boot-time attestation — not a freshness proof |
-
-For regulated workloads, let the verifier dictate the nonce and challenge
-frequency rather than having the agent self-report.
-
-### Mocking in tests
-
-```python
-from unittest.mock import patch
-from agent_manifest._providers import RuntimeAttestationReport
-
-mock_rt = RuntimeAttestationReport(
-    platform="amd-sev-snp",
-    report_data_hash="sha256:" + "aa" * 32,
-    context_hash="sha256:" + "bb" * 32,
-    nonce_hex="cc" * 32,
-    raw={"measurement": "dd" * 48, "vcek_cert_chain_verified": False},
-)
-
-with patch(
-    "agent_manifest._hw_providers.SEVSNPProvider.attest_runtime_state",
-    return_value=mock_rt,
-):
-    rt_report = provider.attest_runtime_state(nonce, context_hash)
-```
-
----
-
-## What's next
-
-- [Tutorial: Deploying the verification endpoint](deploying-the-verification-endpoint.md)  -  run the verifier in production alongside hardware-attested agents
-- [Tutorial: Server-side verification](server-side-verification.md)  -  enforce minimum attestation level with `enforce_attestation=True`
-- [Known Limitations](https://github.com/agentrust-io/agent-manifest/blob/main/LIMITATIONS.md)  -  full scope of what attestation does and does not prove
+Pass independently appraised evidence into the verifier's context, bound to the exact manifest. Then require the full manifest result to be `VALID`; a successful hardware check cannot override a bad signature, expired record, revocation, or artifact mismatch. Continue with [server-side verification](server-side-verification.md).
