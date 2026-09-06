@@ -1,6 +1,6 @@
 # Audit log management
 
-The Merkle audit chain in each manifest is a tamper-evident log of agent decisions. This guide covers storing, retaining, querying, and submitting audit entries to a public transparency log.
+A manifest can commit to an audit-chain state; the actual entries are stored separately. The producer must define the chain format, and recipients must authenticate the root and verify the corresponding evidence. This guide covers storing, retaining, querying, and submitting audit entries to a public transparency log.
 
 ---
 
@@ -37,22 +37,15 @@ The chain root advances after each append. A verifier can prove any entry was re
 | Loki | Observability-integrated | Configurable | LogQL |
 | Rekor (public transparency log) | Immutability audit | Permanent | Rekor query API |
 
-For regulated industries, use object storage with versioning enabled (prevents accidental deletion) and Rekor for permanent public proof of existence.
+Choose storage controls for the applicable retention and access requirements. Object versioning can help recover overwritten data but does not, by itself, establish immutable retention. Review the data you would disclose before using any public transparency log.
 
 ---
 
 ## Retention policy
 
-Retain audit log entries for the **longer of** these minimums:
+Define retention by record category, jurisdiction, contract, and the purpose for which the data was collected. Agent Manifest does not prescribe a universal retention period or certify that an audit store meets those obligations.
 
-| Regulation | Minimum retention | Applicable when |
-|------------|------------------|-----------------|
-| GDPR Article 30 | 3 years (recommended 6) | Any EU personal data processing |
-| HIPAA § 164.312(b) | 6 years | Protected health information |
-| DORA Article 17 | 5 years | EU financial entities |
-| SEC Rule 17a-4 | 6 years | US broker-dealer records |
-
-For most deployments, a **6-year default** covers all frameworks. Archive entries older than the active query window (typically 90 days) to cold storage.
+Document the applicable retention and deletion rules with the responsible legal and privacy owners. Separate private payloads from shareable commitments; publishing a hash or record to a public log can make later deletion impractical. Configure access controls, backups, holds, and deletion verification for each storage system, then test those procedures.
 
 ---
 

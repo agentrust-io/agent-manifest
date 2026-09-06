@@ -1,188 +1,38 @@
-# Key rotation runbook
+# Signing Key Rotation Runbook
 
-This runbook covers rotating a signing key in production. Run it when a key expires, is compromised, or a scheduled rotation policy triggers.
+Replace a signing key while preserving issuer trust and preventing old manifests from being accepted. Treat planned rotation and a known compromise differently: a compromised key must not remain trusted just to preserve an overlap window.
 
----
+## Establish the scope
 
-## When to rotate
+Inventory the signing key, affected manifest IDs, trusted revocation authority, issuer-key mappings, verification replicas, cached revocation state, and dependent evidence or approvals. Record the acceptance and availability criteria for this rollout.
 
-| Trigger | Urgency | Overlap window |
-|---------|---------|----------------|
-| Key compromise suspected | Immediate | None  -  revoke old key first |
-| Scheduled expiry (90-day policy) | Planned | 24-hour overlap |
-| Personnel change (key holder leaves) | Same day | 1-hour overlap |
-| Hardware security key replacement | Planned | 24-hour overlap |
+## Prepare replacement manifests
 
----
+Generate the new key through your approved key-management system. Distribute its public key and issuer authorization through the verifier's trusted configuration channel, and confirm each relying party has received it.
 
-## Pre-rotation checklist
+Issue replacements with new `manifest_id` values and current validity windows. Revocation is by manifest ID: re-signing an old ID with a new key does not protect it from that ID's revocation. Rebind approvals, attestation evidence, and other fields tied to the old manifest. Use the supported builder and signing API for the chosen envelope version; a v0.2 COSE envelope is not a JSON dictionary with a replacement signature field.
 
-Before starting:
+Verify replacements against independently approved runtime artifacts and keys before deploying them. The [first-manifest example](../getting-started.md) demonstrates the required trust-input separation.
 
-- [ ] Identify all active manifests signed with the current key (query your manifest store by `signature.key_id`)
-- [ ] Confirm the new key is generated in a secure environment (HSM or secrets manager  -  not on a developer workstation)
-- [ ] Confirm CRL endpoint is reachable and writable
-- [ ] Alert the on-call rotation so they expect a temporary spike in INVALID results during overlap
+## Revoke affected IDs and refresh verifiers
 
----
+Use the separately authorized revocation key to sign one record for each affected manifest ID. Publish authenticated revocation state and refresh every relying party's store. The [revocation tutorial](../tutorials/revocation-and-key-rotation.md) provides executable positive and negative checks.
 
-## Step 1  -  Generate a new key pair
+`FileCRL` loads into memory at construction. The FastAPI router serves that object's cache; it does not reread the file on every request. A different process appending to disk does not update existing readers. `RevocationStore` also needs explicit refresh. Confirm the new state on each replica rather than assuming a cache header or elapsed interval made it propagate.
 
-```bash
-# Generate a new Ed25519 key pair into a directory
-manifest keygen -d /path/to/new-keys/
+For a planned rotation, a bounded overlap is a deployment choice while both keys remain trusted. For a compromise, withdraw the compromised authority and enforce revocations under the incident policy immediately; record any availability impact.
 
-# Writes new-keys/private.hex (mode 0600) and new-keys/public.hex, and prints
-# the new key_id to stderr.
-#
-# The public key goes into your trust anchor configuration
-# The private key moves to the secrets manager  -  never into source control
-```
+## Confirm completion
 
-Or in Python:
+- New manifests pass the intended verification policy on every relying party.
+- Revoked old IDs fail, including when presented with a different signature.
+- Unknown issuer keys, invalid revocation signatures, and stale or unavailable revocation state follow the configured failure policy.
+- Logs record key IDs, manifest IDs, results, and rollout state without private key material.
 
-```python
-from agent_manifest import generate_ed25519
+Then retire the old private key using the key-management system's procedure. Retain public verification material and records required for historical evidence.
 
-new_kp = generate_ed25519()
-print("New key_id:", new_kp.key_id)
-print("Public key (base64url):", new_kp.public_b64url())
-# Store new_kp.private_b64url() in your secrets manager
-```
+## Rollback
 
----
+If planned rotation fails before retirement, roll back only to a key and manifest set still trusted under the incident policy. A compromised key is not a rollback option. Repair replacement issuance or verifier trust distribution and validate again.
 
-## Step 2  -  Re-sign active manifests
-
-Re-issue every active manifest with the new key. The `manifest_id` and `issued_at` stay the same; only the `signature` block changes.
-
-```python
-from agent_manifest._signing import Ed25519Signer, ed25519_from_private_bytes
-import base64, json
-
-# Load the new private key from the secrets manager
-raw = base64.urlsafe_b64decode(new_private_key_b64url + "==")
-new_kp = ed25519_from_private_bytes(raw)
-signer = Ed25519Signer(new_kp)
-
-for manifest in active_manifests:
-    # Remove the old signature so the pre-image is clean
-    manifest.pop("signature", None)
-    # Sign with the new key
-    new_sig = signer.sign(manifest)
-    manifest["signature"] = new_sig
-    # Write the updated manifest back to your store
-    manifest_store[manifest["manifest_id"]] = manifest
-```
-
----
-
-## Step 3  -  Revoke the old key
-
-Issue a key-level revocation record for every manifest signed with the old key:
-
-```python
-from agent_manifest._revocation import sign_revocation, FileCRL
-from pathlib import Path
-
-crl = FileCRL(Path("crl.jsonl"))
-
-for manifest_id in manifests_signed_with_old_key:
-    record = sign_revocation(
-        manifest_id=manifest_id,
-        reason=f"Key rotation  -  old key_id={old_key_id}",
-        revoked_by="spiffe://trust.acme.co/security-team",
-        keypair=new_kp,   # sign revocations with the NEW key
-    )
-    crl.revoke(record)
-```
-
----
-
-## Step 4  -  Update the CRL endpoint
-
-The `FileCRL` append-only file is your CRL store. Publish it to your `.well-known` endpoint:
-
-```bash
-# If serving from a static file host (S3, GCS, Azure Blob):
-aws s3 cp crl.jsonl s3://your-bucket/.well-known/agent-manifest/revocation \
-  --content-type application/x-ndjson \
-  --cache-control "max-age=30"
-
-# If serving from the FastAPI CRL router, the file is already live  - 
-# the router reads it on each request.
-```
-
----
-
-## Step 5  -  Notify verifiers
-
-If your verifiers use a trust anchor discovery endpoint (`/.well-known/agent-manifest/trust-anchor`), update it with the new public key:
-
-```json
-{
-  "active_key_id": "sha256:<new-key-id>",
-  "keys": [
-    {
-      "key_id": "sha256:<new-key-id>",
-      "algorithm": "Ed25519",
-      "public_key": "<new-public-key-base64url>",
-      "valid_from": "2026-06-05T10:00:00Z"
-    }
-  ]
-}
-```
-
-Verifiers that cache the trust anchor will pick up the new key at their next cache expiry (typically 5–60 minutes).
-
----
-
-## Step 6  -  Decommission the old private key
-
-After the overlap window has closed and all verifiers have accepted at least one manifest signed with the new key:
-
-1. Delete the old private key from the secrets manager
-2. Archive the old public key (it is still needed to verify historical manifests during the retention window)
-3. Record the rotation event in your audit log with timestamp and new key ID
-
----
-
-## Zero-downtime overlap
-
-During the overlap window, both the old and new keys are active. Verifiers may encounter manifests signed by either key. The correct behaviour:
-
-- Verifiers that know both keys accept both signatures
-- Verifiers that only know the new key will reject old-signed manifests  -  deploy new manifests before updating verifiers
-
-Recommended sequence for zero downtime:
-
-```
-t=0    Generate new key
-t=5m   Re-sign manifests, publish new trust anchor
-t=30m  Wait for all verifiers to pick up new trust anchor
-t=35m  Revoke old-key manifests, update CRL
-t=1h   Delete old private key
-```
-
----
-
-## Rollback procedure
-
-If the new key is defective (e.g., wrong algorithm, corrupted private key bytes):
-
-1. **Do not revoke the old key**  -  keep it active
-2. Re-sign manifests with the old key (same process as Step 2)
-3. Remove the new key from the trust anchor
-4. Investigate the new key generation before retrying
-
----
-
-## Monitoring during rotation
-
-Watch for these signals during and after rotation:
-
-- `verification_requests_total{result="INVALID"}` spike → verifiers are seeing manifests signed with a key they don't recognise
-- `verification_requests_total{result="REVOKED"}` spike → CRL is propagating correctly
-- p99 verification latency spike → CRL endpoint is under load from the batch revocation
-
-See [Monitoring guide](monitoring.md) for dashboard configuration.
+Use the [monitoring guide](monitoring.md) for available instrumentation. Propagation time and downtime must be measured in your deployment; this runbook supplies no fixed timing guarantee.

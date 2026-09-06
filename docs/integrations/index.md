@@ -14,10 +14,36 @@ Agent-manifest is framework-agnostic  -  it is a signing and verification layer,
 
 ## Common pattern
 
-Every integration follows the same three steps:
+Issue a manifest, attach its identifier or complete signed envelope, and verify it before allowing the protected operation. An identifier in a header, callback, or trace is correlation metadata; the recipient still needs the actual signed object, independently approved keys and runtime inputs, and current revocation state.
 
-1. **Issue**  -  create and sign a manifest that identifies the agent and binds its artifacts
-2. **Attach**  -  pass the `manifest_id` to the relying party (header, metadata, context field)
-3. **Verify**  -  the relying party calls `verify_manifest()` before acting on the agent's output
+## Run a local verification gate
 
-The framework-specific pages show where exactly to hook each step.
+Complete the [first-manifest example](../getting-started.md), append this block to `first_manifest.py`, and run it again. It tests a framework-independent boundary with synthetic inputs; it does not call a model or install a framework adapter.
+
+```python
+from agent_manifest import OverallResult
+
+def require_manifest(received, approved_context, revocations):
+    result = verify_manifest(received, approved_context, revocations)
+    if result.result != OverallResult.VALID:
+        raise PermissionError(f"Manifest rejected: {result.result.value}")
+    return result
+
+require_manifest(record, context, RevocationStore())
+print("PASS: approved manifest accepted by the gate")
+for rejected_context in (
+    context.model_copy(update={"trusted_keys": {}}),
+    context.model_copy(update={"system_prompt_hash": "sha256:" + "0" * 64}),
+):
+    try:
+        require_manifest(record, rejected_context, RevocationStore())
+    except PermissionError:
+        pass
+    else:
+        raise RuntimeError("Gate accepted missing trust or changed runtime input")
+print("PASS: missing trust and changed runtime input blocked")
+```
+
+Obtain `approved_context` and revocation state through the recipient's own configuration and evidence collection. Never let a caller submit its own expected hashes or trusted-key map as authorization. A `VALID` result applies to the declared bindings and supplied checks; the application separately authorizes the requested operation and delegation scope.
+
+Place this gate before tool, handoff, or service side effects. Recheck when the relevant state changes; attaching a manifest once at startup does not enforce later drift, revocation, or caller permissions. The framework pages identify where to connect this boundary and link to current framework APIs.
