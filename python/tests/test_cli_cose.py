@@ -19,6 +19,7 @@ KP = ed25519_from_private_bytes(SEED)
 NOW = datetime.now(timezone.utc)
 FUTURE = (NOW + timedelta(days=90)).isoformat().replace("+00:00", "Z")
 SHA = "sha256:" + "a" * 64
+SHA_B = "sha256:" + "b" * 64
 
 
 def manifest(version="0.2", **overrides):
@@ -30,7 +31,13 @@ def manifest(version="0.2", **overrides):
         "expires_at": FUTURE,
         "issuer": "spiffe://trust.example/signing-authority",
         "crypto_profile": "standard",
-        "artifacts": {"system_prompt": {"hash": SHA}},
+        # Full-binding manifests require system_prompt, policy_bundle and
+        # model_identity (GHSA-6hjj-gh3c-r6wv).
+        "artifacts": {
+            "system_prompt": {"hash": SHA},
+            "policy_bundle": {"hash": SHA_B},
+            "model_identity": {"version": "claude-3", "deployment_type": "api"},
+        },
     }
     m.update(overrides)
     return m
