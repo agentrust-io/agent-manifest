@@ -413,6 +413,87 @@ def test_non_object_policy_bundle_warns_not_raises(kp, trusted, bad_policy_bundl
     assert "manifest_policy_bundle_not_an_object" in result.warnings
 
 
+@pytest.mark.parametrize("bad_artifacts", ["", [], False, 0])
+def test_falsy_non_object_manifest_artifacts_warns_structurally(
+    kp, trusted, bad_artifacts
+):
+    """`manifest.get("artifacts") or {}` folded falsy non-dicts
+    ("", [], False, 0) into `{}` before the isinstance check ever ran, so
+    they were reported as merely absent (`manifest_has_no_policy_bundle_hash`)
+    instead of malformed. Only a genuinely missing `artifacts` (absent key or
+    `None`) may fall back to `{}`; any other non-dict, falsy or not, must
+    report the structural warning.
+    """
+    envelope = _sign_envelope(_envelope(), kp)
+    result = verify_trace_envelope(
+        envelope,
+        trusted_keys=trusted,
+        manifest={"manifest_id": MANIFEST_ID, "artifacts": bad_artifacts},
+    )
+    assert result.status is TraceStatus.VERIFIED
+    assert "manifest_artifacts_not_an_object" in result.warnings
+    assert "manifest_has_no_policy_bundle_hash" not in result.warnings
+
+
+@pytest.mark.parametrize("bad_policy_bundle", ["", [], False, 0])
+def test_falsy_non_object_policy_bundle_warns_structurally(
+    kp, trusted, bad_policy_bundle
+):
+    """Same bug as above, one level down: `artifacts.get("policy_bundle") or
+    {}` swallowed falsy non-dict policy bundles into the no-hash warning."""
+    envelope = _sign_envelope(_envelope(), kp)
+    result = verify_trace_envelope(
+        envelope,
+        trusted_keys=trusted,
+        manifest={
+            "manifest_id": MANIFEST_ID,
+            "artifacts": {"policy_bundle": bad_policy_bundle},
+        },
+    )
+    assert result.status is TraceStatus.VERIFIED
+    assert "manifest_policy_bundle_not_an_object" in result.warnings
+    assert "manifest_has_no_policy_bundle_hash" not in result.warnings
+
+
+@pytest.mark.parametrize(
+    "manifest_extra",
+    [
+        {},  # artifacts key absent entirely
+        {"artifacts": None},  # explicit None
+        {"artifacts": {}},  # well-typed but empty
+        {"artifacts": {"policy_bundle": None}},  # policy_bundle explicit None
+        {"artifacts": {"policy_bundle": {}}},  # well-typed but empty
+    ],
+)
+def test_true_missing_cases_still_use_no_hash_warning(kp, trusted, manifest_extra):
+    """None, an absent key, and `{}` are genuinely missing data, not
+    malformed structure, and must keep reporting
+    `manifest_has_no_policy_bundle_hash` rather than a structural warning."""
+    envelope = _sign_envelope(_envelope(), kp)
+    manifest = {"manifest_id": MANIFEST_ID, **manifest_extra}
+    result = verify_trace_envelope(
+        envelope, trusted_keys=trusted, manifest=manifest
+    )
+    assert result.status is TraceStatus.VERIFIED
+    assert "manifest_has_no_policy_bundle_hash" in result.warnings
+    assert "manifest_artifacts_not_an_object" not in result.warnings
+    assert "manifest_policy_bundle_not_an_object" not in result.warnings
+
+
+def test_pack_with_falsy_non_object_artifacts_warns_structurally(kp, trusted):
+    """Same as the falsy-artifacts test above, but through the independently
+    reachable evidence-pack path (the two paths are known to be separate
+    separate call sites feeding the same function)."""
+    envelope = _sign_envelope(_envelope(), kp)
+    malformed_manifest = {"manifest_id": MANIFEST_ID, "artifacts": ""}
+    pack = _sign_pack(_pack([envelope], manifest=malformed_manifest), kp)
+    result = verify_evidence_pack(pack, trusted_keys=trusted, trace_key_id=kp.key_id)
+    assert len(result.envelopes) == 1
+    assert result.envelopes[0].status is TraceStatus.VERIFIED
+    assert "manifest_artifacts_not_an_object" in result.envelopes[0].warnings
+    assert "manifest_has_no_policy_bundle_hash" not in result.envelopes[0].warnings
+
+
 def test_pack_with_malformed_manifest_artifacts_warns_not_raises(kp, trusted):
     """The evidence-pack path is independently reachable (#362): it feeds its
     manifest to every contained envelope without checking artifacts/
