@@ -1909,7 +1909,7 @@ Article 50 is the exception to this subsection: its transparency duties attach t
 
 #### 9.1.2 EU AI Act Article 50 - Transparency Obligations <!-- CHANGED: REG-010 - new subsection -->
 
-Article 50 applies from **2 August 2026**. It is not the only EU AI Act obligation in force against agent deployments: under Art. 113(a), Chapters I and II have applied since 2 February 2025, which puts the Art. 5 prohibited practices and the Art. 4 AI literacy obligation in force, both binding deployers as well as providers. Article 50 is, however, the transparency obligation that attaches directly to an agent's interaction with a natural person and to its output, and it is independent of the Annex III high-risk classification in section 9.1.1: an operator whose agent is out of Annex III scope is still subject to it.
+Article 50 applies from **2 August 2026**, subject to the Art. 111(4) transition for paragraph 2 described below. Other obligations already apply to agent deployments: Art. 4 on AI literacy and the original Art. 5 prohibitions have applied since 2 February 2025. Under Art. 113(a), as amended by [Regulation (EU) 2026/1744](https://eur-lex.europa.eu/legal-content/EN/ALL/?uri=CELEX:32026R1744), the newer Art. 5(1)(ba) and (bb), 5(1a), and 5(1b) apply from **2 December 2026**. Article 50's transparency duties depend on the interaction or output concerned and apply independently of Annex III high-risk classification; being outside Annex III does not itself exempt an operator.
 
 | Article 50 paragraph | Obligation | Agent Manifest Satisfaction |
 |---|---|---|
