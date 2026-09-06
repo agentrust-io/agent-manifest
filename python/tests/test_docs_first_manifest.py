@@ -34,6 +34,10 @@ def test_first_manifest(tmp_path):
 
 
 @pytest.mark.parametrize("relative, expected", [
+    ("operations/monitoring.md", (
+        "PASS: accepted and rejected verdicts are counted separately",
+        "PASS: unexpected error counted and propagated",
+    )),
     ("tutorials/revocation-and-key-rotation.md", (
         "PASS: refreshed revocation state rejects the manifest",
         "PASS: untrusted revocation signer rejected",

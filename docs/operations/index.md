@@ -1,21 +1,21 @@
 # Operations
 
-Production runbooks and operational guides for teams running agent-manifest in production.
+Operate the issuer, evidence distribution, and recipient verification checks. Start with the [local verification service](../tutorials/deploying-the-verification-endpoint.md), then define how your deployment distributes trust, refreshes evidence, and handles rejected records.
 
 | Guide | What it covers |
 |-------|---------------|
-| [Key rotation](key-rotation.md) | Rotating a signing key with zero downtime, rollback procedure |
+| [Key rotation](key-rotation.md) | Distributing new trust, issuing replacement IDs, and handling compromised keys |
 | [Audit log management](audit-log.md) | Storage, retention, querying, and Rekor transparency log integration |
-| [Monitoring](monitoring.md) | Metrics, alert conditions, and example Grafana dashboard |
+| [Monitoring](monitoring.md) | Tested verdict/error metrics, latency queries, and alert interpretation |
 
 ## Operational model
 
-Agent-manifest has three operational components you need to run:
+Assign ownership for these responsibilities; the SDK does not require three separately deployed services:
 
-1. **Signing authority**  -  the issuer that holds the private key and signs manifests. This is typically a CI/CD job or a secrets-manager-backed service. The signing key must never be stored in the agent process.
+1. **Issuance and key custody.** Approve the configuration, sign the manifest, protect issuer keys, and distribute trusted public keys independently. Choose key custody according to the required assurance and deployment architecture.
 
-2. **CRL endpoint**  -  serves the certificate revocation list at `.well-known/agent-manifest/revocation`. This must be highly available  -  verifiers poll it continuously.
+2. **Revocation and evidence distribution.** Publish authenticated updates and define refresh, maximum accepted age, and failure policy for each recipient. `RevocationStore` does not fetch updates, and `FileCRL` does not continuously poll another process's file writes.
 
-3. **Verification sidecar**  -  the FastAPI router (`create_router()`) that runs alongside each agent. See [Tutorial: Deploying the verifier](../tutorials/deploying-the-verification-endpoint.md) for the deployment pattern.
+3. **Recipient verification and authorization.** Supply approved keys and independent runtime observations, appraise required evidence, and reject unacceptable results before side effects. Verification can run in application code or a service; a sidecar is one deployment option. Caller authentication and operation authorization remain application responsibilities.
 
-Each guide covers the operational concerns specific to one of these components.
+Monitor failures and stale evidence without treating every rejected manifest as a service outage. Test rotation and refresh behavior across every worker before relying on an availability or propagation target.

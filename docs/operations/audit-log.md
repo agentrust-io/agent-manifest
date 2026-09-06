@@ -8,7 +8,7 @@ A manifest can commit to an audit-chain state; the actual entries are stored sep
 
 Each entry appended to the audit chain is a leaf in a Merkle tree. The `audit_chain_root` in `artifacts.decision_trace` commits the agent to the state of the chain at manifest issuance.
 
-A typical audit entry contains:
+The following is an illustrative, application-defined entry, not an SDK schema. Its identifiers and hashes are abbreviated, and the attestation level is only a declaration:
 
 ```json
 {
@@ -23,7 +23,7 @@ A typical audit entry contains:
 }
 ```
 
-The chain root advances after each append. A verifier can prove any entry was recorded before a given root using a Merkle inclusion proof  -  without reading any other entries.
+The chain root advances after each append. An inclusion proof can establish that an entry belongs to a particular authenticated tree root without exposing the other entries. It does not independently establish when the event occurred or whether the event description is true.
 
 ---
 
@@ -68,18 +68,20 @@ def query_by_agent(log_path: Path, agent_id: str, since: datetime):
     return entries
 ```
 
-### By attestation level (find Level 0 agents accessing sensitive data)
+### Find records declaring Level 0 access to PII
 
 ```python
 def find_unattested_pii_access(log_path: Path):
     for line in log_path.read_text().splitlines():
         entry = json.loads(line)
-        if entry.get("attestation_level", 0) == 0 and \
+        if entry.get("attestation_level") == 0 and \
            "pii" in entry.get("data_classifications", []):
             yield entry
 ```
 
-### SQL on Athena / TimescaleDB
+### SQL on a PostgreSQL-compatible store
+
+Adapt these queries to your stored schema. The illustrative JSON above does not include `verification_result`; record that field explicitly if you want verdict queries.
 
 ```sql
 -- All actions by a specific agent in the last 24 hours
@@ -88,85 +90,40 @@ WHERE agent_id = 'spiffe://trust.acme.co/agent/payment-processor/prod'
   AND timestamp > NOW() - INTERVAL '24 hours'
 ORDER BY timestamp DESC;
 
--- Count INVALID results per agent per hour
+-- Count recorded non-VALID verdicts per agent per hour
 SELECT
   date_trunc('hour', timestamp) AS hour,
   agent_id,
   COUNT(*) AS invalid_count
 FROM audit_log
-WHERE verification_result = 'INVALID'
+WHERE verification_result <> 'VALID'
 GROUP BY 1, 2
 ORDER BY 1 DESC, 3 DESC;
 ```
 
 ---
 
-## Submitting to Rekor
+## Transparency evidence
 
-Rekor is a public transparency log for software supply chain artefacts. Submitting the audit chain root to Rekor creates a permanent, publicly auditable record that the root existed at a specific time.
+Keep the private audit store and public transparency evidence separate. An audit entry, a signed tree root, a manifest signature, and a log receipt are distinct objects with different verification steps.
 
-```python
-import httpx
-import base64
-import json
+To publish a commitment, define the exact bytes and their digest, sign those bytes with the intended key, and use the log's supported entry format. Supply a real signature and the corresponding public key or certificate; base64-encoding a payload does not create a signature. A signature on the manifest's signing preimage is not automatically a signature on a separately serialized audit-root object.
 
-REKOR_URL = "https://rekor.sigstore.dev"
+Use maintained Sigstore tooling and its [Rekor documentation](https://docs.sigstore.dev/logging/overview/) for publication and verification. Review the data disclosed before publishing. This guide does not submit anything to a public log.
 
-def submit_to_rekor(audit_chain_root: str, manifest_id: str, signed_manifest: dict) -> str:
-    """Submit the audit chain root to Rekor. Returns the entry UUID."""
-    payload = json.dumps({
-        "manifest_id": manifest_id,
-        "audit_chain_root": audit_chain_root,
-    }).encode()
+Retrieving an entry and comparing its digest is a content lookup, not inclusion-proof verification. The recipient must authenticate the relevant signed log evidence, verify the proof against an accepted checkpoint/root, and confirm that the verified entry commits to the expected signed object. Apply the log's trust, freshness, and consistency policy; an entry identifier alone establishes none of these properties.
 
-    entry = {
-        "kind": "hashedrekord",
-        "apiVersion": "0.0.1",
-        "spec": {
-            "data": {
-                "hash": {
-                    "algorithm": "sha256",
-                    "value": audit_chain_root.removeprefix("sha256:"),
-                }
-            },
-            "signature": {
-                "content": base64.b64encode(payload).decode(),
-                "publicKey": {
-                    "content": base64.b64encode(
-                        signed_manifest["signature"]["signature_value"].encode()
-                    ).decode()
-                }
-            }
-        }
-    }
+Only after independently appraising transparency evidence should the application supply verified entry IDs or receipt hashes to `VerificationContext`, bound to the exact manifest ID. See [server-side verification](../tutorials/server-side-verification.md#add-revocation-and-evidence-appraisal).
 
-    response = httpx.post(f"{REKOR_URL}/api/v1/log/entries", json=entry)
-    response.raise_for_status()
-    uuid = list(response.json().keys())[0]
-    return uuid
-```
+## Interpret audit signals
 
-### Verifying inclusion proofs
+| Signal | What to investigate |
+|--------|---------------------|
+| Expected activity has no corresponding entries | Compare workload expectations with collection and delivery health; an idle agent can legitimately produce no events. |
+| A record declares a lower attestation level than policy requires | Appraise the underlying evidence and policy; the declared integer alone is not a hardware verdict. |
+| A current root differs from the root signed at issuance | Check whether the log advanced legitimately and whether the required continuity evidence is available. A difference alone does not prove tampering. |
+| Entries cannot be authenticated or consistency cannot be established | Reject the evidence for decisions that require those properties, retain diagnostics, and investigate the cause. |
 
-```python
-def verify_rekor_inclusion(entry_uuid: str, audit_chain_root: str) -> bool:
-    """Confirm the audit chain root is in the Rekor log."""
-    response = httpx.get(f"{REKOR_URL}/api/v1/log/entries/{entry_uuid}")
-    response.raise_for_status()
-    entry = list(response.json().values())[0]
-    body = json.loads(base64.b64decode(entry["body"]))
-    return body["spec"]["data"]["hash"]["value"] == audit_chain_root.removeprefix("sha256:")
-```
+The SDK can report `EXTENDED` for a decision trace when the current root differs and the required continuity evidence verifies. Configure the recipient's current root and continuity inputs; do not suppress mismatches or assume every new root is acceptable. See the [verification API](../api-reference/verification.md).
 
----
-
-## Alert conditions
-
-| Condition | Signal | Response |
-|-----------|--------|----------|
-| No entries from a known agent for > 1 hour | Agent may be down or bypassing audit | Page on-call |
-| Entry with `attestation_level=0` for a Level 2+ manifest | Attestation downgrade | Immediate investigation |
-| Merkle root mismatch between audit log and manifest | Tampered audit log | Incident response |
-| Entry volume drops to zero | Audit pipeline failure | Page on-call |
-
-See [Monitoring guide](monitoring.md) for the full alerting setup.
+Use the [monitoring guide](monitoring.md) to distinguish rejected evidence from unexpected verifier failures.
