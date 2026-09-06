@@ -1,13 +1,13 @@
 {
-  "id": "AM-VEC-007",
-  "description": "Unsupported manifest version is rejected before verifying.",
+  "id": "AM-VEC-018d",
+  "description": "An independent hardware appraisal bound to this manifest makes attestation_verified true.",
   "spec_refs": [
-    "2.4"
+    "3.3"
   ],
   "manifest": {
     "manifest_id": "018f4a3b-2c1d-7e5f-a8b9-0d1e2f3a4b5c",
     "agent_id": "spiffe://trust.example/agent/kyc/prod",
-    "version": "0.3",
+    "version": "0.1",
     "issued_at": "2025-01-01T00:00:00Z",
     "expires_at": "2099-12-31T23:59:59Z",
     "issuer": "spiffe://trust.example/signing-authority",
@@ -23,10 +23,6 @@
         "model_hash": null,
         "version": "claude-3",
         "deployment_type": "api"
-      },
-      "future_artifact": {
-        "format": "future-v1",
-        "binding": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
       }
     },
     "delegation_chain": [],
@@ -36,7 +32,7 @@
       "key_id": "56475aa75463474c0285df5dbf2bcab73da651358839e9b77481b2eab107708c",
       "key_type": "software",
       "signed_at": "2025-01-01T00:00:00Z",
-      "signature_value": "GqQcU6-LkVAsqXvCRALTKmoXkBR62WhBAGC-uhMAo4TaG_ej7mQGUZeSHVlTTPqRC2heOa3wO8vQcdM4L6y3BA",
+      "signature_value": "YUnGWwyv4mUTUrjmXi5FakUaEzPo_JkqEXxT4d6txlN_gFKpXPS2lG52SfuT7trQzwyvc4hwZ28uCg5Ve_0lBg",
       "signed_fields": [
         "@context",
         "@type",
@@ -62,6 +58,10 @@
         "operational_lifecycle",
         "intent"
       ]
+    },
+    "attestation": {
+      "platform": "tpm",
+      "manifest_hash_in_report": "sha256:f1cbdacb5191606917f4340ab8340c1e0eaa471004430a9811df83200324090d"
     }
   },
   "context": {
@@ -70,9 +70,14 @@
     "model_version": "claude-3",
     "trusted_keys": {
       "56475aa75463474c0285df5dbf2bcab73da651358839e9b77481b2eab107708c": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
-    }
+    },
+    "verified_attestation_manifest_hashes": [
+      "sha256:f1cbdacb5191606917f4340ab8340c1e0eaa471004430a9811df83200324090d"
+    ],
+    "attestation_evidence_manifest_id": "018f4a3b-2c1d-7e5f-a8b9-0d1e2f3a4b5c"
   },
   "expected": {
-    "result": "INCOMPATIBLE_VERSION"
+    "result": "VALID",
+    "attestation_verified": true
   }
 }

@@ -32,4 +32,4 @@ pip install -e "python/"
 
 - [Getting started](../docs/getting-started.md)  -  step-by-step walkthrough of creating and verifying manifests with the Python SDK and CLI
 - [Tutorials](../docs/tutorials/)  -  detailed guides for delegation chains, revocation, HITL, hardware attestation, and server-side verification
-- [Spec](../spec/agent-manifest-spec-v0.1.md)  -  full data model and field cardinality rules
+- [Spec](../spec/agent-manifest-spec-v0.2.md)  -  full data model and field cardinality rules

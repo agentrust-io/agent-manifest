@@ -39,4 +39,4 @@ The `crl.jsonl` file is append-only JSON-Lines: one `SignedRevocationRecord` per
 {"manifest_id":"019236ab...","revoked_at":"2026-06-05T11:30:00Z",...}
 ```
 
-See [Tutorial: Revocation and key rotation](../../docs/tutorials/revocation.md) for the full implementation.
+See [Tutorial: Revocation and key rotation](../../docs/tutorials/revocation-and-key-rotation.md) for the full implementation.

@@ -681,12 +681,22 @@ def build() -> list[dict[str, Any]]:
         {"result": "UNVERIFIABLE", "signature_verified": False},
     ))
 
-    # 007 - unsupported version
+    # 007 - unsupported version. Make the fixture future-shaped as well as
+    # future-versioned: current schema rejects the extra artifact, so this
+    # vector only reaches INCOMPATIBLE_VERSION when version negotiation truly
+    # precedes current-schema interpretation. Re-sign after the mutation so a
+    # signature failure cannot accidentally satisfy the expected result.
+    future = base_manifest(version="0.3")
+    future["artifacts"]["future_artifact"] = {
+        "format": "future-v1",
+        "binding": "sha256:" + "f" * 64,
+    }
+    _sign(future)
     vectors.append(_vector(
         "AM-VEC-007", "Unsupported manifest version is rejected before verifying.",
         # 0.2 is the COSE envelope and is supported; 0.3 does not exist, which
         # is what makes it the right stand-in for "a version from the future".
-        ["2.4"], base_manifest(version="0.3"), base_context(),
+        ["2.4"], future, base_context(),
         {"result": "INCOMPATIBLE_VERSION"},
     ))
 
@@ -819,10 +829,42 @@ def build() -> list[dict[str, Any]]:
     subset = {k: v for k, v in m.items() if k not in ("attestation", "transparency_log_entry")}
     attest_hash = "sha256:" + hashlib.sha256(canonicalize(subset)).hexdigest()
     m["attestation"] = {"platform": "tpm", "manifest_hash_in_report": attest_hash}
+    # The binding says the report is about *this* manifest. It says nothing
+    # about hardware: for v0.1 the attestation block is outside the signing
+    # pre-image (3.3 excludes it), so anyone holding a validly signed manifest
+    # can append a digest they computed themselves. attestation_verified is
+    # therefore false until an independent appraisal is supplied (018d).
     vectors.append(_vector(
-        "AM-VEC-018", "Attestation report hash matching the canonical manifest hash verifies.",
+        "AM-VEC-018",
+        "Attestation hash binding alone does not make attestation_verified true.",
         ["3.3"], m, base_context(),
+        {"result": "VALID", "attestation_verified": False},
+    ))
+
+    # 018d - the same manifest, with the hardware appraisal the relying party
+    # performed supplied as context. This is the only way the flag becomes true.
+    vectors.append(_vector(
+        "AM-VEC-018d",
+        "An independent hardware appraisal bound to this manifest makes attestation_verified true.",
+        ["3.3"], m,
+        base_context(
+            verified_attestation_manifest_hashes=[attest_hash],
+            attestation_evidence_manifest_id=MANIFEST_ID,
+        ),
         {"result": "VALID", "attestation_verified": True},
+    ))
+
+    # 018e - the same appraisal, bound to a different manifest. A passing
+    # appraisal must not be replayable onto another document.
+    vectors.append(_vector(
+        "AM-VEC-018e",
+        "A hardware appraisal bound to another manifest does not transfer.",
+        ["3.3"], m,
+        base_context(
+            verified_attestation_manifest_hashes=[attest_hash],
+            attestation_evidence_manifest_id="018f4a3b-0000-7e5f-a8b9-000000000000",
+        ),
+        {"result": "VALID", "attestation_verified": False},
     ))
 
     # 018b - the stale-attestation case from issue #265. The manifest is

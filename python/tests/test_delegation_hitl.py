@@ -2,8 +2,6 @@
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from cryptography.exceptions import InvalidSignature
-
 from agent_manifest._delegation import (
     DelegationHopSigner,
     HitlApprovalSigner,
@@ -13,6 +11,7 @@ from agent_manifest._delegation import (
     verify_hitl_approval,
 )
 from agent_manifest._signing import generate_ed25519
+from cryptography.exceptions import InvalidSignature
 
 NOW = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 MID = "018f4a3b-2c1d-7e5f-a8b9-0d1e2f3a4b5c"
@@ -252,6 +251,85 @@ def test_child_raising_max_delegation_depth_is_rejected():
 
 
 # ---------------------------------------------------------------------------
+# DELEG-005: ttl_seconds narrowing must hold in absolute (wall-clock) time,
+# not just as a raw duration comparison - ttl_seconds is measured from each
+# hop's own delegated_at, so two hops delegated at different times can carry
+# equal (or even shrinking) durations while the later hop's grant still
+# outlives the earlier one's in absolute terms.
+# ---------------------------------------------------------------------------
+
+def _two_hop_chain_at(root_scope, child_scope, root_at, child_at):
+    kp_root, kp_child = generate_ed25519(), generate_ed25519()
+    sig0 = DelegationHopSigner(kp_root).sign_hop(
+        hop=0, principal_id="spiffe://x/root", principal_type="human",
+        delegated_at=root_at, scope_grant=root_scope, manifest_id=MID,
+    )
+    sig1 = DelegationHopSigner(kp_child).sign_hop(
+        hop=1, principal_id="spiffe://x/child", principal_type="agent",
+        delegated_at=child_at, scope_grant=child_scope, manifest_id=MID,
+    )
+    chain = [
+        {"hop": 0, "principal_id": "spiffe://x/root", "principal_type": "human",
+         "delegated_at": root_at, "scope_grant": root_scope, "delegation_signature": sig0},
+        {"hop": 1, "principal_id": "spiffe://x/child", "principal_type": "agent",
+         "delegated_at": child_at, "scope_grant": child_scope, "delegation_signature": sig1},
+    ]
+    keys = {"spiffe://x/root": kp_root.public_bytes,
+            "spiffe://x/child": kp_child.public_bytes}
+    return chain, keys
+
+
+def test_child_delegated_late_with_equal_ttl_outlives_parent_is_rejected():
+    # Root is delegated at T0 with a 1-hour window (expires at T0+1h).
+    # Child is delegated 50 minutes into that window with the SAME duration
+    # (3600s), which passes the plain "child_ttl > parent_ttl" comparison,
+    # but the child's absolute expiry (T0+50m+1h) falls 50 minutes after the
+    # root's absolute expiry (T0+1h) — the grant outlives its parent.
+    root_at = datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+    child_at = root_at + timedelta(minutes=50)
+    root = {"tools": ["t"], "max_delegation_depth": 3, "ttl_seconds": 3600}
+    child = {"tools": ["t"], "max_delegation_depth": 3, "ttl_seconds": 3600}
+    chain, keys = _two_hop_chain_at(
+        root, child, root_at.isoformat().replace("+00:00", "Z"),
+        child_at.isoformat().replace("+00:00", "Z"),
+    )
+    with pytest.raises(ValueError, match="Scope laundering.*absolute expiry"):
+        verify_delegation_chain(chain, keys, MID)
+
+
+def test_child_delegated_late_with_shorter_ttl_still_within_parent_window_passes():
+    # Child is delegated 5 minutes into the root's 1-hour window with a
+    # 30-minute duration; its absolute expiry (T0+5m+30m = T0+35m) is well
+    # inside the root's absolute expiry (T0+1h), so this must pass.
+    root_at = datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+    child_at = root_at + timedelta(minutes=5)
+    root = {"tools": ["t"], "max_delegation_depth": 3, "ttl_seconds": 3600}
+    child = {"tools": ["t"], "max_delegation_depth": 3, "ttl_seconds": 1800}
+    chain, keys = _two_hop_chain_at(
+        root, child, root_at.isoformat().replace("+00:00", "Z"),
+        child_at.isoformat().replace("+00:00", "Z"),
+    )
+    verify_delegation_chain(chain, keys, MID)  # must not raise
+
+
+def test_mixed_z_and_naive_delegated_at_still_refuses_on_absolute_expiry():
+    # delegated_at is a required field with no format validation, so one hop
+    # in a chain can legitimately be written with a 'Z' offset and another
+    # without one. A naive datetime cannot be compared against an aware one
+    # (TypeError), which is not a refusal verify_delegation_chain documents
+    # raising (its docstring promises InvalidSignature or ValueError). The
+    # parser must treat an offset-less timestamp as UTC so the absolute-expiry
+    # comparison still runs -- and still refuses -- instead of crashing.
+    root_at = "2026-01-01T00:00:00Z"          # aware
+    child_at = "2026-01-01T00:50:00"          # naive, same chain, outlives root
+    root = {"tools": ["t"], "max_delegation_depth": 3, "ttl_seconds": 3600}
+    child = {"tools": ["t"], "max_delegation_depth": 3, "ttl_seconds": 3600}
+    chain, keys = _two_hop_chain_at(root, child, root_at, child_at)
+    with pytest.raises(ValueError, match="Scope laundering.*absolute expiry"):
+        verify_delegation_chain(chain, keys, MID)
+
+
+# ---------------------------------------------------------------------------
 # HITL approval signing
 # ---------------------------------------------------------------------------
 
@@ -358,8 +436,12 @@ def test_approval_no_duration_does_not_expire():
 # ---------------------------------------------------------------------------
 
 def _approval_kwargs(approver_id):
-    from agent_manifest.models import ApprovalMethod, ApprovedScope, RiskTier
-    from agent_manifest.models import ApproverIdentityType
+    from agent_manifest.models import (
+        ApprovalMethod,
+        ApprovedScope,
+        ApproverIdentityType,
+        RiskTier,
+    )
     identity_type = (
         ApproverIdentityType.email
         if approver_id.startswith("mailto:")
@@ -383,8 +465,8 @@ def _approval_kwargs(approver_id):
 
 
 def test_hitl_approval_rejects_spiffe_approver_id():
-    from pydantic import ValidationError
     from agent_manifest.models import HitlApproval
+    from pydantic import ValidationError
     with pytest.raises(ValidationError, match="MUST NOT be a SPIFFE URI"):
         HitlApproval(**_approval_kwargs("spiffe://trust.acme.co/user/alice"))
 
@@ -399,3 +481,88 @@ def test_hitl_approval_accepts_did_approver_id():
     from agent_manifest.models import HitlApproval
     a = HitlApproval(**_approval_kwargs("did:web:acme.example:alice"))
     assert a.approver_id == "did:web:acme.example:alice"
+
+
+# ---------------------------------------------------------------------------
+# GHSA-q8mp-875w-2w53 / GHSA-wfv4-3xwh-9f2h: approval_method decides Level-2
+# sufficiency but sat outside the approval signature pre-image, so a
+# software-key approval could be relabelled hardware-key while keeping its
+# valid signature. An authenticated approval did not establish authenticated
+# approval strength.
+# ---------------------------------------------------------------------------
+
+def test_relabelling_approval_method_breaks_the_signature():
+    kp = generate_ed25519()
+    manifest_id = "018f4a3b-2c1d-7e5f-a8b9-0d1e2f3a4b5c"
+    approved_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    scope = {"artifacts": ["system_prompt"], "risk_tier": "high"}
+
+    approval = {
+        "approver_id": "mailto:alice@example.com",
+        "approved_at": approved_at,
+        "approved_scope": scope,
+        "approval_method": "software-key",
+    }
+    approval["approval_signature"] = HitlApprovalSigner(kp).sign_approval(
+        manifest_id=manifest_id,
+        approved_at=approved_at,
+        approved_scope=scope,
+        approver_id=approval["approver_id"],
+        approval_method="software-key",
+    )
+
+    # The approval is genuine as signed.
+    verify_hitl_approval(approval, manifest_id, kp.public_bytes)
+
+    # Upgrading the strength claim without the approver is now detected.
+    approval["approval_method"] = "hardware-key"
+    with pytest.raises((InvalidSignature, ValueError)):
+        verify_hitl_approval(approval, manifest_id, kp.public_bytes)
+
+
+def test_adding_an_approval_method_to_a_signed_approval_breaks_the_signature():
+    """An approval signed without a method claim cannot gain one afterwards."""
+    kp = generate_ed25519()
+    manifest_id = "018f4a3b-2c1d-7e5f-a8b9-0d1e2f3a4b5c"
+    approved_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    scope = {"artifacts": ["system_prompt"], "risk_tier": "high"}
+
+    approval = {
+        "approver_id": "mailto:alice@example.com",
+        "approved_at": approved_at,
+        "approved_scope": scope,
+    }
+    approval["approval_signature"] = HitlApprovalSigner(kp).sign_approval(
+        manifest_id=manifest_id,
+        approved_at=approved_at,
+        approved_scope=scope,
+        approver_id=approval["approver_id"],
+    )
+
+    verify_hitl_approval(approval, manifest_id, kp.public_bytes)
+
+    approval["approval_method"] = "hardware-key"
+    with pytest.raises((InvalidSignature, ValueError)):
+        verify_hitl_approval(approval, manifest_id, kp.public_bytes)
+
+
+def test_approvals_without_a_method_still_verify_unchanged():
+    """Compatibility: omitting the key leaves those pre-image bytes identical."""
+    kp = generate_ed25519()
+    manifest_id = "018f4a3b-2c1d-7e5f-a8b9-0d1e2f3a4b5c"
+    approved_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    scope = {"artifacts": ["system_prompt"]}
+
+    approval = {
+        "approver_id": "mailto:alice@example.com",
+        "approved_at": approved_at,
+        "approved_scope": scope,
+        "approval_signature": HitlApprovalSigner(kp).sign_approval(
+            manifest_id=manifest_id,
+            approved_at=approved_at,
+            approved_scope=scope,
+            approver_id="mailto:alice@example.com",
+        ),
+    }
+
+    verify_hitl_approval(approval, manifest_id, kp.public_bytes)

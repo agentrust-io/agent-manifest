@@ -1,6 +1,6 @@
 {
   "id": "AM-VEC-018",
-  "description": "Attestation report hash matching the canonical manifest hash verifies.",
+  "description": "Attestation hash binding alone does not make attestation_verified true.",
   "spec_refs": [
     "3.3"
   ],
@@ -74,6 +74,6 @@
   },
   "expected": {
     "result": "VALID",
-    "attestation_verified": true
+    "attestation_verified": false
   }
 }
