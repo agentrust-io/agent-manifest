@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Fixed
+
+- **[SDK]** `_check_manifest_binding()` no longer masks a malformed
+  `artifacts` or `artifacts.policy_bundle` as merely absent. Truthy
+  non-objects (`"str"`, `[1]`, `True`) already correctly reported
+  `manifest_artifacts_not_an_object` / `manifest_policy_bundle_not_an_object`,
+  but `manifest.get(...) or {}` folded any *falsy* non-object (`""`, `[]`,
+  `False`, `0`) into `{}` before the `isinstance` check ever ran, so those
+  were reported as `manifest_has_no_policy_bundle_hash` "no hash
+  available" instead of the structural warning. A value is now only
+  treated as missing when the key is absent or explicitly `None`; any other
+  non-dict value reports the structural warning regardless of truthiness.
+
 ## [0.12.0] — 2026-09-05
 
 ### Security
