@@ -634,3 +634,88 @@ def test_hitl_approval_accepts_did_approver_id():
     from agent_manifest.models import HitlApproval
     a = HitlApproval(**_approval_kwargs("did:web:acme.example:alice"))
     assert a.approver_id == "did:web:acme.example:alice"
+
+
+# ---------------------------------------------------------------------------
+# GHSA-q8mp-875w-2w53 / GHSA-wfv4-3xwh-9f2h: approval_method decides Level-2
+# sufficiency but sat outside the approval signature pre-image, so a
+# software-key approval could be relabelled hardware-key while keeping its
+# valid signature. An authenticated approval did not establish authenticated
+# approval strength.
+# ---------------------------------------------------------------------------
+
+def test_relabelling_approval_method_breaks_the_signature():
+    kp = generate_ed25519()
+    manifest_id = "018f4a3b-2c1d-7e5f-a8b9-0d1e2f3a4b5c"
+    approved_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    scope = {"artifacts": ["system_prompt"], "risk_tier": "high"}
+
+    approval = {
+        "approver_id": "mailto:alice@example.com",
+        "approved_at": approved_at,
+        "approved_scope": scope,
+        "approval_method": "software-key",
+    }
+    approval["approval_signature"] = HitlApprovalSigner(kp).sign_approval(
+        manifest_id=manifest_id,
+        approved_at=approved_at,
+        approved_scope=scope,
+        approver_id=approval["approver_id"],
+        approval_method="software-key",
+    )
+
+    # The approval is genuine as signed.
+    verify_hitl_approval(approval, manifest_id, kp.public_bytes)
+
+    # Upgrading the strength claim without the approver is now detected.
+    approval["approval_method"] = "hardware-key"
+    with pytest.raises((InvalidSignature, ValueError)):
+        verify_hitl_approval(approval, manifest_id, kp.public_bytes)
+
+
+def test_adding_an_approval_method_to_a_signed_approval_breaks_the_signature():
+    """An approval signed without a method claim cannot gain one afterwards."""
+    kp = generate_ed25519()
+    manifest_id = "018f4a3b-2c1d-7e5f-a8b9-0d1e2f3a4b5c"
+    approved_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    scope = {"artifacts": ["system_prompt"], "risk_tier": "high"}
+
+    approval = {
+        "approver_id": "mailto:alice@example.com",
+        "approved_at": approved_at,
+        "approved_scope": scope,
+    }
+    approval["approval_signature"] = HitlApprovalSigner(kp).sign_approval(
+        manifest_id=manifest_id,
+        approved_at=approved_at,
+        approved_scope=scope,
+        approver_id=approval["approver_id"],
+    )
+
+    verify_hitl_approval(approval, manifest_id, kp.public_bytes)
+
+    approval["approval_method"] = "hardware-key"
+    with pytest.raises((InvalidSignature, ValueError)):
+        verify_hitl_approval(approval, manifest_id, kp.public_bytes)
+
+
+def test_approvals_without_a_method_still_verify_unchanged():
+    """Compatibility: omitting the key leaves those pre-image bytes identical."""
+    kp = generate_ed25519()
+    manifest_id = "018f4a3b-2c1d-7e5f-a8b9-0d1e2f3a4b5c"
+    approved_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    scope = {"artifacts": ["system_prompt"]}
+
+    approval = {
+        "approver_id": "mailto:alice@example.com",
+        "approved_at": approved_at,
+        "approved_scope": scope,
+        "approval_signature": HitlApprovalSigner(kp).sign_approval(
+            manifest_id=manifest_id,
+            approved_at=approved_at,
+            approved_scope=scope,
+            approver_id="mailto:alice@example.com",
+        ),
+    }
+
+    verify_hitl_approval(approval, manifest_id, kp.public_bytes)

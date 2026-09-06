@@ -2,6 +2,87 @@
 
 ## Unreleased
 
+## [0.12.0] — 2026-09-05
+
+### Security
+
+Five privately reported advisories, all the same shape: the integrated verifier
+reaching a passing verdict on evidence that does not support it.
+
+- **[SDK] `attestation_verified` now requires an independent hardware appraisal**
+  (GHSA-85fc-3g4g-fjjc, GHSA-qvg2-j8c5-5x3w). It was set by comparing the
+  manifest's own `manifest_hash_in_report` against the locally computed manifest
+  hash. That binding proves the report names this manifest; it proves nothing
+  about hardware. For v0.1 the attestation block is outside the signing pre-image
+  (spec 3.3) and for v0.2 COSE it rides in the unprotected header, so anyone
+  holding a validly signed manifest could append a digest they computed
+  themselves and satisfy `enforce_attestation=True` with no TPM quote, SNP
+  report, TDX quote, certificate chain or trusted root involved.
+
+  `VerificationContext` gains `verified_attestation_manifest_hashes` and
+  `attestation_evidence_manifest_id`, on the same footing as the transparency
+  receipt inputs. **Breaking:** a caller setting `enforce_attestation=True`
+  without supplying an appraisal now gets `ATTESTATION_UNAVAILABLE` where it
+  previously got `VALID`.
+
+- **[SDK] `audit_key_sealed` is enforced under `enforce_attestation`**
+  (GHSA-mqqg-9mpc-mpg7). Spec 5.3 requires it to be true. The engine read
+  `audit_chain_root` but never this flag, so true, false and absent all returned
+  the same `VALID`.
+
+- **[SDK] Expired manifests no longer verify when timestamp parsing fails**
+  (GHSA-7v9r-xprj-65j7). `issued_at`/`expires_at` are typed `datetime`, so
+  Pydantic accepts epoch seconds and a lowercase zone designator and the schema
+  gate passes them. The validity block re-parsed the raw strings with
+  `datetime.fromisoformat()`, which rejects both, and swallowed the `ValueError`.
+  The whole validity window was skipped and a correctly signed but expired
+  manifest returned `VALID`. Timestamps now parse through the same adapter the
+  model uses, and anything still unreadable fails closed. The memory-baseline TTL
+  had the identical fail-open handler and is fixed too.
+
+- **[SDK] HITL `approval_method` is covered by the approval signature**
+  (GHSA-q8mp-875w-2w53, GHSA-wfv4-3xwh-9f2h). It decides Level-2 sufficiency but
+  sat outside the pre-image, so a `software-key` approval could be relabelled
+  `hardware-key` with its signature untouched. **Breaking:** approvals that carry
+  `approval_method` must be re-signed. Approvals without one are unaffected,
+  because the key is omitted from the canonical object when the field is absent.
+
+- **[SDK] TPM AK chains are appraised by the shared verifier**
+  (GHSA-mp83-94pc-7wqh). `_verify_ak_chain()` checked only "signed by the next"
+  plus a pinned root, accepting non-CA intermediates and intermediates whose
+  `KeyUsage` forbids certificate signing. It now delegates to
+  `verify_cert_chain()`, the same appraisal the SNP and TDX paths use. Malformed
+  PEM also escaped as a raw `ValueError` past a dispatcher catching only
+  `TpmVerificationError`.
+
+- **[SDK] A nested omission can no longer mask the full-binding requirement**
+  (GHSA-6hjj-gh3c-r6wv). `_validate_manifest_profile` is a `mode="after"` model
+  validator, so deleting a required field nested inside an artifact binding
+  stopped it running, and the nested `missing` error was then filtered for legacy
+  compatibility. Removing more from a manifest made the verdict better. The
+  requirement is now checked directly on the document. In practice it was
+  unenforced for any manifest with minimal artifact bindings, not only the
+  two-deletion case.
+
+  **Conformance:** `AM-VEC-018` asserted the old attestation behaviour and is
+  corrected; `AM-VEC-018d` and `AM-VEC-018e` cover the appraised and replay
+  cases. These are language-neutral vectors, so this is a contract change.
+
+### Changed
+
+- **[CI]** All 35 third-party action references pin a commit SHA rather than a
+  mutable tag.
+
+### Fixed
+
+- **[SDK]** `verify_cert_chain()` now enforces `BasicConstraints.path_length`
+  (RFC 5280 §4.2.1.9). An issuer that declares `path_length=N` but has more
+  than `N` CA certificates between it and the leaf previously verified
+  successfully every other individual check on it (validity period, `ca`
+  flag, key usage) passed on its own, so nothing else caught it. Self-issued
+  certificates (CA key rollover) are not exempted from the count; this is the
+  fail-closed direction relative to the full RFC algorithm.
+
 ### Deprecated
 
 - **[SPEC] Issuing v0.1 manifests ends 2026-11-30** (issue #315, phase 5). From that

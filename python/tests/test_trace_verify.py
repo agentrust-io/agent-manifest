@@ -380,6 +380,55 @@ def test_manifest_without_policy_hash_warns(kp, trusted):
 
 
 # ---------------------------------------------------------------------------
+# Malformed nested manifest shapes must warn, never raise - issue #362
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("bad_artifacts", ["not-an-object", ["a", "list"], True])
+def test_non_object_manifest_artifacts_warns_not_raises(kp, trusted, bad_artifacts):
+    envelope = _sign_envelope(_envelope(), kp)
+    result = verify_trace_envelope(
+        envelope,
+        trusted_keys=trusted,
+        manifest={"manifest_id": MANIFEST_ID, "artifacts": bad_artifacts},
+    )
+    # The TRACE signature already verified; a malformed optional binding must
+    # not retroactively make the envelope unappraisable.
+    assert result.status is TraceStatus.VERIFIED
+    assert "manifest_artifacts_not_an_object" in result.warnings
+
+
+@pytest.mark.parametrize("bad_policy_bundle", ["not-an-object", ["a", "list"], True])
+def test_non_object_policy_bundle_warns_not_raises(kp, trusted, bad_policy_bundle):
+    envelope = _sign_envelope(_envelope(), kp)
+    result = verify_trace_envelope(
+        envelope,
+        trusted_keys=trusted,
+        manifest={
+            "manifest_id": MANIFEST_ID,
+            "artifacts": {"policy_bundle": bad_policy_bundle},
+        },
+    )
+    assert result.status is TraceStatus.VERIFIED
+    assert "manifest_policy_bundle_not_an_object" in result.warnings
+
+
+def test_pack_with_malformed_manifest_artifacts_warns_not_raises(kp, trusted):
+    """The evidence-pack path is independently reachable (#362): it feeds its
+    manifest to every contained envelope without checking artifacts/
+    policy_bundle shape first."""
+    envelope = _sign_envelope(_envelope(), kp)
+    malformed_manifest = {"manifest_id": MANIFEST_ID, "artifacts": "not-an-object"}
+    pack = _sign_pack(_pack([envelope], manifest=malformed_manifest), kp)
+    result = verify_evidence_pack(
+        pack, trusted_keys=trusted, trace_key_id=kp.key_id
+    )
+    assert len(result.envelopes) == 1
+    assert result.envelopes[0].status is TraceStatus.VERIFIED
+    assert "manifest_artifacts_not_an_object" in result.envelopes[0].warnings
+
+
+# ---------------------------------------------------------------------------
 # Evidence pack
 # ---------------------------------------------------------------------------
 

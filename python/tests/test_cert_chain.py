@@ -46,6 +46,7 @@ def _cert(
     pss=False,
     ca=False,
     key_cert_sign=None,
+    path_length=None,
     not_before=_T0,
     not_after=_T0 + timedelta(days=3650),
 ):
@@ -57,7 +58,7 @@ def _cert(
         .serial_number(x509.random_serial_number())
         .not_valid_before(not_before)
         .not_valid_after(not_after)
-        .add_extension(x509.BasicConstraints(ca=ca, path_length=None), critical=True)
+        .add_extension(x509.BasicConstraints(ca=ca, path_length=path_length), critical=True)
     )
     if key_cert_sign is not None:
         b = b.add_extension(
@@ -197,6 +198,67 @@ def test_issuer_key_usage_must_allow_certificate_signing():
     leaf = _cert("leaf", "root", lk.public_key(), rk)
     with pytest.raises(CertChainError, match="cannot sign certificates"):
         verify_cert_chain([leaf, root], [root])
+
+
+# --- pathLenConstraint (RFC 5280 4.2.1.9) -----------------------------------
+
+
+def test_path_length_zero_forbids_a_ca_below_it():
+    """root --(path_length=0)--> mid_ca --(ca=True)--> leaf is invalid.
+
+    ``path_length=0`` on ``root`` means no CA certificate may follow it on
+    the way to the leaf. ``mid_ca`` is a CA certificate that does exactly
+    that, so the chain must be rejected even though every signature and
+    every individual BasicConstraints/KeyUsage check on its own passes.
+    """
+    rk, mk, lk = _ec(), _ec(), _ec()
+    root = _cert("root", "root", rk.public_key(), rk, ca=True, path_length=0)
+    mid_ca = _cert("mid", "root", mk.public_key(), rk, ca=True)
+    leaf = _cert("leaf", "mid", lk.public_key(), mk)
+    with pytest.raises(CertChainError, match="path_length"):
+        verify_cert_chain([leaf, mid_ca, root], [root])
+
+
+def test_path_length_zero_allows_a_direct_leaf():
+    """root --(path_length=0)--> leaf is fine: zero CAs follow root."""
+    rk, lk = _ec(), _ec()
+    root = _cert("root", "root", rk.public_key(), rk, ca=True, path_length=0)
+    leaf = _cert("leaf", "root", lk.public_key(), rk)
+    assert verify_cert_chain([leaf, root], [root]) is True
+
+
+def test_path_length_one_allows_exactly_one_ca_below():
+    rk, mk, lk = _ec(), _ec(), _ec()
+    root = _cert("root", "root", rk.public_key(), rk, ca=True, path_length=1)
+    mid_ca = _cert("mid", "root", mk.public_key(), rk, ca=True)
+    leaf = _cert("leaf", "mid", lk.public_key(), mk)
+    assert verify_cert_chain([leaf, mid_ca, root], [root]) is True
+
+
+def test_path_length_violation_is_caught_at_any_position_not_just_root():
+    """The constraint is enforced on whichever issuer declares it - not
+    hard-coded to the root position. root -> ca_A(path_length=0) -> ca_B
+    (a CA) -> leaf: ca_A is not the root and not the leaf's direct issuer,
+    and its path_length=0 is still violated by ca_B."""
+    rk, ak, bk, lk = _ec(), _ec(), _ec(), _ec()
+    root = _cert("root", "root", rk.public_key(), rk, ca=True)
+    ca_a = _cert("ca_a", "root", ak.public_key(), rk, ca=True, path_length=0)
+    ca_b = _cert("ca_b", "ca_a", bk.public_key(), ak, ca=True)
+    leaf = _cert("leaf", "ca_b", lk.public_key(), bk)
+    with pytest.raises(CertChainError, match="path_length"):
+        verify_cert_chain([leaf, ca_b, ca_a, root], [root])
+
+
+def test_unconstrained_deep_chain_still_verifies():
+    """Same shape as above but every CA is unconstrained: must still pass,
+    confirming the new check has no false positives on a chain deeper than
+    the existing 3-certificate fixtures exercise."""
+    rk, ak, bk, lk = _ec(), _ec(), _ec(), _ec()
+    root = _cert("root", "root", rk.public_key(), rk, ca=True)
+    ca_a = _cert("ca_a", "root", ak.public_key(), rk, ca=True)
+    ca_b = _cert("ca_b", "ca_a", bk.public_key(), ak, ca=True)
+    leaf = _cert("leaf", "ca_b", lk.public_key(), bk)
+    assert verify_cert_chain([leaf, ca_b, ca_a, root], [root]) is True
 
 
 # --- parse_tdx_quote strict vs lenient -------------------------------------

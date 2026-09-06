@@ -560,3 +560,63 @@ def test_verification_accepts_bound_delta():
     # the manifest binding round-trips and preserves the checkpoint anchor
     parsed = MemoryCheckpointBinding.model_validate(binding.model_dump())
     assert parsed.memory_root == new.memory_root and parsed.seq == new.seq
+
+
+# ---------------------------------------------------------------------------
+# GHSA-7v9r-xprj-65j7: an expired manifest must not reach VALID because the
+# verifier could not read its timestamps.
+#
+# issued_at/expires_at are typed datetime on the model, so Pydantic accepts
+# representations that datetime.fromisoformat() rejects. The schema gate passed
+# them, the verifier's re-parse raised ValueError, and the whole validity-window
+# check was skipped. The raw strings are inside the signing pre-image, so no
+# signature forgery or post-signing rewrite is involved.
+# ---------------------------------------------------------------------------
+
+_EXPIRED_EPOCH = str(int((NOW - timedelta(days=1)).timestamp()))
+_ISSUED_EPOCH = str(int((NOW - timedelta(days=30)).timestamp()))
+
+
+@pytest.mark.parametrize(
+    "issued_at,expires_at",
+    [
+        # decimal epoch seconds
+        (_ISSUED_EPOCH, _EXPIRED_EPOCH),
+        # lowercase zone designator
+        (
+            (NOW - timedelta(days=30)).isoformat().replace("+00:00", "z"),
+            (NOW - timedelta(days=1)).isoformat().replace("+00:00", "z"),
+        ),
+    ],
+)
+def test_expired_manifest_is_not_valid_under_alternate_timestamp_forms(issued_at, expires_at):
+    r = verify_manifest(manifest(issued_at=issued_at, expires_at=expires_at), ctx(), store())
+
+    assert r.result == OverallResult.EXPIRED
+
+
+def test_alternate_timestamp_forms_still_verify_when_in_window():
+    """Failing closed must not mean rejecting every representation but one."""
+    issued_at = str(int((NOW - timedelta(days=1)).timestamp()))
+    expires_at = str(int((NOW + timedelta(days=90)).timestamp()))
+
+    r = verify_manifest(manifest(issued_at=issued_at, expires_at=expires_at), ctx(), store())
+
+    assert r.result == OverallResult.VALID
+
+
+def test_unparseable_timestamps_fail_closed():
+    """A validity window that cannot be evaluated is not a window that passed.
+
+    Free-form garbage is caught earlier, by the schema gate, and reported against
+    the individual fields. Either way the verdict is MISMATCH; what must never
+    happen is the manifest continuing to VALID with the window unchecked.
+    """
+    r = verify_manifest(
+        manifest(issued_at="not-a-timestamp", expires_at="also-not-a-timestamp"),
+        ctx(),
+        store(),
+    )
+
+    assert r.result == OverallResult.MISMATCH
+    assert r.mismatch_details
