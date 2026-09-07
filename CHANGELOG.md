@@ -4,6 +4,21 @@
 
 ### Fixed
 
+- **[SECURITY][SDK]** `_strict_schema_violations()` tolerated a missing
+  top-level `issuer` claim for **any** manifest version, not just v0.1. The
+  exception was added for legacy v0.1 records, which predate the `issuer`
+  field (CHANGELOG: "legacy v0.1 issuer omission remains compatible"), but
+  the filter never checked which version was being verified. The v0.2 spec
+  makes `issuer` REQUIRED, and it is not decorative:
+  `_signature_key_issuer_mismatch()` uses it to authorize the signing key.
+  As a result, a v0.2 manifest with `issuer` stripped out but otherwise
+  intact and carrying a valid COSE signature could pass schema validation
+  and reach `VALID`, silently dropping that authorization boundary for any
+  manifest an attacker (already in possession of a valid signing key) chose
+  to omit it from. The exception is now scoped to `version == "0.1"`; a
+  v0.2 manifest missing `issuer` fails closed with a `MISMATCH` schema
+  violation, same as any other missing required v0.2 claim.
+
 - **[SDK]** `verify_delegation_chain()` no longer verifies a delegation chain
   as `VALID` when a hop's `scope_grant.constraints` is non-empty. Constraints
   are Cedar statements (spec 3.4.1); this package has no Cedar parser or
