@@ -90,6 +90,7 @@ jobs:
         run: |
           python -m venv .agt-venv
           .agt-venv/bin/python -m pip install --require-hashes -r requirements/agt.txt
+          .agt-venv/bin/python -m pip install --require-hashes --no-deps -r requirements/agt-override.txt
           .agt-venv/bin/python -m pip install --no-deps -e python
 
       - name: Generate evidence file
