@@ -1,0 +1,9 @@
+# The governance scanner. AGT declares cryptography>=46.0.7,<49.0 while this
+# package allows >=42,<51, so unlike ca2a the two do co-resolve and AGT can
+# share the environment. Kept as its own lock so the resolution is visible and
+# a future AGT ceiling change shows up here rather than silently downgrading
+# the package under test. Compile with:
+#   uv pip compile requirements/agt.in --generate-hashes --universal \
+#     --python-version 3.11 -o requirements/agt.txt
+agent-governance-toolkit>=4.1
+agent-governance-toolkit-core>=4.1

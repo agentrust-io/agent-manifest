@@ -1,0 +1,10 @@
+# The server extra, for the docs jobs that import the FastAPI surface.
+# Compile with:
+#   uv pip compile requirements/server.in --generate-hashes --universal \
+#     --python-version 3.11 -o requirements/server.txt
+pydantic>=2.7,<3
+cryptography>=42,<51
+cbor2>=5.6,<7
+fastapi>=0.111
+uvicorn[standard]>=0.29
+httpx>=0.27

@@ -1,0 +1,4 @@
+# SBOM generation. Compile with:
+#   uv pip compile requirements/sbom.in --generate-hashes --universal \
+#     --python-version 3.11 -o requirements/sbom.txt
+cyclonedx-bom

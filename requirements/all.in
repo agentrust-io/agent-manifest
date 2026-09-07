@@ -1,0 +1,10 @@
+# The all extra, used by the SBOM job. Compile with:
+#   uv pip compile requirements/all.in --generate-hashes --universal \
+#     --python-version 3.11 -o requirements/all.txt
+pydantic>=2.7,<3
+cryptography>=47,<51
+cbor2>=5.6,<7
+fastapi>=0.111
+uvicorn[standard]>=0.29
+httpx>=0.27
+click>=8.1

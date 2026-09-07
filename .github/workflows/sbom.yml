@@ -23,11 +23,13 @@ jobs:
           python-version: "3.11"
 
       - name: Install cyclonedx-bom
-        run: pip install cyclonedx-bom
+        run: pip install --require-hashes -r requirements/sbom.txt
 
       - name: Install package
         working-directory: python
-        run: pip install -e ".[all]"
+        run: |
+          pip install --require-hashes -r ../requirements/all.txt
+          pip install --no-deps -e .
 
       - name: Generate SBOM
         working-directory: python
