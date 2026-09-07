@@ -21,10 +21,15 @@ from __future__ import annotations
 
 import hashlib
 import math
-import unicodedata
 from typing import Any
 
 _MAX_DEPTH = 64  # DOS-006: prevent RecursionError from deeply nested JSON
+
+# RFC 8785 §3.2.2.3 routes every number through the ECMAScript Number type, so
+# only integers exactly representable as an IEEE 754 double survive the round
+# trip. Matches the rfc8785 reference implementation and trace-spec, which hit
+# this first (see its changelog: "one signature stands for two records").
+_MAX_SAFE_INTEGER = 9007199254740991  # 2**53 - 1
 
 
 def canonicalize(obj: Any, *, exclude_none: bool = True) -> bytes:
@@ -82,6 +87,16 @@ def _serialize(obj: Any, *, exclude_none: bool, depth: int) -> str:
         # bool check must come before int — bool is a subclass of int in Python
         return "true" if obj else "false"
     if isinstance(obj, int):
+        if not -_MAX_SAFE_INTEGER <= obj <= _MAX_SAFE_INTEGER:
+            raise ValueError(
+                f"integer {obj} is outside the safe integer domain RFC 8785 can "
+                f"serialize (+/-{_MAX_SAFE_INTEGER}). RFC 8785 §3.2.2.3 serializes "
+                "numbers through the ECMAScript double conversion, which maps "
+                "9007199254740992 and 9007199254740993 to the same digits: a "
+                "signature over one would stand for the other. Refusing here keeps "
+                "this implementation byte-identical to conforming verifiers instead "
+                "of silently diverging from them."
+            )
         return str(obj)
     if isinstance(obj, float):
         return _float_to_str(obj)
@@ -120,9 +135,23 @@ def _serialize_dict(d: dict[str, Any], *, exclude_none: bool, depth: int) -> str
 def _quote(s: str) -> str:
     """Serialize a Python string as a JSON string per RFC 8785 §3.2.2.2.
 
-    Applies NFC normalization (spec Section 4.3) before escaping.
+    Deliberately does NOT normalize. RFC 8785 has no normalization step, and
+    spec Section 4.3 scopes NFC to *text artifacts* hashed as raw UTF-8 bytes
+    ("not as JSON"), which is the module docstring's "use hashlib directly"
+    case, not this one. Normalizing here was wrong twice over:
+
+      - values: "café" and "café" are distinct JSON strings that
+        collapsed to the same canonical bytes, so one signature stood for two
+        documents, and no sibling implementation agreed with the result;
+      - keys: keys sort by their pre-normalization UTF-16 encoding but were
+        normalized at quote time, so those two as sibling keys emitted
+        {"café":1,"café":2} - invalid JSON that silently drops a
+        field on re-parse, signed.
+
+    Callers that want NFC must apply it to their input before canonicalizing,
+    where it is a visible decision about the data rather than a hidden rewrite
+    of it.
     """
-    s = unicodedata.normalize("NFC", s)
     buf: list[str] = ['"']
     for ch in s:
         cp = ord(ch)
@@ -140,7 +169,13 @@ def _quote(s: str) -> str:
             buf.append("\\r")
         elif ch == "\t":
             buf.append("\\t")
-        elif cp <= 0x001F or 0x007F <= cp <= 0x009F or cp in (0x2028, 0x2029):
+        elif cp <= 0x001F:
+            # Exactly the ECMAScript QuoteJSONString set, which RFC 8785 §3.2.2.2
+            # defers to: control code units below 0x20, plus the two literals
+            # handled above. U+007F-U+009F and U+2028/U+2029 were escaped here
+            # and are not escaped by any conforming canonicalizer; escaping more
+            # than the standard is still a divergence, and a signature computed
+            # over the extra escapes verifies nowhere else.
             # Control characters and ECMAScript line terminators
             buf.append(f"\\u{cp:04x}")
         else:
