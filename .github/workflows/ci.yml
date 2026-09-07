@@ -128,29 +128,30 @@ jobs:
           python-version: "3.12"
           cache: pip
 
-      - name: Install package and AGT
-        working-directory: python
-        # AGT shares this environment: it declares cryptography>=46.0.7,<49.0
-        # and this package allows >=42,<51, so they co-resolve. Its lock is
-        # separate so a future AGT ceiling change surfaces here rather than
-        # silently downgrading the package under test.
+      - name: Install AGT as isolated CI tooling
+        # AGT must not share an environment with the package under test.
+        # agent-governance-toolkit-core declares cryptography>=46.0.7,<50.0,
+        # and 50.0.0 is both this package's floor and the first release
+        # without PYSEC-2026-3552. Installed alongside, AGT drags
+        # cryptography back under that floor. Its own venv, then the
+        # override lifts it, which is what publish.yml and ca2a already do.
         run: |
-          pip install --require-hashes -r ../requirements/dev.txt
-          pip install --require-hashes -r ../requirements/agt.txt
-          pip install --no-deps -e .
+          python -m venv .agt-venv
+          .agt-venv/bin/python -m pip install --require-hashes -r requirements/agt.txt
+          .agt-venv/bin/python -m pip install --require-hashes --no-deps -r requirements/agt-override.txt
+          .agt-venv/bin/python -m pip install --no-deps -e python
 
-      - name: Install PyYAML (needed by gen script)
-        # pyyaml comes from the dev lock installed above.
-        run: python -c "import yaml"
+      - name: Confirm PyYAML is present for the gen script
+        run: .agt-venv/bin/python -c "import yaml"
 
       - name: Generate evidence file
-        run: python scripts/gen_agt_evidence.py
+        run: .agt-venv/bin/python scripts/gen_agt_evidence.py
 
       - name: AGT governance verify (strict)
-        run: agt verify --evidence agt-evidence.json
+        run: .agt-venv/bin/agt verify --evidence agt-evidence.json
 
       - name: Save attestation JSON
-        run: agt --json verify --evidence agt-evidence.json > agt-attestation.json
+        run: .agt-venv/bin/agt --json verify --evidence agt-evidence.json > agt-attestation.json
 
       - name: Upload governance artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.0
