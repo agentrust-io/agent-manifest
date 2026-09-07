@@ -4,6 +4,17 @@
 
 ### Fixed
 
+- **[SDK]** `verify_delegation_chain()` no longer verifies a delegation chain
+  as `VALID` when a hop's `scope_grant.constraints` is non-empty. Constraints
+  are Cedar statements (spec 3.4.1); this package has no Cedar parser or
+  evaluator, so per spec such a chain MUST be reported `UNVERIFIABLE`, never
+  `VALID`. `_check_scope_narrowing()` only ever did a string-set comparison
+  between parent and child constraints, so two hops carrying the identical,
+  unparseable constraint string (nothing "dropped") verified as `VALID`
+  end-to-end. A new `DelegationUnverifiable` exception now signals this case
+  distinctly from an affirmatively broken chain (`ValueError` → `INVALID`);
+  `verify_manifest()` maps it to `DelegationResult.UNVERIFIABLE`.
+
 - **[SECURITY][CLI]** `manifest verify` gained `--crl-trusted-key PATH` to
   authenticate `--crl-path` revocation records against the revoking
   authority's public key. Previously the CLI always constructed `FileCRL`

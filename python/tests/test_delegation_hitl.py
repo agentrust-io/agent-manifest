@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from agent_manifest._delegation import (
     DelegationHopSigner,
+    DelegationUnverifiable,
     HitlApprovalSigner,
     _approval_pre_image,
     _hop_pre_image,
@@ -218,12 +219,144 @@ def test_child_dropping_parent_constraint_is_rejected():
 
 
 def test_child_adding_constraint_is_allowed():
+    # Structural narrowing (child keeps every parent constraint string, only
+    # adds more) is satisfied here - it must not raise ValueError. But the
+    # constraints are still non-empty Cedar statements this verifier cannot
+    # parse/evaluate, so the chain as a whole is DelegationUnverifiable, not
+    # silently valid (spec 3.4.1 / 5.2).
     root = {"tools": ["t"], "max_delegation_depth": 3, "ttl_seconds": 3600,
             "constraints": ["region==eu"]}
     child = {"tools": ["t"], "max_delegation_depth": 3, "ttl_seconds": 3600,
              "constraints": ["region==eu", "amount<100"]}  # added, superset
     chain, keys = _two_hop_chain(root, child)
-    verify_delegation_chain(chain, keys, MID)  # must not raise
+    with pytest.raises(DelegationUnverifiable):
+        verify_delegation_chain(chain, keys, MID)
+
+
+# ---------------------------------------------------------------------------
+# Cedar constraints are UNVERIFIABLE, not VALID (this verifier has no Cedar
+# parser/evaluator - see DelegationUnverifiable's docstring and spec 3.4.1/5.2)
+# ---------------------------------------------------------------------------
+
+
+def test_matching_malformed_constraints_are_unverifiable_not_valid():
+    """The reported bug, reproduced directly against verify_delegation_chain:
+    parent and child both carry the identical, non-Cedar, unparseable
+    constraint string. Nothing is "dropped" so the structural narrowing
+    check is satisfied, and both signatures are valid - but the chain must
+    still not verify as VALID (i.e. return normally), because the
+    constraint itself was never evaluated.
+    """
+    malformed = ["this is not Cedar at all"]
+    root = {"tools": ["t"], "max_delegation_depth": 3, "ttl_seconds": 3600,
+            "constraints": malformed}
+    child = {"tools": ["t"], "max_delegation_depth": 3, "ttl_seconds": 3600,
+             "constraints": list(malformed)}  # identical, nothing dropped
+    chain, keys = _two_hop_chain(root, child)
+    with pytest.raises(DelegationUnverifiable):
+        verify_delegation_chain(chain, keys, MID)
+
+
+def test_single_hop_chain_with_constraints_is_unverifiable():
+    """A root-only chain (no narrowing to check at all) still must not
+    verify when its own constraints are non-empty and unevaluated."""
+    kp = generate_ed25519()
+    scope = {"tools": [], "constraints": ["permit(principal, action, resource)"]}
+    sig = DelegationHopSigner(kp).sign_hop(
+        hop=0, principal_id="spiffe://x/root", principal_type="human",
+        delegated_at=NOW, scope_grant=scope, manifest_id=MID,
+    )
+    chain = [{"hop": 0, "principal_id": "spiffe://x/root", "principal_type": "human",
+              "delegated_at": NOW, "scope_grant": scope, "delegation_signature": sig}]
+    with pytest.raises(DelegationUnverifiable):
+        verify_delegation_chain(chain, {"spiffe://x/root": kp.public_bytes}, MID)
+
+
+def test_scope_laundering_takes_priority_over_unverifiable_constraints():
+    """A chain that is both scope-laundered AND carries unresolved Cedar
+    constraints must raise the more specific ValueError (INVALID), not the
+    weaker DelegationUnverifiable - an affirmatively broken chain must never
+    be softened to merely "can't tell"."""
+    root = {"tools": ["t"], "max_delegation_depth": 3, "ttl_seconds": 3600,
+            "constraints": ["region==eu", "amount<1000"]}
+    child = {"tools": ["t"], "max_delegation_depth": 3, "ttl_seconds": 3600,
+             "constraints": ["region==eu"]}  # dropped amount<1000 (laundering)
+    chain, keys = _two_hop_chain(root, child)
+    with pytest.raises(ValueError, match="drops parent constraints"):
+        verify_delegation_chain(chain, keys, MID)
+
+
+def _two_hop_chain_distinct_signers(root_scope, child_scope, *, corrupt_child_key=False):
+    """Like ``_two_hop_chain``, but returns keys that let a caller register
+    the *wrong* public key for the child principal, to simulate a hop with
+    an invalid signature."""
+    kp_root, kp_child = generate_ed25519(), generate_ed25519()
+    sig0 = DelegationHopSigner(kp_root).sign_hop(
+        hop=0, principal_id="spiffe://x/root", principal_type="human",
+        delegated_at=NOW, scope_grant=root_scope, manifest_id=MID,
+    )
+    sig1 = DelegationHopSigner(kp_child).sign_hop(
+        hop=1, principal_id="spiffe://x/child", principal_type="agent",
+        delegated_at=NOW, scope_grant=child_scope, manifest_id=MID,
+    )
+    chain = [
+        {"hop": 0, "principal_id": "spiffe://x/root", "principal_type": "human",
+         "delegated_at": NOW, "scope_grant": root_scope, "delegation_signature": sig0},
+        {"hop": 1, "principal_id": "spiffe://x/child", "principal_type": "agent",
+         "delegated_at": NOW, "scope_grant": child_scope, "delegation_signature": sig1},
+    ]
+    child_key = generate_ed25519().public_bytes if corrupt_child_key else kp_child.public_bytes
+    keys = {"spiffe://x/root": kp_root.public_bytes, "spiffe://x/child": child_key}
+    return chain, keys
+
+
+def test_later_invalid_signature_is_not_masked_by_earlier_constrained_hop():
+    """Root hop 0 is fully valid and carries a non-empty (unresolved) Cedar
+    constraint. Hop 1's signature does not verify against the key registered
+    for its principal. The chain must fail with InvalidSignature - the
+    hop-0 constraint must never cause hop 1's own failure to be swallowed
+    into DelegationUnverifiable."""
+    root = {"tools": ["t"], "constraints": ["permit(principal, action, resource)"]}
+    child = {"tools": ["t"], "constraints": ["permit(principal, action, resource)"]}
+    chain, keys = _two_hop_chain_distinct_signers(root, child, corrupt_child_key=True)
+    with pytest.raises(InvalidSignature):
+        verify_delegation_chain(chain, keys, MID)
+
+
+def test_later_malformed_hop_is_not_masked_by_earlier_constrained_hop():
+    """Root hop 0 is fully valid and carries a non-empty (unresolved) Cedar
+    constraint. Hop 1 is structurally malformed (missing a required field).
+    The chain must fail with ValueError naming the missing field - not
+    DelegationUnverifiable."""
+    root = {"tools": ["t"], "constraints": ["permit(principal, action, resource)"]}
+    kp_root = generate_ed25519()
+    sig0 = DelegationHopSigner(kp_root).sign_hop(
+        hop=0, principal_id="spiffe://x/root", principal_type="human",
+        delegated_at=NOW, scope_grant=root, manifest_id=MID,
+    )
+    chain = [
+        {"hop": 0, "principal_id": "spiffe://x/root", "principal_type": "human",
+         "delegated_at": NOW, "scope_grant": root, "delegation_signature": sig0},
+        # Hop 1 is missing "delegation_signature" entirely.
+        {"hop": 1, "principal_id": "spiffe://x/child", "principal_type": "agent",
+         "delegated_at": NOW, "scope_grant": {"tools": ["t"]}},
+    ]
+    keys = {"spiffe://x/root": kp_root.public_bytes,
+            "spiffe://x/child": generate_ed25519().public_bytes}
+    with pytest.raises(ValueError, match="missing required fields"):
+        verify_delegation_chain(chain, keys, MID)
+
+
+def test_later_scope_laundering_is_not_masked_by_earlier_constrained_hop():
+    """Root hop 0 is fully valid and carries a non-empty (unresolved) Cedar
+    constraint. Hop 1 launders scope (claims a tool the parent didn't grant).
+    The chain must fail with ValueError naming the laundering - not
+    DelegationUnverifiable."""
+    root = {"tools": ["t"], "constraints": ["permit(principal, action, resource)"]}
+    child = {"tools": ["t", "extra-tool"], "constraints": ["permit(principal, action, resource)"]}
+    chain, keys = _two_hop_chain_distinct_signers(root, child)
+    with pytest.raises(ValueError, match="Scope laundering at hop 1"):
+        verify_delegation_chain(chain, keys, MID)
 
 
 def test_child_raising_ttl_is_rejected():

@@ -213,6 +213,157 @@ def test_chain_without_keys_is_unverifiable():
     assert result.result == OverallResult.UNVERIFIABLE
 
 
+def test_chain_with_cedar_constraints_is_unverifiable_not_valid():
+    """Spec 3.4.1 / 5.2: a non-empty scope_grant.constraints array is a Cedar
+    statement. A verifier without Cedar support MUST report UNVERIFIABLE,
+    never VALID - even when signatures verify and every other check
+    (structural narrowing on the constraint strings, tools, ttl, depth)
+    passes. This is a single-hop chain, so it isolates the constraints
+    themselves as the only unresolved element.
+    """
+    kp = generate_ed25519()
+    pid = AGENT_ID
+    scope = {**SCOPE, "constraints": ["permit(principal, action, resource)"]}
+    sig = DelegationHopSigner(kp).sign_hop(
+        hop=0, principal_id=pid, principal_type="agent",
+        delegated_at=NOW, scope_grant=scope, manifest_id=MID,
+    )
+    chain = [{
+        "hop": 0, "principal_id": pid, "principal_type": "agent",
+        "delegated_at": NOW, "scope_grant": scope, "delegation_signature": sig,
+    }]
+    m = base_manifest(delegation_chain=chain)
+    ctx = base_context(delegation_public_keys={pid: kp.public_b64url()})
+    result = verify_manifest(m, ctx, store())
+    assert result.fields_verified.delegation_chain == DelegationResult.UNVERIFIABLE
+    assert result.result == OverallResult.UNVERIFIABLE
+    # And specifically not the two other buckets a naive fix might collapse
+    # this into:
+    assert result.fields_verified.delegation_chain != DelegationResult.VALID
+    assert result.fields_verified.delegation_chain != DelegationResult.INVALID
+
+
+def test_chain_with_malformed_non_cedar_constraints_is_unverifiable_not_valid():
+    """The exact reported bug: parent and child carry the *same*, nonsensical,
+    non-Cedar string in ``constraints``. Structural narrowing sees no dropped
+    constraint (parent set == child set) and the signatures are valid, so the
+    old implementation returned VALID. It must return UNVERIFIABLE instead,
+    since this verifier can neither parse nor evaluate the statement.
+    """
+    root_kp = generate_ed25519()
+    child_kp = generate_ed25519()
+    root_pid = AGENT_ID
+    child_pid = "spiffe://trust.example/sub"
+    malformed_scope = {**SCOPE, "constraints": ["this is not Cedar at all"]}
+
+    root_sig = DelegationHopSigner(root_kp).sign_hop(
+        hop=0, principal_id=root_pid, principal_type="human",
+        delegated_at=NOW, scope_grant=malformed_scope, manifest_id=MID,
+    )
+    child_sig = DelegationHopSigner(child_kp).sign_hop(
+        hop=1, principal_id=child_pid, principal_type="agent",
+        delegated_at=NOW, scope_grant=malformed_scope, manifest_id=MID,
+    )
+    chain = [
+        {"hop": 0, "principal_id": root_pid, "principal_type": "human",
+         "delegated_at": NOW, "scope_grant": malformed_scope,
+         "delegation_signature": root_sig},
+        {"hop": 1, "principal_id": child_pid, "principal_type": "agent",
+         "delegated_at": NOW, "scope_grant": malformed_scope,
+         "delegation_signature": child_sig},
+    ]
+    m = base_manifest(delegation_chain=chain)
+    ctx = base_context(delegation_public_keys={
+        root_pid: root_kp.public_b64url(),
+        child_pid: child_kp.public_b64url(),
+    })
+    result = verify_manifest(m, ctx, store())
+    assert result.fields_verified.delegation_chain == DelegationResult.UNVERIFIABLE
+    assert result.result == OverallResult.UNVERIFIABLE
+
+
+def test_chain_empty_constraints_still_valid():
+    """Sanity check: the fix must not regress the common case. An empty (or
+    absent) constraints array carries nothing to evaluate, so it stays VALID
+    exactly as before.
+    """
+    kp = generate_ed25519()
+    pid = AGENT_ID
+    chain = _make_chain(kp, principal_id=pid)  # SCOPE has "constraints": []
+    m = base_manifest(delegation_chain=chain)
+    ctx = base_context(delegation_public_keys={pid: kp.public_b64url()})
+    result = verify_manifest(m, ctx, store())
+    assert result.fields_verified.delegation_chain == DelegationResult.VALID
+    assert result.result == OverallResult.VALID
+
+def test_invalid_signature_with_constraints_is_invalid_not_unverifiable():
+    """A chain that is both cryptographically broken AND carries unresolved
+    Cedar constraints must report the more specific INVALID (bad signature),
+    not UNVERIFIABLE. Constraint-unverifiability must never mask an
+    outright-broken chain.
+    """
+    kp = generate_ed25519()
+    wrong_kp = generate_ed25519()  # signature will be checked against this key
+    pid = AGENT_ID
+    scope = {**SCOPE, "constraints": ["permit(principal, action, resource)"]}
+    sig = DelegationHopSigner(kp).sign_hop(
+        hop=0, principal_id=pid, principal_type="agent",
+        delegated_at=NOW, scope_grant=scope, manifest_id=MID,
+    )
+    chain = [{
+        "hop": 0, "principal_id": pid, "principal_type": "agent",
+        "delegated_at": NOW, "scope_grant": scope, "delegation_signature": sig,
+    }]
+    m = base_manifest(delegation_chain=chain)
+    ctx = base_context(delegation_public_keys={pid: wrong_kp.public_b64url()})
+    result = verify_manifest(m, ctx, store())
+    assert result.fields_verified.delegation_chain == DelegationResult.INVALID
+    assert result.result != OverallResult.VALID
+
+
+def test_later_hop_invalid_signature_after_valid_constrained_root_is_invalid():
+    """End-to-end regression for the reviewer's exact scenario: a valid,
+    constrained root hop (hop 0) followed by a hop (hop 1) whose signature
+    does not verify. The root's unresolved Cedar constraint must not mask
+    hop 1's own signature failure - the overall result must be INVALID
+    (from the bad signature), never UNVERIFIABLE.
+    """
+    root_kp = generate_ed25519()
+    child_kp = generate_ed25519()
+    wrong_child_kp = generate_ed25519()  # registered instead of child_kp
+    root_pid = AGENT_ID
+    child_pid = "spiffe://trust.example/sub"
+    constrained_scope = {**SCOPE, "constraints": ["permit(principal, action, resource)"]}
+
+    root_sig = DelegationHopSigner(root_kp).sign_hop(
+        hop=0, principal_id=root_pid, principal_type="human",
+        delegated_at=NOW, scope_grant=constrained_scope, manifest_id=MID,
+    )
+    child_sig = DelegationHopSigner(child_kp).sign_hop(
+        hop=1, principal_id=child_pid, principal_type="agent",
+        delegated_at=NOW, scope_grant=constrained_scope, manifest_id=MID,
+    )
+    chain = [
+        {"hop": 0, "principal_id": root_pid, "principal_type": "human",
+         "delegated_at": NOW, "scope_grant": constrained_scope,
+         "delegation_signature": root_sig},
+        {"hop": 1, "principal_id": child_pid, "principal_type": "agent",
+         "delegated_at": NOW, "scope_grant": constrained_scope,
+         "delegation_signature": child_sig},
+    ]
+    m = base_manifest(delegation_chain=chain)
+    ctx = base_context(delegation_public_keys={
+        root_pid: root_kp.public_b64url(),
+        # Wrong key registered for the child principal -> hop 1 signature
+        # verification must fail.
+        child_pid: wrong_child_kp.public_b64url(),
+    })
+    result = verify_manifest(m, ctx, store())
+    assert result.fields_verified.delegation_chain == DelegationResult.INVALID
+    assert result.result != OverallResult.UNVERIFIABLE
+    assert result.result != OverallResult.VALID
+
+
 # ---------------------------------------------------------------------------
 # INVALID - bad signature surfaces as MISMATCH
 # ---------------------------------------------------------------------------

@@ -24,6 +24,26 @@ from ._signing import Ed25519KeyPair, Ed25519Verifier
 # ---------------------------------------------------------------------------
 
 
+class DelegationUnverifiable(Exception):
+    """Raised when a chain is structurally and cryptographically sound but
+    contains an element this verifier cannot evaluate with certainty.
+
+    Spec 3.4.1 / 5.2: ``scope_grant.constraints`` entries are Cedar ``permit``
+    or ``forbid`` statements. A verifying party that supports Cedar MUST
+    parse and evaluate them; a verifying party that does not MUST treat a
+    non-empty ``constraints`` array as ``UNVERIFIABLE`` rather than ``VALID``.
+    This package does not implement a Cedar parser/evaluator, so it always
+    falls into the second case.
+
+    This is deliberately not a ``ValueError``: ``ValueError`` here means the
+    chain is affirmatively broken (bad scope narrowing, malformed structure),
+    which callers map to ``INVALID``. This exception means the opposite -
+    every check this verifier is able to perform passed - but a condition
+    this verifier cannot resolve makes an outright ``VALID`` unsafe to
+    report, so callers must map it to ``UNVERIFIABLE`` instead.
+    """
+
+
 # Spec 3.4.1: when max_delegation_depth is omitted from a scope_grant,
 # verifying parties MUST apply a default value of 3.
 DEFAULT_MAX_DELEGATION_DEPTH = 3
@@ -231,6 +251,13 @@ def verify_delegation_chain(
       - Scope at each hop is not broader than the previous hop's grant
         (tools, data_classifications, constraints, ttl_seconds, depth).
       - Chain depth does not exceed root hop's max_delegation_depth.
+      - No hop carries a non-empty ``constraints`` array, since this verifier
+        does not implement Cedar and cannot evaluate what such constraints
+        actually permit (spec 3.4.1 / 5.2). Structural scope-narrowing on the
+        constraint *strings* (see ``_check_scope_narrowing``) is still
+        enforced first and can independently fail the chain with
+        ``ValueError``; only a chain that is otherwise fully valid raises
+        ``DelegationUnverifiable`` for the unresolved constraints.
 
     Args:
         delegation_chain: List of hop dicts from the manifest.
@@ -245,6 +272,10 @@ def verify_delegation_chain(
     Raises:
         InvalidSignature: If any hop signature is invalid.
         ValueError: If scope laundering is detected or chain is malformed.
+        DelegationUnverifiable: If every other check passes but one or more
+            hops carry a non-empty ``constraints`` array that this verifier
+            cannot parse/evaluate as Cedar. Callers MUST map this to
+            ``UNVERIFIABLE``, never ``VALID`` (spec 3.4.1 / 5.2).
     """
     if not isinstance(delegation_chain, list):
         raise ValueError(
@@ -285,9 +316,55 @@ def verify_delegation_chain(
             f"Delegation chain depth {len(delegation_chain) - 1} exceeds "
             f"root max_delegation_depth {root_max_depth}"
         )
+    # Verify every hop's signature and scope narrowing, in order. This is a
+    # plain function call, not inlined here, so that what happens once it
+    # returns is unambiguous even from a diff: _verify_hops raises
+    # InvalidSignature/ValueError the moment ANY hop fails (a later hop's
+    # cryptographic or structural failure is checked and raised regardless
+    # of what an earlier hop's scope_grant contained), and only *returns* a
+    # value - never raises - to report hops with unresolved Cedar
+    # constraints. The line below is reached, and DelegationUnverifiable can
+    # only be raised, once the entire chain has already passed every other
+    # check.
+    unverifiable_constraint_hops = _verify_hops(
+        delegation_chain, public_keys, manifest_id
+    )
+
+    if unverifiable_constraint_hops:
+        raise DelegationUnverifiable(
+            "Delegation chain has non-empty Cedar scope_grant.constraints at "
+            f"hop(s) {unverifiable_constraint_hops}, and this verifier does "
+            "not implement Cedar parsing/evaluation. Per spec 3.4.1 / 5.2 "
+            "this chain MUST be reported as UNVERIFIABLE, not VALID."
+        )
+
+
+def _verify_hops(
+    delegation_chain: list[dict[str, Any]],
+    public_keys: dict[str, bytes],
+    manifest_id: str,
+) -> list[int]:
+    """Check every hop's signature and scope narrowing; report unresolved Cedar.
+
+    Raises ``InvalidSignature`` or ``ValueError`` immediately - and always
+    propagates out of this function without returning - the moment any hop
+    fails a check, regardless of position in the chain and regardless of
+    what any other hop's ``scope_grant.constraints`` contains. A hop with
+    non-empty constraints never causes a later hop's failure to be skipped:
+    every hop up to and including the failing one is still fully checked in
+    order first.
+
+    Returns (rather than raises) the list of hop indices whose scope_grant
+    carried a non-empty ``constraints`` array - Cedar statements this
+    verifier does not parse or evaluate (spec 3.4.1 / 5.2) - and only does
+    so once every hop in the chain has been checked without a failure.
+    ``verify_delegation_chain`` decides whether to raise
+    ``DelegationUnverifiable`` from that list.
+    """
 
     prev_scope: dict[str, Any] | None = None
     prev_delegated_at: str | None = None
+    unverifiable_constraint_hops: list[int] = []
 
     for i, hop in enumerate(delegation_chain):
         if i:
@@ -330,8 +407,20 @@ def verify_delegation_chain(
                 child_delegated_at=delegated_at,
             )
 
+        # Cedar constraints present at this hop. The narrowing check above
+        # only compares the constraint *strings* structurally (child must
+        # keep every parent string); it never parses or evaluates what the
+        # Cedar statement actually permits. Recording this here, rather than
+        # raising immediately, lets later hops still fail closed with the
+        # more specific ValueError/InvalidSignature they'd otherwise raise -
+        # this function only returns this list; it never raises for it.
+        if scope.get("constraints"):
+            unverifiable_constraint_hops.append(i)
+
         prev_scope = scope
         prev_delegated_at = delegated_at
+
+    return unverifiable_constraint_hops
 
 
 def _parse_delegated_at(value: str) -> datetime:
