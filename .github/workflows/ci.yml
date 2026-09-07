@@ -133,12 +133,15 @@ jobs:
         # agent-governance-toolkit-core declares cryptography>=46.0.7,<50.0,
         # and 50.0.0 is both this package's floor and the first release
         # without PYSEC-2026-3552. Installed alongside, AGT drags
-        # cryptography back under that floor. Its own venv, then the
-        # override lifts it, which is what publish.yml and ca2a already do.
+        # cryptography back under that floor. Its own venv, past a stale
+        # ceiling; the lock is compiled with an override so the scanner runs
+        # against 50.x. See requirements/agt-overrides.txt.
         run: |
           python -m venv .agt-venv
-          .agt-venv/bin/python -m pip install --require-hashes -r requirements/agt.txt
-          .agt-venv/bin/python -m pip install --require-hashes --no-deps -r requirements/agt-override.txt
+          # --no-deps because the lock already lists every transitive
+          # dependency, and pip would otherwise re-resolve and reject the
+          # cryptography override the compile deliberately applied.
+          .agt-venv/bin/python -m pip install --require-hashes --no-deps -r requirements/agt.txt
           .agt-venv/bin/python -m pip install --no-deps -e python
 
       - name: Confirm PyYAML is present for the gen script

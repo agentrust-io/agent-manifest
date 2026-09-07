@@ -89,8 +89,10 @@ jobs:
       - name: Install AGT as isolated release tooling
         run: |
           python -m venv .agt-venv
-          .agt-venv/bin/python -m pip install --require-hashes -r requirements/agt.txt
-          .agt-venv/bin/python -m pip install --require-hashes --no-deps -r requirements/agt-override.txt
+          # --no-deps because the lock already lists every transitive
+          # dependency, and pip would otherwise re-resolve and reject the
+          # cryptography override the compile deliberately applied.
+          .agt-venv/bin/python -m pip install --require-hashes --no-deps -r requirements/agt.txt
           .agt-venv/bin/python -m pip install --no-deps -e python
 
       - name: Generate evidence file
