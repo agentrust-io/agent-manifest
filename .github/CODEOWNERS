@@ -1,5 +1,5 @@
 # Default owners for everything
-* @agentrust-io/maintainers
+* @agentrust-io/maintainers @carloshvp @zohebk8s
 
 # Spec changes require spec-editor review
 /spec/ @agentrust-io/spec-editors
@@ -8,4 +8,4 @@
 /python/ @agentrust-io/sdk-maintainers
 
 # CI changes require maintainer review
-/.github/ @agentrust-io/maintainers
+/.github/ @agentrust-io/maintainers @carloshvp @zohebk8s
