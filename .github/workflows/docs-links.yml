@@ -32,8 +32,9 @@ jobs:
       # cannot resolve API references and the build diverges from the deploy.
       - name: Install docs dependencies
         run: |
-          pip install -r requirements-docs.txt
-          pip install -e "python/[server]"
+          pip install --require-hashes -r requirements/docs.txt
+          pip install --require-hashes -r requirements/server.txt
+          pip install --no-deps -e python
 
       # Deliberately not --strict. The deploy in docs.yml does not use it, so
       # requiring it here would gate merges on pre-existing warnings this job
