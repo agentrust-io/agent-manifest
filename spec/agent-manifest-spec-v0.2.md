@@ -398,7 +398,7 @@ Deliberately open. Whether Level 2 conformance should require `result: passed`, 
 }
 ```
 
-The policy bundle hash covers the complete Cedar policy set, including all policy templates and entity schemas. The `enforcement_mode` field is normative - a verifying party MUST reject a manifest whose `enforcement_mode` is `advisory` when the context requires `enforce`. This field aligns with cMCP's `enforcement_mode` attestation field.
+The policy bundle hash covers the complete Cedar policy set, including all policy templates and entity schemas. The `enforcement_mode` field is normative - a verifying party MUST reject a manifest whose `enforcement_mode` is `advisory` when the context requires `enforce`. This field aligns with cMCP's `enforcement_mode` attestation field; section 6.2.1 records how the cMCP runtime and TRACE claim mode names correspond to these values. <!-- CHANGED: ISSUE-344 - point the alignment claim at the crosswalk that substantiates it -->
 
 For `policy_language: composite`, the `hash` field MUST be a Merkle root over the hashes of each sub-bundle, sorted by policy language identifier in lexicographic order (`cedar`, `rego`, `yaml-agt`). Each sub-bundle MUST be hashed independently using the same hash algorithm as the manifest. The `agt_version` field MUST reference the AGT version used to assemble the composite bundle, even if individual sub-bundles were produced by other tools.
 
@@ -1602,6 +1602,28 @@ The Agent Manifest and cMCP are complementary primitives that operate at differe
 | Audit chain root | `audit_chain_root` in TEE report | Referenced by `decision_trace.audit_chain_uri` | Same audit chain; manifest provides the identity context. |
 | Container image digest | `container_image_digest` in TEE report | `supply_chain.container_image_digest` | MUST be identical. Verifier cross-checks both. |
 | Tool catalog hash | Catalog hash in cMCP runtime | `tool_manifest.catalog_hash` (Merkle root) | cMCP enforces; manifest binds what was approved. |
+
+#### 6.2.1 Enforcement Mode Vocabulary <!-- CHANGED: ISSUE-344 - informative crosswalk across the manifest, cMCP runtime and TRACE claim mode names -->
+
+This subsection is informative. It carries no RFC 2119 keyword and adds no requirement beyond the enforcement mode row above. It records which name in each vocabulary denotes which state, so that "match" in that row has a single published reading rather than one supplied by each implementation.
+
+Three vocabularies name these states, and no two of them agree completely:
+
+| State | Agent Manifest `policy_bundle.enforcement_mode` | cMCP runtime mode | TRACE claim `trace.policy.enforcement_mode` |
+|---|---|---|---|
+| Decisions applied | `enforce` | `enforcing` | `enforce` |
+| Decisions surfaced, call proceeds | `advisory` | `advisory` | `advisory` |
+| Decisions recorded, reporting suppressed | `audit-only` | `silent` | `silent` |
+
+The manifest column is the value carried in the signed document and in the `enforcement_mode` field of the attestation report in section 3.3. The cMCP column is the runtime's own configured mode. The TRACE column is the value the runtime writes into a claim, constrained by the TRACE claim schema, which adopts the manifest's names for the first two states and the runtime's name for the third. What each runtime mode means is defined by cMCP, in TRACE section 4.3 and in the runtime's own enforcement mode type, and that definition governs the second and third columns.
+
+A verifier holding a cMCP attestation report or a TRACE claim translates into the manifest column before performing the comparison the row above calls for.
+
+The third row is a correspondence, not an equivalence, and the difference is deliberate rather than an oversight in either specification. cMCP's `silent` evaluates policy and records each decision while suppressing operational reporting to the caller. `audit-only` describes evaluating and recording without applying, and says nothing about whether the decision is reported. So a runtime in `silent` satisfies `audit-only`, while a runtime in `audit-only` is not necessarily in `silent`. The manifest is the coarser vocabulary here, and `audit-only` is the value a cMCP deployment in `silent` declares.
+
+Deliberately open. The manifest vocabulary is closed at these three values, so a runtime state finer than the manifest's has no value of its own to declare. Whether the manifest should grow such a value, and whether this correspondence should become normative with cMCP named as the sponsoring implementation, is unresolved.
+
+The reference SDK compares the manifest value against the runtime value as strings and performs no translation, so a caller populating `VerificationContext.enforcement_mode` supplies the value from the manifest column, not the name from either of the other two.
 
 ### 6.3 Integration with MCP Protocol
 
