@@ -484,10 +484,19 @@ def _strict_schema_violations(manifest: dict[str, Any]) -> list[tuple[str, str]]
     """Run the manifest through the Pydantic schema and return fail-closed errors.
 
     Returns a list of (location, message) tuples for every validation error,
-    except legacy omissions inside individual artifact-binding objects. The
-    verifier historically appraises those incomplete bindings as ``NOT_BOUND``;
-    that compatibility does not extend to the required top-level claims that
-    define the manifest's identity, authority, validity, and signed contents.
+    except legacy omissions inside individual artifact-binding objects, and a
+    missing top-level ``issuer`` on a v0.1 manifest specifically. The verifier
+    historically appraises incomplete artifact bindings as ``NOT_BOUND``; that
+    compatibility does not extend to the other required top-level claims that
+     define the manifest's identity, authority, validity, and signed contents.
+
+    The ``issuer`` exception is scoped to v0.1 only. ``issuer`` did not exist
+    on v0.1 manifests, so a v0.1 record omitting it is unremarkable and stays
+    compatible (CHANGELOG: "legacy v0.1 issuer omission remains compatible").
+    The v0.2 spec makes ``issuer`` REQUIRED, and it is a meaningful security
+    property there - ``_signature_key_issuer_mismatch`` uses it for key
+    authorization - so a v0.2 manifest missing it is a genuine schema
+    violation and must fail closed like any other missing required claim.
     """
     from pydantic import ValidationError
 
@@ -500,6 +509,8 @@ def _strict_schema_violations(manifest: dict[str, Any]) -> list[tuple[str, str]]
     if not manifest.get("delegation_chain"):
         manifest = {k: v for k, v in manifest.items() if k != "delegation_chain"}
 
+    is_legacy_v01 = manifest.get("version") == "0.1"
+
     try:
         Manifest.model_validate(manifest)
     except ValidationError as exc:
@@ -507,7 +518,8 @@ def _strict_schema_violations(manifest: dict[str, Any]) -> list[tuple[str, str]]
         for err in exc.errors():
             loc_parts = err.get("loc", ())
             if err.get("type") == "missing" and (
-                len(loc_parts) > 1 or loc_parts == ("issuer",)
+                len(loc_parts) > 1
+                or (loc_parts == ("issuer",) and is_legacy_v01)
             ):
                 continue
             loc = ".".join(str(p) for p in loc_parts)

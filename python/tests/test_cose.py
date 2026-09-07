@@ -102,6 +102,7 @@ def base_manifest(**overrides):
         "manifest_id": "018f4a3b-2c1d-7e5f-a8b9-0d1e2f3a4b5c",
         "agent_id": "spiffe://trust.example/agent/kyc/prod",
         "version": "0.2",
+        "issuer": "spiffe://trust.example/issuer/default",
         "issued_at": NOW.isoformat().replace("+00:00", "Z"),
         "expires_at": FUTURE,
         "crypto_profile": "standard",
@@ -868,6 +869,55 @@ def test_a_bare_v02_dict_has_no_signature():
     """v0.2 has no signature field - the COSE structure is the signature."""
     result = verify_manifest(base_manifest(), base_context(), store())
     assert result.result == OverallResult.SIGNATURE_MISSING
+
+
+# ---------------------------------------------------------------------------
+# A signed v0.2 manifest missing the REQUIRED `issuer` claim must fail closed.
+#
+# `_strict_schema_violations` tolerates a missing `issuer` for legacy v0.1
+# records (CHANGELOG: "legacy v0.1 issuer omission remains compatible"),
+# because `issuer` did not exist on v0.1 manifests. That exception used to
+# apply unconditionally, with no check on which version was being verified,
+# so a v0.2 manifest - where the spec makes `issuer` REQUIRED - could omit it
+# entirely, carry a perfectly valid COSE signature, and still come back
+# VALID. `issuer` is not decorative: `_signature_key_issuer_mismatch` uses it
+# to authorize the signing key, so treating it as optional on v0.2 quietly
+# disables that authorization boundary whenever a manifest leaves it out.
+# ---------------------------------------------------------------------------
+
+
+def test_v02_manifest_missing_issuer_is_not_valid():
+    manifest = base_manifest()
+    del manifest["issuer"]
+    result = verify_manifest(sign_cose_sign1(manifest, KP), base_context(), store())
+    assert result.result != OverallResult.VALID
+    assert result.result == OverallResult.MISMATCH
+    assert any(d.field == "schema:issuer" for d in result.mismatch_details)
+
+
+def test_v02_manifest_missing_issuer_is_not_rescued_by_key_authorization():
+    """The bug is not neutralized just because trusted_key_issuers is unset.
+
+    An unconfigured `trusted_key_issuers` skips `_signature_key_issuer_mismatch`
+    entirely (see its early return), so that check alone never catches this.
+    The schema gate has to be the one that fails closed here.
+    """
+    manifest = base_manifest()
+    del manifest["issuer"]
+    ctx = base_context(trusted_key_issuers={})
+    result = verify_manifest(sign_cose_sign1(manifest, KP), ctx, store())
+    assert result.result == OverallResult.MISMATCH
+
+
+def test_v01_manifest_missing_issuer_still_verifies():
+    """The legacy compatibility this exception exists for is unchanged."""
+    from agent_manifest._signing import Ed25519Signer
+
+    manifest = base_manifest(version="0.1")
+    del manifest["issuer"]
+    manifest["signature"] = Ed25519Signer(KP).sign(manifest)
+    result = verify_manifest(manifest, base_context(), store())
+    assert result.result == OverallResult.VALID
 
 
 def test_engine_binds_attestation_to_the_payload_hash():
