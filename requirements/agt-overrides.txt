@@ -1,0 +1,15 @@
+# Dependency overrides applied when compiling requirements/agt.txt.
+#
+# agent-governance-toolkit-core declares cryptography>=46.0.7,<50.0. This
+# package requires >=42,<51, and 50.0.0 is the first release without
+# PYSEC-2026-3552 (PKCS#7 EnvelopedData Bleichenbacher oracle). AGT's ceiling is
+# stale rather than a real incompatibility, so the scanner runs against 50.x.
+#
+# This is deliberately an override, not a resolution: uv is told to ignore that
+# constraint. Recorded here, in a committed file, so the violation is reviewable
+# rather than buried in a workflow step. The alternative was resolving AGT
+# honestly and lifting cryptography afterwards, which left a vulnerable pin in
+# the lock for Dependabot to flag forever while never actually running it.
+#
+# Remove this file when AGT raises its ceiling past 50.
+cryptography>=50.0

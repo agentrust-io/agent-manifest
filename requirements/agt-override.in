@@ -1,8 +1,0 @@
-# Applied with --no-deps inside .agt-venv only, to lift cryptography past the
-# ceiling agent-governance-toolkit-core declares (>=46.0.7,<50.0). 50.0.0 is the
-# first release without PYSEC-2026-3552, the PKCS#7 EnvelopedData Bleichenbacher
-# oracle, and this package's own floor. Deliberately not resolvable alongside
-# agt.in. Compile with:
-#   uv pip compile requirements/agt-override.in --generate-hashes --universal \
-#     --python-version 3.11 -o requirements/agt-override.txt
-cryptography>=50.0
