@@ -23,3 +23,12 @@ Affiliations identify a maintainer's project context; they do not give an affili
 Maintainers who step back from active review are listed here with thanks.
 
 _(none yet)_
+
+## Repository Maintainers
+
+| Name | GitHub | Appointment |
+|---|---|---|
+| Carlos Hernandez | [@carloshvp](https://github.com/carloshvp) | [Project Lead announcement](https://github.com/orgs/agentrust-io/discussions/20) |
+| Zoheb | [@zohebk8s](https://github.com/zohebk8s) | [Project Lead announcement](https://github.com/orgs/agentrust-io/discussions/31) |
+
+These appointments cover this repository. CODEOWNERS determines which paths each reviewer can approve for protected merges.
