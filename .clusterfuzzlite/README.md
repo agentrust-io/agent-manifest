@@ -34,12 +34,21 @@ and a large float legitimately re-parses as an int.
 
 ## Standing of the targets when added
 
-A local probe of 36,000 mutated inputs across the nine parser entry points found
-no undeclared exception escaping any of them, so these targets were added as a
-regression guard rather than to close a known hole. The canonicalizer target is
-the exception: run against the revision before #322 was fixed it finds the
-round-trip violation, and against the fix it is clean over 29,997 generated
-documents.
+`fuzz_cose.py` found a real bug on its first run: `_decode_tagged` never
+type-checked the signature slot, so a stray break byte, which cbor2 decodes to a
+bare `object()`, passed step 1 and blew up on re-encode in `attach_unprotected`
+with `CBOREncodeError`, a type outside the `CoseError` hierarchy every caller is
+written against. Fixed by checking the slot per tag; the reproducer is the
+regression test.
+
+`fuzz_attestation_parsers.py` found nothing. A local probe of 36,000 mutated
+inputs across the nine parser entry points found no undeclared exception
+escaping any of them, so that target is a regression guard rather than a hole
+being closed.
+
+`fuzz_canonicalize.py` has a demonstration behind it: run against the revision
+before #322 was fixed it finds the round-trip violation in about ten seconds,
+and against the fix it is clean over 29,997 generated documents.
 
 ## Bundling gotcha
 
