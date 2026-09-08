@@ -33,12 +33,14 @@ from agent_manifest._cose import (
     MEDIA_TYPE_MANIFEST_COSE,
     MEDIA_TYPE_MANIFEST_JSON,
     CoseDowngradeError,
+    CoseError,
     CoseKeyError,
     CoseStructureError,
     CoseVersionError,
     attach_approvals,
     attach_attestation,
     attach_receipt,
+    attach_unprotected,
     cose_payload,
     decode_cose_manifest,
     payload_hash,
@@ -1517,3 +1519,26 @@ def test_a_deeply_nested_payload_is_refused_before_it_is_parsed():
 
     with pytest.raises(CoseStructureError, match="levels deep"):
         _parse_payload((('{"a":' * 5000) + "1" + ("}" * 5000)).encode())
+
+
+def test_signature_slot_type_is_checked_at_decode():
+    """A COSE body whose signature slot is not a byte string is rejected in step 1.
+
+    Found by fuzzing. cbor2 decodes a stray break byte into its internal break
+    marker, a bare ``object()``, and the signature slot was the one element
+    ``_decode_tagged`` never type-checked. So this envelope reached
+    ``attach_unprotected``, which re-encodes, and died there with
+    ``CBOREncodeError`` instead of the ``CoseError`` every caller is written
+    against.
+
+    The bytes below are the fuzzer's own reproducer, kept verbatim.
+    """
+    envelope = bytes.fromhex("d28440a04131ff")
+
+    for call in (
+        lambda: attach_receipt(envelope, b"\xa0"),
+        lambda: attach_unprotected(envelope, 1, b"x"),
+        lambda: decode_cose_manifest(envelope),
+    ):
+        with pytest.raises(CoseError, match="signature must be a byte string"):
+            call()

@@ -565,6 +565,23 @@ def _decode_tagged(cose_bytes: bytes) -> tuple[int, list[Any]]:
         raise CoseStructureError("unprotected header must be a map")
     if not isinstance(body[2], bytes):
         raise CoseStructureError("payload must be a byte string, inline not detached")
+    # The signature slot was the one element never type-checked here, which let
+    # anything cbor2 chose to hand back walk through step 1. A stray break byte
+    # decodes to cbor2's internal break marker, a bare object(), so
+    # d28440a04131ff reached attach_unprotected() and died on re-encode with
+    # CBOREncodeError, a type no caller catches: the documented contract is
+    # CoseError. Checking the slot per tag fails that closed at the front door
+    # rather than at whatever the caller does next. Found by fuzzing.
+    if decoded.tag == COSE_SIGN1_TAG:
+        if not isinstance(body[3], bytes):
+            raise CoseStructureError(
+                "COSE_Sign1 signature must be a byte string, got "
+                f"{type(body[3]).__name__}"
+            )
+    elif not isinstance(body[3], (list, tuple)):
+        raise CoseStructureError(
+            f"COSE_Sign signatures must be an array, got {type(body[3]).__name__}"
+        )
     return decoded.tag, list(body)
 
 
