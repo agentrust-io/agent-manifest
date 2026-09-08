@@ -19,6 +19,7 @@ click>=8.1
 mypy>=1.10
 bandit[toml]>=1.7
 pip-audit>=2.7
+prometheus-client>=0.20,<1
 ruff
 pyyaml
 setuptools>=83.0.0
