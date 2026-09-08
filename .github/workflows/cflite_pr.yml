@@ -19,7 +19,7 @@ jobs:
   fuzz:
     name: Fuzz changed code
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 45
     steps:
       # Only the address sanitizer. The targets are pure Python under Atheris,
       # where undefined-behaviour instrumentation has nothing to instrument.

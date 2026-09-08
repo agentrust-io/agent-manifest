@@ -41,6 +41,16 @@ the exception: run against the revision before #322 was fixed it finds the
 round-trip violation, and against the fix it is clean over 29,997 generated
 documents.
 
+## Bundling gotcha
+
+`compile_python_fuzzer` bundles each target with PyInstaller, which follows
+static imports only. The cryptography and pydantic stacks reach `email.mime`
+lazily, so the bundled target dies at runtime with
+`ModuleNotFoundError: No module named 'email.mime'` and libFuzzer reports that
+as a crash in the target rather than a build problem. `build.sh` passes
+`--collect-submodules=email` for this. A new dependency with a lazy import can
+need the same treatment.
+
 ## Running locally
 
 ```
