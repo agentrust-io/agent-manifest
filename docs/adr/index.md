@@ -19,7 +19,7 @@ Each major design decision in the Agent Manifest Specification is recorded here 
 | [0013](0013-cbor-library-for-cose.md) | Take a CBOR library, not a COSE library; the COSE structures are built in-repo | Accepted |
 | [0014](0014-fully-specified-ed25519-code-point.md) | Sign with the fully-specified Ed25519 code point (-19); keep verifying the deprecated -8 | Accepted |
 
-To propose a new ADR, open a GitHub issue using the [spec change template](https://github.com/agentrust-io/agent-manifest/issues/new?template=spec_change.md) and follow the [ADR template](0000-template.md).
+To propose a new ADR, open a GitHub issue using the [spec change template](https://github.com/agentrust-io/agent-manifest/issues/new?template=spec_change.md) and follow the [ADR template](https://github.com/agentrust-io/agent-manifest/blob/main/docs/adr/0000-template.md).
 
 ---
 

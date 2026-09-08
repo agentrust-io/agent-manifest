@@ -1,257 +1,80 @@
-# A2A delegation chains
+# Verify a Delegation Chain
 
-Agent-to-agent (A2A) delegation lets a root issuer grant a sub-agent a **scoped subset** of its permissions  -  cryptographically bound and verifiable at every hop. After completing this tutorial you will be able to:
+Create two signed delegation hops for one receiving manifest, verify scope narrowing, and reject a correctly signed scope escalation. This local software example exercises the delegation primitive; it does not run an agent, authenticate a network peer, or verify a complete manifest.
 
-- Build a two-hop delegation chain: root issuer → delegate → sub-delegate
-- Sign each hop with the delegating principal's key
-- Verify the full chain and detect scope laundering
-- Understand what the verifier rejects at each failure mode
+## Run the example
 
-## Prerequisites
-
-```bash
-pip install "agent-manifest[cli]"
-```
-
-## Conceptual model
-
-```
-Root issuer (tools: [search, summarize, write])
-  └─ Delegate agent (tools: [search, summarize])   ← hop 0: scope narrowed
-       └─ Sub-delegate agent (tools: [search])      ← hop 1: narrowed again
-```
-
-Each hop is signed by the **delegating** principal. The sub-agent cannot claim tools the parent did not grant  -  the verifier enforces this at every hop.
-
----
-
-## Step 1: Generate keypairs for each principal
+Use the installation from the [first-manifest guide](../getting-started.md). Save this block as `delegation_example.py` and run `python delegation_example.py`.
 
 ```python
+import copy
+from datetime import datetime, timezone
+from cryptography.exceptions import InvalidSignature
 from agent_manifest import generate_ed25519
+from agent_manifest._delegation import DelegationHopSigner, verify_delegation_chain
 
-root_kp = generate_ed25519()        # root issuer
-delegate_kp = generate_ed25519()    # delegate agent
-sub_kp = generate_ed25519()         # sub-delegate agent
-```
+manifest_id = "019236ab-cdef-7000-8000-000000000002"
+root = "spiffe://example.test/issuer"
+delegate = "spiffe://example.test/delegate"
+root_key, delegate_key = generate_ed25519(), generate_ed25519()
+# Recipient-owned trust configuration, retained separately from the chain.
+trusted_keys = {root: root_key.public_bytes, delegate: delegate_key.public_bytes}
+stamp = datetime.now(timezone.utc).isoformat()
 
----
-
-## Step 2: Build the root manifest
-
-The root manifest declares the full scope the issuer authorises.
-
-```python
-from agent_manifest import Manifest, ArtifactBindings, CryptoProfile
-from agent_manifest._signing import Ed25519Signer
-from agent_manifest._delegation import DelegationHopSigner
-from datetime import datetime, timedelta, timezone
-import base64
-import uuid_utils  # pip install uuid-utils
-
-now = datetime.now(timezone.utc)
-
-root_manifest = Manifest(
-    manifest_id=str(uuid_utils.uuid7()),
-    agent_id="spiffe://trust.example/agent/orchestrator",
-    version="0.1",
-    issued_at=now,
-    expires_at=now + timedelta(hours=8),
-    issuer="spiffe://trust.example/signing-authority",
-    crypto_profile=CryptoProfile.standard,
-    artifacts=ArtifactBindings(),
-    # No delegation_chain on the root  -  it IS the root
-    delegation_chain=[],
-)
-
-signer = Ed25519Signer(root_kp)
-signed_root = signer.sign(root_manifest.model_dump(mode="json"))
-```
-
----
-
-## Step 3: Build the delegate hop
-
-The delegate agent creates a manifest that references the root manifest and adds a delegation hop signed by the **root issuer**.
-
-```python
-from agent_manifest._delegation import DelegationHopSigner
-
-hop_signer = DelegationHopSigner(keypair=root_kp)
-
-delegate_manifest_id = str(uuid_utils.uuid7())
-
-# The root issuer signs hop 0  -  granting a subset of its tools
-hop0_scope = {
-    "tools": ["search", "summarize"],          # subset of root's [search, summarize, write]
-    "data_classifications": ["public", "internal"],
-    "max_delegation_depth": 2,
-}
-
-hop0_sig = hop_signer.sign_hop(
-    hop=0,
-    principal_id="spiffe://trust.example/agent/orchestrator",
-    principal_type="agent",
-    delegated_at=now.isoformat(),
-    scope_grant=hop0_scope,
-    manifest_id=delegate_manifest_id,
-)
-
-delegate_manifest = Manifest(
-    manifest_id=delegate_manifest_id,
-    agent_id="spiffe://trust.example/agent/researcher",
-    version="0.1",
-    issued_at=now,
-    expires_at=now + timedelta(hours=8),
-    issuer="spiffe://trust.example/signing-authority",
-    crypto_profile=CryptoProfile.standard,
-    artifacts=ArtifactBindings(),
-    delegation_chain=[{
-        "hop": 0,
-        "principal_id": "spiffe://trust.example/agent/orchestrator",
+def signed_hop(index, principal, key, tools):
+    hop = {
+        "hop": index,
+        "principal_id": principal,
         "principal_type": "agent",
-        "delegated_at": now.isoformat(),
-        "scope_grant": hop0_scope,
-        "delegation_signature": hop0_sig,
-    }],
-)
-
-delegate_signer = Ed25519Signer(delegate_kp)
-signed_delegate = delegate_signer.sign(delegate_manifest.model_dump(mode="json"))
-```
-
----
-
-## Step 4: Build the sub-delegate hop
-
-The sub-delegate's manifest adds a second hop signed by the **delegate agent**  -  again narrowing the scope.
-
-```python
-sub_manifest_id = str(uuid_utils.uuid7())
-
-# The delegate agent signs hop 1  -  granting only [search] from its [search, summarize]
-hop1_scope = {
-    "tools": ["search"],                        # subset of delegate's [search, summarize]
-    "data_classifications": ["public"],         # narrowed from ["public", "internal"]
-    "max_delegation_depth": 2,
-}
-
-delegate_hop_signer = DelegationHopSigner(keypair=delegate_kp)
-hop1_sig = delegate_hop_signer.sign_hop(
-    hop=1,
-    principal_id="spiffe://trust.example/agent/researcher",
-    principal_type="agent",
-    delegated_at=now.isoformat(),
-    scope_grant=hop1_scope,
-    manifest_id=sub_manifest_id,
-)
-
-sub_manifest = Manifest(
-    manifest_id=sub_manifest_id,
-    agent_id="spiffe://trust.example/agent/data-fetcher",
-    version="0.1",
-    issued_at=now,
-    expires_at=now + timedelta(hours=8),
-    issuer="spiffe://trust.example/signing-authority",
-    crypto_profile=CryptoProfile.standard,
-    artifacts=ArtifactBindings(),
-    delegation_chain=[
-        # Carry the full chain forward
-        {
-            "hop": 0,
-            "principal_id": "spiffe://trust.example/agent/orchestrator",
-            "principal_type": "agent",
-            "delegated_at": now.isoformat(),
-            "scope_grant": hop0_scope,
-            "delegation_signature": hop0_sig,
+        "delegated_at": stamp,
+        "scope_grant": {
+            "tools": tools,
+            "data_classifications": ["public"],
+            "constraints": [],
+            "ttl_seconds": 600,
+            "max_delegation_depth": 1,
         },
-        {
-            "hop": 1,
-            "principal_id": "spiffe://trust.example/agent/researcher",
-            "principal_type": "agent",
-            "delegated_at": now.isoformat(),
-            "scope_grant": hop1_scope,
-            "delegation_signature": hop1_sig,
-        },
-    ],
-)
+    }
+    hop["delegation_signature"] = DelegationHopSigner(key).sign_hop(
+        **hop, manifest_id=manifest_id,
+    )
+    return hop
 
-sub_signer = Ed25519Signer(sub_kp)
-signed_sub = sub_signer.sign(sub_manifest.model_dump(mode="json"))
+chain = [
+    signed_hop(0, root, root_key, ["search", "summarize"]),
+    signed_hop(1, delegate, delegate_key, ["search"]),
+]
+verify_delegation_chain(chain, trusted_keys, manifest_id, manifest_issuer=root)
+print("PASS: two signed hops with narrowed scope")
+
+escalated = copy.deepcopy(chain)
+# This signature is valid: rejection must come from scope narrowing.
+escalated[1] = signed_hop(1, delegate, delegate_key, ["search", "write"])
+try:
+    verify_delegation_chain(escalated, trusted_keys, manifest_id, manifest_issuer=root)
+except ValueError as error:
+    assert "Scope laundering" in str(error)
+    print("PASS: signed scope escalation rejected")
+else:
+    raise RuntimeError("Scope escalation was accepted")
+
+try:
+    verify_delegation_chain(
+        chain, trusted_keys, "019236ab-cdef-7000-8000-000000000003",
+        manifest_issuer=root,
+    )
+except InvalidSignature:
+    print("PASS: replay under another manifest ID rejected")
+else:
+    raise RuntimeError("Cross-manifest replay was accepted")
 ```
 
----
+Expect three `PASS` lines. Every hop signs the same receiving `manifest_id`. Copying a hop signed for a different ID into this chain invalidates its signature; changing the receiving manifest requires fresh authorized hop signatures.
 
-## Step 5: Verify the chain
+## Connect it to manifest verification
 
-```python
-from agent_manifest._delegation import verify_delegation_chain
+Attach the chain to a complete manifest whose issuer matches the trusted root identity. For v0.1 JSON, `Ed25519Signer.sign()` returns a signature block; assign it to the manifest's `signature` field. For v0.2, use the COSE signing path. Supply trusted issuer keys, `delegation_public_keys`, current revocation state, and independently observed runtime artifacts to `verify_manifest()`. Set `require_delegation=True` when absence must fail.
 
-# Build a registry of public keys for all principals in the chain
-public_keys = {
-    "spiffe://trust.example/agent/orchestrator": root_kp.public_bytes,
-    "spiffe://trust.example/agent/researcher":   delegate_kp.public_bytes,
-}
+The primitive compares scopes between adjacent hops and binds them to the supplied manifest ID. The application must establish the root's original authority and authorize the requested operation. An empty chain returns without a primitive error, so the full verification policy must enforce presence when required. This example does not demonstrate wall-clock expiry enforcement or revocation propagation.
 
-# Verify the sub-delegate's chain
-verify_delegation_chain(
-    delegation_chain=signed_sub["delegation_chain"],
-    public_keys=public_keys,
-    manifest_id=sub_manifest_id,
-)
-print("Chain valid")  # reaches here only if all signatures and scopes check out
-```
-
-`verify_delegation_chain` raises on the first failure:
-
-| Error | Cause |
-|-------|-------|
-| `InvalidSignature` | A hop signature is invalid |
-| `ValueError: Scope laundering` | Child claims tools or data classes not granted by parent |
-| `ValueError: depth exceeded` | Chain is deeper than `max_delegation_depth` on hop 0 |
-| `ValueError: wrong hop index` | Hops are not sequential (0, 1, 2, …) |
-
----
-
-## Failure modes
-
-### Scope laundering (rejected)
-
-```python
-# Attacker tries to claim "write" which was never granted past hop 0
-bad_scope = {
-    "tools": ["search", "write"],   # "write" is NOT in hop 0's grant
-    "max_delegation_depth": 2,
-}
-bad_sig = delegate_hop_signer.sign_hop(
-    hop=1, principal_id="...", principal_type="agent",
-    delegated_at=now.isoformat(), scope_grant=bad_scope,
-    manifest_id=sub_manifest_id,
-)
-# verify_delegation_chain raises:
-# ValueError: Scope laundering at hop 1: child claims tools {'write'} not granted by parent
-```
-
-### Depth exceeded (rejected)
-
-```python
-# Root grants max_delegation_depth=0 (no further delegation) but the chain
-# carries a second hop, i.e. depth 1 (depth = hops below the root).
-# verify_delegation_chain raises:
-# ValueError: Delegation chain depth 1 exceeds root max_delegation_depth 0
-```
-
-### Wrong key (rejected)
-
-```python
-# Attacker signs hop 0 with their own key, not the root issuer's key
-# verify_delegation_chain raises: InvalidSignature
-```
-
----
-
-## What's next
-
-- [Tutorial: Server-side verification](server-side-verification.md)  -  verify delegation chains at the relying party
-- [Tutorial: HITL approval workflows](hitl-approval-workflows.md)  -  require human sign-off within a delegation chain
-- [Examples repository](https://github.com/agentrust-io/examples)
+See [server-side verification](server-side-verification.md) and [approval workflows](hitl-approval-workflows.md) for the receiving application's other checks.

@@ -1,266 +1,85 @@
 # Revocation and Key Rotation
 
-Revocation stops a compromised or decommissioned agent in under a minute. Any holder of the revoking authority's key can revoke a manifest without the original signing key. After this tutorial you will be able to:
+Publish a signed revocation, load it using a separately trusted authority key, and reject the affected manifest. Revocation takes effect when each relying party receives and enforces the update; the SDK does not guarantee a propagation time or stop an already running agent.
 
-- Issue a signed revocation record and append it to a CRL
-- Verify a revocation record's signature before trusting it
-- Stand up the `.well-known` CRL endpoint with FastAPI
-- Configure a verifier to check the CRL before accepting a manifest
-- Execute a zero-downtime key rotation after a compromise
+## Run a local revocation example
 
-## Prerequisites
+First complete [your first manifest](../getting-started.md). Append the following block to `first_manifest.py` and run `python first_manifest.py` again. It uses that example's signed `record` and independently configured verification `context`.
 
-```bash
-pip install "agent-manifest[server]"
-```
-
----
-
-## Why revocation matters
-
-A manifest is signed at issue time. If the signing key is later compromised, all previously issued manifests remain technically valid - their signatures still verify. Revocation provides the out-of-band mechanism to mark those manifests as untrusted without waiting for their `expires_at` to pass.
-
-The CRL (Certificate Revocation List) is an append-only JSON-Lines file. Each line is a `SignedRevocationRecord` - the record itself is signed by the revoking authority's key, binding the revocation to a specific manifest ID and authority identity. Verifiers query the CRL before accepting any manifest.
-
----
-
-## Part 1: Revoke a manifest programmatically
+The temporary directory makes this example repeatable and is removed when the block finishes. In a deployment, store the CRL durably and retain the revocation authority key through your approved key-management system.
 
 ```python
-from agent_manifest._revocation import sign_revocation, verify_revocation_signature, FileCRL
+from tempfile import TemporaryDirectory
+from cryptography.exceptions import InvalidSignature
 from agent_manifest import generate_ed25519
+from agent_manifest._revocation import FileCRL, sign_revocation
+from agent_manifest._verify import RevocationRecord, RevocationStore
 
-# The revoking authority keypair - keep this separate from the signing key
-revocation_kp = generate_ed25519()
+revocation_key = generate_ed25519()
+# The relying party approves this key separately from the received CRL.
+trusted_revoker = revocation_key.public_bytes
+revoked_id = record["manifest_id"]
 
-# The manifest ID to revoke (UUID v7 from your manifest store)
-manifest_id = "018f4a3b-2c1d-7e5f-a8b9-0d1e2f3a4b5c"
-
-record = sign_revocation(
-    manifest_id=manifest_id,
-    reason="Key compromise detected in incident-2026-06-07",
-    revoked_by="spiffe://security.acme.com/incident-response",
-    keypair=revocation_kp,
-)
-
-print(f"Revoked: {record.manifest_id}")
-print(f"At:      {record.revoked_at}")
-print(f"Sig:     {record.revocation_signature[:32]}...")
-```
-
-Or via the CLI (produces an unsigned `RevocationRecord` as JSON on stdout):
-
-```bash
-manifest revoke 018f4a3b-2c1d-7e5f-a8b9-0d1e2f3a4b5c \
-  --reason "key compromise" \
-  --revoked-by security@example.com \
-  --output revocation.json
-```
-
-Configure the trusted revocation authority on the CRL, then append the record.
-`FileCRL.revoke()` verifies both its signature and `signer_key_id` before changing
-the file or in-memory cache:
-
-```python
-crl = FileCRL(
-    "revocations.jsonl",
-    trusted_signer_key=revocation_kp.public_bytes,
-)
-crl.revoke(record)
-
-assert crl.is_revoked(manifest_id)
-print(f"CRL now contains {len(crl.all_records())} record(s)")
-```
-
-`FileCRL` is append-only - records are never deleted. It is suitable for development and small deployments. For production, replace it with a database-backed store and serve the CRL from there.
-
----
-
-## Part 2: Stand up the CRL endpoint with FastAPI
-
-The `.well-known/agent-manifest/revocation` endpoint lets any verifier check revocation status over HTTP without access to the CRL file directly.
-
-```python
-from fastapi import FastAPI
-from agent_manifest._revocation import create_crl_router, FileCRL
-
-app = FastAPI()
-crl = FileCRL("revocations.jsonl")
-app.include_router(create_crl_router(crl))
-
-# Mounts:
-# GET /.well-known/agent-manifest/revocation
-#     Returns all revocation records as a JSON array
-# GET /.well-known/agent-manifest/revocation/{manifest_id}
-#     Returns one record, or 404 if not revoked
-```
-
-```bash
-uvicorn myapp:app --reload
-
-# Check if a manifest is revoked
-curl http://localhost:8000/.well-known/agent-manifest/revocation/018f4a3b-2c1d-7e5f-a8b9-0d1e2f3a4b5c
-# 200 with the signed revocation record if revoked
-# 404 with {"error_code": "NOT_REVOKED", ...} if clean
-```
-
----
-
-## Part 3: Configure a verifier to check the CRL
-
-Wire `FileCRL` into a `RevocationStore` so `verify_manifest()` checks revocation on every call.
-
-```python
-import json
-from agent_manifest._verify import (
-    OverallResult,
-    RevocationRecord,
-    RevocationStore,
-    VerificationContext,
-    verify_manifest,
-)
-from agent_manifest._revocation import FileCRL
-
-# Load the CRL once at startup
-crl = FileCRL("revocations.jsonl")
-store = RevocationStore()
-for rec in crl.all_records():
-    store.revoke(RevocationRecord(
-        manifest_id=rec.manifest_id,
-        revoked_at=rec.revoked_at,
-        reason=rec.reason,
-        revoked_by=rec.revoked_by,
-    ))
-
-# Verify a manifest against the loaded CRL
-with open("manifest.json") as f:
-    manifest = json.load(f)
-
-result = verify_manifest(manifest, VerificationContext(), store)
-
-if result.result == OverallResult.REVOKED:
-    raise PermissionError(f"Manifest {result.manifest_id} is revoked")
-elif result.result == OverallResult.VALID:
-    print("Manifest is valid")
-```
-
----
-
-## Part 4: Key rotation after a compromise
-
-Use this procedure when a signing key is compromised, expiring, or changing ownership. The goal is to revoke all manifests signed by the old key and replace them with manifests signed by a new key, with a brief overlap window to avoid dropped requests.
-
-### Generate the new keypair
-
-```python
-from agent_manifest import generate_ed25519
-
-new_kp = generate_ed25519()
-# Store new_kp.private_b64url() securely - this is the new signing key
-```
-
-Or via CLI:
-
-```bash
-manifest keygen -d keys/new/
-```
-
-### Re-sign all active manifests with the new key
-
-```python
-import json
-from pathlib import Path
-from agent_manifest._signing import Ed25519Signer
-
-signer = Ed25519Signer(new_kp)
-
-for manifest_path in Path("manifests/").glob("*.json"):
-    with open(manifest_path) as f:
-        manifest = json.load(f)
-
-    manifest.pop("signature", None)  # strip the old signature
-    manifest["signature"] = signer.sign(manifest)
-
-    with open(manifest_path, "w") as f:
-        json.dump(manifest, f, indent=2)
-```
-
-### Revoke every manifest signed by the old key
-
-```python
-old_manifest_ids = [
-    "018f4a3b-2c1d-7e5f-a8b9-0d1e2f3a4b5c",
-    "018aaaaa-2c1d-7e5f-a8b9-0d1e2f3a4b5c",
-]
-
-for mid in old_manifest_ids:
-    rec = sign_revocation(
-        manifest_id=mid,
-        reason="key rotation - old signing key decommissioned 2026-06-07",
-        revoked_by="spiffe://security.acme.com/incident-response",
-        keypair=revocation_kp,
+with TemporaryDirectory() as directory:
+    crl_path = Path(directory) / "revocations.jsonl"
+    writer = FileCRL(crl_path, trusted_signer_key=trusted_revoker)
+    cached_reader = FileCRL(crl_path, trusted_signer_key=trusted_revoker)
+    revocation = sign_revocation(
+        manifest_id=revoked_id,
+        reason="synthetic key-compromise exercise",
+        revoked_by="spiffe://example.test/security",
+        keypair=revocation_key,
     )
-    crl.revoke(rec)
+    writer.revoke(revocation)
+    assert writer.is_revoked(revoked_id)
+    # Separate FileCRL instances do not automatically refresh from disk.
+    assert not cached_reader.is_revoked(revoked_id)
+
+    reader = FileCRL(crl_path, trusted_signer_key=trusted_revoker)
+    store = RevocationStore()
+    for entry in reader.all_records():
+        store.revoke(RevocationRecord(
+            manifest_id=entry.manifest_id,
+            revoked_at=entry.revoked_at,
+            reason=entry.reason,
+            revoked_by=entry.revoked_by,
+        ))
+    result = verify_manifest(record, context, store)
+    assert result.result.value == "REVOKED"
+    print("PASS: refreshed revocation state rejects the manifest")
+
+    forged = sign_revocation(
+        manifest_id="019236ab-cdef-7000-8000-000000000099",
+        reason="untrusted authority",
+        revoked_by="spiffe://example.test/stranger",
+        keypair=generate_ed25519(),
+    )
+    try:
+        writer.revoke(forged)
+    except InvalidSignature:
+        print("PASS: untrusted revocation signer rejected")
+    else:
+        raise RuntimeError("Untrusted revocation was accepted")
 ```
 
-### Overlap window and decommission
+Expect two additional `PASS` lines. The first proves the refreshed store rejects the revoked ID. The second proves this configured writer rejects a record signed by another key. Neither measures fleet-wide propagation.
 
-Run both the old and new manifests in parallel for five minutes to allow any in-flight requests to drain. Once verifiers have updated their CRL cache, decommission the old private key:
+## Serve and refresh the CRL
 
-```
-t=0   Generate new key, begin re-signing manifests
-t=2m  New manifests deployed and live
-t=5m  Revoke old manifests in CRL
-t=7m  All verifiers have fetched the updated CRL
-t=10m Shred old private key material; audit the deletion
-```
+`create_crl_router(crl)` in `agent_manifest._revocation` exposes the supplied `FileCRL` through FastAPI. It serves the object's in-memory cache; appending to the file from another process does not refresh that object. Updates made through that same object's `revoke()` method are visible to its router.
 
----
+Configure `trusted_signer_key` on every reader and writer. Omitting it disables signature checks. The current file loader skips malformed or invalidly signed entries; it does not establish the completeness or freshness of the list. Your application must detect stale, truncated, unavailable, or unauthenticated revocation data according to its acceptance policy.
 
-## End-to-end incident response example
+Build and replace each verifier's `RevocationStore` from authenticated updates. It is an in-memory store and does not fetch a CRL automatically. Define a refresh interval, maximum accepted age, failure policy, and monitoring for every replica. A response cache header alone does not make a verifier refresh.
 
-```python
-# 1. Detect: CI log exposes signing key
-compromised_manifest_id = "018f4a3b-2c1d-7e5f-a8b9-0d1e2f3a4b5c"
+When calling `verify_manifest`, supply independently trusted signing keys and required runtime observations through `VerificationContext`. Grant access only for the result your policy accepts; `UNVERIFIABLE`, `INCOMPLETE`, and failures must not fall through to success.
 
-# 2. Revoke immediately
-record = sign_revocation(
-    manifest_id=compromised_manifest_id,
-    reason="signing key exposed in CI log - incident-2026-06-07",
-    revoked_by="spiffe://security.acme.com/incident-response",
-    keypair=revocation_kp,
-)
-crl.revoke(record)
+The CLI `manifest revoke` produces an unsigned record. It does not replace the signed-authority workflow above.
 
-# 3. Confirm the old manifest is now rejected
-store = RevocationStore()
-store.revoke(RevocationRecord(
-    manifest_id=record.manifest_id,
-    revoked_at=record.revoked_at,
-    reason=record.reason,
-    revoked_by=record.revoked_by,
-))
+## Rotate keys without revoking the replacements
 
-with open("old-manifest.json") as f:
-    old_manifest = json.load(f)
+Revocation is indexed by `manifest_id`, not by signature bytes. Re-signing a manifest under a new key with the same ID leaves it subject to that ID's revocation. Reissue replacement manifests with new IDs, current validity windows, approved artifact bindings, and newly bound approvals or evidence where required.
 
-result = verify_manifest(old_manifest, VerificationContext(), store)
-assert result.result == OverallResult.REVOKED
-print("Old manifest correctly rejected")
-```
+For planned rotation, distribute and verify the new public-key trust configuration before switching issuers. Retire old IDs only after confirming replacement verification and revocation propagation. For compromise, withdraw the compromised authority and revoke affected IDs immediately according to the incident policy; do not deliberately keep accepting a compromised key for a fixed overlap period.
 
----
-
-## Notes on `FileCRL` in production
-
-`FileCRL` uses a file lock and an in-memory cache. It is safe for a single process on a single host. For multi-replica or multi-host deployments:
-
-- Replace it with a database-backed store (Postgres, Redis, etc.)
-- Distribute the CRL via the `.well-known` HTTP endpoint rather than sharing a file
-- Set a short TTL on the HTTP response so verifiers pick up revocations quickly
-
----
-
-## Summary
-
-This tutorial covered issuing a signed revocation record, serving the CRL endpoint, wiring it into `verify_manifest()`, and executing a zero-downtime key rotation. See [Deploying the verification endpoint](deploying-the-verification-endpoint.md) to host the CRL and verify endpoints in production, and [Operations: Key rotation runbook](../operations/key-rotation.md) for the incident response runbook.
+Follow the [key rotation runbook](../operations/key-rotation.md) for the operational sequence. Availability during rotation depends on your deployment and evidence distribution; this tutorial does not guarantee zero downtime.

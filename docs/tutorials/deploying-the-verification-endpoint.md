@@ -1,257 +1,153 @@
-# Deploying the Verification Endpoint
+# Run a verification service
 
-The agent-manifest SDK ships a FastAPI router that you can deploy as a standalone verification service, a sidecar, or embedded in an existing API. After this tutorial you will be able to:
+Load a signed manifest, verify it against server-held inputs, and expose the verdict over HTTP. This walkthrough starts locally, then packages the same service in a container. It loads signed revocations into the store used by verification.
 
-- Package the verifier as a Docker container
-- Configure the manifest store and CRL
-- Expose the `.well-known` discovery endpoint (RFC 8615)
-- Add health checks and Kubernetes readiness probes
-- Run the complete stack with docker-compose
+## Prepare the demo inputs
 
-## Prerequisites
-
-```bash
-pip install "agent-manifest[server]"
-```
-
----
-
-## Architecture options
-
-| Deployment mode | When to use |
-|-----------------|-------------|
-| **Sidecar** | Each agent service runs its own verifier alongside it - no network hop, lowest latency |
-| **Centralized service** | Shared verifier for a fleet - single manifest store, easier CRL management |
-| **Embedded in API gateway** | Verifier mounted directly in the main application - fewest moving parts |
-
-This tutorial packages the verifier as a standalone container, which works for all three modes.
-
----
-
-## The full server (`verifier.py`)
+Complete the [first-manifest tutorial](../getting-started.md). Append this block to `first_manifest.py` and run it once. It saves the demo's independently configured context and public revocation key; no private key is written. Use a new `data` directory for this exercise.
 
 ```python
-from fastapi import FastAPI
-from agent_manifest._verify import create_router, RevocationStore
-from agent_manifest._revocation import create_crl_router, FileCRL
-import os
+from agent_manifest._revocation import sign_revocation
 
-app = FastAPI(title="Agent Manifest Verifier")
-
-manifest_store: dict = {}
-crl = FileCRL(os.getenv("CRL_PATH", "/data/revocations.jsonl"))
-revocation_store = RevocationStore()
-
-app.include_router(create_router(manifest_store, revocation_store), prefix="/agent")
-app.include_router(create_crl_router(crl))
-
-
-@app.get("/.well-known/agent-manifest")
-async def discovery():
-    """RFC 8615 discovery document."""
-    return {
-        "revocation": "/.well-known/agent-manifest/revocation",
-        "verify": "/agent/verify",
-    }
-
-
-@app.get("/health")
-async def health():
-    return {"status": "ok"}
-
-
-@app.get("/ready")
-async def ready():
-    if not manifest_store:
-        from fastapi.responses import JSONResponse
-        return JSONResponse(
-            status_code=503,
-            content={"status": "no manifests loaded"},
-        )
-    return {"status": "ready", "manifests": len(manifest_store)}
+data = Path("data")
+data.mkdir(exist_ok=False)
+(data / "manifest.json").write_text(json.dumps(record), encoding="utf-8")
+(data / "context.json").write_text(context.model_dump_json(), encoding="utf-8")
+revoker = generate_ed25519()
+(data / "revoker.hex").write_text(revoker.public_bytes.hex(), encoding="utf-8")
+# A signed revocation for another demo ID proves the loader handles real entries.
+entry = sign_revocation(
+    manifest_id="019236ab-cdef-7000-8000-000000000099",
+    reason="demo withdrawal", revoked_by="spiffe://example.test/security", keypair=revoker,
+)
+(data / "revocations.jsonl").write_text(entry.model_dump_json() + "\n", encoding="utf-8")
+print("Saved demo service inputs in data/")
 ```
 
-This mounts the following endpoints:
+For a real service, provision `context.json` and `revoker.hex` through the recipient's own trust configuration. Never derive trusted keys or expected runtime hashes from an incoming manifest. This demo context covers one known configuration, not a fleet of arbitrary agents.
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/agent/verify?manifest_id=...` | Returns a `VerificationResult` |
-| `POST` | `/agent/verify` | Verify with caller-supplied trusted keys |
-| `GET` | `/agent/revocation-status?manifest_id=...` | Returns revocation record or 404 |
-| `GET` | `/.well-known/agent-manifest/revocation` | Full CRL as JSON array |
-| `GET` | `/.well-known/agent-manifest/revocation/{id}` | Single CRL entry or 404 |
-| `GET` | `/.well-known/agent-manifest` | RFC 8615 discovery document |
-| `GET` | `/health` | Liveness probe |
-| `GET` | `/ready` | Readiness probe |
+## Create `verifier.py`
 
-`RevocationStore` in this example is in-memory. For production, replace it with a database-backed store that is shared across replicas and persists across restarts.
+Save this complete block beside `data/`. The app factory reads all inputs before returning a ready application. Missing files, malformed revocation entries, and bad revocation signatures fail startup.
 
----
+```python
+import json
+import os
+from pathlib import Path
 
-## Container packaging
+from fastapi import FastAPI, HTTPException
+from agent_manifest import VerificationContext, verify_manifest
+from agent_manifest._revocation import SignedRevocationRecord, verify_revocation_signature
+from agent_manifest._verify import RevocationRecord, RevocationStore
+
+
+def create_app():
+    data = Path(os.environ.get("MANIFEST_DATA_DIR", "data"))
+    manifest = json.loads((data / "manifest.json").read_text(encoding="utf-8"))
+    context = VerificationContext.model_validate_json(
+        (data / "context.json").read_text(encoding="utf-8")
+    )
+    if not context.trusted_keys:
+        raise ValueError("Configure trusted issuer keys before starting")
+    revoker = bytes.fromhex((data / "revoker.hex").read_text(encoding="utf-8").strip())
+    if len(revoker) != 32:
+        raise ValueError("Expected a raw Ed25519 public key")
+    revocations = RevocationStore()
+    for line in (data / "revocations.jsonl").read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        entry = SignedRevocationRecord.model_validate_json(line)
+        verify_revocation_signature(entry, revoker)
+        revocations.revoke(RevocationRecord(
+            manifest_id=entry.manifest_id, revoked_at=entry.revoked_at,
+            reason=entry.reason, revoked_by=entry.revoked_by,
+        ))
+
+    app = FastAPI(title="Local manifest verifier")
+
+    @app.get("/verify")
+    async def verify(manifest_id: str):
+        if manifest_id != manifest["manifest_id"]:
+            raise HTTPException(status_code=404, detail="Unknown manifest")
+        return verify_manifest(manifest, context, revocations).model_dump(mode="json")
+
+    @app.get("/health")
+    async def health():
+        return {"status": "ok"}
+
+    @app.get("/ready")
+    async def ready():
+        return {"status": "loaded"}
+
+    return app
+```
+
+This small service exposes only `/verify`, `/health`, and `/ready`. Readiness means the configured inputs loaded; it does not mean the manifest is acceptable. An expired or revoked manifest can produce a rejection verdict from a healthy service.
+
+## Run and query it
+
+From the source checkout used in the first tutorial:
+
+```bash
+python -m pip install -e "./python[server]"
+python -m uvicorn verifier:create_app --factory --host 127.0.0.1 --port 8080
+```
+
+In another terminal:
+
+```bash
+curl "http://127.0.0.1:8080/verify?manifest_id=019236ab-cdef-7000-8000-000000000001"
+curl http://127.0.0.1:8080/ready
+```
+
+The fresh demo returns a JSON verdict with `result: "VALID"` and `signature_verified: true`. An unknown ID returns HTTP 404. A processed verification can return HTTP 200 with a rejected verdict: the caller must inspect `result` and reject every non-`VALID` outcome.
+
+## Package the same service
+
+Save this as `Dockerfile` at the checkout root. Building from the same `python/` source keeps the service aligned with the code used locally.
 
 ```dockerfile
 FROM python:3.12-slim
 WORKDIR /app
-COPY pyproject.toml .
-RUN pip install "agent-manifest[server]"
-COPY verifier.py .
-CMD ["uvicorn", "verifier:app", "--host", "0.0.0.0", "--port", "8080"]
+COPY python/ /sdk/
+RUN pip install --no-cache-dir "/sdk[server]"
+COPY verifier.py /app/verifier.py
+CMD ["python", "-m", "uvicorn", "verifier:create_app", "--factory", "--host", "0.0.0.0", "--port", "8080"]
 ```
 
-```bash
-docker build -t agent-manifest-verifier .
-```
-
----
-
-## docker-compose setup
+Save `compose.yaml` alongside it:
 
 ```yaml
-# examples/docker-compose-verifier.yml
-version: "3.9"
 services:
   verifier:
     build: .
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     volumes:
-      - ./data:/data
+      - ./data:/data:ro
     environment:
-      CRL_PATH: /data/revocations.jsonl
+      MANIFEST_DATA_DIR: /data
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/ready', timeout=2).close()"]
       interval: 10s
       timeout: 5s
       retries: 3
-
-  agent-service:
-    image: python:3.12-slim
-    command: ["echo", "Replace with your agent service"]
-    depends_on:
-      verifier:
-        condition: service_healthy
 ```
+
+Stop the local server before starting the container on the same port:
 
 ```bash
-# Create the data directory and a blank CRL file
-mkdir -p data && touch data/revocations.jsonl
-
-docker-compose -f examples/docker-compose-verifier.yml up
-
-# Verify a manifest
-curl "http://localhost:8080/agent/verify?manifest_id=018f4a3b-2c1d-7e5f-a8b9-0d1e2f3a4b5c"
-
-# Browse the CRL
-curl "http://localhost:8080/.well-known/agent-manifest/revocation"
-
-# Use the discovery document
-curl http://localhost:8080/.well-known/agent-manifest
-# {"revocation":"/.well-known/agent-manifest/revocation","verify":"/agent/verify"}
+docker compose up --build
 ```
 
----
+The health check uses Python from the image. The service is published on localhost and reads its mounted inputs without writing them.
 
-## Kubernetes deployment
+## Refresh and operate it
 
-```yaml
-# k8s/verifier-deployment.yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: agent-manifest-verifier
-spec:
-  replicas: 2
-  selector:
-    matchLabels:
-      app: agent-manifest-verifier
-  template:
-    metadata:
-      labels:
-        app: agent-manifest-verifier
-    spec:
-      containers:
-        - name: verifier
-          image: agent-manifest-verifier:latest
-          ports:
-            - containerPort: 8080
-          env:
-            - name: CRL_PATH
-              value: /data/revocations.jsonl
-          volumeMounts:
-            - name: manifests
-              mountPath: /data/manifests
-              readOnly: true
-            - name: crl
-              mountPath: /data
-          livenessProbe:
-            httpGet:
-              path: /health
-              port: 8080
-            initialDelaySeconds: 5
-            periodSeconds: 10
-          readinessProbe:
-            httpGet:
-              path: /ready
-              port: 8080
-            initialDelaySeconds: 3
-            periodSeconds: 5
-      volumes:
-        - name: manifests
-          configMap:
-            name: agent-manifests
-        - name: crl
-          persistentVolumeClaim:
-            claimName: crl-pvc
-```
+This example snapshots files at startup. File changes do not update the running worker. Validate and publish an entire new configuration snapshot, then restart every worker; `docker compose restart verifier` reloads the mounted files in this local example. There is no unauthenticated reload endpoint.
 
----
+Signed entries establish who issued each revocation, not that the list is complete or current. An empty, truncated, or stale file needs separate detection through your authenticated distribution and freshness policy. The explicit loader above raises on invalid entries instead of using `FileCRL`'s skip-invalid-entry behavior. See [revocation and key rotation](revocation-and-key-rotation.md).
 
-## Environment variables reference
+Before exposing a service beyond localhost, add authenticated callers, operation authorization, request limits, transport protection, and evidence-refresh policy. A manifest ID identifies a document, not the requesting agent. A central service requires a network request; an embedded verifier avoids that request, while a sidecar usually uses local IPC or loopback. Choose based on trust ownership and deployment requirements rather than an assumed latency ranking.
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `CRL_PATH` | `/data/revocations.jsonl` | Path to the JSON-Lines CRL file |
-| `LOG_LEVEL` | `info` | Uvicorn log level (`debug`, `info`, `warning`, `error`) |
-| `UVICORN_WORKERS` | `1` | Number of uvicorn worker processes |
-
-Read them in `verifier.py`:
-
-```python
-import os
-from pathlib import Path
-
-CRL_PATH = Path(os.getenv("CRL_PATH", "/data/revocations.jsonl"))
-LOG_LEVEL = os.getenv("LOG_LEVEL", "info")
-```
-
----
-
-## Hot-reloading manifests
-
-The in-memory `manifest_store` is populated at startup. In production you will add new agents without restarting. Two approaches:
-
-**Option A: Reload endpoint** (simplest)
-
-```python
-@app.post("/admin/reload", include_in_schema=False)
-async def reload_manifests():
-    manifest_store.clear()
-    for path in Path("/data/manifests").glob("*.json"):
-        import json
-        m = json.loads(path.read_text())
-        manifest_store[m["manifest_id"]] = m
-    return {"loaded": len(manifest_store)}
-```
-
-Protect this endpoint with network policy or an API key.
-
-**Option B: Shared database** (recommended for fleets)
-
-Replace `manifest_store: dict` with a database-backed store. On each request the verifier reads from the database - no reload needed, and multiple replicas stay consistent.
-
----
-
-## Summary
-
-This tutorial built a containerised verification service that exposes the RFC 8615 discovery endpoint, a full-featured verification route, and the CRL endpoint. The same `verifier.py` works as a sidecar, a centralised service, or embedded in your API gateway. See [Revocation and key rotation](revocation-and-key-rotation.md) to update the CRL in the running verifier, and [Operations: Monitoring](../operations/monitoring.md) for metrics and alerting.
+For a protected operation in the application itself, follow [server-side verification](server-side-verification.md). The container configuration here does not provision a production cluster or hardware attestation.

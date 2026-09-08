@@ -1,13 +1,13 @@
 # CI/CD Signing
 
-By the end of this tutorial you will have a GitHub Actions workflow that signs an Agent Manifest on every release, verifies the signature as a build gate, and documents the key rotation procedure.
+Sign an Agent Manifest when its source file changes on `main`, then reject it if it does not match the verifier's approved runtime inputs. This guide provides both Python scripts, a GitHub Actions workflow, and the key rotation sequence.
 
 ## What you'll learn
 
 - Generate a signing key pair once and store the private key as a GitHub secret
 - Sign a manifest in a GitHub Actions workflow
-- Verify the signature as a required CI step (fail the build if invalid)
-- Rotate the signing key without downtime
+- Require a `VALID` verification result as a CI step
+- Rotate the signing key using an explicit trust-distribution procedure
 
 ## Prerequisites
 
@@ -19,35 +19,11 @@ pip install agent-manifest
 
 ## Generate the keypair once
 
-Run this locally to generate the keypair. Copy the private key output into a GitHub secret. Keep the public key - you will need it in verifying systems and for key rotation.
+Generate the issuer key through your approved key-management system. For a local development key, `manifest keygen -d keys/` writes key files rather than printing the private key. Keep private files out of source control and logs.
 
-```python
-from agent_manifest import generate_ed25519
+Provision `MANIFEST_SIGNING_KEY` as base64url-encoded raw Ed25519 private bytes using your secret-management process. Configure `MANIFEST_PUBLIC_KEY` (base64url public bytes) and `MANIFEST_KEY_ID` independently on the verifier. The public key is not secret, but its integrity matters. The example workflow below references all three as Actions secrets.
 
-kp = generate_ed25519()
-print("Private key (store as GitHub secret MANIFEST_SIGNING_KEY):")
-print(kp.private_b64url())
-print()
-print("Public key (add to relying party trusted_keys):")
-print(kp.public_b64url())
-print()
-print("Key ID (sha256 of public key bytes):")
-print(kp.key_id)
-```
-
-Or from the command line:
-
-```bash
-python -c "
-from agent_manifest import generate_ed25519
-kp = generate_ed25519()
-print('PRIVATE:', kp.private_b64url())
-print('PUBLIC: ', kp.public_b64url())
-print('KEY_ID: ', kp.key_id)
-"
-```
-
-Store `MANIFEST_SIGNING_KEY` and `MANIFEST_PUBLIC_KEY` in your repository's Actions secrets (`Settings > Secrets and variables > Actions > New repository secret`). Never commit either value to the repo.
+Provide `approved-context.json` containing the recipient's approved runtime observations using the fields of `VerificationContext`, such as prompt and policy hashes, enforcement mode, and model version. Maintain it under the verifier's change controls; do not generate expected values by copying them from the incoming manifest. Missing required observations can produce `INCOMPLETE` even when the signature is valid.
 
 ---
 
@@ -63,7 +39,7 @@ import sys
 from base64 import urlsafe_b64decode
 from pathlib import Path
 
-from agent_manifest import generate_ed25519, Ed25519Signer
+from agent_manifest import Ed25519Signer
 from agent_manifest._signing import ed25519_from_private_bytes
 
 
@@ -121,9 +97,11 @@ def main():
     with open(manifest_path) as f:
         manifest_dict = json.load(f)
 
-    ctx = VerificationContext(
-        trusted_keys={key_id: public_b64url},
-    )
+    context_path = Path(os.environ["MANIFEST_CONTEXT_FILE"])
+    approved_inputs = json.loads(context_path.read_text())
+    # Trust is configured here, never selected by the received manifest.
+    approved_inputs["trusted_keys"] = {key_id: public_b64url}
+    ctx = VerificationContext.model_validate(approved_inputs)
     result = verify_manifest(manifest_dict, ctx, RevocationStore())
 
     if result.result != OverallResult.VALID:
@@ -176,10 +154,11 @@ jobs:
           MANIFEST_SIGNING_KEY: ${{ secrets.MANIFEST_SIGNING_KEY }}
         run: python scripts/sign_manifest.py agent-manifest.json signed-agent-manifest.json
 
-      - name: Verify the signature
+      - name: Verify the manifest against approved inputs
         env:
           MANIFEST_PUBLIC_KEY: ${{ secrets.MANIFEST_PUBLIC_KEY }}
           MANIFEST_KEY_ID: ${{ secrets.MANIFEST_KEY_ID }}
+          MANIFEST_CONTEXT_FILE: approved-context.json
         run: python scripts/verify_manifest.py signed-agent-manifest.json
 
       - name: Commit the signed manifest
@@ -191,25 +170,16 @@ jobs:
           git push
 ```
 
-The `verify` step acts as a build gate: if the signature is invalid, the workflow fails before the commit step runs.
+The `verify` step accepts only `VALID` with the configured runtime inputs. The empty `RevocationStore` in this build-only example performs no live revocation refresh; configure authenticated revocation state for a deployment acceptance gate. This example targets the v0.1 JSON format, not v0.2 COSE bytes. Protect the workflow, signing secrets, and approved-context file from untrusted changes before using it for release signing.
 
 ---
 
 ## Key rotation
 
-Rotate the signing key when it is compromised, expiring, or when ownership changes. The procedure:
-
-1. Generate a new keypair (run the generation command above locally).
-2. Update the GitHub secrets `MANIFEST_SIGNING_KEY`, `MANIFEST_PUBLIC_KEY`, and `MANIFEST_KEY_ID` with the new values.
-3. Re-run the signing workflow to produce a new signed manifest with the new key.
-4. Update the `trusted_keys` map in every relying party that verifies your manifests to include the new key ID.
-5. Revoke all manifests signed by the old key. See [Revocation and key rotation](revocation-and-key-rotation.md).
-6. Remove the old key ID from relying party `trusted_keys` after a short overlap period.
-
-Never update the GitHub secret in place without completing step 4 first - verifiers holding only the old key ID will start returning `UNVERIFIABLE` the moment the secret changes.
+Distribute and verify new public-key trust before switching a planned issuer key. Issue replacement manifests with new IDs when old IDs will be revoked, and refresh relying parties' revocation stores explicitly. A compromised key is not a safe overlap or rollback option. Follow the [key rotation runbook](../operations/key-rotation.md); availability depends on the rollout and has no fixed guarantee.
 
 ---
 
-## Summary
+## Next steps
 
-You stored the private key as a GitHub Actions secret, automated signing in CI, and added a verification gate that fails the build if the signature is invalid. The public key and key ID are the values you distribute to relying parties; the private key never leaves the secret store. For key compromise procedures, see [Revocation and key rotation](revocation-and-key-rotation.md). For the first-time setup walkthrough, see [Your first manifest](your-first-manifest.md).
+For key compromise procedures, see [Revocation and key rotation](revocation-and-key-rotation.md). For a local signing and verification walkthrough, see [Your first manifest](your-first-manifest.md).

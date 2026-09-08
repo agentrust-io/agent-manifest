@@ -1,196 +1,101 @@
-# Monitoring the verification endpoint
+# Monitor verification outcomes
 
-This guide covers what metrics to expose from the verification endpoint, what alert conditions to configure, and how to integrate with Prometheus and OpenTelemetry.
+Measure completed verdicts, unexpected errors, and verification latency separately. A healthy verifier can reject an invalid manifest; increasing the proportion of `VALID` results is not a reliability objective.
 
----
+## Run a metrics example
 
-## Key metrics
-
-### Request counters
-
-| Metric | Type | Labels | Description |
-|--------|------|--------|-------------|
-| `agent_manifest_verifications_total` | Counter | `result` (VALID/MISMATCH/EXPIRED/REVOKED/INCOMPLETE/ERROR) | Total verification requests |
-| `agent_manifest_revocation_checks_total` | Counter | `result` (hit/miss/error) | CRL checks performed |
-| `agent_manifest_manifests_active` | Gauge | `attestation_level` | Manifests in the store by attestation level |
-
-### Latency histograms
-
-| Metric | Buckets | Description |
-|--------|---------|-------------|
-| `agent_manifest_verification_duration_seconds` | `[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0]` | End-to-end verification latency |
-| `agent_manifest_revocation_check_duration_seconds` | `[0.001, 0.005, 0.01, 0.05, 0.1, 0.5]` | CRL fetch + lookup latency |
-
----
-
-## Adding Prometheus instrumentation
-
-Install `prometheus-client` and wrap the verification router:
+Complete the [first-manifest example](../getting-started.md), install `prometheus-client` with `python -m pip install prometheus-client`, then append this block to `first_manifest.py` and run it again. It records one accepted result, one mismatch, and one deliberate exception.
 
 ```python
-from fastapi import FastAPI, Request, Response
-from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
 import time
+from prometheus_client import CollectorRegistry, Counter, Histogram, generate_latest
 
-VERIFICATIONS = Counter(
-    "agent_manifest_verifications_total",
-    "Total verification requests",
-    ["result"],
-)
-VERIFICATION_LATENCY = Histogram(
-    "agent_manifest_verification_duration_seconds",
-    "End-to-end verification latency",
-    buckets=[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0],
-)
-REVOCATION_LATENCY = Histogram(
-    "agent_manifest_revocation_check_duration_seconds",
-    "CRL lookup latency",
-    buckets=[0.001, 0.005, 0.01, 0.05, 0.1, 0.5],
-)
-ACTIVE_MANIFESTS = Gauge(
-    "agent_manifest_manifests_active",
-    "Active manifests by attestation level",
-    ["attestation_level"],
-)
+def make_verifier_metrics(operation=verify_manifest):
+    registry = CollectorRegistry()
+    outcomes = Counter(
+        "agent_manifest_verifications_total", "Verification attempts by outcome",
+        ["result"], registry=registry,
+    )
+    latency = Histogram(
+        "agent_manifest_verification_duration_seconds", "Time inside the verifier",
+        buckets=[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0],
+        registry=registry,
+    )
+    def measured_verify(received, approved_context, revocations):
+        started = time.perf_counter()
+        outcome = "ERROR"
+        try:
+            result = operation(received, approved_context, revocations)
+            outcome = result.result.value
+            return result
+        finally:
+            outcomes.labels(result=outcome).inc()
+            latency.observe(time.perf_counter() - started)
+    return registry, measured_verify
 
-app = FastAPI()
+registry, measured_verify = make_verifier_metrics()
+assert measured_verify(record, context, RevocationStore()).result.value == "VALID"
+assert measured_verify(record, drift, RevocationStore()).result.value == "MISMATCH"
+assert registry.get_sample_value("agent_manifest_verifications_total", {"result": "VALID"}) == 1
+assert registry.get_sample_value("agent_manifest_verifications_total", {"result": "MISMATCH"}) == 1
+assert registry.get_sample_value("agent_manifest_verification_duration_seconds_count") == 2
+print("PASS: accepted and rejected verdicts are counted separately")
 
-@app.middleware("http")
-async def record_verification_metrics(request: Request, call_next):
-    if request.url.path == "/verify":
-        start = time.perf_counter()
-        response = await call_next(request)
-        duration = time.perf_counter() - start
-        VERIFICATION_LATENCY.observe(duration)
-        return response
-    return await call_next(request)
+def unavailable_verifier(*args):
+    raise RuntimeError("synthetic verifier failure")
 
-@app.get("/metrics")
-def metrics():
-    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+error_registry, failing_verify = make_verifier_metrics(unavailable_verifier)
+try:
+    failing_verify(record, context, RevocationStore())
+except RuntimeError:
+    pass
+else:
+    raise AssertionError("Metrics wrapper swallowed the exception")
+assert error_registry.get_sample_value("agent_manifest_verifications_total", {"result": "ERROR"}) == 1
+assert error_registry.get_sample_value("agent_manifest_verification_duration_seconds_count") == 1
+print("PASS: unexpected error counted and propagated")
+print(generate_latest(registry).decode("utf-8"))
 ```
 
-Call `VERIFICATIONS.labels(result=result.result.value).inc()` in your verification handler after each call.
+The histogram covers the wrapped verifier call, including exceptions. It excludes HTTP transport, queueing, and any evidence fetching performed before the call. `ERROR` is this wrapper's exception label, not an SDK verdict. The counter resets when its process restarts.
 
----
+## Connect it to the service
 
-## OpenTelemetry integration
+Move `make_verifier_metrics` and its imports into your service module. Inside the [deployment guide's `create_app()`](../tutorials/deploying-the-verification-endpoint.md#create-verifierpy), create `registry, measured_verify = make_verifier_metrics()` once. In the `/verify` handler, replace the `verify_manifest(...)` call with `measured_verify(...)`.
 
-If your stack uses OpenTelemetry instead of direct Prometheus:
+Expose a `/metrics` route returning `Response(generate_latest(registry), media_type=CONTENT_TYPE_LATEST)`, importing `Response` from FastAPI and `CONTENT_TYPE_LATEST` from `prometheus_client`. Keep the registry shared by that app's requests; creating one per request loses the history. Unknown IDs rejected before the verifier call need a separate HTTP request counter if you want to measure them.
 
-```python
-from opentelemetry import metrics
-from opentelemetry.sdk.metrics import MeterProvider
+This registry is for one worker. Multiple worker processes need the client's [multiprocess configuration](https://prometheus.github.io/client_python/multiprocess/) or a separate scrape target per process. Protect the metrics endpoint according to your deployment policy. Keep manifest IDs, agent IDs, hashes, URLs, and raw error messages out of metric labels.
 
-provider = MeterProvider()
-metrics.set_meter_provider(provider)
-meter = metrics.get_meter("agent-manifest")
+See the [Python counter documentation](https://prometheus.github.io/client_python/instrumenting/counter/) for reset and label behavior. The SDK does not automatically install this instrumentation.
 
-verifications = meter.create_counter(
-    "agent_manifest.verifications",
-    description="Total verification requests",
-)
-verification_latency = meter.create_histogram(
-    "agent_manifest.verification.duration",
-    unit="s",
-    description="End-to-end verification latency",
-)
+## Query what was measured
 
-# In your handler:
-verifications.add(1, {"result": result.result.value})
-verification_latency.record(duration, {"result": result.result.value})
-```
+Configure Prometheus to scrape the service under a job named `manifest-verifier`, or replace that job selector in these queries.
 
----
+| Signal | PromQL | Interpretation |
+|--------|--------|----------------|
+| Outcomes per second | `sum by (result) (rate(agent_manifest_verifications_total{job="manifest-verifier"}[5m]))` | Verification attempts grouped by their result. |
+| Unexpected errors | `sum(rate(agent_manifest_verifications_total{job="manifest-verifier",result="ERROR"}[5m]))` | Exceptions in the wrapped operation; inspect application logs. |
+| Fleet p99 verifier latency | `histogram_quantile(0.99, sum by (le) (rate(agent_manifest_verification_duration_seconds_bucket{job="manifest-verifier"}[5m])))` | Estimated latency for the measured operation across workers. |
+| Failed scrape | `up{job="manifest-verifier"} == 0` | Prometheus could not scrape a configured target; investigate service, network, and scrape configuration. |
 
-## Alert conditions
+Use separate queries for p50, p95, and p99. `0.50|0.95|0.99` is not a valid quantile argument. The [Prometheus function reference](https://prometheus.io/docs/prometheus/latest/querying/functions/) describes histogram aggregation and missing-series behavior.
 
-### Critical alerts (page immediately)
+`absent(agent_manifest_verifications_total)` only establishes that the selected series is absent. It does not prove the service is down: a labeled counter may not exist before the first call. A removed scrape target also needs monitoring of service discovery or expected target inventory; `up == 0` alone cannot detect every missing target.
 
-| Condition | PromQL | Meaning |
-|-----------|--------|---------|
-| INVALID spike | `rate(agent_manifest_verifications_total{result="MISMATCH"}[5m]) > 0.1` | Possible artifact tampering or replay attack |
-| REVOKED spike | `rate(agent_manifest_verifications_total{result="REVOKED"}[5m]) > 0.5` | Active incident  -  multiple manifests being revoked |
-| Verifier unreachable | `absent(agent_manifest_verifications_total)` | Verification sidecar is down |
+## Choose alerts from service policy
 
-### Warning alerts (page next business day)
+Select thresholds and evaluation windows from measured traffic and the service's objectives. This guide supplies no measured latency, uptime, or revocation-propagation guarantee.
 
-| Condition | PromQL | Meaning |
-|-----------|--------|---------|
-| High p99 latency | `histogram_quantile(0.99, rate(agent_manifest_verification_duration_seconds_bucket[5m])) > 0.2` | CRL or Rekor lookup is slow |
-| EXPIRED manifests accumulating | `rate(agent_manifest_verifications_total{result="EXPIRED"}[1h]) > 0.01` | Issuance pipeline not refreshing manifests |
-| Level 0 agents above threshold | `agent_manifest_manifests_active{attestation_level="0"} > 5` | Unattested agents in production |
+- A `MISMATCH` spike means more failed comparisons or signatures. Examine details before concluding tampering or replay.
+- A `REVOKED` spike counts verification attempts against revoked IDs. Repeated requests for one ID can cause it; it does not count new revocations.
+- `INCOMPLETE` commonly means a declared artifact lacks the required independent runtime observation. Inspect the actual result fields rather than assuming missing human approval.
+- Higher latency does not identify a slow CRL or transparency service. Instrument those operations separately if the application calls them; the demo uses an in-memory revocation store.
+- Track revocation freshness and propagation at the distribution/refresh boundary. Neither of the two metrics above measures them.
 
-### Prometheus alert rules
+Separate availability and processing-error objectives from authorization outcomes. Rejecting a bad record is expected behavior, and a high acceptance rate can hide a verifier that accepts too much.
 
-```yaml
-groups:
-  - name: agent-manifest
-    rules:
-      - alert: ManifestTamperingDetected
-        expr: rate(agent_manifest_verifications_total{result="MISMATCH"}[5m]) > 0.1
-        for: 2m
-        labels:
-          severity: critical
-        annotations:
-          summary: Manifest artifact mismatch rate elevated
-          description: Possible artifact tampering or key compromise. Rate = {{ $value }} req/s.
+## Other telemetry backends
 
-      - alert: ManifestRevocationSpike
-        expr: rate(agent_manifest_verifications_total{result="REVOKED"}[5m]) > 0.5
-        for: 1m
-        labels:
-          severity: critical
-        annotations:
-          summary: High revocation rate detected
-          description: Multiple manifests being revoked. Rate = {{ $value }} req/s. Check for active incident.
-
-      - alert: VerificationLatencyHigh
-        expr: histogram_quantile(0.99, rate(agent_manifest_verification_duration_seconds_bucket[5m])) > 0.2
-        for: 10m
-        labels:
-          severity: warning
-        annotations:
-          summary: Verification p99 latency above 200ms
-          description: Check CRL endpoint availability and Rekor response times.
-```
-
----
-
-## Grafana dashboard
-
-Key panels for a verification endpoint dashboard:
-
-**Row 1: Request health**
-- Panel: `rate(agent_manifest_verifications_total[5m])` by result  -  stacked area chart
-- Panel: `rate(agent_manifest_verifications_total{result!="VALID"}[5m])`  -  single stat with alert threshold
-
-**Row 2: Latency**
-- Panel: `histogram_quantile(0.50|0.95|0.99, rate(agent_manifest_verification_duration_seconds_bucket[5m]))`  -  line chart
-- Panel: `histogram_quantile(0.99, rate(agent_manifest_revocation_check_duration_seconds_bucket[5m]))`  -  single stat
-
-**Row 3: Fleet health**
-- Panel: `agent_manifest_manifests_active` by `attestation_level`  -  bar gauge
-- Panel: `rate(agent_manifest_verifications_total{result="EXPIRED"}[1h])`  -  single stat
-
-**SLO targets**
-
-| Metric | Target |
-|--------|--------|
-| Verification success rate (VALID) | ≥ 99.5% |
-| p99 verification latency | < 50ms (local CRL) / < 200ms (remote CRL) |
-| Revocation propagation time | < 30s |
-| Uptime (verifier reachable) | 99.9% |
-
----
-
-## What each non-VALID result means operationally
-
-| Result | Frequency in healthy system | Cause | Response |
-|--------|-----------------------------|-------|----------|
-| MISMATCH | Rare (< 0.01%) | Artifact changed after issuance | Investigate  -  possible tamper |
-| EXPIRED | Low (< 0.1%) | Manifest not refreshed before expiry | Fix issuance pipeline |
-| REVOKED | Rare (near zero) | Expected after revocation event | Confirm revocation was intentional |
-| INCOMPLETE | None | HITL required but missing | Fix approval workflow |
-| ATTESTATION_UNAVAILABLE | Rare in production | Hardware provider unavailable | Check attestation hardware |
-| ERROR | Near zero | Malformed manifest or unexpected exception | Check logs |
+With OpenTelemetry, instrument the same call boundary and preserve verdict/exception distinctions. Configure a metric reader and exporter in the hosting application; creating a meter and instruments alone does not deliver metrics to a backend. Use your deployment's existing telemetry configuration and test delivery with an intentional request and failure before relying on alerts.
