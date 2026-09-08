@@ -34,6 +34,43 @@
   and `attach_unprotected()` converts any residual `CBOREncodeError` to
   `CoseStructureError` as a second layer.
 
+- **[SECURITY][SDK]** `POST /verify` (JSON) had no body-size or field-cardinality
+  cap, unlike `POST /verify/cose` (issue #383). `verify_cose` bounds the CBOR
+  body against `Content-Length` and then against the actual byte stream
+  before parsing it ("`Content-Length` is a claim, not a guarantee"), but
+  `verify_post` took a `VerifyRequest` Pydantic model directly, so FastAPI
+  fully buffered and validated an arbitrarily large JSON body - e.g. a
+  `trusted_keys` dict with millions of entries - before `verify_manifest`
+  ever ran. `verify_post` now takes the raw request, stream-caps the body at
+  `MAX_VERIFY_BODY_BYTES` (the renamed, now endpoint-neutral
+  `MAX_COSE_ENVELOPE_BYTES`, 1 MiB, shared by both `/verify` routes) before
+  handing the bytes to `VerifyRequest.model_validate_json()`, and returns
+  `413 VERIFY_REQUEST_TOO_LARGE` over the limit, mirroring `ENVELOPE_TOO_LARGE`.
+  `VerifyRequest`'s seven dict/set fields (`trusted_keys`, `trusted_key_issuers`,
+  `delegation_public_keys`, `approver_public_keys`,
+  `verified_transparency_entry_ids`, `verified_transparency_receipt_hashes`,
+  `verified_attestation_manifest_hashes` - the last of which the original
+  report's field list omitted, but which has the identical unbounded
+  `set[str]` shape and reaches `VerificationContext` the same way)
+  now also reject more than `MAX_VERIFY_COLLECTION_ENTRIES` (10,000) entries,
+  which catches a small body hiding an oversized collection behind short
+  keys/values that a byte cap alone could miss. `GET /verify` is unaffected;
+  it takes no body. Taking a raw `Request` instead of a `VerifyRequest`
+  parameter also meant FastAPI's own automatic `Content-Type` gate no
+  longer ran for this route, so `verify_post` would parse a JSON body
+  submitted under any (or no) `Content-Type` - `text/plain`, a bogus
+  subtype, form-encoded - contradicting the `application/json`-only
+  contract the endpoint's own OpenAPI schema advertises. `verify_post` now
+  checks `Content-Type` explicitly, using the same rule FastAPI itself uses
+  for a Pydantic-model body parameter (`application/json`, a `+json`
+  vendor subtype, or no header at all; anything else is `415
+  UNSUPPORTED_MEDIA_TYPE`), before the body is read. Separately, both
+  `verify_post` and `verify_cose` checked the accumulated body against
+  `MAX_VERIFY_BODY_BYTES` *after* appending each stream chunk rather than
+  before, so the buffer could be grown past the cap by up to one chunk's
+  size before being rejected; both now check before appending, so the
+  buffer itself is never intentionally grown past the limit.
+
 - **[SECURITY][SDK]** `_strict_schema_violations()` tolerated a missing
   top-level `issuer` claim for **any** manifest version, not just v0.1. The
   exception was added for legacy v0.1 records, which predate the `issuer`
