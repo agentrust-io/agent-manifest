@@ -1,31 +1,31 @@
 # Tutorials
 
-Step-by-step guides for specific agent-manifest features. Each tutorial is self-contained and includes runnable code.
+Start by signing a local demo configuration and testing what happens when it changes. Then choose the guide for the boundary you need to enforce.
 
-If you are new to agent-manifest, start with [Getting Started](https://manifest.agentrust-io.com/getting-started/index.md) first - it covers creating and signing your first manifest in 15 minutes.
+The [first-manifest example](https://manifest.agentrust-io.com/getting-started/index.md) supplies the record, keys, and approved inputs used by several follow-up guides. Those pages say where to append their code. Hardware and cMCP integration guidance identifies additional setup and verification requirements.
 
 ______________________________________________________________________
 
 ## Getting started
 
-| Tutorial                                                                                          | What you'll build                                                                     |
-| ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| [Your first manifest](https://manifest.agentrust-io.com/tutorials/your-first-manifest/index.md)   | A signed Agent Manifest from scratch with Ed25519 key generation and CLI verification |
-| [CI/CD signing](https://manifest.agentrust-io.com/tutorials/ci-cd-signing/index.md)               | A GitHub Actions workflow that signs your manifest on every release                   |
-| [cMCP session binding](https://manifest.agentrust-io.com/tutorials/cmcp-session-binding/index.md) | A cMCP gateway configured to verify and bind a signed manifest at session startup     |
+| Tutorial                                                                                          | What you'll build                                                                         |
+| ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| [Your first manifest](https://manifest.agentrust-io.com/tutorials/your-first-manifest/index.md)   | A signed Agent Manifest from scratch with Ed25519 key generation and CLI verification     |
+| [CI/CD signing](https://manifest.agentrust-io.com/tutorials/ci-cd-signing/index.md)               | Signing and verification scripts, plus a workflow triggered by manifest changes on `main` |
+| [cMCP session binding](https://manifest.agentrust-io.com/tutorials/cmcp-session-binding/index.md) | Configuration guidance and the meaning of the gateway's identity evidence                 |
 
 ## Development
 
-| Tutorial                                                                                                           | What you'll build                                                             |
-| ------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------- |
-| [Server-side manifest verification](https://manifest.agentrust-io.com/tutorials/server-side-verification/index.md) | A FastAPI service that verifies incoming agent manifests and gates requests   |
-| [A2A delegation chains](https://manifest.agentrust-io.com/tutorials/delegation-chains/index.md)                    | A two-hop delegation chain with scope narrowing and chain verification        |
-| [HITL approval workflows](https://manifest.agentrust-io.com/tutorials/hitl-approval-workflows/index.md)            | A manifest with a cryptographically signed human approval record              |
-| [Revocation and key rotation](https://manifest.agentrust-io.com/tutorials/revocation-and-key-rotation/index.md)    | A signed revocation record, a live CRL endpoint, and a key rotation procedure |
-| [Hardware attestation](https://manifest.agentrust-io.com/tutorials/hardware-attestation/index.md)                  | Hardware-bound attestation on SEV-SNP, TDX, and OPAQUE                        |
+| Tutorial                                                                                                           | What you'll build                                                                                   |
+| ------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
+| [Server-side manifest verification](https://manifest.agentrust-io.com/tutorials/server-side-verification/index.md) | A local request gate tested with accepted, missing, unknown, and mismatched inputs                  |
+| [A2A delegation chains](https://manifest.agentrust-io.com/tutorials/delegation-chains/index.md)                    | A two-hop delegation chain with scope narrowing and chain verification                              |
+| [HITL approval workflows](https://manifest.agentrust-io.com/tutorials/hitl-approval-workflows/index.md)            | A synthetic approval signed with a software key, with missing and altered approval rejection        |
+| [Revocation and key rotation](https://manifest.agentrust-io.com/tutorials/revocation-and-key-rotation/index.md)    | A signed revocation, explicit reader refresh, untrusted-signer rejection, and rotation guidance     |
+| [Hardware attestation](https://manifest.agentrust-io.com/tutorials/hardware-attestation/index.md)                  | A runnable software binding example, hardware provider selection, and evidence appraisal boundaries |
 
 ## Operations
 
-| Tutorial                                                                                                                        | What you'll build                                                           |
-| ------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| [Deploying the verification endpoint](https://manifest.agentrust-io.com/tutorials/deploying-the-verification-endpoint/index.md) | A containerised verifier with health checks, CRL, and Kubernetes deployment |
+| Tutorial                                                                                                               | What you'll build                                                                                |
+| ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| [Run a verification service](https://manifest.agentrust-io.com/tutorials/deploying-the-verification-endpoint/index.md) | A local HTTP verifier with startup-loaded trust and signed revocations, plus container packaging |

@@ -1,6 +1,6 @@
 # Compliance
 
-Agent-manifest satisfies traceability, accountability, and audit requirements across multiple regulatory frameworks. These one-pagers map specific obligations to agent-manifest capabilities and are written for compliance officers and auditors.
+Agent Manifest supplies signed configuration and provenance evidence that can support a compliance review. These pages map capabilities to topics in several regulatory frameworks. A valid manifest does not by itself establish regulatory compliance; that assessment depends on the deployed system, its controls, and the applicable obligations.
 
 | Framework                                                                    | Jurisdiction                        | Primary obligation addressed                                     |
 | ---------------------------------------------------------------------------- | ----------------------------------- | ---------------------------------------------------------------- |
@@ -11,12 +11,14 @@ Agent-manifest satisfies traceability, accountability, and audit requirements ac
 
 ## What agent-manifest provides
 
-Every signed manifest is a tamper-evident record that answers five questions regulators ask about AI systems:
+The evidence available depends on which bindings and optional records the producer includes and which checks the recipient performs:
 
-1. **Who is this agent?** - SPIFFE URI identity, signed by an issuer key
-1. **What is it running?** - Model, system prompt, and tool hashes cryptographically bound
-1. **How was it deployed?** - Attestation level (0–3), optional hardware enclave evidence
-1. **Who authorised it?** - Delegation chain with issuer signature at each hop
-1. **Has a human reviewed it?** - HITL approval record signed by a named approver
+| Evidence                                           | What to check                                                                            |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| Agent and issuer identity                          | Signature against an independently trusted issuer and the expected agent identity        |
+| Declared prompt, policy, tools, and model bindings | Compare with independently supplied deployment inputs; omitted bindings are not verified |
+| Hardware evidence, when supplied                   | Provider-specific appraisal, expected measurements, key binding, and deployment limits   |
+| Delegation, when supplied                          | Trusted authority, signatures, continuity, and scope restrictions                        |
+| Human approval, when supplied                      | Approver authority, signature, scope, and freshness                                      |
 
-These five properties map directly to the accountability, transparency, and human oversight requirements in every framework listed above.
+Start with [your first manifest](https://manifest.agentrust-io.com/getting-started/index.md) to see the checks in a local example. Read [limitations](https://manifest.agentrust-io.com/limitations/index.md) before treating a signed declaration as evidence of runtime behavior.
