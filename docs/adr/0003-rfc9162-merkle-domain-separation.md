@@ -19,20 +19,13 @@ Leaf data for tool entries: RFC 8785 canonical JSON of the tool descriptor (sche
 Leaf data for corpus documents: RFC 8785 canonical JSON of the document descriptor (hash + identifier + ingested_at).  
 Leaf data for composite policy sub-bundles (Section 3.2.2): the **raw digest bytes** of each sub-bundle hash, not the `sha256:`-prefixed hex string and not a JSON descriptor. Unlike the two above, this leaf carries no structured descriptor, because the ordering rule already fixes which sub-bundle each leaf is.
 
-<<<<<<< HEAD
-These are the only two Merkle hash operations selected by this ADR. The entries in
-"Alternatives considered" are rejected constructions, not additional supported
-operations.
+This ADR defines three Merkle hash operations: tool catalog leaves, corpus document leaves, and composite policy sub-bundle leaves.
 
-Section 4.1.1 of the specification is the normative definition of the shared
-construction. Sections 3.2.3 and 3.2.5.1 normatively define each artifact's leaf
-data and ordering; they take precedence over this ADR for those details. RFC 8785
-applies only where those sections define JSON as an input to a hash.
-=======
 Leaf data for tool entries: RFC 8785 canonical JSON of the tool descriptor (schema + description, sorted by tool name).  
 Leaf data for corpus documents: RFC 8785 canonical JSON of the document descriptor (hash + identifier + ingested_at).  
 Leaf data for composite policy sub-bundles (Section 3.2.2): the **raw digest bytes** of each sub-bundle hash, not the `sha256:`-prefixed hex string and not a JSON descriptor. Unlike the two above, this leaf carries no structured descriptor, because the ordering rule already fixes which sub-bundle each leaf is.
->>>>>>> 3bb3ee5a46305bd639e8814308b66d1392a3eaf8
+
+Section 4.1.1 of the specification is the normative definition of the shared construction. Sections 3.2.2, 3.2.3, and 3.2.5.1 normatively define each artifact's leaf data and ordering; they take precedence over this ADR for those details. RFC 8785 applies only where those sections define JSON as an input to a hash. The composite policy sub-bundle leaf uses raw digest bytes and does not use JSON canonicalization.
 
 ## Rationale
 
