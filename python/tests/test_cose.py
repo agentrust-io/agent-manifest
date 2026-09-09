@@ -1542,3 +1542,61 @@ def test_signature_slot_type_is_checked_at_decode():
     ):
         with pytest.raises(CoseError, match="signature must be a byte string"):
             call()
+
+
+def test_unprotected_header_sentinel_is_checked_at_decode():
+    """A value inside the unprotected header cannot be an undecodable sentinel.
+
+    Found by ``fuzz_cose`` (ClusterFuzzLite). Same underlying cbor2 quirk as
+    ``test_signature_slot_type_is_checked_at_decode`` above - a stray break
+    byte decodes into cbor2's internal break marker, a bare ``object()`` -
+    but this time the marker lands as a *value inside the unprotected header
+    map* rather than in the signature slot. ``_decode_tagged`` checked that
+    the unprotected header was a ``Mapping`` but never inspected what was
+    inside it, so this envelope reached ``attach_unprotected``, which copies
+    the map and re-encodes it, and died there with ``CBOREncodeError``
+    instead of the ``CoseError`` every caller is written against.
+
+    The bytes below are the fuzzer's own reproducer (with the trailing byte
+    atheris's ``FuzzedDataProvider`` consumed for its ``choice`` selector
+    already stripped off), kept verbatim.
+    """
+    envelope = bytes.fromhex(
+        "d28443cbffffa5a032d825500000cbffffa5a032d825500000ff407fff"
+        "0000000041a0a04040"
+    )
+
+    for call in (
+        lambda: attach_receipt(envelope, b"\xa0"),
+        lambda: attach_unprotected(envelope, 1, b"x"),
+        lambda: attach_attestation(envelope, {"platform": "x"}),
+        lambda: attach_approvals(envelope, [{"approver_id": "a"}]),
+    ):
+        with pytest.raises(CoseStructureError, match="undecodable CBOR value"):
+            call()
+
+    # decode_cose_manifest never re-encodes the unprotected header, so this
+    # same envelope is expected to fail for an unrelated, earlier reason
+    # (there is no valid JSON payload here) rather than leak anything.
+    with pytest.raises(CoseError):
+        decode_cose_manifest(envelope)
+
+
+def test_attach_unprotected_rejects_a_caller_supplied_unencodable_value():
+    """``attach_unprotected`` also guards against a *caller's own* bad value.
+
+    ``_decode_tagged`` only validates what came from *cose_bytes*; the value
+    a caller passes in to attach is never inspected before being merged into
+    the header and re-encoded. A plain, non-CBOR-encodable Python object
+    there hits the same ``cbor2.CBOREncodeError`` at re-encode time, so
+    ``attach_unprotected``'s belt-and-suspenders ``except`` clause is the
+    only thing standing between a caller mistake and a leaked library
+    exception. This is that mistake, made deliberately.
+    """
+
+    class NotCborEncodable:
+        pass
+
+    signed = sign_cose_sign1(base_manifest(), KP)
+    with pytest.raises(CoseStructureError, match="not re-encodable"):
+        attach_attestation(signed, NotCborEncodable())

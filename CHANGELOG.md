@@ -17,6 +17,21 @@
 
 ### Fixed
 
+- **[SECURITY][SDK]** `attach_receipt()`, `attach_attestation()`, and
+  `attach_approvals()` could crash with `cbor2.CBOREncodeError` instead of
+  the documented `CoseError` on a malformed COSE envelope. `_decode_tagged()`
+  checked that the unprotected header was a CBOR map but never inspected
+  its contents; a stray break byte (`0xff`) in the wrong position decodes
+  into cbor2's internal break-marker sentinel rather than raising, and that
+  sentinel travelled through `attach_unprotected()` undetected until the
+  re-encode at the end, where cbor2 cannot serialize it. Same underlying
+  cbor2 quirk as the signature-slot check `_decode_tagged()` already applies
+  to `body[3]`; this closes the same hole for `body[1]`'s contents.
+  `_decode_tagged()` now rejects the sentinel anywhere in the unprotected
+  header before any caller touches it, and `attach_unprotected()` converts
+  any residual `CBOREncodeError` to `CoseStructureError` as a second layer.
+  Found by `fuzz_cose` (ClusterFuzzLite).
+
 - **[SECURITY][SDK]** `_strict_schema_violations()` tolerated a missing
   top-level `issuer` claim for **any** manifest version, not just v0.1. The
   exception was added for legacy v0.1 records, which predate the `issuer`
