@@ -1600,3 +1600,106 @@ def test_attach_unprotected_rejects_a_caller_supplied_unencodable_value():
     signed = sign_cose_sign1(base_manifest(), KP)
     with pytest.raises(CoseStructureError, match="not re-encodable"):
         attach_attestation(signed, NotCborEncodable())
+
+
+def test_reject_cbor_sentinels_recurses_into_cbortag_and_set():
+    """``_reject_cbor_sentinels`` must walk every CBOR container, not just
+    ``Mapping``/``list``/``tuple``.
+
+    Code review on the PR that introduced this check found that it stopped
+    at the boundary of ``cbor2.CBORTag`` and ``set``/``frozenset``: cbor2
+    hands back a ``CBORTag`` for any semantic tag it has no built-in decoder
+    for, and auto-decodes tag 258 to a plain ``set``. A sentinel tucked
+    inside either of those - ``CBORTag(9999, [sentinel])`` or ``{sentinel}``
+    - decoded without error and without being caught, so it would reach
+    ``attach_unprotected`` and die on re-encode, or (worse - see the next
+    test) sail straight through ``decode_cose_manifest`` with nothing raised
+    at all. This exercises the fixed recursion directly against every shape
+    it now covers.
+    """
+    from agent_manifest._cose import _reject_cbor_sentinels
+
+    sentinel = object()
+    rejected_cases = {
+        "sentinel inside an unsupported CBORTag": cbor2.CBORTag(9999, [sentinel]),
+        "sentinel inside a CBORTag(258) wrapping a set-shaped payload": cbor2.CBORTag(
+            258, [sentinel]
+        ),
+        "sentinel inside a bare set": {sentinel},
+        "sentinel inside a bare frozenset": frozenset([sentinel]),
+        "sentinel doubly nested: list -> CBORTag -> tuple": [
+            cbor2.CBORTag(5, (sentinel,))
+        ],
+        "sentinel as a dict key inside a CBORTag": cbor2.CBORTag(7, {sentinel: 1}),
+    }
+    for value in rejected_cases.values():
+        with pytest.raises(CoseStructureError, match="undecodable CBOR value"):
+            _reject_cbor_sentinels({1: value}, what="unprotected header")
+
+    # A legitimate header using the same container types, with no sentinel
+    # anywhere in it, must not be rejected.
+    legitimate = {
+        1: cbor2.CBORTag(9999, ["a", "b", {2: 3}]),
+        2: {1, 2, 3},
+        3: frozenset({"x", "y"}),
+        4: [1, 2, {"nested": True}],
+    }
+    _reject_cbor_sentinels(legitimate, what="unprotected header")  # must not raise
+
+
+def test_unprotected_header_sentinel_nested_in_tag_or_set_is_checked_at_decode():
+    """The sentinel check must catch a sentinel nested inside a tag or set
+    on a *real* envelope, not just when the recursive helper is called
+    directly - and, critically, before ``decode_cose_manifest`` /
+    ``verify_cose_manifest`` hand the header back to a caller.
+
+    Hand-crafting the exact malformed CBOR bytes that make cbor2 place its
+    internal sentinel several containers deep (rather than as a direct
+    header value, which is what the fuzzer's reproducer above already
+    covers) is not practical without re-running the fuzzer. What can be
+    reproduced deterministically is the resulting Python object graph: this
+    patches ``cbor2.CBORDecoder.decode`` to return that exact graph - a
+    signed, otherwise fully valid envelope whose unprotected header carries
+    a sentinel inside ``CBORTag(258, [sentinel])`` - while still consuming
+    the real byte stream first, so every other check downstream of decoding
+    runs against a genuine envelope.
+
+    Before the fix, ``decode_cose_manifest``/``verify_cose_manifest`` raised
+    nothing at all here: they never re-encode the unprotected header, so the
+    old check's blind spot let the sentinel travel all the way into the
+    returned ``CoseVerification.unprotected``, silently, as a raw
+    unserializable ``cbor2.CBORTag``/``object()`` a caller had no reason to
+    expect.
+    """
+    from unittest.mock import patch
+
+    signed = sign_cose_sign1(base_manifest(), KP)
+    signed = attach_attestation(signed, {"platform": "sim"})
+
+    decoded = cbor2.loads(signed)
+    tag, body = decoded.tag, list(decoded.value)
+    sentinel = object()
+    malicious_unprotected = dict(body[1])
+    malicious_unprotected[999] = cbor2.CBORTag(258, [sentinel])
+    body[1] = malicious_unprotected
+    fake_decoded = cbor2.CBORTag(tag, tuple(body))
+
+    real_decode = cbor2.CBORDecoder.decode
+
+    def smuggle_sentinel(self):
+        real_decode(self)  # fully consume the real stream first
+        return fake_decoded
+
+    with patch.object(cbor2.CBORDecoder, "decode", smuggle_sentinel):
+        with pytest.raises(CoseStructureError, match="undecodable CBOR value"):
+            decode_cose_manifest(signed)
+        with pytest.raises(CoseStructureError, match="undecodable CBOR value"):
+            verify_cose_manifest(signed, trusted_keys=TRUSTED_KEYS)
+        for call in (
+            lambda: attach_unprotected(signed, 1, b"x"),
+            lambda: attach_receipt(signed, b"\xa0"),
+            lambda: attach_attestation(signed, {"platform": "x"}),
+            lambda: attach_approvals(signed, [{"approver_id": "a"}]),
+        ):
+            with pytest.raises(CoseStructureError, match="undecodable CBOR value"):
+                call()

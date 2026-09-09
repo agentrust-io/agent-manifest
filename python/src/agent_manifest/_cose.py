@@ -544,17 +544,31 @@ def _reject_cbor_sentinels(value: Any, *, what: str) -> None:
     decodes normally, no matter which types cbor2's tag support adds in a
     future version (``UUID``, ``Decimal``, ``datetime`` and friends already
     round-trip fine and are left untouched).
+
+    Every CBOR container type that can hold a nested value is walked, not
+    just the ones the unprotected header's own top-level shape happens to
+    use: ``Mapping`` (both keys and values - cbor2 6.x hands back an
+    immutable ``frozendict``, itself a ``Mapping``), ``list``/``tuple``
+    (array), ``set``/``frozenset`` (cbor2 auto-decodes semantic tag 258 to a
+    plain ``set``), and ``cbor2.CBORTag`` (any tag cbor2 does *not* have a
+    built-in decoder for is handed back as a ``CBORTag`` wrapping its
+    payload, e.g. an unrecognised or future semantic tag). A sentinel can be
+    tucked inside any of these - ``{1: CBORTag(9999, [sentinel])}`` or
+    ``{1: {sentinel}}`` decode without error and without matching the old
+    Mapping/list/tuple-only check - so all of them are recursed into.
     """
     if type(value) is object:
         raise CoseStructureError(
             f"{what} contains an undecodable CBOR value "
             "(a malformed indefinite-length break byte)"
-       )
+        )
     if isinstance(value, Mapping):
         for key, item in value.items():
             _reject_cbor_sentinels(key, what=what)
             _reject_cbor_sentinels(item, what=what)
-    elif isinstance(value, (list, tuple)):
+    elif isinstance(value, cbor2.CBORTag):
+        _reject_cbor_sentinels(value.value, what=what)
+    elif isinstance(value, (list, tuple, set, frozenset)):
         for item in value:
             _reject_cbor_sentinels(item, what=what)
 

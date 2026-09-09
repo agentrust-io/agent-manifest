@@ -27,10 +27,12 @@
   re-encode at the end, where cbor2 cannot serialize it. Same underlying
   cbor2 quirk as the signature-slot check `_decode_tagged()` already applies
   to `body[3]`; this closes the same hole for `body[1]`'s contents.
-  `_decode_tagged()` now rejects the sentinel anywhere in the unprotected
-  header before any caller touches it, and `attach_unprotected()` converts
-  any residual `CBOREncodeError` to `CoseStructureError` as a second layer.
-  Found by `fuzz_cose` (ClusterFuzzLite).
+  `_decode_tagged()` now recursively rejects the sentinel anywhere in the
+  unprotected header - inside a `Mapping`/`list`/`tuple`, inside a
+  `CBORTag` (an unrecognised semantic tag), and inside a `set`/`frozenset`
+  (cbor2 auto-decodes tag 258 to a `set`) - before any caller touches it,
+  and `attach_unprotected()` converts any residual `CBOREncodeError` to
+  `CoseStructureError` as a second layer.
 
 - **[SECURITY][SDK]** `_strict_schema_violations()` tolerated a missing
   top-level `issuer` claim for **any** manifest version, not just v0.1. The
