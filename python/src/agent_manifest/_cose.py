@@ -409,7 +409,16 @@ def attach_unprotected(cose_bytes: bytes, label: Union[int, str], value: Any) ->
     unprotected[label] = value
     body = list(body)
     body[1] = unprotected
-    return cbor2.dumps(cbor2.CBORTag(tag, body), canonical=True)
+    try:
+        return cbor2.dumps(cbor2.CBORTag(tag, body), canonical=True)
+    except cbor2.CBOREncodeError as exc:
+        # Belt-and-suspenders: _decode_tagged() already rejects the known
+        # undecodable sentinel before we get here. This catches anything
+        # else that slips through - a different cbor2 version, a value this
+        # function itself added - so the documented contract ("this raises
+        # CoseError, nothing else") holds even if the front-door check ever
+        # misses something.
+        raise CoseStructureError(f"unprotected header is not re-encodable: {exc}") from exc
 
 
 def attach_receipt(cose_bytes: bytes, receipt: bytes) -> bytes:
@@ -516,6 +525,54 @@ def _plain(value: Any) -> Any:
     return value
 
 
+def _reject_cbor_sentinels(value: Any, *, what: str) -> None:
+    """Recursively reject cbor2's internal break-marker sentinel.
+
+    A stray break byte (``0xff``) in the wrong position does not always make
+    cbor2 raise during decode: depending on where it lands, cbor2 hands back
+    its own internal marker object instead - a bare ``object()``, never a
+    subclass, never something a normal decode produces otherwise. That
+    marker cannot be re-encoded, so anything holding one dies later with
+    ``cbor2.CBOREncodeError`` when a caller (``attach_unprotected`` and
+    everything built on it) tries to write the structure back out.
+
+    ``body[3]`` (the signature slot) is checked per-tag in ``_decode_tagged``
+    itself; this function closes the same hole for the unprotected header,
+    whose *values* were never inspected past "is it a Mapping". It matches on
+    the exact marker type - ``type(value) is object`` - rather than
+    allow-listing legitimate types, so it can never reject a manifest that
+    decodes normally, no matter which types cbor2's tag support adds in a
+    future version (``UUID``, ``Decimal``, ``datetime`` and friends already
+    round-trip fine and are left untouched).
+
+    Every CBOR container type that can hold a nested value is walked, not
+    just the ones the unprotected header's own top-level shape happens to
+    use: ``Mapping`` (both keys and values - cbor2 6.x hands back an
+    immutable ``frozendict``, itself a ``Mapping``), ``list``/``tuple``
+    (array), ``set``/``frozenset`` (cbor2 auto-decodes semantic tag 258 to a
+    plain ``set``), and ``cbor2.CBORTag`` (any tag cbor2 does *not* have a
+    built-in decoder for is handed back as a ``CBORTag`` wrapping its
+    payload, e.g. an unrecognised or future semantic tag). A sentinel can be
+    tucked inside any of these - ``{1: CBORTag(9999, [sentinel])}`` or
+    ``{1: {sentinel}}`` decode without error and without matching the old
+    Mapping/list/tuple-only check - so all of them are recursed into.
+    """
+    if type(value) is object:
+        raise CoseStructureError(
+            f"{what} contains an undecodable CBOR value "
+            "(a malformed indefinite-length break byte)"
+        )
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            _reject_cbor_sentinels(key, what=what)
+            _reject_cbor_sentinels(item, what=what)
+    elif isinstance(value, cbor2.CBORTag):
+        _reject_cbor_sentinels(value.value, what=what)
+    elif isinstance(value, (list, tuple, set, frozenset)):
+        for item in value:
+            _reject_cbor_sentinels(item, what=what)
+
+
 def _decode_tagged(cose_bytes: bytes) -> tuple[int, list[Any]]:
     """Decode exactly one tagged COSE object and return ``(tag, body)``.
 
@@ -563,6 +620,11 @@ def _decode_tagged(cose_bytes: bytes) -> tuple[int, list[Any]]:
     # cbor2 hands back an immutable mapping for a map inside a tag.
     if not isinstance(body[1], Mapping):
         raise CoseStructureError("unprotected header must be a map")
+    # Being a Mapping only proves the outer shape; a key or value inside it
+    # can still be cbor2's undecodable break-marker sentinel (see
+    # _reject_cbor_sentinels). Rejected here, at parse time, rather than
+    # letting it travel into attach_unprotected() and die on re-encode.
+    _reject_cbor_sentinels(body[1], what="unprotected header")
     if not isinstance(body[2], bytes):
         raise CoseStructureError("payload must be a byte string, inline not detached")
     # The signature slot was the one element never type-checked here, which let
