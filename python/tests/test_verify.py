@@ -1004,6 +1004,100 @@ def test_hitl_all_approvals_invalid_is_still_invalid():
 
 
 # ---------------------------------------------------------------------------
+# HITL: precedence when approvals fail for *different* reasons and none is
+# valid. No approval in the array is fully valid in any of the pairs below,
+# so `any_approved` is never true; the result is a deliberate, order-
+# independent precedence, not the position of the first bad approval in the
+# array (that was the pre-fix behavior and was never a documented contract -
+# see HITL-004 changelog entry). The precedence is:
+#
+#   INVALID > APPROVAL_INSUFFICIENT > EXPIRED > UNVERIFIABLE
+#
+# INVALID, APPROVAL_INSUFFICIENT, and EXPIRED are all positive, concrete
+# evidence of a problem and always add a MismatchDetail, so their relative
+# order does not change the overall result (always MISMATCH either way) -
+# INVALID is ranked highest among them because a broken/tampered signature
+# is the strongest evidence of active tampering. UNVERIFIABLE is ranked
+# last and deliberately excluded from that ordering question: it means
+# "this verifier lacks the key to even check," not proof of a problem, and
+# it adds no MismatchDetail. Letting it outrank a concrete finding would
+# silently drop that finding from `mismatch_details` and downgrade the
+# overall result from MISMATCH to UNVERIFIABLE - so it only wins when it is
+# the *only* thing wrong with the array.
+# ---------------------------------------------------------------------------
+
+_HITL_FAILURE_BUILDERS = {}
+
+
+def _hitl_precedence_case(label):
+    def register(fn):
+        _HITL_FAILURE_BUILDERS[label] = fn
+        return fn
+    return register
+
+
+@_hitl_precedence_case("INVALID")
+def _mk_invalid():
+    t = (NOW - timedelta(minutes=30)).isoformat().replace("+00:00", "Z")
+    a = dict(hitl_approval(t, {"approval_duration_seconds": 7200}))
+    a["approval_signature"] = "not-a-real-signature"
+    return a
+
+
+@_hitl_precedence_case("UNVERIFIABLE")
+def _mk_unverifiable():
+    t = (NOW - timedelta(minutes=30)).isoformat().replace("+00:00", "Z")
+    a = dict(hitl_approval(t, {"approval_duration_seconds": 7200}))
+    a["approver_id"] = "mailto:unknown@example.com"
+    return a
+
+
+@_hitl_precedence_case("EXPIRED")
+def _mk_expired():
+    t = (NOW - timedelta(hours=5)).isoformat().replace("+00:00", "Z")
+    return hitl_approval(t, {"approval_duration_seconds": 3600})
+
+
+@_hitl_precedence_case("APPROVAL_INSUFFICIENT")
+def _mk_insufficient():
+    t = (NOW - timedelta(minutes=30)).isoformat().replace("+00:00", "Z")
+    return {
+        "approver_id": APPROVER_ID,
+        "approved_at": t,
+        "approved_scope": {"approval_duration_seconds": 7200, "risk_tier": "high"},
+        "approval_method": "software-key",
+    }
+
+
+_HITL_PRECEDENCE_RANK = ["INVALID", "APPROVAL_INSUFFICIENT", "EXPIRED", "UNVERIFIABLE"]
+
+
+@pytest.mark.parametrize("first", _HITL_PRECEDENCE_RANK)
+@pytest.mark.parametrize("second", _HITL_PRECEDENCE_RANK)
+def test_hitl_mixed_failure_precedence_is_order_independent(first, second):
+    if first == second:
+        pytest.skip("covered by the homogeneous-failure tests above")
+    approvals = [_HITL_FAILURE_BUILDERS[first](), _HITL_FAILURE_BUILDERS[second]()]
+    m = base_manifest(hitl_record={"required": True, "approvals": approvals})
+    result = verify_manifest(
+        m, base_context(enforce_hitl=True, conformance_level=2), store()
+    )
+    expected = min((first, second), key=_HITL_PRECEDENCE_RANK.index)
+    assert result.fields_verified.hitl_record.name == expected, (
+        f"[{first}, {second}] should resolve to {expected} regardless of "
+        f"array order, got {result.fields_verified.hitl_record.name}"
+    )
+    if expected == "UNVERIFIABLE":
+        assert result.result == OverallResult.UNVERIFIABLE
+        assert result.mismatch_details == []
+    else:
+        assert result.result == OverallResult.MISMATCH
+        # A concrete failure elsewhere must never be dropped just because
+        # an unrelated approval in the same array was unverifiable.
+        assert result.mismatch_details != []
+
+
+# ---------------------------------------------------------------------------
 # Fail-closed delegation chain verification (spec 3.4.1 / 5.2)
 # ---------------------------------------------------------------------------
 

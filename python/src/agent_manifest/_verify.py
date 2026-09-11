@@ -1270,6 +1270,7 @@ def verify_manifest(
                 except (InvalidSignature, KeyError, TypeError, ValueError):
                     approval_invalid = True
                     continue
+
                 # This approval independently satisfies every requirement
                 # (present, unexpired, sufficient for the risk tier, and
                 # authenticated). Spec 5.3 only requires one such approval.
@@ -1278,13 +1279,18 @@ def verify_manifest(
 
             if any_approved:
                 fields.hitl_record = HitlResult.APPROVED
-            elif approval_unverifiable:
-                fields.hitl_record = HitlResult.UNVERIFIABLE
-                result.warnings.append(
-                    "HITL approval could not be authenticated: no trusted "
-                    "approver key is available for its approver_id"
-                )
+
             elif approval_invalid:
+                # A cryptographically broken/tampered approval is positive,
+                # concrete evidence of a problem. It always outranks
+                # UNVERIFIABLE (a mere lack of key configuration on this
+                # verifier's part, which produces no mismatch entry below)
+                # so that proof of tampering is never masked by an unrelated
+                # approval this verifier simply lacks the key to check
+                # (HITL-004). This mirrors the final overall-result
+                # computation elsewhere in this function, where any
+                # concrete `mismatches` entry already takes priority over
+                # an UNVERIFIABLE state.
                 mismatches.append(MismatchDetail(
                     field="hitl_record.approval_signature",
                     expected_hash="<valid approval signature bound to this manifest>",
@@ -1306,6 +1312,18 @@ def verify_manifest(
                     actual_hash="<approval expired or unparseable>",
                 ))
                 fields.hitl_record = HitlResult.EXPIRED
+            elif approval_unverifiable:
+                # Reached only when no approval produced concrete evidence
+                # of a problem (no invalid signature, no insufficient
+                # method, no expiry) - i.e. every failing approval failed
+                # solely because this verifier has no trusted key for its
+                # approver_id. There is nothing to add to `mismatches` here;
+                # this is an indeterminate state, not a proven negative.
+                fields.hitl_record = HitlResult.UNVERIFIABLE
+                result.warnings.append(
+                    "HITL approval could not be authenticated: no trusted "
+                    "approver key is available for its approver_id"
+                )
             else:
                 # Defensive fallback: approvals was non-empty, so every entry
                 # must have set one of the flags above unless it was
