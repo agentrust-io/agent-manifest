@@ -18,7 +18,7 @@ from agent_manifest._cose import (
 )
 from agent_manifest._signing import generate_ed25519
 from agent_manifest._verify import (
-    MAX_COSE_ENVELOPE_BYTES,
+    MAX_VERIFY_BODY_BYTES,
     RevocationRecord,
     RevocationStore,
     VerificationContext,
@@ -216,7 +216,7 @@ def test_media_type_case_is_not_significant():
 
 
 def test_an_oversized_body_is_refused():
-    response = post(client(trust_store()), b"\x00" * (MAX_COSE_ENVELOPE_BYTES + 1))
+    response = post(client(trust_store()), b"\x00" * (MAX_VERIFY_BODY_BYTES + 1))
     assert response.status_code == 413
 
 
@@ -225,7 +225,7 @@ def test_a_lying_content_length_does_not_get_past_the_stream_cap():
     c = client(trust_store())
     response = c.post(
         "/verify/cose",
-        content=b"\x00" * (MAX_COSE_ENVELOPE_BYTES + 1),
+        content=b"\x00" * (MAX_VERIFY_BODY_BYTES + 1),
         headers={
             "Content-Type": MEDIA_TYPE_MANIFEST_COSE,
             # understated on purpose

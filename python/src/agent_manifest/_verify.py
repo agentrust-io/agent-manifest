@@ -13,6 +13,7 @@ The FastAPI router wires the engine to HTTP.
 """
 from __future__ import annotations
 
+import email.message
 import hashlib
 import hmac
 import uuid
@@ -20,7 +21,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Callable, Optional, Union
 
-from pydantic import BaseModel, Field, TypeAdapter
+from pydantic import BaseModel, Field, TypeAdapter, field_validator
 
 from ._audit_continuity import AuditCheckpoint, verify_continuity
 from ._cose import (
@@ -253,6 +254,40 @@ class VerifyRequest(BaseModel):
     require_transparency: bool = False
     # When True, a manifest without a delegation_chain is a verification failure
     require_delegation: bool = False
+
+    # These seven fields exist to hold key/id material for the hops,
+    # approvers, and keys actually referenced by *one* manifest - never more
+    # than a handful in practice. Without a ceiling, a caller can hand this
+    # endpoint a small request body containing a dict/set with millions of
+    # short entries and force it to be fully buffered and validated before
+    # verify_manifest ever runs. A byte cap on the raw request body
+    # (MAX_VERIFY_BODY_BYTES, enforced in create_router's verify_post) catches
+    # large bodies; this catches the same attack shape hiding behind short
+    # keys/values in a small body.
+    #
+    # verified_attestation_manifest_hashes is the same set[str] shape as
+    # verified_transparency_entry_ids / verified_transparency_receipt_hashes
+    # immediately above it and reaches VerificationContext via the identical
+    # path in verify_post below - it is included here even though the
+    # upstream issue report's field list omitted it, since leaving it out
+    # would just hand an attacker an uncapped field to use instead of the
+    # six named ones.
+    @field_validator(
+        "trusted_keys",
+        "trusted_key_issuers",
+        "delegation_public_keys",
+        "approver_public_keys",
+        "verified_transparency_entry_ids",
+        "verified_transparency_receipt_hashes",
+        "verified_attestation_manifest_hashes",
+    )
+    @classmethod
+    def _cap_collection_size(cls, v: Any) -> Any:
+        if len(v) > MAX_VERIFY_COLLECTION_ENTRIES:
+            raise ValueError(
+                f"exceeds {MAX_VERIFY_COLLECTION_ENTRIES}-entry limit"
+            )
+        return v
 
 
 # ---------------------------------------------------------------------------
@@ -1628,8 +1663,21 @@ class RevocationStore:
 # A manifest is a few kilobytes (envelope spec section 4, which cites size as
 # the reason payloads are inline rather than detached). The cap is generous
 # against that and small enough that a body is bounded before anything parses
-# it - the decoder is never handed an unbounded allocation.
-MAX_COSE_ENVELOPE_BYTES = 1 << 20  # 1 MiB
+# it - the decoder is never handed an unbounded allocation. Shared by both
+# POST /verify (JSON) and POST /verify/cose (CBOR) so the two routes carry the
+# same defense-in-depth posture; it was named MAX_COSE_ENVELOPE_BYTES when
+# only the COSE endpoint enforced it.
+MAX_VERIFY_BODY_BYTES = 1 << 20  # 1 MiB
+
+# Ceiling on entry count for each of VerifyRequest's dict/set fields
+# (trusted_keys, trusted_key_issuers, delegation_public_keys,
+# approver_public_keys, verified_transparency_entry_ids,
+# verified_transparency_receipt_hashes, verified_attestation_manifest_hashes).
+# Far above what any real deployment needs - these maps exist to hold keys
+# for the hops/approvers/keys actually referenced by one manifest - and
+# catches a small-request-with-huge-collection case that the byte cap alone
+# might miss if someone sends short key strings.
+MAX_VERIFY_COLLECTION_ENTRIES = 10_000
 
 
 def create_router(
@@ -1704,8 +1752,22 @@ def create_router(
         )
         return verify_manifest(manifest, ctx, revocation_store)
 
-    @router.post("/verify", response_model=VerificationResult)
-    async def verify_post(request: VerifyRequest) -> VerificationResult:
+    # `verify_post` takes a raw `Request` (not `VerifyRequest`) so the body can
+    # be stream-capped before Pydantic parses it - see below. That means
+    # FastAPI can no longer *infer* the request body schema from the
+    # parameter type the way it does for a normal Pydantic-model parameter,
+    # so the OpenAPI/Swagger docs would otherwise show no body schema at all
+    # for this route. `openapi_extra` restores it explicitly from the same
+    # `VerifyRequest` model actually used to validate the body, so the
+    # documented contract for callers and codegen tools is unchanged.
+    _verify_post_openapi_extra = {
+        "requestBody": {
+            "required": True,
+            "content": {"application/json": {"schema": VerifyRequest.model_json_schema()}},
+        }
+    }
+
+    async def verify_post(request: "Request") -> VerificationResult:
         """Verify a manifest with caller-supplied trusted keys.
 
         The request body carries ``trusted_keys`` (key_id -> base64url public
@@ -1716,24 +1778,121 @@ def create_router(
         ``approver_public_keys`` (approver_id -> base64url Ed25519 public key)
         for HITL approval verification.
         Verification is fail-closed - see :func:`verify_manifest`.
+
+        **Only JSON request bodies are accepted.** ``Content-Type`` is
+        checked against the same rule FastAPI itself uses to decide whether
+        to parse a Pydantic-model body as JSON: ``application/json``, a
+        ``+json`` vendor subtype (e.g. ``application/vnd.api+json``), or no
+        ``Content-Type`` header at all. Anything else - ``text/plain``,
+        ``application/xml``, a bogus or empty subtype - is rejected with
+        ``415`` before the body is even read. Taking a raw ``Request``
+        instead of a ``VerifyRequest`` parameter (see below) means FastAPI's
+        own automatic content-type gate no longer runs for this route, so it
+        is reproduced here explicitly; skipping this check would let a
+        caller submit a JSON payload under any (or no) media type, silently
+        widening what the documented ``application/json``-only contract
+        actually accepts.
+
+        **The body is bounded before it is parsed**, mirroring ``POST
+        /verify/cose``: the stream is capped at ``MAX_VERIFY_BODY_BYTES``
+        regardless of the declared ``Content-Length`` (a claim, not a
+        guarantee), so an oversized body is rejected before Pydantic ever
+        buffers or validates it. Each chunk is checked *before* it is
+        appended, not after, so the buffer itself is never intentionally
+        grown past the limit - the cap holds regardless of how large a
+        single ASGI receive chunk is. Independently, ``VerifyRequest`` caps
+        the entry count of each of its dict/set fields at
+        ``MAX_VERIFY_COLLECTION_ENTRIES``, which catches a small body that
+        hides an oversized collection behind short keys/values.
         """
-        manifest = _lookup_manifest(request.manifest_id)
+        content_type_value = request.headers.get("content-type")
+        if content_type_value is not None:
+            message = email.message.Message()
+            message["content-type"] = content_type_value
+            subtype = message.get_content_subtype()
+            is_json = message.get_content_maintype() == "application" and (
+                subtype == "json" or subtype.endswith("+json")
+            )
+            if not is_json:
+                raise HTTPException(
+                    status_code=415,
+                    detail=ErrorResponse(
+                        error_code="UNSUPPORTED_MEDIA_TYPE",
+                        error_message=(
+                            "POST /verify accepts application/json "
+                            "(or a +json subtype) only."
+                        ),
+                    ).model_dump(),
+                )
+         # Cap the stream too: Content-Length is a claim, not a guarantee.
+        # Checked before extend(), not after, so the buffer itself is never
+        # intentionally grown past the limit regardless of how large a
+        # single ASGI receive chunk is.
+        body = bytearray()
+        async for chunk in request.stream():
+            if len(body) + len(chunk) > MAX_VERIFY_BODY_BYTES:
+                raise HTTPException(
+                    status_code=413,
+                    detail=ErrorResponse(
+                        error_code="VERIFY_REQUEST_TOO_LARGE",
+                        error_message=(
+                            f"Request body may not exceed "
+                            f"{MAX_VERIFY_BODY_BYTES} bytes."
+                        ),
+                    ).model_dump(),
+                )
+            body.extend(chunk)
+
+        from pydantic import ValidationError
+
+        try:
+            parsed = VerifyRequest.model_validate_json(bytes(body))
+        except ValidationError as exc:
+            # include_context=False / include_input=False: pydantic's `ctx`
+            # can carry a raw exception object (not JSON-serializable), and
+            # `input` would echo the caller's payload - including, in the
+            # oversized-collection case this validator exists to catch, a
+            # large one - back into the error response. The "body" prefix on
+            # `loc` matches what FastAPI's own request-body validation would
+            # have produced here before this endpoint took the raw Request,
+            # so error-shape parity for existing callers is preserved.
+            errors = exc.errors(
+                include_url=False, include_context=False, include_input=False
+            )
+            for error in errors:
+                error["loc"] = ("body", *error["loc"])
+            raise HTTPException(status_code=422, detail=errors)
+        manifest = _lookup_manifest(parsed.manifest_id)
         ctx = VerificationContext(
-            enforce_hitl=request.enforce_hitl,
-            enforce_attestation=request.enforce_attestation,
-            trusted_keys=request.trusted_keys,
-            trusted_key_issuers=request.trusted_key_issuers,
-            delegation_public_keys=request.delegation_public_keys,
-            approver_public_keys=request.approver_public_keys,
-            verified_transparency_entry_ids=request.verified_transparency_entry_ids,
-            verified_transparency_receipt_hashes=request.verified_transparency_receipt_hashes,
-            transparency_evidence_manifest_id=request.transparency_evidence_manifest_id,
-            verified_attestation_manifest_hashes=request.verified_attestation_manifest_hashes,
-            attestation_evidence_manifest_id=request.attestation_evidence_manifest_id,
-            require_transparency=request.require_transparency,
-            require_delegation=request.require_delegation,
+            enforce_hitl=parsed.enforce_hitl,
+            enforce_attestation=parsed.enforce_attestation,
+            trusted_keys=parsed.trusted_keys,
+            trusted_key_issuers=parsed.trusted_key_issuers,
+            delegation_public_keys=parsed.delegation_public_keys,
+            approver_public_keys=parsed.approver_public_keys,
+            verified_transparency_entry_ids=parsed.verified_transparency_entry_ids,
+            verified_transparency_receipt_hashes=parsed.verified_transparency_receipt_hashes,
+            transparency_evidence_manifest_id=parsed.transparency_evidence_manifest_id,
+            verified_attestation_manifest_hashes=parsed.verified_attestation_manifest_hashes,
+            attestation_evidence_manifest_id=parsed.attestation_evidence_manifest_id,
+            require_transparency=parsed.require_transparency,
+            require_delegation=parsed.require_delegation,
         )
         return verify_manifest(manifest, ctx, revocation_store)
+
+    # Same reason as verify_cose below: `from __future__ import annotations`
+    # makes this a string annotation, and `Request` is imported lazily inside
+    # this function rather than at module scope, so it is not resolvable
+    # against the module globals FastAPI uses to evaluate annotations. Bind
+    # the real class before registering the route.
+    verify_post.__annotations__["request"] = Request
+    router.add_api_route(
+        "/verify",
+        verify_post,
+        methods=["POST"],
+        response_model=VerificationResult,
+        openapi_extra=_verify_post_openapi_extra,
+    )
 
     async def verify_cose(
         request: "Request",
@@ -1793,14 +1952,14 @@ def create_router(
         declared_length = request.headers.get("content-length")
         if declared_length is not None:
             try:
-                if int(declared_length) > MAX_COSE_ENVELOPE_BYTES:
+                if int(declared_length) > MAX_VERIFY_BODY_BYTES:
                     raise HTTPException(
                         status_code=413,
                         detail=ErrorResponse(
                             error_code="ENVELOPE_TOO_LARGE",
                             error_message=(
                                 f"A COSE manifest may not exceed "
-                                f"{MAX_COSE_ENVELOPE_BYTES} bytes."
+                                f"{MAX_VERIFY_BODY_BYTES} bytes."
                             ),
                         ).model_dump(),
                     )
@@ -1814,20 +1973,23 @@ def create_router(
                 )
 
         # Cap the stream too: Content-Length is a claim, not a guarantee.
+        # Checked before extend(), not after, so the buffer itself is never
+        # intentionally grown past the limit regardless of how large a
+        # single ASGI receive chunk is.
         body = bytearray()
         async for chunk in request.stream():
-            body.extend(chunk)
-            if len(body) > MAX_COSE_ENVELOPE_BYTES:
+            if len(body) + len(chunk) > MAX_VERIFY_BODY_BYTES:
                 raise HTTPException(
                     status_code=413,
                     detail=ErrorResponse(
                         error_code="ENVELOPE_TOO_LARGE",
                         error_message=(
                             f"A COSE manifest may not exceed "
-                            f"{MAX_COSE_ENVELOPE_BYTES} bytes."
+                            f"{MAX_VERIFY_BODY_BYTES} bytes."
                         ),
                     ).model_dump(),
                 )
+            body.extend(chunk)
 
         ctx = (cose_context or VerificationContext()).model_copy(
             update={
