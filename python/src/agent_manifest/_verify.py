@@ -1251,27 +1251,36 @@ def verify_manifest(
             # Presence, lifetime, and method checks alone do not prove that a
             # human approved this manifest: the signature pre-image binds the
             # manifest ID, approver, timestamp, and exact scope.
+            from datetime import timedelta
+
             from ._delegation import verify_hitl_approval
             from ._signing import _b64url_decode
 
             now = datetime.now(timezone.utc)
-            all_ok = True
+            # Spec 5.3: a VALID result requires *at least one* approval that is
+            # present, valid, unexpired, and sufficient for the declared risk
+            # tier - not that *every* approval in the array meets that bar.
+            # Each approval is therefore evaluated independently and the loop
+            # only stops early once an approval that clears every check is
+            # found. Approvals that fail must not short-circuit the
+            # evaluation of the approvals that follow them (HITL-004).
+            any_approved = False
             approval_insufficient = False
             approval_invalid = False
             approval_unverifiable = False
+            any_expired = False
             for approval in approvals:
                 approved_at = approval.get("approved_at", "")
                 duration = approval.get("approved_scope", {}).get("approval_duration_seconds", 0)
                 try:
                     ap_time = datetime.fromisoformat(approved_at.replace("Z", "+00:00"))
-                    from datetime import timedelta
                     if now > ap_time + timedelta(seconds=duration):
-                        all_ok = False
-                        break
+                        any_expired = True
+                        continue
                 except (ValueError, AttributeError):
                     # Unparseable timestamp - treat as expired to fail safe (HITL-001)
-                    all_ok = False
-                    break
+                    any_expired = True
+                    continue
                 if context.conformance_level >= 2:
                     scope = approval.get("approved_scope") or {}
                     risk_tier = scope.get("risk_tier")
@@ -1280,13 +1289,13 @@ def verify_manifest(
                         risk_tier in {"high", "critical"} and method != "hardware-key"
                     ):
                         approval_insufficient = True
-                        break
+                        continue
 
                 approver_id = approval.get("approver_id")
                 public_key_b64 = context.approver_public_keys.get(approver_id)
                 if public_key_b64 is None:
                     approval_unverifiable = True
-                    break
+                    continue
                 try:
                     verify_hitl_approval(
                         approval,
@@ -1295,15 +1304,28 @@ def verify_manifest(
                     )
                 except (InvalidSignature, KeyError, TypeError, ValueError):
                     approval_invalid = True
-                    break
+                    continue
 
-            if approval_unverifiable:
-                fields.hitl_record = HitlResult.UNVERIFIABLE
-                result.warnings.append(
-                    "HITL approval could not be authenticated: no trusted "
-                    "approver key is available for its approver_id"
-                )
+                # This approval independently satisfies every requirement
+                # (present, unexpired, sufficient for the risk tier, and
+                # authenticated). Spec 5.3 only requires one such approval.
+                any_approved = True
+                break
+
+            if any_approved:
+                fields.hitl_record = HitlResult.APPROVED
+
             elif approval_invalid:
+                # A cryptographically broken/tampered approval is positive,
+                # concrete evidence of a problem. It always outranks
+                # UNVERIFIABLE (a mere lack of key configuration on this
+                # verifier's part, which produces no mismatch entry below)
+                # so that proof of tampering is never masked by an unrelated
+                # approval this verifier simply lacks the key to check
+                # (HITL-004). This mirrors the final overall-result
+                # computation elsewhere in this function, where any
+                # concrete `mismatches` entry already takes priority over
+                # an UNVERIFIABLE state.
                 mismatches.append(MismatchDetail(
                     field="hitl_record.approval_signature",
                     expected_hash="<valid approval signature bound to this manifest>",
@@ -1317,7 +1339,7 @@ def verify_manifest(
                     actual_hash="<approval method insufficient>",
                 ))
                 fields.hitl_record = HitlResult.APPROVAL_INSUFFICIENT
-            elif not all_ok:
+            elif any_expired:
                 # Expired approvals always add to mismatches regardless of enforce_hitl (HITL-002)
                 mismatches.append(MismatchDetail(
                     field="hitl_record",
@@ -1325,8 +1347,28 @@ def verify_manifest(
                     actual_hash="<approval expired or unparseable>",
                 ))
                 fields.hitl_record = HitlResult.EXPIRED
+            elif approval_unverifiable:
+                # Reached only when no approval produced concrete evidence
+                # of a problem (no invalid signature, no insufficient
+                # method, no expiry) - i.e. every failing approval failed
+                # solely because this verifier has no trusted key for its
+                # approver_id. There is nothing to add to `mismatches` here;
+                # this is an indeterminate state, not a proven negative.
+                fields.hitl_record = HitlResult.UNVERIFIABLE
+                result.warnings.append(
+                    "HITL approval could not be authenticated: no trusted "
+                    "approver key is available for its approver_id"
+                )
             else:
-                fields.hitl_record = HitlResult.APPROVED
+                # Defensive fallback: approvals was non-empty, so every entry
+                # must have set one of the flags above unless it was
+                # approved. Fail closed rather than silently pass.
+                mismatches.append(MismatchDetail(
+                    field="hitl_record",
+                    expected_hash="<valid unexpired approval>",
+                    actual_hash="<no approval satisfied requirements>",
+                ))
+                fields.hitl_record = HitlResult.EXPIRED
     elif context.enforce_hitl:
         # enforce_hitl with no hitl_record at all - fail closed. Omitting the
         # record entirely MUST NOT be weaker than declaring it with no approvals.

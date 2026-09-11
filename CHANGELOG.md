@@ -17,6 +17,38 @@
 
 ### Fixed
 
+- **[SDK]** `verify_manifest()` returned `MISMATCH`/`EXPIRED`/`INVALID`/
+  `UNVERIFIABLE` for `hitl_record` when *any* approval in `hitl_record.approvals`
+  failed, even if a later approval in the same array was present, valid,
+  unexpired, and sufficient for the declared risk tier. Spec 5.3 only
+  requires *at least one* approval to satisfy every condition; it does not
+  require every approval in the array to. The verifier's loop broke out on
+  the first expired, malformed, unverifiable, or insufficient approval it
+  encountered and never evaluated the approvals after it, so an operator
+  who appended a fresh re-approval ahead of (or alongside) an old, expired,
+  or otherwise stale one had the whole record incorrectly rejected. The
+  loop now evaluates every approval and only short-circuits once one is
+  found that clears every check. When none do, the prior code never had a
+  real precedence to preserve: it broke the whole loop on the first
+  approval that failed, so the reported reason was whichever check that
+  one approval happened to fail first, not a ranking of failure types (an
+  `[EXPIRED, INVALID]` array reported `EXPIRED`; `[INVALID, EXPIRED]`
+  reported `INVALID` - purely positional, order-dependent, and never a
+  documented contract). Reviewing this against multiple approvals for the
+  first time requires an actual decision here, since more than one failure
+  reason can now be true at once. This fix establishes and tests an
+  explicit, order-independent precedence: `INVALID` > `APPROVAL_INSUFFICIENT`
+  > `EXPIRED` > `UNVERIFIABLE`. `INVALID`, `APPROVAL_INSUFFICIENT`, and
+  `EXPIRED` are each positive, concrete evidence of a problem and always add
+  a mismatch, so their relative order never changes the overall result;
+  `INVALID` is ranked highest among them because a broken or tampered
+  signature is the strongest evidence of active tampering. `UNVERIFIABLE`
+  (this verifier has no trusted key to check that approval against) adds no
+  mismatch, so it is ranked last and only reported when it is the *only*
+  problem in the array - otherwise it would silently drop a concrete
+  finding from `mismatch_details` and downgrade the overall result from
+  `MISMATCH` to `UNVERIFIABLE` (HITL-004).
+
 - **[SECURITY][SDK]** `attach_receipt()`, `attach_attestation()`, and
   `attach_approvals()` could crash with `cbor2.CBOREncodeError` instead of
   the documented `CoseError` on a malformed COSE envelope. `_decode_tagged()`

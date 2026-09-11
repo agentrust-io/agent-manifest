@@ -1024,6 +1024,22 @@ def test_signed_hitl_requirement_cannot_be_satisfied_by_editing_the_header():
     assert result.result == OverallResult.MISMATCH
 
 
+def test_engine_approves_when_a_later_approval_in_the_unprotected_header_is_valid():
+    """A bad approval earlier in the array must not block a good one later
+    in it - same requirement as the v0.1 path (spec 5.3, HITL-004), now
+    exercised through the COSE unprotected-header attachment path."""
+    manifest = base_manifest(hitl_record={"required": True})
+    dummy_signature_approval = approval(approval_signature="c2ln")
+    good_approval = approval()
+    signed = attach_approvals(
+        sign_cose_sign1(manifest, KP),
+        [dummy_signature_approval, good_approval],
+    )
+    result = verify_manifest(signed, base_context(enforce_hitl=True), store())
+    assert result.fields_verified.hitl_record == HitlResult.APPROVED
+    assert result.result == OverallResult.VALID
+
+
 # ---------------------------------------------------------------------------
 # Malformed input
 #
