@@ -1222,7 +1222,6 @@ def verify_manifest(
             from ._signing import _b64url_decode
 
             now = datetime.now(timezone.utc)
-            all_ok = True
             # Spec 5.3: a VALID result requires *at least one* approval that is
             # present, valid, unexpired, and sufficient for the declared risk
             # tier - not that *every* approval in the array meets that bar.
