@@ -17,6 +17,22 @@
 
 ### Fixed
 
+- **[SDK]** `verify_manifest()` returned `MISMATCH`/`EXPIRED`/`INVALID`/
+  `UNVERIFIABLE` for `hitl_record` when *any* approval in `hitl_record.approvals`
+  failed, even if a later approval in the same array was present, valid,
+  unexpired, and sufficient for the declared risk tier. Spec 5.3 only
+  requires *at least one* approval to satisfy every condition; it does not
+  require every approval in the array to. The verifier's loop broke out on
+  the first expired, malformed, unverifiable, or insufficient approval it
+  encountered and never evaluated the approvals after it, so an operator
+  who appended a fresh re-approval ahead of (or alongside) an old, expired,
+  or otherwise stale one had the whole record incorrectly rejected. The
+  loop now evaluates every approval and only short-circuits once one is
+  found that clears every check; if none do, the previous priority order
+  for reporting the failure reason (`UNVERIFIABLE` > `INVALID` >
+  `APPROVAL_INSUFFICIENT` > `EXPIRED`) is preserved, now computed across all
+  approvals rather than just the first one evaluated (HITL-004).
+
 - **[SECURITY][SDK]** `attach_receipt()`, `attach_attestation()`, and
   `attach_approvals()` could crash with `cbor2.CBOREncodeError` instead of
   the documented `CoseError` on a malformed COSE envelope. `_decode_tagged()`

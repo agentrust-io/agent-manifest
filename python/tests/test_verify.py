@@ -886,6 +886,124 @@ def test_level_2_accepts_hardware_key_for_high_risk_approval():
 
 
 # ---------------------------------------------------------------------------
+# HITL: at least one approval must satisfy every requirement, not every
+# approval (spec 5.3: "at least one HITL approval is present, valid, not
+# expired, and meets the approval_method requirement"). A verifier MUST NOT
+# reject the whole record because *some other* approval in the array is
+# expired, malformed, unverifiable, or insufficient. See HITL-004.
+# ---------------------------------------------------------------------------
+
+
+def test_hitl_valid_approval_after_expired_approval_is_approved():
+    expired_time = (NOW - timedelta(hours=5)).isoformat().replace("+00:00", "Z")
+    valid_time = (NOW - timedelta(minutes=30)).isoformat().replace("+00:00", "Z")
+    m = base_manifest(hitl_record={
+        "required": True,
+        "approvals": [
+            hitl_approval(expired_time, {"approval_duration_seconds": 3600}),
+            hitl_approval(valid_time, {"approval_duration_seconds": 7200}),
+        ],
+    })
+    result = verify_manifest(m, base_context(enforce_hitl=True), store())
+    assert result.fields_verified.hitl_record == HitlResult.APPROVED
+    assert result.result == OverallResult.VALID
+    assert result.mismatch_details == []
+
+
+def test_hitl_valid_approval_after_invalid_signature_approval_is_approved():
+    valid_time = (NOW - timedelta(minutes=30)).isoformat().replace("+00:00", "Z")
+    valid_approval = hitl_approval(valid_time, {"approval_duration_seconds": 7200})
+    tampered_approval = dict(valid_approval)
+    tampered_approval["approval_signature"] = "not-a-real-signature"
+    m = base_manifest(hitl_record={
+        "required": True,
+        "approvals": [tampered_approval, valid_approval],
+    })
+    result = verify_manifest(m, base_context(enforce_hitl=True), store())
+    assert result.fields_verified.hitl_record == HitlResult.APPROVED
+    assert result.result == OverallResult.VALID
+
+
+def test_hitl_valid_approval_after_unverifiable_approval_is_approved():
+    valid_time = (NOW - timedelta(minutes=30)).isoformat().replace("+00:00", "Z")
+    valid_approval = hitl_approval(valid_time, {"approval_duration_seconds": 7200})
+    unverifiable_approval = dict(valid_approval)
+    unverifiable_approval["approver_id"] = "mailto:unknown@example.com"
+    m = base_manifest(hitl_record={
+        "required": True,
+        "approvals": [unverifiable_approval, valid_approval],
+    })
+    result = verify_manifest(m, base_context(enforce_hitl=True), store())
+    assert result.fields_verified.hitl_record == HitlResult.APPROVED
+    assert result.result == OverallResult.VALID
+
+
+def test_hitl_valid_approval_after_insufficient_approval_is_approved():
+    valid_time = (NOW - timedelta(minutes=30)).isoformat().replace("+00:00", "Z")
+    software_key_approval = {
+        "approver_id": APPROVER_ID,
+        "approved_at": valid_time,
+        "approved_scope": {
+            "approval_duration_seconds": 7200,
+            "risk_tier": "high",
+        },
+        "approval_method": "software-key",
+    }
+    hardware_key_approval = hitl_approval(
+        valid_time,
+        {"approval_duration_seconds": 7200, "risk_tier": "high"},
+        approval_method="hardware-key",
+    )
+    m = base_manifest(hitl_record={
+        "required": True,
+        "approvals": [software_key_approval, hardware_key_approval],
+    })
+    attach_transparency_entry(m)
+    result = verify_manifest(
+        m,
+        base_context(
+            enforce_hitl=True,
+            conformance_level=2,
+            verified_transparency_entry_ids={TRANSPARENCY_ENTRY_ID},
+            transparency_evidence_manifest_id=m["manifest_id"],
+        ),
+        store(),
+    )
+    assert result.fields_verified.hitl_record == HitlResult.APPROVED
+    assert result.result == OverallResult.VALID
+
+
+def test_hitl_all_approvals_expired_is_still_expired():
+    expired_time = (NOW - timedelta(hours=5)).isoformat().replace("+00:00", "Z")
+    m = base_manifest(hitl_record={
+        "required": True,
+        "approvals": [
+            hitl_approval(expired_time, {"approval_duration_seconds": 3600}),
+            hitl_approval(expired_time, {"approval_duration_seconds": 60}),
+        ],
+    })
+    result = verify_manifest(m, base_context(enforce_hitl=True), store())
+    assert result.fields_verified.hitl_record == HitlResult.EXPIRED
+    assert result.result == OverallResult.MISMATCH
+
+
+def test_hitl_all_approvals_invalid_is_still_invalid():
+    valid_time = (NOW - timedelta(minutes=30)).isoformat().replace("+00:00", "Z")
+    valid_approval = hitl_approval(valid_time, {"approval_duration_seconds": 7200})
+    tampered_1 = dict(valid_approval)
+    tampered_1["approval_signature"] = "not-a-real-signature-1"
+    tampered_2 = dict(valid_approval)
+    tampered_2["approval_signature"] = "not-a-real-signature-2"
+    m = base_manifest(hitl_record={
+        "required": True,
+        "approvals": [tampered_1, tampered_2],
+    })
+    result = verify_manifest(m, base_context(enforce_hitl=True), store())
+    assert result.fields_verified.hitl_record == HitlResult.INVALID
+    assert result.result == OverallResult.MISMATCH
+
+
+# ---------------------------------------------------------------------------
 # Fail-closed delegation chain verification (spec 3.4.1 / 5.2)
 # ---------------------------------------------------------------------------
 
