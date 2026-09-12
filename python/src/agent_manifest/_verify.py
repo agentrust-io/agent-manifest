@@ -239,7 +239,7 @@ class VerifyRequest(BaseModel):
     # key_id (sha256 hex of pub key bytes) -> base64url-encoded public key bytes
     trusted_keys: dict[str, str] = Field(default_factory=dict)
     # key_id -> issuer SPIFFE URIs authorized to use that signing key
-    trusted_key_issuers: dict[str, list[str]] = Field(default_factory=dict)
+    trusted_key_issuers: Optional[dict[str, list[str]]] = Field(default=None)
     # principal_id -> base64url-encoded public key bytes (for delegation chain)
     delegation_public_keys: dict[str, str] = Field(default_factory=dict)
     # approver_id -> base64url-encoded Ed25519 public key bytes (for HITL)
@@ -283,6 +283,8 @@ class VerifyRequest(BaseModel):
     )
     @classmethod
     def _cap_collection_size(cls, v: Any) -> Any:
+        if v is None:
+            return v
         if len(v) > MAX_VERIFY_COLLECTION_ENTRIES:
             raise ValueError(
                 f"exceeds {MAX_VERIFY_COLLECTION_ENTRIES}-entry limit"
@@ -355,7 +357,7 @@ class VerificationContext(BaseModel):
     # key_id (sha256 hex of pub key bytes) -> base64url-encoded public key bytes
     trusted_keys: dict[str, str] = Field(default_factory=dict)
     # key_id -> issuer SPIFFE URIs authorized to use that signing key
-    trusted_key_issuers: dict[str, list[str]] = Field(default_factory=dict)
+    trusted_key_issuers: Optional[dict[str, list[str]]] = Field(default=None)
     # principal_id -> base64url-encoded public key bytes (for delegation chain)
     delegation_public_keys: dict[str, str] = Field(default_factory=dict)
     # approver_id -> base64url-encoded Ed25519 public key bytes (for HITL)
@@ -447,10 +449,10 @@ def _split_hybrid_public_key(
 def _signature_key_issuer_mismatch(
     manifest: dict[str, Any],
     key_id: str,
-    trusted_key_issuers: dict[str, list[str]],
+    trusted_key_issuers: Optional[dict[str, list[str]]],
 ) -> Optional[MismatchDetail]:
     """Return a mismatch when a trusted key is not authorized for the issuer."""
-    if not trusted_key_issuers:
+    if trusted_key_issuers is None:
         return None
 
     issuer = manifest.get("issuer")

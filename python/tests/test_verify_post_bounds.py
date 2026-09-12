@@ -305,6 +305,14 @@ FIELD_KINDS = {
 }
 
 
+def test_trusted_key_issuers_none_is_accepted():
+    req = VerifyRequest(
+        manifest_id=MANIFEST_ID,
+        trusted_key_issuers=None,
+    )
+    assert req.trusted_key_issuers is None
+
+
 @pytest.mark.parametrize("field_name,kind", FIELD_KINDS.items())
 def test_each_unbounded_field_rejects_over_the_entry_ceiling(field_name, kind):
     """A small request body can still hide an oversized collection behind
