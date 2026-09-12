@@ -283,6 +283,8 @@ class VerifyRequest(BaseModel):
     )
     @classmethod
     def _cap_collection_size(cls, v: Any) -> Any:
+        if v is None:
+            return v
         if len(v) > MAX_VERIFY_COLLECTION_ENTRIES:
             raise ValueError(
                 f"exceeds {MAX_VERIFY_COLLECTION_ENTRIES}-entry limit"
