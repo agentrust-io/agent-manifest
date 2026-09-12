@@ -979,6 +979,21 @@ def build() -> list[dict[str, Any]]:
         ),
         {"result": "MISMATCH", "signature_verified": False},
     ))
+    # 024 - issuer authorization explicitly configured with no authorized keys.
+    # None means issuer authorization is not configured; an empty mapping means
+    # it is configured but authorizes no signing key. The latter must therefore
+    # fail closed rather than taking the "not configured" path.
+    vectors.append(_vector(
+        "AM-VEC-024",
+        "An explicitly empty issuer authorization mapping rejects the signing key.",
+        ["5.3"],
+        base_manifest(),
+        base_context(trusted_key_issuers={}),
+        {
+            "result": "MISMATCH",
+            "signature_verified": False,
+        },
+    ))
 
     # --- version 0.2, COSE envelope (ADR-0011, issue #243) -----------------
     vectors.append(cose_encoding_vector())
