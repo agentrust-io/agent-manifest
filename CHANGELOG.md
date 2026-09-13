@@ -745,6 +745,10 @@ Makes agent-manifest the canonical hardware-verification library for the org: SE
 
 ### Fixed
 
+- **[SPEC]** Align v0.2 transparency log semantics with the governing COSE envelope specification (issue #414).
+
+The v0.2 manifest specification now removes the top-level `signature` and `transparency_log_entry` fields from the manifest shape. Transparency receipts follow the COSE envelope model defined by ADR-0011 and are carried through the `receipts` header. The v0.1 signing and transparency semantics remain unchanged.
+
 **\[SDK\]** `PrincipalType` set reconciled (no `service`).
 
 ### Added
