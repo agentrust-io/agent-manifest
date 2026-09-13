@@ -17,6 +17,14 @@
 
 ### Fixed
 
+- **[SDK]** `verify_manifest()` now recomputes a tool catalog's Merkle root
+  from its supplied `tools` before accepting the declared `catalog_hash`.
+  A valid signature and a matching runtime hash no longer hide inconsistent
+  catalog contents (spec 3.2.3, issue #416). The runtime comparison remains
+  independent, and legacy bindings that omit `tools` retain their existing
+  hash-comparison behavior. Observed by solloek369-arch on #340 and filed as
+  #416 by Imran Siddique.
+
 - **[SDK]** `verify_manifest()` returned `MISMATCH`/`EXPIRED`/`INVALID`/
   `UNVERIFIABLE` for `hitl_record` when *any* approval in `hitl_record.approvals`
   failed, even if a later approval in the same array was present, valid,

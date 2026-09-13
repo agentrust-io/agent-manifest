@@ -8,7 +8,9 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from agent_manifest._cose import sign_cose_sign1
 from agent_manifest._delegation import HitlApprovalSigner
+from agent_manifest._merkle import build_catalog_tree
 from agent_manifest._signing import Ed25519Signer, generate_ed25519
 from agent_manifest._verify import (
     DelegationResult,
@@ -21,6 +23,7 @@ from agent_manifest._verify import (
     VerificationContext,
     verify_manifest,
 )
+from agent_manifest.models import ToolEntry
 
 NOW = datetime.now(timezone.utc)
 TS_FUTURE = (NOW + timedelta(days=90)).isoformat().replace("+00:00", "Z")
@@ -221,6 +224,268 @@ def test_mismatch_tool_catalog():
     m["artifacts"]["tool_manifest"] = {"catalog_hash": SHA_A}
     r = verify_manifest(sign(m), ctx(tool_catalog_hash=SHA_B), store())
     assert r.fields_verified.tool_manifest == FieldResult.MISMATCH
+
+
+# ---------------------------------------------------------------------------
+# Tool catalog consistency (AM-VERIFY-20, spec 3.2.3 - issue #416)
+# ---------------------------------------------------------------------------
+
+def tool_catalog(tools=None, algorithm="sha256"):
+    if tools is None:
+        tools = [
+            {
+                "tool_id": tool_id,
+                "tool_name": tool_id.rsplit(".", 1)[-1],
+                "endpoint_id": "spiffe://trust.example/mcp/server",
+                "schema_hash": SHA_A,
+                "description_hash": SHA_B,
+                "version": "1.0.0",
+            }
+            for tool_id in ("com.example.read", "com.example.send")
+        ]
+    return {
+        "catalog_hash": build_catalog_tree(
+            [ToolEntry.model_validate(tool) for tool in tools], algorithm=algorithm,
+        ),
+        "tools": tools,
+        "allow_dynamic_registration": False,
+        "rug_pull_policy": "deny-and-alert",
+        "bound_at": NOW.isoformat(),
+    }
+
+
+def sign_catalog_manifest(m, version):
+    if version == "0.2":
+        m["version"] = version
+        m["issuer"] = ISSUER_A
+        return sign_cose_sign1(m, KP)
+    return sign(m)
+
+
+@pytest.mark.parametrize("version", ["0.1", "0.2"])
+@pytest.mark.parametrize("algorithm", ["sha256", "shake256"])
+@pytest.mark.parametrize("empty", [False, True], ids=["two-tools", "empty"])
+def test_tool_catalog_rejects_root_unrelated_to_tools(version, algorithm, empty):
+    """AM-VERIFY-20 / spec 3.2.3: a valid signature cannot bless a false root."""
+    m = manifest()
+    catalog = tool_catalog(tools=[] if empty else None, algorithm=algorithm)
+    computed_root = catalog["catalog_hash"]
+    catalog["catalog_hash"] = f"{algorithm}:" + "f" * 64
+    m["artifacts"]["tool_manifest"] = catalog
+
+    r = verify_manifest(
+        sign_catalog_manifest(m, version),
+        ctx(tool_catalog_hash=catalog["catalog_hash"]), store(),
+    )
+
+    assert r.signature_verified
+    assert r.result == OverallResult.MISMATCH
+    assert r.fields_verified.tool_manifest == FieldResult.MISMATCH
+    assert len(r.mismatch_details) == 1
+    detail = r.mismatch_details[0]
+    assert detail.field == "tool_manifest.catalog_hash"
+    assert detail.expected_hash == catalog["catalog_hash"]
+    assert detail.actual_hash == computed_root
+
+
+@pytest.mark.parametrize("version", ["0.1", "0.2"])
+@pytest.mark.parametrize("algorithm", ["sha256", "shake256"])
+@pytest.mark.parametrize("empty", [False, True], ids=["two-tools", "empty"])
+def test_tool_catalog_valid_root_and_context_match(version, algorithm, empty):
+    """AM-VERIFY-07 / spec 3.2.3: honest catalogs, including empty ones, match."""
+    m = manifest()
+    catalog = tool_catalog(tools=[] if empty else None, algorithm=algorithm)
+    m["artifacts"]["tool_manifest"] = catalog
+
+    r = verify_manifest(
+        sign_catalog_manifest(m, version),
+        ctx(tool_catalog_hash=catalog["catalog_hash"]), store(),
+    )
+
+    assert r.signature_verified
+    assert r.result == OverallResult.VALID
+    assert r.fields_verified.tool_manifest == FieldResult.MATCH
+    assert r.mismatch_details == []
+
+
+def test_tool_catalog_correct_root_still_checks_context():
+    """AM-VERIFY-20: internal consistency does not replace runtime comparison."""
+    m = manifest()
+    catalog = tool_catalog()
+    m["artifacts"]["tool_manifest"] = catalog
+
+    r = verify_manifest(sign(m), ctx(tool_catalog_hash=SHA_C), store())
+
+    assert r.signature_verified
+    assert r.result == OverallResult.MISMATCH
+    assert r.fields_verified.tool_manifest == FieldResult.MISMATCH
+    assert [(d.field, d.expected_hash, d.actual_hash) for d in r.mismatch_details] == [
+        ("tool_manifest", catalog["catalog_hash"], SHA_C),
+    ]
+
+
+@pytest.mark.parametrize("algorithm", ["sha256", "shake256"])
+@pytest.mark.parametrize("field,value", [
+    ("tool_id", "com.example.changed"),
+    ("schema_hash", SHA_C),
+    ("description_hash", SHA_C),
+])
+def test_tool_catalog_detects_changed_leaf_before_signing(algorithm, field, value):
+    """AM-VERIFY-20 / spec 3.2.3: every committed leaf component is checked."""
+    m = manifest()
+    catalog = tool_catalog(algorithm=algorithm)
+    approved_root = catalog["catalog_hash"]
+    catalog["tools"][0][field] = value
+    m["artifacts"]["tool_manifest"] = catalog
+
+    r = verify_manifest(sign(m), ctx(tool_catalog_hash=approved_root), store())
+
+    assert r.signature_verified
+    assert r.result == OverallResult.MISMATCH
+    assert r.fields_verified.tool_manifest == FieldResult.MISMATCH
+    assert [d.field for d in r.mismatch_details] == ["tool_manifest.catalog_hash"]
+    assert r.mismatch_details[0].expected_hash == approved_root
+    assert r.mismatch_details[0].actual_hash == tool_catalog(
+        catalog["tools"], algorithm=algorithm,
+    )["catalog_hash"]
+
+
+def test_tool_catalog_reordered_tools_match():
+    """AM-VERIFY-07 / spec 3.2.3: tools are sorted by ID, not input order."""
+    m = manifest()
+    catalog = tool_catalog()
+    catalog["tools"].reverse()
+    m["artifacts"]["tool_manifest"] = catalog
+
+    r = verify_manifest(sign(m), ctx(tool_catalog_hash=catalog["catalog_hash"]), store())
+
+    assert r.result == OverallResult.VALID
+    assert r.fields_verified.tool_manifest == FieldResult.MATCH
+    assert r.mismatch_details == []
+
+
+@pytest.mark.parametrize("wrong_root", [False, True])
+@pytest.mark.parametrize("strict", [False, True])
+def test_tool_catalog_without_runtime_hash(wrong_root, strict):
+    """AM-VERIFY-08 / AM-VERIFY-20: absent runtime evidence cannot hide drift."""
+    m = manifest()
+    catalog = tool_catalog()
+    if wrong_root:
+        catalog["catalog_hash"] = SHA_C
+    m["artifacts"]["tool_manifest"] = catalog
+
+    r = verify_manifest(sign(m), ctx(strict_artifact_verification=strict), store())
+
+    assert r.signature_verified
+    if wrong_root:
+        assert r.result == OverallResult.MISMATCH
+        assert r.fields_verified.tool_manifest == FieldResult.MISMATCH
+        assert [d.field for d in r.mismatch_details] == ["tool_manifest.catalog_hash"]
+    else:
+        assert r.result == (OverallResult.INCOMPLETE if strict else OverallResult.VALID)
+        assert r.fields_verified.tool_manifest == FieldResult.NOT_BOUND
+        assert r.mismatch_details == []
+
+
+def test_tool_catalog_legacy_hash_without_tools_remains_compatible():
+    """AM-VERIFY-07: legacy nested omissions retain hash comparison behavior."""
+    m = manifest()
+    m["artifacts"]["tool_manifest"] = {"catalog_hash": SHA_A}
+
+    r = verify_manifest(sign(m), ctx(tool_catalog_hash=SHA_A), store())
+
+    assert r.result == OverallResult.VALID
+    assert r.fields_verified.tool_manifest == FieldResult.MATCH
+    assert r.mismatch_details == []
+
+
+def test_tool_catalog_without_declared_root_is_not_bound():
+    """AM-VERIFY-08: a legacy binding without its root remains NOT_BOUND."""
+    m = manifest()
+    catalog = tool_catalog()
+    runtime_root = catalog.pop("catalog_hash")
+    m["artifacts"]["tool_manifest"] = catalog
+
+    r = verify_manifest(sign(m), ctx(tool_catalog_hash=runtime_root), store())
+
+    assert r.result == OverallResult.VALID
+    assert r.fields_verified.tool_manifest == FieldResult.NOT_BOUND
+    assert r.mismatch_details == []
+
+
+@pytest.mark.parametrize("field", ["tool_name", "endpoint_id", "version"])
+def test_tool_catalog_legacy_missing_nonhashed_metadata(field):
+    """AM-VERIFY-07 / spec 3.2.3: only the three committed fields enter a leaf."""
+    m = manifest()
+    catalog = tool_catalog()
+    del catalog["tools"][0][field]
+    m["artifacts"]["tool_manifest"] = catalog
+
+    r = verify_manifest(sign(m), ctx(tool_catalog_hash=catalog["catalog_hash"]), store())
+
+    assert r.signature_verified
+    assert r.result == OverallResult.VALID
+    assert r.fields_verified.tool_manifest == FieldResult.MATCH
+    assert r.mismatch_details == []
+
+
+@pytest.mark.parametrize("field", ["tool_id", "schema_hash", "description_hash"])
+def test_tool_catalog_missing_committed_input_fails_closed(field):
+    """AM-VERIFY-20 / spec 3.2.3: an incomplete leaf cannot prove the root."""
+    m = manifest()
+    catalog = tool_catalog()
+    del catalog["tools"][0][field]
+    m["artifacts"]["tool_manifest"] = catalog
+
+    r = verify_manifest(sign(m), ctx(tool_catalog_hash=catalog["catalog_hash"]), store())
+
+    assert r.signature_verified
+    assert r.result == OverallResult.MISMATCH
+    assert r.fields_verified.tool_manifest == FieldResult.MISMATCH
+    assert [d.field for d in r.mismatch_details] == ["tool_manifest.catalog_hash"]
+    assert r.mismatch_details[0].expected_hash == catalog["catalog_hash"]
+    assert r.mismatch_details[0].actual_hash == "<unverifiable tools>"
+
+
+@pytest.mark.parametrize("tool_id", [b"com.example.read", bytearray(b"com.example.read")])
+@pytest.mark.parametrize("single_tool", [False, True], ids=["two-tools", "single-tool"])
+def test_tool_catalog_raw_python_ids_fail_closed(tool_id, single_tool):
+    """AM-VERIFY-20: schema coercion must not leave unusable raw catalog inputs."""
+    m = manifest()
+    catalog = tool_catalog()
+    if single_tool:
+        catalog = tool_catalog(catalog["tools"][:1])
+    catalog["tools"][0]["tool_id"] = tool_id
+    m["artifacts"]["tool_manifest"] = catalog
+
+    # These Python-only values cannot be signed as JSON. With no trusted key,
+    # signature verification is skipped, but catalog validation must not crash.
+    r = verify_manifest(m, ctx(tool_catalog_hash=catalog["catalog_hash"], trusted_keys={}), store())
+
+    assert not r.signature_verified
+    assert r.result == OverallResult.MISMATCH
+    assert r.fields_verified.tool_manifest == FieldResult.MISMATCH
+    assert [d.field for d in r.mismatch_details] == ["tool_manifest.catalog_hash"]
+    assert r.mismatch_details[0].actual_hash == "<unverifiable tools>"
+
+
+def test_tool_catalog_reports_internal_and_runtime_mismatches():
+    """AM-VERIFY-20: preserve both findings when the two comparisons fail."""
+    m = manifest()
+    catalog = tool_catalog()
+    computed_root = catalog["catalog_hash"]
+    catalog["catalog_hash"] = SHA_A
+    m["artifacts"]["tool_manifest"] = catalog
+
+    r = verify_manifest(sign(m), ctx(tool_catalog_hash=SHA_C), store())
+
+    assert r.signature_verified
+    assert r.result == OverallResult.MISMATCH
+    assert r.fields_verified.tool_manifest == FieldResult.MISMATCH
+    assert [(d.field, d.expected_hash, d.actual_hash) for d in r.mismatch_details] == [
+        ("tool_manifest", SHA_A, SHA_C),
+        ("tool_manifest.catalog_hash", SHA_A, computed_root),
+    ]
 
 
 # ---------------------------------------------------------------------------

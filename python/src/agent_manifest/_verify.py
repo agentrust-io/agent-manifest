@@ -1088,6 +1088,39 @@ def verify_manifest(
         tm.get("catalog_hash"),
         context.tool_catalog_hash,
     )
+    # Spec 3.2.3: the declared root also commits to the adjacent tools. A
+    # matching runtime hash cannot establish that internal consistency.
+    # Preserve legacy omitted bindings, but hash an explicitly empty catalog.
+    if tm.get("catalog_hash") is not None and "tools" in tm:
+        from ._merkle import build_catalog_tree
+        from ._types import HashValue
+        from .models import ToolEntry
+
+        try:
+            # HashValue fields were validated by the schema gate, but its str
+            # coercions are not applied to this raw dict. Reject Python-only
+            # tool IDs before passing them to the builder.
+            catalog_tools = []
+            for tool in tm["tools"]:
+                if not isinstance(tool, dict) or not isinstance(tool.get("tool_id"), str):
+                    raise ValueError("catalog tools require string tool IDs")
+                # Construct only the Merkle inputs so legacy omissions of
+                # nonhashed metadata do not become new validation failures.
+                catalog_tools.append(ToolEntry.model_construct(
+                    tool_id=tool["tool_id"],
+                    schema_hash=HashValue(tool["schema_hash"]),
+                    description_hash=HashValue(tool["description_hash"]),
+                ))
+            computed_catalog_hash = build_catalog_tree(
+                catalog_tools, algorithm=HashValue(tm["catalog_hash"]).algorithm,
+            )
+        except (KeyError, ValueError):
+            # Missing leaf inputs and construction failures cannot prove a root.
+            computed_catalog_hash = "<unverifiable tools>"
+        if _check(
+            "tool_manifest.catalog_hash", tm["catalog_hash"], computed_catalog_hash,
+        ) == FieldResult.MISMATCH:
+            fields.tool_manifest = FieldResult.MISMATCH
 
     mi = artifacts.get("model_identity") or {}
     # For api-deployed models, bind by version string, not binary hash
