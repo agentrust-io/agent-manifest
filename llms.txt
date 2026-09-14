@@ -1,6 +1,6 @@
 # Agent Manifest
 
-> Cryptographic identity and provenance standard for AI agents
+> Signed, checkable identity and provenance records for AI agents
 
 Agent Manifest defines signed deployment artifact bindings for AI agents. Verifiers authenticate the issuer and compare independently supplied runtime inputs. Software signing, hardware provenance, and runtime activity establish different properties. Start with a local configuration check and tamper detection, then select the evidence your policy needs.
 
