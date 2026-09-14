@@ -1,4 +1,7 @@
 ---
+hide:
+  - navigation
+  - toc
 title: "Agent Manifest: a signed, checkable record of an agent"
 description: Sign an agent configuration, verify its artifact bindings against independent inputs, and detect changes. Start locally with software signing.
 ---
