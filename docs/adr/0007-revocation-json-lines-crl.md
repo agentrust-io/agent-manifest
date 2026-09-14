@@ -1,3 +1,7 @@
+---
+description: Decision to publish revocations as an append-only JSON-Lines list of records signed by the revoking authority, served from a well-known URI.
+---
+
 # ADR-0007: JSON-Lines append-only CRL as the SDK revocation format
 
 **Status**: Accepted  

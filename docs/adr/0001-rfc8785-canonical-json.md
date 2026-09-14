@@ -1,3 +1,7 @@
+---
+description: Decision to use RFC 8785 JSON Canonicalization Scheme for every signature pre-image, artifact hash and Merkle leaf, with JSON-LD normalization prohibited.
+---
+
 # ADR-0001: Use RFC 8785 (JCS) for all canonical serialization
 
 **Status**: Accepted  

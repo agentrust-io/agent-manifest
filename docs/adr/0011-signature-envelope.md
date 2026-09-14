@@ -1,3 +1,7 @@
+---
+description: Decision that Agent Manifest is a signed document that composes with the token layer, not a JWT profile, and that its envelope moves to COSE_Sign1.
+---
+
 # ADR-0011: The manifest is a signed document, not a JWT/JOSE profile
 
 **Status**: Accepted

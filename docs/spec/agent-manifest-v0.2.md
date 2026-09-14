@@ -1,5 +1,5 @@
 ---
-description: The normative Agent Manifest v0.2 specification — cryptographic identity, provenance, and verification rules for AI agents.
+description: The normative Agent Manifest v0.2 specification, with the cryptographic identity, provenance and verification rules for AI agents.
 ---
 
 <!-- The normative text lives in spec/ at the repository root so it stays the

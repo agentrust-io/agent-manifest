@@ -1,3 +1,7 @@
+---
+description: Decision to reference a signed Agent Manifest from an Agent Plugins bundle under com.agentrust-io.manifest, with an HTTPS URI and a SHA-256 digest.
+---
+
 # ADR-0015: Agent Plugins manifest reference
 
 **Status:** Accepted

@@ -48,6 +48,10 @@ theme:
   icon:
     repo: fontawesome/brands/github
 
+# Per-page meta descriptions from each page's first paragraph; see the file.
+hooks:
+  - hooks/seo.py
+
 plugins:
   - search
   - llmstxt:
@@ -58,17 +62,32 @@ plugins:
         runtime inputs. Software signing, hardware provenance, and runtime
         activity establish different properties. Start with a local configuration
         check and tamper detection, then select the evidence your policy needs.
+        Agent Manifest is part of AgenTrust, open specifications for verifiable AI:
+        https://agentrust-io.com
       sections:
-        Getting started:
+        Get started:
           - index.md
           - getting-started.md
+          - tutorials/your-first-manifest.md
         Specification:
           - spec-overview.md
+          - spec/agent-manifest-v0.2.md
+          - spec/agent-manifest-cose-envelope-v0.2.md
+          - memory-governance.md
+          - adr/index.md
         Guides:
           - tutorials/index.md
-        Reference:
-          - api-reference/index.md
+          - tutorials/server-side-verification.md
+          - tutorials/hardware-attestation.md
+          - integrations/index.md
+          - operations/index.md
           - compliance/index.md
+          - api-reference/index.md
+        Project:
+          - limitations.md
+          - roadmap.md
+          - governance.md
+          - changelog.md
   - minify:
       minify_html: true
   - mkdocstrings:
@@ -146,7 +165,7 @@ nav:
   - Home: index.md
   - Get started: getting-started.md
   - Specification:
-      - Overview: spec-overview.md
+      - Specification overview: spec-overview.md
       # These pages include the normative text from spec/ at the repository
       # root, which stays the single source of truth.
       - Agent Manifest v0.2: spec/agent-manifest-v0.2.md
@@ -154,7 +173,7 @@ nav:
       - Agent Memory Governance: memory-governance.md
       - Memory checkpoint assessment: memory-checkpoint-assessment.md
       - Decision records:
-          - Overview: adr/index.md
+          - Decision records index: adr/index.md
           - ADR-0001 - RFC 8785 Canonical JSON: adr/0001-rfc8785-canonical-json.md
           - ADR-0002 - Ed25519 Standard Profile: adr/0002-ed25519-standard-profile.md
           - ADR-0003 - RFC 9162 Merkle Trees: adr/0003-rfc9162-merkle-domain-separation.md
@@ -172,7 +191,7 @@ nav:
           - ADR-0015 - Agent Plugins Manifest Reference: adr/0015-agent-plugins-manifest-reference.md
   - Guides:
       - Tutorials:
-          - Overview: tutorials/index.md
+          - Tutorials overview: tutorials/index.md
           - Your first manifest: tutorials/your-first-manifest.md
           - Server-side verification: tutorials/server-side-verification.md
           - A2A delegation chains: tutorials/delegation-chains.md
@@ -183,7 +202,7 @@ nav:
           - CI/CD signing: tutorials/ci-cd-signing.md
           - cMCP session binding: tutorials/cmcp-session-binding.md
       - Integrations:
-          - Overview: integrations/index.md
+          - Integrations overview: integrations/index.md
           - LangChain: integrations/langchain.md
           - OpenAI Agents SDK: integrations/openai-agents.md
           - AutoGen and CrewAI: integrations/autogen-crewai.md
@@ -192,18 +211,18 @@ nav:
           - Agent Credentials: integrations/agent-credentials.md
           - Standards landscape: integrations/standards-landscape.md
       - Operations:
-          - Overview: operations/index.md
+          - Operations overview: operations/index.md
           - Key rotation: operations/key-rotation.md
           - Audit log management: operations/audit-log.md
           - Monitoring: operations/monitoring.md
       - Compliance:
-          - Overview: compliance/index.md
+          - Compliance overview: compliance/index.md
           - EU AI Act: compliance/eu-ai-act.md
           - DORA: compliance/dora.md
           - GDPR: compliance/gdpr.md
           - HIPAA: compliance/hipaa.md
       - API reference:
-          - Overview: api-reference/index.md
+          - API reference overview: api-reference/index.md
           - Core models: api-reference/models.md
           - Signing: api-reference/signing.md
           - COSE envelope (v0.2): api-reference/cose.md

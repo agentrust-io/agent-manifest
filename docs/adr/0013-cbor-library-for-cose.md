@@ -1,3 +1,7 @@
+---
+description: Decision to depend on the cbor2 library and build COSE_Sign1 structures in the SDK itself, with deterministic encoding, rather than take a COSE library.
+---
+
 # ADR-0013: Take a CBOR library, not a COSE library
 
 **Status**: Accepted

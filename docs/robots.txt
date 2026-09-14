@@ -1,10 +1,10 @@
-# https://manifest.agentrust-io.com/robots.txt
-# Open documentation. All crawlers, including AI answer engines, are welcome.
+# manifest.agentrust-io.com: search and answer-engine crawlers are welcome.
 
 User-agent: *
 Allow: /
+# Cloudflare email-obfuscation endpoint: not a page
+Disallow: /cdn-cgi/
 
-# AI answer engines and dataset crawlers (explicitly welcomed)
 User-agent: GPTBot
 Allow: /
 
@@ -17,13 +17,16 @@ Allow: /
 User-agent: ClaudeBot
 Allow: /
 
-User-agent: anthropic-ai
+User-agent: Claude-SearchBot
 Allow: /
 
-User-agent: Claude-Web
+User-agent: Claude-User
 Allow: /
 
 User-agent: PerplexityBot
+Allow: /
+
+User-agent: Perplexity-User
 Allow: /
 
 User-agent: Google-Extended

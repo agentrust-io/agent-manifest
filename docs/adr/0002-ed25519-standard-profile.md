@@ -1,3 +1,7 @@
+---
+description: Decision to make Ed25519 with SHA-256 the standard signature profile, signing the RFC 8785 canonical JSON of the manifest without its signature field.
+---
+
 # ADR-0002: Ed25519 as the standard cryptographic profile
 
 **Status**: Accepted  

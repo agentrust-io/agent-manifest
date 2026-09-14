@@ -1,3 +1,7 @@
+---
+description: Decision that producers sign with the fully specified Ed25519 COSE code point -19, while verifiers accept both -19 and -8 as the same algorithm.
+---
+
 # ADR-0014: Sign with the fully-specified Ed25519 code point (-19), keep verifying -8
 
 **Status**: Accepted
