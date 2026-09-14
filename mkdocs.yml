@@ -40,13 +40,10 @@ theme:
     - search.highlight
     - content.code.copy
     - content.tabs.link
+    - toc.follow
     - content.code.annotate
     - content.tooltips
-    - navigation.instant.progress
-    - navigation.footer
-    - navigation.expand
     - search.share
-    - toc.follow
     - announce.dismiss
   icon:
     repo: fontawesome/brands/github
@@ -146,73 +143,74 @@ extra_css:
 
 nav:
   - Home: index.md
-  - Getting Started: getting-started.md
-  - Tutorials:
-      - Overview: tutorials/index.md
-      - Server-side verification: tutorials/server-side-verification.md
-      - A2A delegation chains: tutorials/delegation-chains.md
-      - HITL approval workflows: tutorials/hitl-approval-workflows.md
-      - Revocation and key rotation: tutorials/revocation-and-key-rotation.md
-      - Hardware attestation: tutorials/hardware-attestation.md
-      - Deploying the verification endpoint: tutorials/deploying-the-verification-endpoint.md
-      - Your first manifest: tutorials/your-first-manifest.md
-      - CI/CD signing: tutorials/ci-cd-signing.md
-      - cMCP session binding: tutorials/cmcp-session-binding.md
-  - Integrations:
-      - Overview: integrations/index.md
-      - LangChain: integrations/langchain.md
-      - OpenAI Agents SDK: integrations/openai-agents.md
-      - AutoGen and CrewAI: integrations/autogen-crewai.md
-      - AGT: integrations/agt.md
-      - NVIDIA OpenShell: integrations/openshell.md
-      - Agent Credentials: integrations/agent-credentials.md
-      - Standards landscape: integrations/standards-landscape.md
-  - Architecture:
-      - Memory checkpoint assessment: memory-checkpoint-assessment.md
-      - Decision Records: adr/index.md
-      - ADR-0001 - RFC 8785 Canonical JSON: adr/0001-rfc8785-canonical-json.md
-      - ADR-0002 - Ed25519 Standard Profile: adr/0002-ed25519-standard-profile.md
-      - ADR-0003 - RFC 9162 Merkle Trees: adr/0003-rfc9162-merkle-domain-separation.md
-      - ADR-0004 - Pydantic v2 Schema Modeling: adr/0004-pydantic-v2-schema-modeling.md
-      - ADR-0005 - ML-DSA-65 Hybrid Signatures: adr/0005-ml-dsa-hybrid-signature.md
-      - ADR-0006 - HITL Approval Mechanism: adr/0006-hitl-approval-mechanism.md
-      - ADR-0007 - JSON-Lines Revocation CRL: adr/0007-revocation-json-lines-crl.md
-      - ADR-0008 - Conformance Level Design: adr/0008-conformance-level-design.md
-      - ADR-0009 - SPIFFE URI for Agent Identity: adr/0009-spiffe-uri-agent-identity.md
-      - ADR-0010 - Runtime Attestation Freshness Proofs: adr/0010-runtime-attestation-freshness-proofs.md
-      - ADR-0011 - Signed Document, Not a JWT Profile: adr/0011-signature-envelope.md
-      - ADR-0012 - Context URI on a Controlled Domain: adr/0012-context-uri-moved-to-controlled-domain.md
-      - ADR-0013 - CBOR Library, Not a COSE Library: adr/0013-cbor-library-for-cose.md
-      - ADR-0014 - Fully-Specified Ed25519 Code Point: adr/0014-fully-specified-ed25519-code-point.md
-      - ADR-0015 - Agent Plugins Manifest Reference: adr/0015-agent-plugins-manifest-reference.md
-  - Compliance:
-      - Overview: compliance/index.md
-      - EU AI Act: compliance/eu-ai-act.md
-      - DORA: compliance/dora.md
-      - GDPR: compliance/gdpr.md
-      - HIPAA: compliance/hipaa.md
-  - API Reference:
-      - Overview: api-reference/index.md
-      - Core models: api-reference/models.md
-      - Signing: api-reference/signing.md
-      - COSE envelope (v0.2): api-reference/cose.md
-      - Verification: api-reference/verification.md
-      - Revocation: api-reference/revocation.md
-      - Delegation: api-reference/delegation.md
-      - Attestation: api-reference/attestation.md
-      - CLI: api-reference/cli.md
-  - Operations:
-      - Overview: operations/index.md
-      - Key rotation: operations/key-rotation.md
-      - Audit log management: operations/audit-log.md
-      - Monitoring: operations/monitoring.md
+  - Get started: getting-started.md
   - Specification:
       - Overview: spec-overview.md
-      - Agent Memory Governance: memory-governance.md
       # These pages include the normative text from spec/ at the repository
       # root, which stays the single source of truth.
       - Agent Manifest v0.2: spec/agent-manifest-v0.2.md
       - COSE Envelope v0.2: spec/agent-manifest-cose-envelope-v0.2.md
+      - Agent Memory Governance: memory-governance.md
+      - Memory checkpoint assessment: memory-checkpoint-assessment.md
+      - Decision records:
+          - Overview: adr/index.md
+          - ADR-0001 - RFC 8785 Canonical JSON: adr/0001-rfc8785-canonical-json.md
+          - ADR-0002 - Ed25519 Standard Profile: adr/0002-ed25519-standard-profile.md
+          - ADR-0003 - RFC 9162 Merkle Trees: adr/0003-rfc9162-merkle-domain-separation.md
+          - ADR-0004 - Pydantic v2 Schema Modeling: adr/0004-pydantic-v2-schema-modeling.md
+          - ADR-0005 - ML-DSA-65 Hybrid Signatures: adr/0005-ml-dsa-hybrid-signature.md
+          - ADR-0006 - HITL Approval Mechanism: adr/0006-hitl-approval-mechanism.md
+          - ADR-0007 - JSON-Lines Revocation CRL: adr/0007-revocation-json-lines-crl.md
+          - ADR-0008 - Conformance Level Design: adr/0008-conformance-level-design.md
+          - ADR-0009 - SPIFFE URI for Agent Identity: adr/0009-spiffe-uri-agent-identity.md
+          - ADR-0010 - Runtime Attestation Freshness Proofs: adr/0010-runtime-attestation-freshness-proofs.md
+          - ADR-0011 - Signed Document, Not a JWT Profile: adr/0011-signature-envelope.md
+          - ADR-0012 - Context URI on a Controlled Domain: adr/0012-context-uri-moved-to-controlled-domain.md
+          - ADR-0013 - CBOR Library, Not a COSE Library: adr/0013-cbor-library-for-cose.md
+          - ADR-0014 - Fully-Specified Ed25519 Code Point: adr/0014-fully-specified-ed25519-code-point.md
+          - ADR-0015 - Agent Plugins Manifest Reference: adr/0015-agent-plugins-manifest-reference.md
+  - Guides:
+      - Tutorials:
+          - Overview: tutorials/index.md
+          - Your first manifest: tutorials/your-first-manifest.md
+          - Server-side verification: tutorials/server-side-verification.md
+          - A2A delegation chains: tutorials/delegation-chains.md
+          - HITL approval workflows: tutorials/hitl-approval-workflows.md
+          - Revocation and key rotation: tutorials/revocation-and-key-rotation.md
+          - Hardware attestation: tutorials/hardware-attestation.md
+          - Deploying the verification endpoint: tutorials/deploying-the-verification-endpoint.md
+          - CI/CD signing: tutorials/ci-cd-signing.md
+          - cMCP session binding: tutorials/cmcp-session-binding.md
+      - Integrations:
+          - Overview: integrations/index.md
+          - LangChain: integrations/langchain.md
+          - OpenAI Agents SDK: integrations/openai-agents.md
+          - AutoGen and CrewAI: integrations/autogen-crewai.md
+          - AGT: integrations/agt.md
+          - NVIDIA OpenShell: integrations/openshell.md
+          - Agent Credentials: integrations/agent-credentials.md
+          - Standards landscape: integrations/standards-landscape.md
+      - Operations:
+          - Overview: operations/index.md
+          - Key rotation: operations/key-rotation.md
+          - Audit log management: operations/audit-log.md
+          - Monitoring: operations/monitoring.md
+      - Compliance:
+          - Overview: compliance/index.md
+          - EU AI Act: compliance/eu-ai-act.md
+          - DORA: compliance/dora.md
+          - GDPR: compliance/gdpr.md
+          - HIPAA: compliance/hipaa.md
+      - API reference:
+          - Overview: api-reference/index.md
+          - Core models: api-reference/models.md
+          - Signing: api-reference/signing.md
+          - COSE envelope (v0.2): api-reference/cose.md
+          - Verification: api-reference/verification.md
+          - Revocation: api-reference/revocation.md
+          - Delegation: api-reference/delegation.md
+          - Attestation: api-reference/attestation.md
+          - CLI: api-reference/cli.md
   - Project:
       - Roadmap: roadmap.md
       - Limitations: limitations.md
