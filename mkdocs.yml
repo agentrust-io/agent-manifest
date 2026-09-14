@@ -1,5 +1,5 @@
 site_name: Agent Manifest
-site_description: Cryptographic identity and provenance standard for AI agents
+site_description: Signed, checkable identity and provenance records for AI agents
 site_url: https://manifest.agentrust-io.com
 repo_url: https://github.com/agentrust-io/agent-manifest
 repo_name: agentrust-io/agent-manifest
