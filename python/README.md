@@ -44,8 +44,8 @@ manifest = Manifest(
             bound_at=now,
         ),
         model_identity=ModelIdentityBinding(
-            provider="anthropic",
-            model_id="claude-sonnet-4-6",
+            provider="example-provider",
+            model_id="example-model-1",
             version="20251001",
             deployment_type=DeploymentType.api,
             bound_at=now,
