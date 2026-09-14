@@ -2,23 +2,36 @@
 
 > Signed, checkable identity and provenance records for AI agents
 
-Agent Manifest defines signed deployment artifact bindings for AI agents. Verifiers authenticate the issuer and compare independently supplied runtime inputs. Software signing, hardware provenance, and runtime activity establish different properties. Start with a local configuration check and tamper detection, then select the evidence your policy needs.
+Agent Manifest defines signed deployment artifact bindings for AI agents. Verifiers authenticate the issuer and compare independently supplied runtime inputs. Software signing, hardware provenance, and runtime activity establish different properties. Start with a local configuration check and tamper detection, then select the evidence your policy needs. Agent Manifest is part of AgenTrust, open specifications for verifiable AI: https://agentrust-io.com
 
-## Getting started
+## Get started
 
 - [Home](https://manifest.agentrust-io.com/index.md)
 - [Get started](https://manifest.agentrust-io.com/getting-started/index.md)
+- [Your first manifest](https://manifest.agentrust-io.com/tutorials/your-first-manifest/index.md)
 
 ## Specification
 
-- [Overview](https://manifest.agentrust-io.com/spec-overview/index.md)
+- [Specification overview](https://manifest.agentrust-io.com/spec-overview/index.md)
+- [Agent Manifest v0.2](https://manifest.agentrust-io.com/spec/agent-manifest-v0.2/index.md)
+- [COSE Envelope v0.2](https://manifest.agentrust-io.com/spec/agent-manifest-cose-envelope-v0.2/index.md)
+- [Agent Memory Governance](https://manifest.agentrust-io.com/memory-governance/index.md)
+- [Decision records index](https://manifest.agentrust-io.com/adr/index.md)
 
 ## Guides
 
-- [Overview](https://manifest.agentrust-io.com/tutorials/index.md)
+- [Tutorials overview](https://manifest.agentrust-io.com/tutorials/index.md)
+- [Server-side verification](https://manifest.agentrust-io.com/tutorials/server-side-verification/index.md)
+- [Hardware attestation](https://manifest.agentrust-io.com/tutorials/hardware-attestation/index.md)
+- [Integrations overview](https://manifest.agentrust-io.com/integrations/index.md)
+- [Operations overview](https://manifest.agentrust-io.com/operations/index.md)
+- [Compliance overview](https://manifest.agentrust-io.com/compliance/index.md)
+- [API reference overview](https://manifest.agentrust-io.com/api-reference/index.md)
 
-## Reference
+## Project
 
-- [Overview](https://manifest.agentrust-io.com/api-reference/index.md)
-- [Overview](https://manifest.agentrust-io.com/compliance/index.md)
+- [Limitations](https://manifest.agentrust-io.com/limitations/index.md)
+- [Roadmap](https://manifest.agentrust-io.com/roadmap/index.md)
+- [Governance](https://manifest.agentrust-io.com/governance/index.md)
+- [Changelog](https://manifest.agentrust-io.com/changelog/index.md)
 
