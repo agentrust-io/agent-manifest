@@ -1,3 +1,7 @@
+---
+description: Decision to define four conformance levels, 0 to 3, each a strict superset of the one below, instead of a single conformant or non-conformant verdict.
+---
+
 # ADR-0008: Four conformance levels (0–3) rather than binary conformant/non-conformant
 
 **Status**: Accepted  

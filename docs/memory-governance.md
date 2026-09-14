@@ -1,3 +1,7 @@
+---
+description: "How Agent Manifest judges agent memory: integrity against an approved snapshot hash, a drift policy and freshness, rather than semantic usefulness."
+---
+
 # Agent Memory Governance
 
 In the `agent-manifest` specification, the concept of a "good" versus a "bad" or "weak" memory is strictly defined by **cryptographic integrity, drift, and freshness**, rather than semantic usefulness.

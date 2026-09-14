@@ -1,3 +1,7 @@
+---
+description: Decision to build tool catalog and RAG corpus hashes as RFC 9162 Merkle trees, with 0x00 and 0x01 domain separation for leaves and internal nodes.
+---
+
 # ADR-0003: RFC 9162 Merkle tree construction with domain separation
 
 **Status**: Accepted  

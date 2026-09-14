@@ -1,3 +1,7 @@
+---
+description: Decision to move the Agent Manifest JSON-LD @context URI to manifest.agentrust-io.com, a domain the project controls.
+---
+
 # 0012. Move the `@context` URI to a domain we control
 
 - Status: Accepted

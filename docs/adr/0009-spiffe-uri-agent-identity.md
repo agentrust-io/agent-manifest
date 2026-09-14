@@ -1,3 +1,7 @@
+---
+description: Decision to require SPIFFE URIs for agent_id and issuer, with every other identity format rejected at validation time by the Python SDK.
+---
+
 # ADR-0009: SPIFFE URIs for agent identity (`agent_id` and `issuer`)
 
 **Status**: Accepted  

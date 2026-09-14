@@ -1,3 +1,7 @@
+---
+description: Decision to use Pydantic v2 as the only schema and validation layer for manifest models in the Agent Manifest Python SDK.
+---
+
 # ADR-0004: Pydantic v2 for schema modeling and validation in the Python SDK
 
 **Status**: Accepted  
