@@ -1,10 +1,46 @@
-# Check the agent configuration you approved
+[02 · Agent: what is this agent, and what is it allowed to do?](https://agentrust-io.com/#chain)
 
-Agent Manifest records an agent's deployment configuration in a signed document: prompt, policy, tools, model identity, and related artifacts. A verifier authenticates the issuer and compares the bindings with independently supplied inputs.
+# Check the agent you approved against what deployed
 
-[Create and check your first manifest](https://manifest.agentrust-io.com/getting-started/index.md) [Read the verification limits](https://manifest.agentrust-io.com/limitations/index.md)
+Agent Manifest signs an agent's prompt, policy, tools, model identity and six further artifact bindings, so a verifier can authenticate the issuer and compare each binding with inputs it trusts.
 
-Start locally with Python 3.11+ and no hardware or cloud account. The example signs a demo configuration, checks it, then detects an edited record and a different prompt hash.
+[Create and check your first manifest](https://manifest.agentrust-io.com/getting-started/index.md) [What this proves, and what it does not](https://manifest.agentrust-io.com/limitations/index.md)
+
+TL;DR
+
+[agent-manifest](https://pypi.org/project/agent-manifest/) 0.12.0 (Apache-2.0) signs and verifies locally with Python 3.11+ and no hardware or cloud account. Its SEV-SNP path was validated on an Azure confidential VM ([#227](https://github.com/agentrust-io/agent-manifest/pull/227)) and its TDX quote verifier on a GCP C3 guest, and a manifest still does not observe the agent after issuance: runtime activity is recorded separately in [TRACE](https://trace.agentrust-io.com/).
+
+- **Run it**
+
+  ______________________________________________________________________
+
+  Sign a demo configuration, check it, then detect an edited record and a different prompt hash.
+
+  [Getting started](https://manifest.agentrust-io.com/getting-started/index.md)
+
+- **What it proves, and what it does not**
+
+  ______________________________________________________________________
+
+  A signature check is one part of verification. The verifier needs its own trusted inputs.
+
+  [Limitations](https://manifest.agentrust-io.com/limitations/index.md)
+
+- **Hardware evidence**
+
+  ______________________________________________________________________
+
+  TPM, AMD SEV-SNP and Intel TDX providers. A provider name is not an assurance verdict.
+
+  [Hardware attestation](https://manifest.agentrust-io.com/tutorials/hardware-attestation/index.md)
+
+- **The chain**
+
+  ______________________________________________________________________
+
+  Before it: [Weight Custody Manifest](https://wcm.agentrust-io.com) for the weights. After it: [cMCP](https://cmcp.agentrust-io.com) for tool calls and [cA2A](https://ca2a.agentrust-io.com) for delegation. Check a real TDX quote at [agentrust-io.com/verify](https://agentrust-io.com/verify/).
+
+  [See the chain](https://agentrust-io.com/#chain)
 
 ## The agent attestation gap
 
@@ -84,3 +120,5 @@ Yes. The source and license are available on [GitHub](https://github.com/agentru
 - [Tutorials](https://manifest.agentrust-io.com/tutorials/index.md): integration and operational tasks.
 - [Specification](https://manifest.agentrust-io.com/spec/agent-manifest-v0.2/index.md): normative requirements.
 - [Architecture decisions](https://manifest.agentrust-io.com/adr/index.md): design rationale.
+
+**Status:** SDK 0.12.0 · Apache-2.0 · proposed to CoSAI WS4 ([RFC #149](https://github.com/cosai-oasis/ws4-secure-design-agentic-systems/issues/149)) · Sponsored by OPAQUE, which funds the engineering, infrastructure and confidential-computing work behind these projects.
