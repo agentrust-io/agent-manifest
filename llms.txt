@@ -7,7 +7,7 @@ Agent Manifest defines signed deployment artifact bindings for AI agents. Verifi
 ## Getting started
 
 - [Home](https://manifest.agentrust-io.com/index.md)
-- [Getting Started](https://manifest.agentrust-io.com/getting-started/index.md)
+- [Get started](https://manifest.agentrust-io.com/getting-started/index.md)
 
 ## Specification
 
