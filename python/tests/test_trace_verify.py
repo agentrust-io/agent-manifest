@@ -143,6 +143,34 @@ def test_valid_envelope_verifies_and_is_admissible(kp, trusted):
 
 
 @pytest.mark.parametrize(
+    "field,corrupt_value",
+    [
+        ("policy_hash", "sha256:" + "a1" * 32 + "\n"),
+        ("catalog_hash", "sha256:" + "b2" * 32 + "\n"),
+        ("agent_id", "spiffe://example.org/agent/billing\n"),
+        ("trace_id", "0192f3a0-0000-7000-8000-00000000000a\n"),
+    ],
+)
+def test_trailing_newline_on_a_formatted_field_is_rejected(kp, trusted, field, corrupt_value):
+    # `_envelope_format_failures` validates trace_id/policy_hash/etc against
+    # `^...$`-anchored regexes via `.fullmatch()`. Historically, if any of
+    # those call sites had used `.match()` instead, Python's `$` (which
+    # matches at end-of-string OR just before a single trailing '\n')
+    # would have let "<valid-value>\n" through as if it were the
+    # unmodified value. Sign a real envelope with the corrupted, `\n`-
+    # suffixed value (so the signature is genuinely valid over the exact
+    # corrupted field) and confirm the format check still catches it.
+    envelope = _sign_envelope(_envelope(**{field: corrupt_value}), kp)
+    result = verify_trace_envelope(envelope, trusted_keys=trusted)
+    # `_envelope_format_failures` runs (and short-circuits) before signature
+    # verification, so a format-rejected envelope never reaches VERIFIED.
+    assert result.status is TraceStatus.MALFORMED
+    assert result.signature_verified is False
+    assert result.admissible is False
+    assert any(f.startswith(("not_a_", "illegal_")) for f in result.failures)
+
+
+@pytest.mark.parametrize(
     "field,value",
     [
         ("decision", "deny"),

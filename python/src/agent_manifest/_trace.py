@@ -112,6 +112,14 @@ VERIFICATION_RESULTS: frozenset[str] = frozenset(TRACE_VERIFICATION_RESULTS) | {
 # "<FQDN | IP | none>", so neither has a shape this can enforce without
 # rejecting records the spec permits. `tool_id` is a reverse-domain identifier
 # with no stated grammar, so it is checked for emptiness only.
+# NOTE: these patterns keep their `^`/`$` anchors (matching what the spec's
+# JSON-schema-style grammar expects), but every call site below uses
+# `.fullmatch()`, never `.match()`. `.match()` with a `$`-anchored pattern
+# would let "<valid-value>\n" through, since Python's `$` matches at
+# end-of-string OR just before a single trailing '\n'. `.fullmatch()`
+# requires the pattern to consume the entire string and is not subject to
+# that exception, even though the pattern text itself still has `$`.
+
 _UUID_V7 = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
     re.IGNORECASE,
@@ -468,22 +476,22 @@ def _envelope_format_failures(envelope: dict[str, Any]) -> list[str]:
     failures: list[str] = []
 
     for field_name in ("trace_id", "agent_manifest_id"):
-        if not _UUID_V7.match(envelope[field_name]):
+        if not _UUID_V7.fullmatch(envelope[field_name]):
             failures.append(f"not_a_uuid_v7:{field_name}")
 
     # hitl_approval_id is "<UUID v7> | null", so null is legal and a present
     # value must be well formed.
     approval_id = envelope.get("hitl_approval_id")
     if approval_id is not None and (
-        not isinstance(approval_id, str) or not _UUID_V7.match(approval_id)
+        not isinstance(approval_id, str) or not _UUID_V7.fullmatch(approval_id)
     ):
         failures.append("not_a_uuid_v7:hitl_approval_id")
 
-    if not _SPIFFE.match(envelope["agent_id"]):
+    if not _SPIFFE.fullmatch(envelope["agent_id"]):
         failures.append("not_a_spiffe_uri:agent_id")
 
     for field_name in ("policy_hash", "catalog_hash"):
-        if not _SHA256.match(envelope[field_name]):
+        if not _SHA256.fullmatch(envelope[field_name]):
             failures.append(f"not_a_sha256_hash:{field_name}")
 
     if envelope["decision"] not in TRACE_DECISIONS:

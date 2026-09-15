@@ -388,10 +388,9 @@ def _verify_hops(
             manifest_id=manifest_id,
         )
 
-        import base64
+        from ._signing import _b64url_decode
         sig = hop["delegation_signature"]
-        pad = 4 - len(sig) % 4
-        sig_bytes = base64.urlsafe_b64decode(sig + ("=" * pad if pad != 4 else ""))
+        sig_bytes = _b64url_decode(sig)
         verifier = Ed25519Verifier(pub_bytes)
         verifier._pub.verify(sig_bytes, pre)  # raises InvalidSignature on failure
 
@@ -634,8 +633,6 @@ def verify_hitl_approval(
         ValueError: If required fields are missing, malformed, or the
             approval has expired.
     """
-    import base64
-    import re
 
     # Establish the shapes this function reads before interpreting them, so a
     # malformed approval always produces the documented ValueError rather than
@@ -712,24 +709,18 @@ def verify_hitl_approval(
         approver_id=approver_id,
         approval_method=approval.get("approval_method"),
     )
-    # base64.b64decode(..., altchars=b"-_", validate=True) translates '-'/'_'
-    # to '+'/'/' *before* validating, so it also accepts the standard base64
-    # alphabet mixed in as-is: swapping every '-' for '+' and '_' for '/' in
-    # an otherwise-valid signature decodes to the identical bytes and passes.
-    # Whitelist the URL-safe alphabet explicitly so no other representation
-    # of the same bytes is accepted.
-    if not re.fullmatch(r"[A-Za-z0-9_-]*", sig):
-        raise ValueError(
-            "HITL approval.approval_signature is not valid base64url: "
-            "contains characters outside the URL-safe alphabet"
-        )
+
+    # _b64url_decode() (shared with delegation-hop verification) already
+    # rejects the standard base64 alphabet and any non-URL-safe characters
+    # (CRYPTO-006), so reuse it here instead of re-implementing the same
+    # check inline. Wrapped to keep the field-qualified error message.
+    from ._signing import _b64url_decode
+
     try:
-        pad = 4 - len(sig) % 4
-        sig_bytes = base64.b64decode(
-            sig + ("=" * pad if pad != 4 else ""), altchars=b"-_", validate=True
-        )
+        sig_bytes = _b64url_decode(sig)
     except ValueError as e:
         raise ValueError(
             f"HITL approval.approval_signature is not valid base64url: {e}"
         ) from e
+
     Ed25519Verifier(approver_public_key)._pub.verify(sig_bytes, pre)
