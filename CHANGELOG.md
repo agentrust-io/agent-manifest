@@ -17,6 +17,18 @@
 
 ### Fixed
 
+- **[SDK]** `check_validity_period()` (`_cert_chain.py`) rejected a certificate
+  checked at the exact second of its `notAfter` timestamp. RFC 5280 §4.1.2.5
+  defines the validity period as "the period of time from notBefore through
+  notAfter, **inclusive**," and `cryptography`'s `not_valid_before_utc` /
+  `not_valid_after_utc` document the same inclusive semantics; the check used
+  a strict `<` on the upper bound instead of `<=`. This is the single shared
+  primitive behind every certificate-chain verifier in the package (SEV-SNP
+  VCEK/ASK/ARK, TDX PCK chain, TPM AK chain, and `verify_cert_chain()`
+  itself), so the off-by-one affected all of them identically. The bound is
+  now `<=`, matching both the RFC and the library's documented behavior; the
+  lower bound was already inclusive and is unchanged.
+
 - **[SDK]** `verify_manifest()` now recomputes a tool catalog's Merkle root
   from its supplied `tools` before accepting the declared `catalog_hash`.
   A valid signature and a matching runtime hash no longer hide inconsistent
