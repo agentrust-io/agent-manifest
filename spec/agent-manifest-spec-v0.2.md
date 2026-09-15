@@ -111,7 +111,7 @@ An Agent Manifest is created once per agent deployment, updated when any bound a
 | Phase | Trigger | Actor | Output |
 |---|---|---|---|
 | 1. Authoring | Agent deployment configuration complete | Agent developer / platform team | Unsigned draft manifest (JSON-LD) |
-| 2. Signing | Human security reviewer approves configuration | Security officer / CISO delegate | Signed manifest (detached Ed25519 or ML-DSA-65 signature over the RFC 8785 pre-image, section 3.6) |
+| 2. Signing | Human security reviewer approves configuration | Security officer / CISO delegate | Signed manifest. v0.1: detached Ed25519 or ML-DSA-65 signature over the RFC 8785 pre-image (section 3.6). v0.2: COSE_Sign1 or COSE_Sign envelope over the canonical JSON payload, per `agent-manifest-cose-envelope-v0.2.md` (ADR-0011); section 3.6 is not the v0.2 signature definition |
 | 3. Attestation | Agent workload launches inside TEE | the Confidential Runtime | TEE attestation report binding manifest hash to hardware measurements |
 | 4. Verification | Agent crosses a trust boundary (tool call, delegation, audit) | Relying party (MCP server, auditor, regulator) | Verification result: VALID \| MISMATCH \| EXPIRED \| REVOKED \| INCOMPATIBLE_VERSION |
 | 5. Revocation | Any bound artifact changes, compromise detected, or TTL expires | Agent owner or the revocation service | Revocation record published to transparency log |
@@ -124,7 +124,7 @@ The `manifest_id` field is immutable per issuance. Any change to any signed fiel
 
 Two update paths are defined:
 
-- Full re-issuance: A new UUID v7, a new TEE attestation run, and a new transparency log entry. Required when any artifact binding changes, the signing key rotates, or the manifest expires.
+- Full re-issuance: A new UUID v7, a new TEE attestation run, and a new transparency registration - v0.1: a new `transparency_log_entry` (section 3.6); v0.2: a new COSE receipt from registration with a Transparency Service, carried in the COSE `receipts` header per `agent-manifest-cose-envelope-v0.2.md`. Required when any artifact binding changes, the signing key rotates, or the manifest expires.
 - Artifact-only refresh: **Withdrawn at Level 1 and above** <!-- CHANGED: #265 --> in favour of the memory checkpoint protocol. It permitted `memory_baseline.snapshot_hash` to be renewed and the manifest re-signed without re-running the TEE attestation, which cannot hold: `manifest_hash_in_report` (section 3.3) binds the exact COSE payload bytes for version 0.2 manifests. Changing the snapshot hash therefore requires a new manifest payload and a fresh attestation binding that payload. The retained attestation binds the previously issued document. A verifier had to either reject the refreshed manifest or stop enforcing the binding, and both cannot be conformant at once. At Level 1 and above, any change to a signed field MUST produce a new manifest and a fresh attestation binding its new `manifest_hash_in_report`. At Level 0 there is no attestation to invalidate, so a re-signed manifest with a new `manifest_id` is the only requirement and the refresh path adds nothing.
 - Governed memory evolution: Memory may advance without re-attesting the root manifest through the checkpoint and delta protocol in section 3.2.6.2, which binds the advance in a separate object with its own consistency proof and freshness rule. That protocol exists so a growing memory store does not have to mutate the document whose exact hash was attested. A checkpoint advance is not a refreshed manifest and MUST NOT be presented as one.
 
@@ -134,7 +134,7 @@ A verifying party MUST inspect the `version` field before processing any other f
 
 Key Rotation
 
-When a manifest signing key is rotated, the following protocol applies: (1) a new manifest MUST be issued signed by the successor key; (2) the new manifest MUST reference the previous manifest's transparency log entry in a `prior_transparency_log_entry` field; (3) the old manifest MUST be revoked upon rotation completion; (4) a `key_rotation` event type MUST be published to the transparency log. Verifiers traversing the rotation chain confirm continuity by checking that each successor manifest's `prior_transparency_log_entry` references a valid, previously-VALID manifest for the same `agent_id`. <!-- CHANGED: CRYPTO-009 - added key rotation protocol -->
+This protocol, including the `prior_transparency_log_entry` field, is defined for v0.1 manifests (the field is part of the v0.1 `signed_fields` set, section 3.6). When a manifest signing key is rotated, the following protocol applies: (1) a new manifest MUST be issued signed by the successor key; (2) the new manifest MUST reference the previous manifest's transparency log entry in a `prior_transparency_log_entry` field; (3) the old manifest MUST be revoked upon rotation completion; (4) a `key_rotation` event type MUST be published to the transparency log. Verifiers traversing the rotation chain confirm continuity by checking that each successor manifest's `prior_transparency_log_entry` references a valid, previously-VALID manifest for the same `agent_id`. The v0.2 COSE envelope specification does not currently define an equivalent key-rotation continuity mechanism; this is a known gap outside the scope of this fix. <!-- CHANGED: CRYPTO-009 - added key rotation protocol -->
 
 ### 2.3 Canonical Serialization <!-- CHANGED: CRYPTO-001/SPEC-13 - new normative section mandating RFC 8785 -->
 
@@ -211,7 +211,7 @@ An Agent Manifest is a JSON-LD document conforming to the following schema. All 
   "artifacts": "<object - REQUIRED, see section 3.2>",
   "attestation": "<object - REQUIRED for Level 1+, see section 3.3>",
   "delegation_chain": "<array - REQUIRED if agent is spawned by another agent, see section 3.4>",
-  "hitl_record": "<object - REQUIRED if any policy mandates HITL, see section 3.5>",
+  "hitl_record": "<object - REQUIRED if any policy mandates HITL, see section 3.5>"
 }
 ```
 
@@ -814,7 +814,7 @@ The attestation block binds the manifest to a specific TEE hardware measurement.
 
 For version 0.2 manifests, `manifest_hash_in_report` binds the COSE payload bytes that carry the manifest. The hash MUST be computed over the exact UTF-8 payload bytes carried in the COSE envelope. The payload MUST contain the manifest fields settled at signing time. The `attestation` block and COSE unprotected-header attachments, including `receipts`, are outside the payload and therefore outside this hash.
 
-For version 0.1 manifests, the detached-signature pre-image rules in section 3.6 remain applicable.
+For version 0.1 manifests, the `manifest_hash_in_report` pre-image is the RFC 8785 canonical JSON serialization of the full manifest document including the `signature` block and excluding only the `attestation` block. The `attestation` key MUST NOT be present in the pre-image document. The `transparency_log_entry` key MUST also be absent from the pre-image (it is populated after log submission). The hash MUST be computed over the UTF-8 encoding of this canonical form with no BOM. Because the pre-image covers the `signature` block, re-signing a manifest changes its `manifest_hash_in_report` even when no artifact value changed. An attestation carried forward onto a re-signed document therefore binds the previous document, not the one being verified. This is a distinct pre-image from the v0.1 manifest signature pre-image defined in section 3.6, which covers only the `signed_fields` subset and excludes the `signature` block entirely; the two MUST NOT be conflated.
 
 A verifier that finds an `attestation` block whose `manifest_hash_in_report` does not equal the hash computed above MUST return `MISMATCH`, whether or not `enforce_attestation` is set. <!-- CHANGED: #265 --> `enforce_attestation` governs whether an attestation is *required*; it does not govern whether a wrong one counts. An absent attestation and a present attestation that binds a different manifest are different conditions: the first is a policy question and the second is a report about some other document.
 
@@ -1188,13 +1188,13 @@ An OPTIONAL top-level `intent` object states what the agent is for.
 }
 ```
 
-**The issuer declares it, and that is the entire point.** Runtime governance frameworks increasingly ask that an action be evaluated against the agent's stated intent. An intent the governed agent asserts about itself cannot support that: an agent that intends to do X declares X, and the check becomes a formality. Because `intent` is inside the signing pre-image (section 3.6), it is fixed by the issuing authority before the agent runs, and the running agent can neither choose nor revise it. A verifier that finds an intent which does not match the issuer's signature has found tampering, not a change of plan.
+**The issuer declares it, and that is the entire point.** Runtime governance frameworks increasingly ask that an action be evaluated against the agent's stated intent. An intent the governed agent asserts about itself cannot support that: an agent that intends to do X declares X, and the check becomes a formality. Because `intent` is inside the signing pre-image - the `signed_fields` set of section 3.6 for v0.1, the COSE payload of `agent-manifest-cose-envelope-v0.2.md` for v0.2 - it is fixed by the issuing authority before the agent runs, and the running agent can neither choose nor revise it. A verifier that finds an intent which does not match the issuer's signature has found tampering, not a change of plan.
 
 `intent` MUST be covered by the issuer signature. An implementation MUST NOT accept an `intent` supplied outside the signed manifest — for example on a per-call request field — as satisfying this section, because such a value is self-asserted by the party being governed.
 
 **One field, and no stored digest.** A consumer that needs a stable reference to the intent, such as a runtime binding it into a per-call receipt, derives it as the `sha256:` digest of the RFC 8785 canonical form of the whole `intent` object. That digest is computed on demand and MUST NOT be stored inside the manifest beside the statement: two representations of one value can be made to disagree, and the signature already makes the statement tamper-evident.
 
-**Compatibility.** `intent` is OPTIONAL, and a manifest that omits it is unaffected. Per the null-omission rule in section 2.3 and the signing coverage table in section 3.6, a signed field absent from the manifest is omitted from the pre-image rather than serialized as `null`, so every signature issued before this section existed verifies unchanged.
+**Compatibility.** `intent` is OPTIONAL, and a manifest that omits it is unaffected. Per the null-omission rule in section 2.3, a signed field absent from the manifest is omitted from the pre-image rather than serialized as `null` - for v0.1 per the signing coverage table in section 3.6, and for v0.2 because the COSE payload simply carries the fields settled at signing time - so every signature issued before this section existed verifies unchanged.
 
 #### 3.9.1 What this does not provide
 
@@ -1247,7 +1247,7 @@ For deployments requiring post-quantum security (classified government, financia
 | Manifest signature | ML-DSA-65 | FIPS 204 | Replaces Ed25519. Larger signatures (~3.3KB) but quantum-resistant. |
 | Key exchange | ML-KEM-768 | FIPS 203 | Replaces X25519 in attestation TLS handshake. |
 | Artifact hashing | SHAKE-256 (256-bit output) | FIPS 202 | Extendable output function; replaces SHA-256. Hash values prefixed with `shake256:`. |
-| Hybrid mode | Ed25519 + ML-DSA-65 | Both | Transition period: both signatures required and verified. See section 3.6 for hybrid envelope. |
+| Hybrid mode | Ed25519 + ML-DSA-65 | Both | Transition period: both signatures required and verified. v0.1: see section 3.6 for the `classical_signature`/`pq_signature` hybrid envelope. v0.2: see `agent-manifest-cose-envelope-v0.2.md` section 2.1 for the COSE_Sign two-signer hybrid structure, which is not the same shape as the v0.1 envelope. |
 
 The `crypto_profile` field in the manifest header MUST be set to `post-quantum` when using this profile. A verifying party that supports only the standard profile MUST reject a post-quantum manifest rather than silently falling back - this prevents downgrade attacks during the transition period.
 
@@ -1282,7 +1282,9 @@ Optional fields with a `null` value MUST be excluded from the canonical form. Im
 
 #### Normative requirement
 
-Implementations MUST reject manifests where the manifest signature does not verify under RFC 8785 canonicalization. Fallback to alternative canonicalization on failure is NOT permitted.
+For v0.1 manifests, implementations MUST reject manifests where the detached signature does not verify under RFC 8785 canonicalization of the v0.1 signing pre-image (`signed_fields`, section 3.6). Fallback to alternative canonicalization on failure is NOT permitted.
+
+For v0.2 manifests, implementations MUST reject manifests where the COSE signature does not verify against the received `Sig_structure`, as specified in `agent-manifest-cose-envelope-v0.2.md`. A verifier MUST NOT re-canonicalize or otherwise re-derive the payload before verifying the signature; the payload bytes are signed and verified as received, which is the property RFC 8785 canonicalization exists to give the *producer*, not a verification step the v0.2 verifier repeats.
 
 References: RFC 8785 (https://www.rfc-editor.org/rfc/rfc8785) | Test vector: Appendix D
 
@@ -1433,7 +1435,7 @@ Access control for confidential payloads: Tool call payload fields in TRACE enve
 
 A `VALID` result means all of the following are true:
 
-- The manifest signature is valid under RFC 8785 canonicalization and the manifest is present in the transparency log. Before checking the issuer signature, the verifier MUST apply the `hitl_record.approvals` normalization rule from section 3.6 (replace `hitl_record.approvals` with `[]` in the signing pre-image); approvals are verified separately against their own `approval_signature`s
+- The manifest signature is valid and the manifest is present in the transparency log. v0.1: the detached signature verifies under RFC 8785 canonicalization of the `signed_fields` pre-image (section 3.6); before checking the issuer signature, the verifier MUST apply the `hitl_record.approvals` normalization rule from section 3.6 (replace `hitl_record.approvals` with `[]` in the signing pre-image). v0.2: the COSE_Sign1 or COSE_Sign signature verifies per `agent-manifest-cose-envelope-v0.2.md`; there is no RFC 8785 re-canonicalization step and no `hitl_record.approvals` normalization rule, since approvals are not part of the signed payload. In both versions, approvals are verified separately against their own `approval_signature`s
 - Receipt presence alone MUST NOT satisfy the transparency-log condition. A verifier MUST authenticate the receipt or inclusion evidence against its configured Transparency Service trust policy. In particular, a receipt carried in a COSE unprotected header is untrusted input until that independent appraisal succeeds.
 - The TEE attestation report confirms the manifest hash is bound to the hardware measurement
 - All fields specified in `required_fields` match their running artifacts. For `decision_trace`, `EXTENDED` satisfies this condition and `MISMATCH` does not; see Section 3.2.7.1
@@ -1486,10 +1488,15 @@ The authorization path mechanism is deployment policy. This section requires the
 A gateway that binds an Agent Manifest to a runtime session, such as cMCP, MUST
 use the manifest verification API rather than reconstructing a signing
 pre-image locally. In the Python SDK, the public entry point is
-`agent_manifest.verify_manifest(manifest, context, revocation_store)`;
-low-level signers and verifiers use `agent_manifest.signing_pre_image()`, which
-is the single source of truth for the RFC 8785 canonical byte sequence and the
-`hitl_record.approvals` normalization rule in section 3.6.
+`agent_manifest.verify_manifest(manifest, context, revocation_store)`. For v0.1
+manifests, low-level signers and verifiers use
+`agent_manifest.signing_pre_image()`, which is the single source of truth for
+the RFC 8785 canonical byte sequence of the `signed_fields` set and the
+`hitl_record.approvals` normalization rule in section 3.6. For v0.2 manifests,
+the equivalent source of truth is the COSE payload, verified per
+`agent-manifest-cose-envelope-v0.2.md`; `signing_pre_image()` is not used for
+v0.2 and MUST NOT be treated as a universal source of truth across both
+versions.
 
 For a runtime session binding, the verifier MUST check all of the following
 before treating the manifest identity as bound to the session:
@@ -1511,10 +1518,13 @@ before treating the manifest identity as bound to the session:
    `VerificationContext`.
 7. The manifest is not revoked.
 
-Because the entire `artifacts` object, `agent_id`, `issuer`, `issued_at`,
-`expires_at`, and `crypto_profile` fields are in the normative `signed_fields`
-set (section 3.6), these checks bind the session to the issuer-authenticated
-identity and artifact set.
+The entire `artifacts` object, `agent_id`, `issuer`, `issued_at`, `expires_at`,
+and `crypto_profile` fields are covered by the issuer signature in both
+versions: for v0.1, they are in the normative `signed_fields` set (section
+3.6); for v0.2, they are part of the signed COSE payload
+(`agent-manifest-cose-envelope-v0.2.md`). These checks therefore bind the
+session to the issuer-authenticated identity and artifact set regardless of
+manifest version.
 
 For the first cMCP integration profile, standard-profile Ed25519 manifests are
 sufficient. A gateway MAY support `ML-DSA-65` or
@@ -2097,7 +2107,7 @@ Agent Manifest is not a new transparency architecture. It is the agent-layer pro
 | Statement | The manifest document: the ten artifact bindings plus identity, lifetime, and issuer metadata |
 | Issuer | `issuer`, the SPIFFE URI of the signing authority (section 3.1) |
 | Signed Statement | The signed manifest (section 3.6). COSE_Sign1 from v0.2 per ADR-0011, which is what RFC 9943 requires of a Signed Statement |
-| Transparency Service | The Rekor or consortium log the manifest is submitted to (section 3.6) |
+| Transparency Service | v0.1: the Rekor or consortium log the manifest is submitted to (section 3.6). v0.2: the Transparency Service that registers the manifest and issues the receipt carried in the COSE `receipts` header, per `agent-manifest-cose-envelope-v0.2.md` |
 | Receipt | v0.1: the inclusion proof carried in `transparency_log_entry`. v0.2: the receipt carried in the COSE `receipts` header |
 | Transparent Statement | v0.1: a signed manifest whose `transparency_log_entry` is populated. v0.2: a COSE_Sign1 or COSE_Sign manifest accompanied by the applicable transparency receipt |
 | Registration Policy | What a Transparency Service checks before registering a manifest, for example the declared conformance level (section 8.1) and whether the signing key is authorized for the claimed issuer (section 5.3) |

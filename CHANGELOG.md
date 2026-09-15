@@ -17,6 +17,10 @@
 
 ### Fixed
 
+- **[SPEC]** Align v0.2 transparency log semantics with the governing COSE envelope specification (issue #414).
+
+  The v0.2 manifest specification now removes the top-level `signature` and `transparency_log_entry` fields from the manifest shape. Transparency receipts follow the COSE envelope model defined by ADR-0011 and are carried through the `receipts` header. The v0.1 signing and transparency semantics remain unchanged.
+
 - **[SDK]** `verify_manifest()` returned `MISMATCH`/`EXPIRED`/`INVALID`/
   `UNVERIFIABLE` for `hitl_record` when *any* approval in `hitl_record.approvals`
   failed, even if a later approval in the same array was present, valid,
@@ -744,10 +748,6 @@ Makes agent-manifest the canonical hardware-verification library for the org: SE
 **[SPEC]** SNP/TDX attestation field corrections and provider experimental markers (`REPORT_DATA` at `0x50`); threat-model/levels documentation scoped to what TEE attestation provides.
 
 ### Fixed
-
-- **[SPEC]** Align v0.2 transparency log semantics with the governing COSE envelope specification (issue #414).
-
-The v0.2 manifest specification now removes the top-level `signature` and `transparency_log_entry` fields from the manifest shape. Transparency receipts follow the COSE envelope model defined by ADR-0011 and are carried through the `receipts` header. The v0.1 signing and transparency semantics remain unchanged.
 
 **\[SDK\]** `PrincipalType` set reconciled (no `service`).
 
