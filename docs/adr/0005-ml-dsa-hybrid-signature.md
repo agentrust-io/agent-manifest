@@ -1,3 +1,7 @@
+---
+description: Decision to support ML-DSA-65 (FIPS 204) and a hybrid Ed25519 plus ML-DSA-65 profile, in which a verifier must check both signatures.
+---
+
 # ADR-0005: ML-DSA-65 and hybrid Ed25519+ML-DSA-65 signature support
 
 **Status**: Accepted  

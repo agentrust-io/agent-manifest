@@ -1,3 +1,7 @@
+---
+description: Decision to embed a human approval record in the manifest, signed by the approver's key rather than the issuer's, so oversight can be verified.
+---
+
 # ADR-0006: Human-in-the-Loop (HITL) embedded approval record design
 
 **Status**: Accepted  

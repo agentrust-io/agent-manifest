@@ -169,7 +169,15 @@ def _b64url_encode(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
 
 
-_B64URL_RE = re.compile(r"^[A-Za-z0-9\-_]*$")
+# NOTE: intentionally NOT anchored with `$` -- Python's `$` matches at
+# end-of-string OR just before a single trailing '\n', which would let
+# "<valid-b64url>\n" slip past this alphabet check even though '\n' isn't
+# in the URL-safe alphabet, and base64.urlsafe_b64decode() would then
+# silently drop that '\n' and decode it identically to the un-suffixed
+# value -- defeating the CRYPTO-006 guard below. fullmatch() (no anchors)
+# does not have this hole.
+_B64URL_RE = re.compile(r"[A-Za-z0-9\-_]*")
+
 
 
 def _signed_at_now() -> str:
@@ -181,7 +189,7 @@ def _signed_at_now() -> str:
 
 def _b64url_decode(s: str) -> bytes:
     # CRYPTO-006: reject standard base64 (+/) - only URL-safe chars allowed
-    if not _B64URL_RE.match(s):
+    if not isinstance(s, str) or not _B64URL_RE.fullmatch(s):
         raise ValueError(
             "Invalid base64url: contains non-URL-safe characters (use - and _ not + and /)"
         )

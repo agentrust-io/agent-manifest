@@ -40,7 +40,7 @@ class AttestationUnavailableError(RuntimeError):
 class AttestationReport:
     """Portable attestation report returned by all providers."""
 
-    platform: str  # "tpm" | "sev-snp" | "tdx" | "opaque"
+    platform: str  # "amd-sev-snp" | "azure-cvm-sev-snp" | "intel-tdx" | "tpm" | "aws-nitro" | "opaque"
     manifest_hash: str  # "sha256:<64-hex>" — hash of the signed manifest
     pcr_values: dict[str, str] = field(default_factory=dict)  # {"PCR15": "sha256:..."}
     quote: Optional[bytes] = None  # raw platform quote/report blob

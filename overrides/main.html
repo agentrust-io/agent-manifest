@@ -1,35 +1,45 @@
 {% extends "base.html" %}
 
 {#
-  SEO and AEO head additions:
-  - Open Graph and Twitter card meta so links preview correctly and answer
-    engines can extract a title and summary.
-  - JSON-LD structured data (Organization, WebSite, SoftwareApplication) so
-    Google rich results and LLM answer engines can model the project.
-  Material adds <link rel="canonical"> automatically when site_url is set,
-  so it is not duplicated here.
+  Head additions for search and answer engines.
+  - <title>: Material appends " - site_name" to every title, which doubled the
+    name on pages that already carry it ("Agent Manifest v0.2 - Agent Manifest")
+    and on the home page. The home page uses its front-matter title alone; other
+    pages drop the suffix when the title already names the site.
+  - Open Graph and Twitter tags repeat that title and the page description.
+    hooks/seo.py derives the description from the page's first paragraph unless
+    front matter sets one.
+  - JSON-LD: the one AgenTrust Organization under the agentrust-io.com @id, this
+    WebSite, the page itself, a breadcrumb on inner pages, and the project node
+    on the home page. Every string goes through tojson.
+  Material emits <link rel="canonical"> from site_url, so it is not repeated here.
 #}
+
+{% block htmltitle %}
+  {%- set t = page.meta.title if page and page.meta and page.meta.title else (page.title | striptags if page and page.title and not page.is_homepage else "") -%}
+  {%- set title_text = config.site_name if not t else (t if ((page and page.is_homepage) or config.site_name in t) else t ~ " - " ~ config.site_name) -%}
+  <title>{{ title_text | e }}</title>
+{% endblock %}
+
 {% block extrahead %}
   {{ super() }}
-  {#- page.title is the nav label; page.meta.title is the front matter, which is
-      the only one of the two that describes the page. -#}
-  {%- set page_name = (page.meta.title if (page and page.meta and page.meta.title) else (page.title if page else None)) -%}
-  {%- set page_title = (page_name ~ " - " ~ config.site_name if page_name and page_name != config.site_name else config.site_name) | default(config.site_name, true) -%}
-  {%- set page_desc = (page.meta.description if page and page.meta else config.site_description) | default(config.site_description, true) -%}
+  {%- set t = page.meta.title if page and page.meta and page.meta.title else (page.title | striptags if page and page.title and not page.is_homepage else "") -%}
+  {%- set title_text = config.site_name if not t else (t if ((page and page.is_homepage) or config.site_name in t) else t ~ " - " ~ config.site_name) -%}
+  {%- set page_desc = page.meta.description if page and page.meta and page.meta.description else config.site_description -%}
+  {%- set page_url = page.canonical_url if page and page.canonical_url else config.site_url -%}
+  {%- set is_home = page and page.is_homepage -%}
   <meta property="og:type" content="website">
-  <meta property="og:site_name" content="{{ config.site_name }}">
-  <meta property="og:title" content="{{ page_title }}">
-  <meta property="og:description" content="{{ page_desc }}">
-  {%- if page and page.canonical_url %}
-  <meta property="og:url" content="{{ page.canonical_url }}">
-  {%- endif %}
+  <meta property="og:site_name" content="AgenTrust">
+  <meta property="og:title" content="{{ title_text | e }}">
+  <meta property="og:description" content="{{ page_desc | e }}">
+  <meta property="og:url" content="{{ page_url }}">
   <meta property="og:image" content="https://manifest.agentrust-io.com/assets/og.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
-  <meta property="og:image:alt" content="Agent Manifest: an AgenTrust open standard">
+  <meta property="og:image:alt" content="Agent Manifest: part of the AgenTrust verifiable AI supply chain">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="{{ page_title }}">
-  <meta name="twitter:description" content="{{ page_desc }}">
+  <meta name="twitter:title" content="{{ title_text | e }}">
+  <meta name="twitter:description" content="{{ page_desc | e }}">
   <meta name="twitter:image" content="https://manifest.agentrust-io.com/assets/og.png">
 
   <script type="application/ld+json">
@@ -38,38 +48,64 @@
     "@graph": [
       {
         "@type": "Organization",
-        "@id": "https://agentrust-io.com/#org",
+        "@id": "https://agentrust-io.com/#organization",
         "name": "AgenTrust",
-        "url": "https://agentrust-io.com",
+        "url": "https://agentrust-io.com/",
         "sameAs": [
           "https://github.com/agentrust-io",
-          "https://cmcp.agentrust-io.com",
+          "https://trace.agentrust-io.com",
           "https://manifest.agentrust-io.com",
-          "https://trace.agentrust-io.com"
+          "https://cmcp.agentrust-io.com",
+          "https://ca2a.agentrust-io.com",
+          "https://wcm.agentrust-io.com",
+          "https://tests.agentrust-io.com",
+          "https://governance.agentrust-io.com"
         ]
       },
       {
         "@type": "WebSite",
-        "@id": "{{ config.site_url }}#website",
-        "url": "{{ config.site_url }}",
-        "name": "{{ config.site_name }}",
-        "description": "{{ config.site_description }}",
-        "publisher": { "@id": "https://agentrust-io.com/#org" }
+        "@id": {{ (config.site_url ~ "#website") | tojson }},
+        "url": {{ config.site_url | tojson }},
+        "name": {{ config.site_name | tojson }},
+        "description": {{ config.site_description | tojson }},
+        "publisher": { "@id": "https://agentrust-io.com/#organization" }
       },
       {
+        "@type": {{ ("WebPage" if is_home else "TechArticle") | tojson }},
+        "@id": {{ (page_url ~ "#page") | tojson }},
+        "url": {{ page_url | tojson }},
+        "name": {{ title_text | tojson }},
+        "headline": {{ title_text | tojson }},
+        "description": {{ page_desc | tojson }},
+        "isPartOf": { "@id": {{ (config.site_url ~ "#website") | tojson }} },
+        "publisher": { "@id": "https://agentrust-io.com/#organization" },
+        "inLanguage": "en"
+      },
+      {%- if is_home %}
+      {
         "@type": "SoftwareApplication",
+        "@id": {{ (config.site_url ~ "#software") | tojson }},
         "name": "Agent Manifest",
         "applicationCategory": "SecurityApplication",
         "operatingSystem": "Linux, macOS, Windows",
-        "description": "{{ config.site_description }}",
-        "url": "{{ config.site_url }}",
-        "softwareVersion": "0.1",
+        "description": {{ config.site_description | tojson }},
+        "url": {{ config.site_url | tojson }},
         "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
-        "author": { "@id": "https://agentrust-io.com/#org" },
+        "author": { "@id": "https://agentrust-io.com/#organization" },
+        "publisher": { "@id": "https://agentrust-io.com/#organization" },
         "downloadUrl": "https://pypi.org/project/agent-manifest/",
-        "codeRepository": "https://github.com/agentrust-io/agent-manifest",
-        "license": "https://github.com/agentrust-io/agent-manifest/blob/main/LICENSE"
+        "codeRepository": {{ config.repo_url | tojson }},
+        "license": "https://www.apache.org/licenses/LICENSE-2.0"
       }
+      {%- else %}
+      {
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+          { "@type": "ListItem", "position": 1, "name": {{ config.site_name | tojson }}, "item": {{ config.site_url | tojson }} },
+          { "@type": "ListItem", "position": 2, "name": {{ title_text | tojson }}, "item": {{ page_url | tojson }} }
+        ]
+      }
+      {%- endif %}
     ]
   }
   </script>

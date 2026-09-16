@@ -6,6 +6,7 @@ on:
     paths:
       - "docs/**"
       - "overrides/**"
+      - "hooks/**"
       - "mkdocs.yml"
       - "requirements-docs.txt"
       - "python/src/**"

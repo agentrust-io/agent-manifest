@@ -1,3 +1,7 @@
+---
+description: Decision to add a nonce-bound runtime attestation report every attestation provider must implement, because attestation taken only at boot goes stale.
+---
+
 # ADR-0010: Runtime Attestation Freshness Proofs
 
 **Status**: Accepted  

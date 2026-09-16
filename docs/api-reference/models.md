@@ -1,3 +1,7 @@
+---
+description: Reference for the Agent Manifest model and its nested types, all Pydantic v2 models that serialize to JSON.
+---
+
 # Core models
 
 The `Manifest` and all nested types are Pydantic v2 models. All fields are serialisable to JSON via `.model_dump(mode="json")`. See [ADR-0004](../adr/0004-pydantic-v2-schema-modeling.md) for the rationale.

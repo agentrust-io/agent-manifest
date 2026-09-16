@@ -21,6 +21,14 @@
 
   The v0.2 manifest specification now removes the top-level `signature` and `transparency_log_entry` fields from the manifest shape. Transparency receipts follow the COSE envelope model defined by ADR-0011 and are carried through the `receipts` header. The v0.1 signing and transparency semantics remain unchanged.
 
+- **[SDK]** `verify_manifest()` now recomputes a tool catalog's Merkle root
+  from its supplied `tools` before accepting the declared `catalog_hash`.
+  A valid signature and a matching runtime hash no longer hide inconsistent
+  catalog contents (spec 3.2.3, issue #416). The runtime comparison remains
+  independent, and legacy bindings that omit `tools` retain their existing
+  hash-comparison behavior. Observed by solloek369-arch on #340 and filed as
+  #416 by Imran Siddique.
+
 - **[SDK]** `verify_manifest()` returned `MISMATCH`/`EXPIRED`/`INVALID`/
   `UNVERIFIABLE` for `hitl_record` when *any* approval in `hitl_record.approvals`
   failed, even if a later approval in the same array was present, valid,
@@ -162,6 +170,35 @@
   deleted, so `--crl-trusted-key` does not by itself prevent un-revocation
   by deletion. Closing that gap needs a signed, versioned CRL
   snapshot/digest mechanism, which is not yet implemented.
+
+- **[SECURITY][SDK]** `verify_attestation_chain` no longer treats the
+  `azure-cvm-sev-snp` platform label -- or a caller-supplied boolean -- as
+  proof that the manifest binding was verified. REPORT_DATA on Azure is
+  `sha256(runtime_data)`, never the manifest hash, so it cannot be checked
+  directly the way it is on bare-metal SEV-SNP; Azure's real binding is a
+  vTPM AK-signed quote over a PCR derived from the manifest hash, chained to
+  REPORT_DATA via the runtime data. An earlier revision of this fix took an
+  `azure_manifest_binding_verified` parameter and trusted whatever the
+  caller passed in -- which meant any caller (or future code) could get
+  `passed=True` by simply passing `True`, with no evidence ever checked.
+  That parameter is gone. `verify_attestation_chain` now establishes the
+  composite chain itself (PCR-in-quote, AK signature, AK identity in
+  runtime_data, runtime_data->REPORT_DATA binding -- see the new
+  `agent_manifest._azure_verify.verify_azure_manifest_binding`, also used
+  by `AzureCVMProvider.verify_manifest_in_report` so there is exactly one
+  implementation of this security property) directly from evidence carried
+  on the report (`quote_msg`, `quote_sig`, `ak_pub_pem`, `runtime_data_hex`
+  in `report.raw`, and the SNP report bytes). `report_data_matched` is a
+  definite `True`/`False` for Azure, the same as every other platform. A
+  `platform` value selects which verification procedure applies; it is
+  never itself evidence that the procedure ran, and neither is any
+  caller-supplied flag -- there is no longer one to supply.
+
+- **[SECURITY][SDK]** `verify_attestation_chain` platform dispatch is now an
+  explicit allow-list (`amd-sev-snp`, `azure-cvm-sev-snp`, `intel-tdx`,
+  `tpm`, `aws-nitro`) instead of a catch-all `else` that routed any
+  unrecognized platform label through the SNP verifier. Unsupported labels
+  now report `NOT_IMPLEMENTED` and cannot pass. Closes #363.
 
 - **[SDK]** `_check_manifest_binding()` no longer masks a malformed
   `artifacts` or `artifacts.policy_bundle` as merely absent. Truthy
