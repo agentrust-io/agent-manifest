@@ -140,14 +140,17 @@ When a manifest signing key is rotated, the following protocol applies: (1) a ne
 
 All canonical JSON serialization in this specification uses RFC 8785 (JSON Canonicalization Scheme, JCS). This applies without exception to:
 
-- Manifest signature pre-image computation (section 3.6)
+- v0.1 manifest signature pre-image computation (section 3.6)
+- v0.2 producer-side payload construction, before the payload is placed in the COSE envelope
 - Per-artifact hash inputs for text artifacts
 - `manifest_hash_in_report` pre-image (section 3.3)
 - Memory snapshot hash input (section 3.2.6)
 - Evidence pack hash (section 5.2)
 - All Merkle tree leaf computations involving JSON content
 
-The `@context` and `@type` JSON-LD fields are treated as ordinary JSON fields for canonicalization purposes. Full JSON-LD RDF dataset normalization (RDNA/GPN-09) is NOT used and MUST NOT be used as a substitute for JCS - the two algorithms produce different canonical forms. Implementations MUST reject manifests where the signature does not verify under RFC 8785 canonicalization.
+The `@context` and `@type` JSON-LD fields are treated as ordinary JSON fields for canonicalization purposes. Full JSON-LD RDF dataset normalization (RDNA/GPN-09) is NOT used and MUST NOT be used as a substitute for JCS - the two algorithms produce different canonical forms.
+
+For v0.1 manifests, implementations MUST reject manifests where the signature does not verify under RFC 8785 canonicalization. For v0.2 manifests, the COSE Sig_structure is verified over the payload bytes exactly as received; the verifier MUST NOT re-canonicalize the payload before verification, and JCS applies only to how the producer constructed those bytes, not to how the verifier checks them.
 
 Test vector: The object `{"b":2,"a":1}` canonicalizes under RFC 8785 to the UTF-8 byte sequence `{"a":1,"b":2}` (lexicographic key order, no insignificant whitespace). Its SHA-256 is `43258cff783fe7036d8a43033f830adfc60ec037382473548ac742b888292777`. Implementations MUST reproduce this value.
 
@@ -1165,12 +1168,12 @@ Revocation records MUST be published to the same transparency log as the manifes
 
 ### 3.8 Key Rotation and Manifest Re-signing <!-- CHANGED: closes #42 -->
 
-When the signing key is rotated, the manifest MUST be re-signed and re-published to the transparency log. The old manifest becomes invalid once the new manifest is published and the old key is revoked.
+When the signing key is rotated, the manifest MUST be re-signed and re-published to the transparency log. The old manifest becomes invalid once the new manifest is published and the old key is revoked. This procedure applies to both v0.1 and v0.2 manifests; step 2 differs by version, as noted below. The rotation-chain continuity protocol itself, including the `prior_transparency_log_entry` requirement, is defined once in section 2.2 and is not repeated here.
 
 Key rotation procedure:
 1. Generate new key pair
-2. Create a new manifest with the same artifact bindings, a new `issued_at`, and updated `signature.key_id`
-3. Sign the new manifest with the new private key
+2. Create a new manifest with the same artifact bindings and a new `issued_at`. For v0.1 manifests, update `signature.key_id`. For v0.2 manifests, update the COSE protected header's `kid` value; there is no top-level `signature` field to update. In both cases, populate `prior_transparency_log_entry` per the section 2.2 protocol.
+3. Sign the new manifest with the new private key (v0.1: detached signature per section 3.6; v0.2: COSE Sig_structure over the payload per the governing envelope specification)
 4. Publish to transparency log
 5. Update the verification endpoint to serve the new manifest
 6. Revoke the old manifest via the revocation endpoint
