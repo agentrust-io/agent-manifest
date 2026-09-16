@@ -385,6 +385,169 @@ def test_hitl_approval_expired():
     assert result.fields_verified.hitl_record == HitlResult.EXPIRED
 
 
+def test_hitl_approval_naive_timestamp_fails_closed_not_crash():
+    """A tz-naive approved_at ("2026-09-16T10:00:00", no offset/"Z") parses
+    fine with a bare datetime.fromisoformat() and passes schema validation
+    (pydantic's `datetime` field doesn't require tzinfo), so it reaches the
+    integrated HITL loop. There, comparing it against the aware `now` used
+    for expiry must not raise TypeError out of verify_manifest() - it must
+    fail closed as EXPIRED, the same as any other unparseable timestamp."""
+    m = base_manifest(hitl_record={
+        "required": True,
+        "approvals": [{
+            "approved_at": "2026-09-16T10:00:00",
+            "approved_scope": {"approval_duration_seconds": 3600},
+        }],
+    })
+    result = verify_manifest(m, base_context(), store())  # must not raise
+    assert result.fields_verified.hitl_record == HitlResult.EXPIRED
+
+
+def test_hitl_approval_non_dict_entry_fails_closed_not_crash(monkeypatch):
+    """Defense in depth: a non-dict entry in hitl_record.approvals is
+    already caught by schema validation on the normal path (a genuine type
+    mismatch, not the "missing field" legacy carve-out), but the loop
+    itself must not raise AttributeError out of verify_manifest() if it
+    were ever reached - it must fail closed as INVALID, same bucket as any
+    other concretely-broken approval."""
+    import agent_manifest._verify as verify_mod
+
+    monkeypatch.setattr(verify_mod, "_strict_schema_violations", lambda m: [])
+    m = base_manifest(hitl_record={
+        "required": True,
+        "approvals": ["not-an-approval-object"],
+    })
+    result = verify_manifest(m, base_context(), store())  # must not raise
+    assert result.fields_verified.hitl_record == HitlResult.INVALID
+
+
+def test_hitl_approval_non_dict_approved_scope_fails_closed_not_crash(monkeypatch):
+    """Defense in depth: a non-dict approved_scope is already caught by
+    schema validation on the normal path, but the loop itself must not
+    raise AttributeError out of verify_manifest() when it calls .get() on
+    it if that guard were ever bypassed - it must fail closed as INVALID."""
+    import agent_manifest._verify as verify_mod
+
+    monkeypatch.setattr(verify_mod, "_strict_schema_violations", lambda m: [])
+    m = base_manifest(hitl_record={
+        "required": True,
+        "approvals": [{
+            "approved_at": (NOW - timedelta(minutes=5)).isoformat().replace("+00:00", "Z"),
+            "approved_scope": "not-a-scope-object",
+        }],
+    })
+    result = verify_manifest(m, base_context(), store())  # must not raise
+    assert result.fields_verified.hitl_record == HitlResult.INVALID
+
+
+def test_hitl_approval_missing_duration_rejected_by_schema():
+    """approval_duration_seconds is required (models.ApprovedScope). Omitting
+    it must fail closed like setting it to 0 does, not be waved through as
+    an approval that never expires."""
+    approval_time = (NOW - timedelta(days=365)).isoformat().replace("+00:00", "Z")
+    m = base_manifest(hitl_record={
+        "required": True,
+        "approvals": [hitl_approval(approval_time, {})],
+    })
+    result = verify_manifest(m, base_context(), store())
+    assert result.result == OverallResult.MISMATCH
+    assert any(
+        "approval_duration_seconds" in d.field
+        for d in result.mismatch_details
+    )
+
+
+def test_hitl_approval_explicit_zero_duration_rejected_by_schema():
+    """Setting approval_duration_seconds: 0 fails the same schema check as
+    omitting it - both mean "no expiry", and both must be rejected."""
+    approval_time = (NOW - timedelta(days=365)).isoformat().replace("+00:00", "Z")
+    m = base_manifest(hitl_record={
+        "required": True,
+        "approvals": [hitl_approval(
+            approval_time, {"approval_duration_seconds": 0}
+        )],
+    })
+    result = verify_manifest(m, base_context(), store())
+    assert result.result == OverallResult.MISMATCH
+    assert any(
+        "approval_duration_seconds" in d.field
+        for d in result.mismatch_details
+    )
+
+
+def test_hitl_approval_negative_duration_rejected_by_schema():
+    """A negative approval_duration_seconds fails the same schema check as
+    0, through the normal (non-bypassed) verify_manifest() path."""
+    approval_time = (NOW - timedelta(days=365)).isoformat().replace("+00:00", "Z")
+    m = base_manifest(hitl_record={
+        "required": True,
+        "approvals": [hitl_approval(
+            approval_time, {"approval_duration_seconds": -100}
+        )],
+    })
+    result = verify_manifest(m, base_context(), store())
+    assert result.result == OverallResult.MISMATCH
+    assert any(
+        "approval_duration_seconds" in d.field
+        for d in result.mismatch_details
+    )
+
+
+def test_hitl_approval_fractional_duration_rejected_by_schema():
+    """A fractional approval_duration_seconds (e.g. 1.5) fails the schema's
+    int coercion, which accepts a float only when it has no fractional
+    part, through the normal (non-bypassed) verify_manifest() path."""
+    approval_time = (NOW - timedelta(days=365)).isoformat().replace("+00:00", "Z")
+    m = base_manifest(hitl_record={
+        "required": True,
+        "approvals": [hitl_approval(
+            approval_time, {"approval_duration_seconds": 1.5}
+        )],
+    })
+    result = verify_manifest(m, base_context(), store())
+    assert result.result == OverallResult.MISMATCH
+    assert any(
+        "approval_duration_seconds" in d.field
+        for d in result.mismatch_details
+    )
+
+
+def test_hitl_approval_whole_number_float_duration_is_approved():
+    """A whole-number float (e.g. 3600.0) is accepted end-to-end through
+    verify_manifest() - the schema coerces it to int 3600, the same as
+    passing 3600 directly. Not stricter than the schema."""
+    approval_time = (NOW - timedelta(minutes=5)).isoformat().replace("+00:00", "Z")
+    m = base_manifest(hitl_record={
+        "required": True,
+        "approvals": [hitl_approval(
+            approval_time, {"approval_duration_seconds": 3600.0}
+        )],
+    })
+    result = verify_manifest(m, base_context(), store())
+    assert result.fields_verified.hitl_record == HitlResult.APPROVED
+
+
+@pytest.mark.parametrize("bad_scope", [
+    {},                                      # missing entirely
+    {"approval_duration_seconds": 0},        # zero
+    {"approval_duration_seconds": -100},     # negative
+    {"approval_duration_seconds": 1.5},      # fractional (not an integer)
+])
+def test_hitl_loop_fails_closed_on_bad_duration_even_if_schema_bypassed(monkeypatch, bad_scope):
+    """Defense in depth: even if schema validation were bypassed, a missing,
+    zero, negative, or fractional duration must never resolve to APPROVED."""
+    import agent_manifest._verify as verify_mod
+
+    monkeypatch.setattr(verify_mod, "_strict_schema_violations", lambda m: [])
+    approval_time = (NOW - timedelta(hours=1)).isoformat().replace("+00:00", "Z")
+    m = base_manifest(hitl_record={
+        "required": True,
+        "approvals": [hitl_approval(approval_time, bad_scope)],
+    })
+    result = verify_manifest(m, base_context(), store())
+    assert result.fields_verified.hitl_record == HitlResult.INVALID
+
+
 # ---------------------------------------------------------------------------
 # Decision trace
 # ---------------------------------------------------------------------------
