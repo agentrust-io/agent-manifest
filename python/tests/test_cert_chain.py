@@ -175,6 +175,43 @@ def test_expired_leaf_rejected():
         verify_cert_chain([leaf, root], [root])
 
 
+def test_leaf_valid_exactly_at_not_after_boundary():
+    """RFC 5280 4.1.2.5: the validity period is notBefore through notAfter,
+    *inclusive*. A certificate checked at the exact notAfter second must
+    still verify."""
+    rk, lk = _ec(), _ec()
+    not_after = _T0 + timedelta(days=1)
+    root = _cert("root", "root", rk.public_key(), rk, ca=True)
+    leaf = _cert(
+        "leaf", "root", lk.public_key(), rk, not_before=_T0, not_after=not_after
+    )
+    assert verify_cert_chain([leaf, root], [root], verification_time=not_after) is True
+
+
+def test_leaf_rejected_one_second_past_not_after_boundary():
+    """The second *after* notAfter is correctly outside the validity period."""
+    rk, lk = _ec(), _ec()
+    not_after = _T0 + timedelta(days=1)
+    root = _cert("root", "root", rk.public_key(), rk, ca=True)
+    leaf = _cert(
+        "leaf", "root", lk.public_key(), rk, not_before=_T0, not_after=not_after
+    )
+    with pytest.raises(CertChainError, match="outside its validity period"):
+        verify_cert_chain(
+            [leaf, root], [root], verification_time=not_after + timedelta(seconds=1)
+        )
+
+
+def test_leaf_valid_exactly_at_not_before_boundary():
+    """The lower bound was already inclusive; confirm it stays that way."""
+    rk, lk = _ec(), _ec()
+    root = _cert("root", "root", rk.public_key(), rk, ca=True)
+    leaf = _cert(
+        "leaf", "root", lk.public_key(), rk, not_before=_T0, not_after=_T0 + timedelta(days=1)
+    )
+    assert verify_cert_chain([leaf, root], [root], verification_time=_T0) is True
+
+
 def test_non_ca_issuer_rejected():
     rk, ik, lk = _ec(), _ec(), _ec()
     root = _cert("root", "root", rk.public_key(), rk, ca=True)
