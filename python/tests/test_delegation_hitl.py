@@ -571,21 +571,150 @@ def test_expiring_approval_accepts_valid_timezone_offsets(offset_hours):
     verify_hitl_approval(approval, MID, kp.public_bytes)
 
 
-def test_approval_no_duration_does_not_expire():
-    """Approval with no duration limit must not raise expiry error."""
+def test_approval_zero_duration_raises_value_error():
+    """approval_duration_seconds is required and must be positive (spec 3.5,
+    ADR-0006) - 0 must be rejected, not treated as no expiry."""
     kp = generate_ed25519()
     past_time = (datetime.now(timezone.utc) - timedelta(days=365)).isoformat().replace("+00:00", "Z")
-    no_expiry_scope = {**APPROVAL_SCOPE, "approval_duration_seconds": 0}
+    zero_scope = {**APPROVAL_SCOPE, "approval_duration_seconds": 0}
     sig = HitlApprovalSigner(kp).sign_approval(
         manifest_id=MID, approved_at=past_time,
-        approved_scope=no_expiry_scope, approver_id="did:web:ciso",
+        approved_scope=zero_scope, approver_id="did:web:ciso",
     )
     approval = {
         "manifest_id": MID, "approved_at": past_time,
-        "approved_scope": no_expiry_scope, "approver_id": "did:web:ciso",
+        "approved_scope": zero_scope, "approver_id": "did:web:ciso",
+        "approval_signature": sig,
+    }
+    with pytest.raises(ValueError, match="must be a positive integer"):
+        verify_hitl_approval(approval, MID, kp.public_bytes)
+
+
+def test_approval_missing_duration_raises_value_error():
+    """Omitting approval_duration_seconds entirely defaults to 0, same as
+    setting it explicitly - both are rejected."""
+    kp = generate_ed25519()
+    past_time = (datetime.now(timezone.utc) - timedelta(days=365)).isoformat().replace("+00:00", "Z")
+    no_duration_scope = {"artifacts": ["system_prompt", "policy_bundle"], "risk_tier": "high"}
+    sig = HitlApprovalSigner(kp).sign_approval(
+        manifest_id=MID, approved_at=past_time,
+        approved_scope=no_duration_scope, approver_id="did:web:ciso",
+    )
+    approval = {
+        "manifest_id": MID, "approved_at": past_time,
+        "approved_scope": no_duration_scope, "approver_id": "did:web:ciso",
+        "approval_signature": sig,
+    }
+    with pytest.raises(ValueError, match="must be a positive integer"):
+        verify_hitl_approval(approval, MID, kp.public_bytes)
+
+
+def test_approval_negative_duration_raises_value_error():
+    kp = generate_ed25519()
+    sig = HitlApprovalSigner(kp).sign_approval(
+        manifest_id=MID, approved_at=NOW,
+        approved_scope={**APPROVAL_SCOPE, "approval_duration_seconds": -100},
+        approver_id="did:web:ciso",
+    )
+    approval = {
+        "manifest_id": MID, "approved_at": NOW,
+        "approved_scope": {**APPROVAL_SCOPE, "approval_duration_seconds": -100},
+        "approver_id": "did:web:ciso",
+        "approval_signature": sig,
+    }
+    with pytest.raises(ValueError, match="must be a positive integer"):
+        verify_hitl_approval(approval, MID, kp.public_bytes)
+
+
+def test_approval_fractional_duration_raises_value_error():
+    """approval_duration_seconds must be a positive integer (spec 3.5), not
+    just a positive number. models.ApprovedScope's pydantic `int` field
+    rejects a fractional float (e.g. 1.5) the same way - this matches it."""
+    kp = generate_ed25519()
+    sig = HitlApprovalSigner(kp).sign_approval(
+        manifest_id=MID, approved_at=NOW,
+        approved_scope={**APPROVAL_SCOPE, "approval_duration_seconds": 1.5},
+        approver_id="did:web:ciso",
+    )
+    approval = {
+        "manifest_id": MID, "approved_at": NOW,
+        "approved_scope": {**APPROVAL_SCOPE, "approval_duration_seconds": 1.5},
+        "approver_id": "did:web:ciso",
+        "approval_signature": sig,
+    }
+    with pytest.raises(ValueError, match="must be a positive integer"):
+        verify_hitl_approval(approval, MID, kp.public_bytes)
+
+
+def test_approval_whole_number_float_duration_is_accepted():
+    """A float with no fractional part (e.g. 3600.0) is accepted, matching
+    models.ApprovedScope's pydantic `int` field, which coerces an integral
+    float instead of rejecting it."""
+    kp = generate_ed25519()
+    sig = HitlApprovalSigner(kp).sign_approval(
+        manifest_id=MID, approved_at=NOW,
+        approved_scope={**APPROVAL_SCOPE, "approval_duration_seconds": 3600.0},
+        approver_id="did:web:ciso",
+    )
+    approval = {
+        "manifest_id": MID, "approved_at": NOW,
+        "approved_scope": {**APPROVAL_SCOPE, "approval_duration_seconds": 3600.0},
+        "approver_id": "did:web:ciso",
         "approval_signature": sig,
     }
     verify_hitl_approval(approval, MID, kp.public_bytes)  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# ApprovedScope.approval_duration_seconds (pydantic model) must accept and
+# reject exactly what the shared _check_hitl_approval_duration() does -
+# both use that one function now, so this is a literal consistency check,
+# not just a matching-behavior one.
+# ---------------------------------------------------------------------------
+
+def _approved_scope(**overrides):
+    from agent_manifest.models import ApprovedScope
+    base = {**APPROVAL_SCOPE, "approval_duration_seconds": 3600}
+    base.update(overrides)
+    return ApprovedScope(**base)
+
+
+def test_approved_scope_rejects_numeric_string_duration():
+    """A JSON string like "3600" must be rejected by the model, not
+    silently coerced by pydantic's lax `int` mode - it's rejected by
+    verify_hitl_approval() too, and the two must not disagree."""
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError, match="must be numeric"):
+        _approved_scope(approval_duration_seconds="3600")
+
+
+def test_approved_scope_rejects_bool_duration():
+    """`True`/`False` are int subclasses in Python; pydantic's lax `int`
+    mode would coerce True -> 1, but verify_hitl_approval() explicitly
+    rejects any bool. The model must match, not accept a bool the shared
+    verifier would reject."""
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError, match="must be numeric"):
+        _approved_scope(approval_duration_seconds=True)
+    with pytest.raises(ValidationError, match="must be numeric"):
+        _approved_scope(approval_duration_seconds=False)
+
+
+def test_approved_scope_still_accepts_whole_number_float():
+    """3600.0 must still be accepted and coerced to the int 3600 - the
+    duration gate must not become stricter than the schema it shares with
+    verify_hitl_approval() (spec/ADR-0006), only stricter than pydantic's
+    unmodified lax `int` coercion was on strings/bool."""
+    scope = _approved_scope(approval_duration_seconds=3600.0)
+    assert scope.approval_duration_seconds == 3600
+    assert isinstance(scope.approval_duration_seconds, int)
+
+
+def test_approved_scope_still_rejects_fractional_and_nonpositive():
+    from pydantic import ValidationError
+    for bad in (1.5, 0, -100):
+        with pytest.raises(ValidationError):
+            _approved_scope(approval_duration_seconds=bad)
 
 
 # ---------------------------------------------------------------------------
@@ -639,12 +768,7 @@ def test_non_object_approved_scope_raises_value_error(bad_scope):
     ["soon", "", ["not", "a", "number"], [], {"x": 1}, {}, True, False, None],
 )
 def test_non_numeric_approval_duration_raises_value_error(bad_duration):
-    """bool is an int subclass, but a JSON boolean is not a numeric duration.
-    The type check runs unconditionally, before the `if duration:` truthiness
-    gate: a falsy malformed value (False, "", [], {}, None) must be rejected
-    the same as a truthy one, not silently treated as absent/zero-duration
-    (no-expiry). Caught in review (#378) — the earlier fix only checked
-    inside the truthiness branch, so falsy malformed values bypassed it."""
+    """bool is an int subclass, but a JSON boolean is not a numeric duration."""
     approval, key = _valid_approval()
     approval["approved_scope"] = {**APPROVAL_SCOPE, "approval_duration_seconds": bad_duration}
     with pytest.raises(ValueError, match="approval_duration_seconds must be numeric"):
@@ -781,7 +905,8 @@ def test_relabelling_approval_method_breaks_the_signature():
     kp = generate_ed25519()
     manifest_id = "018f4a3b-2c1d-7e5f-a8b9-0d1e2f3a4b5c"
     approved_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-    scope = {"artifacts": ["system_prompt"], "risk_tier": "high"}
+    scope = {"artifacts": ["system_prompt"], "risk_tier": "high",
+             "approval_duration_seconds": 3600}
 
     approval = {
         "approver_id": "mailto:alice@example.com",
@@ -811,7 +936,8 @@ def test_adding_an_approval_method_to_a_signed_approval_breaks_the_signature():
     kp = generate_ed25519()
     manifest_id = "018f4a3b-2c1d-7e5f-a8b9-0d1e2f3a4b5c"
     approved_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-    scope = {"artifacts": ["system_prompt"], "risk_tier": "high"}
+    scope = {"artifacts": ["system_prompt"], "risk_tier": "high",
+             "approval_duration_seconds": 3600}
 
     approval = {
         "approver_id": "mailto:alice@example.com",
@@ -837,7 +963,7 @@ def test_approvals_without_a_method_still_verify_unchanged():
     kp = generate_ed25519()
     manifest_id = "018f4a3b-2c1d-7e5f-a8b9-0d1e2f3a4b5c"
     approved_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-    scope = {"artifacts": ["system_prompt"]}
+    scope = {"artifacts": ["system_prompt"], "approval_duration_seconds": 3600}
 
     approval = {
         "approver_id": "mailto:alice@example.com",

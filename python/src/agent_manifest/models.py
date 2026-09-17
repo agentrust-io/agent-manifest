@@ -17,7 +17,11 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from ._delegation import DEFAULT_MAX_DELEGATION_DEPTH, delegation_depth_exceeded
+from ._delegation import (
+    DEFAULT_MAX_DELEGATION_DEPTH,
+    _check_hitl_approval_duration,
+    delegation_depth_exceeded,
+)
 from ._signing import SIGNED_FIELDS
 from ._types import HashValue, ManifestId
 
@@ -284,6 +288,26 @@ class ApprovedScope(SpecModel):
     risk_tier: RiskTier
     approval_duration_seconds: int = Field(ge=1)
     conditions: list[str] = Field(default_factory=list)
+
+    @field_validator("approval_duration_seconds", mode="before")
+    @classmethod
+    def _duration_matches_shared_check(cls, v: Any) -> Any:
+        """Gate this field with the same _check_hitl_approval_duration()
+        used by verify_hitl_approval() and the integrated verifier's HITL
+        loop (_delegation.py), so this model can't silently be more
+        permissive than the shared verifier again.
+
+        Without this, pydantic's default lax ``int`` coercion would accept
+        a numeric string ("3600") and ``True`` (bool is an int subclass,
+        coerces to 1) here, even though the shared verifier explicitly
+        rejects both - a real (if currently fail-closed, non-exploitable)
+        divergence between the "single source of truth" the verifier
+        claims to be and the schema it's supposed to agree with. Runs in
+        ``mode="before"`` so pydantic's own int coercion (e.g. 3600.0 ->
+        3600) still applies afterwards for the values this allows through.
+        """
+        _check_hitl_approval_duration(v)
+        return v
 
 
 class HitlApproval(SpecModel):
