@@ -30,5 +30,6 @@ _(none yet)_
 |---|---|---|
 | Carlos Hernandez | [@carloshvp](https://github.com/carloshvp) | [Project Lead announcement](https://github.com/orgs/agentrust-io/discussions/20) |
 | Zoheb | [@zohebk8s](https://github.com/zohebk8s) | [Project Lead announcement](https://github.com/orgs/agentrust-io/discussions/31) |
+| Rajnish Tiwari | [@rajnisht7](https://github.com/rajnisht7) | [Project Lead announcement](https://github.com/orgs/agentrust-io/discussions/40) |
 
 These appointments cover this repository. CODEOWNERS determines which paths each reviewer can approve for protected merges.
