@@ -129,6 +129,23 @@ the bit meanings are platform-specific and publishing a mask without hardware to
 validate it against would be guessing. And it is not wired into `verify_manifest()`
 as a default, so an existing caller gets no new failures and also no new checks.
 
+Not wired in as a default does not mean it cannot gate a verdict today.
+`verify_attestation_chain()` performs the hardware appraisal; `verify_manifest()`
+does not itself invoke `appraise_platform_info()`, or anything else PLATFORM_INFO-
+specific. A caller can combine a successful hardware appraisal with a platform-
+policy appraisal before populating `context.verified_attestation_manifest_hashes`
+(the same set `verify_manifest()` already checks membership in — see the field's
+docstring). `appraise_platform_info()` fits that shape directly: call it next to
+`verify_attestation_chain()`, and only add the manifest hash when both pass. See
+["Appraise platform state before trusting hardware
+evidence"](https://github.com/agentrust-io/agent-manifest/blob/main/docs/tutorials/hardware-attestation.md#appraise-platform-state-before-trusting-hardware-evidence)
+for the composition, and
+[`test_platform_info_verify_manifest.py`](https://github.com/agentrust-io/agent-manifest/blob/main/python/tests/test_platform_info_verify_manifest.py)
+for the pass/fail cases against a cryptographically self-consistent synthetic SEV-SNP
+chain — it demonstrates that this composition is possible and that `verify_manifest()`
+honors it, not that the SDK enforces it for you. No change to `VerificationContext` or
+`verify_manifest()` is needed for this.
+
 **On the API shape.** `require` and `forbid` are separate named sets rather than one
 struct of booleans. The reference verifier, `google/go-sev-guest`, uses the single
 struct, documents it as "the maximum of acceptable PLATFORM_INFO data", and then
