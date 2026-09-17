@@ -17,6 +17,16 @@
 
 ### Fixed
 
+- **[DOCS]** Corrected the Art. 14(4) point citations and the satisfaction
+  language in spec sections 3.5 and 9.1. Automation bias is point (b) rather
+  than point (c), the interrupt and override capabilities are points (e) and
+  (d) rather than point (a), and Art. 14(4) imposes no documentation
+  obligation, since it is addressed to how the high-risk AI system is provided
+  to the deployer. The approvals and the runtime fields are evidence a deployer
+  can use when demonstrating oversight rather than satisfaction of Art. 14.
+  Article 14 of Regulation (EU) 2024/1689 was read against the Official Journal
+  text before being cited. (#410)
+
 - **[SDK]** `check_validity_period()` (`_cert_chain.py`) rejected a certificate
   checked at the exact second of its `notAfter` timestamp. RFC 5280 §4.1.2.5
   defines the validity period as "the period of time from notBefore through
