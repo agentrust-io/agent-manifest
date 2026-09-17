@@ -37,6 +37,19 @@
   hash-comparison behavior. Observed by solloek369-arch on #340 and filed as
   #416 by Imran Siddique.
 
+- **[SDK]** `manifest sign` (CLI) overwrote the signature block's
+  `signed_at` after `Ed25519Signer.sign()` had already set it correctly,
+  replacing the canonical `_signed_at_now()` value (UTC, second precision,
+  `Z`-suffixed - the format `MlDsa65Signer` and `HybridSigner` also produce,
+  regression-guarded for #165) with
+  `datetime.now(timezone.utc).isoformat()`, which emits a `+00:00` offset
+  and a microsecond component instead. The redundant line has been
+  removed; the CLI now writes exactly what the signer produced. Signatures
+  already issued by the CLI remain valid - `signed_at` is not part of the
+  signed pre-image - but downstream tooling that parses the field against
+  the library's documented format would have rejected CLI-signed
+  manifests that other signing paths accept.
+
 - **[SDK]** `verify_manifest()` returned `MISMATCH`/`EXPIRED`/`INVALID`/
   `UNVERIFIABLE` for `hitl_record` when *any* approval in `hitl_record.approvals`
   failed, even if a later approval in the same array was present, valid,

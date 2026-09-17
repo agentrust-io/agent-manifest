@@ -239,7 +239,6 @@ def sign(manifest_file: str, key: str, output: Optional[str]) -> None:
 
     signer = Ed25519Signer(kp)
     sig_block = signer.sign(data)
-    sig_block["signed_at"] = datetime.now(timezone.utc).isoformat()
     data["signature"] = sig_block
 
     click.echo(f"Signed with key_id={sig_block['key_id']}", err=True)
