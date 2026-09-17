@@ -1,3 +1,5 @@
+<a id="am-specification"></a>
+
 # Agent Manifest Specification
 
 | Field | Value |
@@ -186,6 +188,8 @@ Compatibility matrix:
 
 ## 3. Data Model
 
+<a id="am-schema"></a>
+
 ### 3.1 Top-Level Schema
 
 An Agent Manifest is a JSON-LD document conforming to the following schema. All hash fields use SHA-256 unless the implementation has opted into the post-quantum profile, in which case SHAKE-256 is used (see section 2.3 for output length). Hash field values MUST conform to the pattern `^(sha256|shake256):[0-9a-f]{64}$`. Signature fields use Ed25519 for standard deployments and ML-DSA-65 for post-quantum deployments.
@@ -323,6 +327,8 @@ digest algorithm to unfamiliar package semantics.
 `source_bundle` is in the signing pre-image. It attests which package supplied the pre-execution
 composition; it does not assert that every runtime artifact was resolved from that package. The
 individual artifact bindings continue to state what was actually bound.
+
+<a id="am-artifact-bindings"></a>
 
 ### 3.2 Artifact Bindings
 
@@ -786,6 +792,8 @@ The `slsa_provenance.declared_level` field is non-normative and represents the o
 
 The `sbom.document_id` field MUST be set to the `serialNumber` URN for CycloneDX format documents, or the `documentNamespace` URI for SPDX format documents. The `sbom.schema_version` field refers to the SBOM specification schema version (e.g., `"CycloneDX 1.6"`, `"SPDX 2.3"`), not a document revision number.
 
+<a id="am-hardware-attestation"></a>
+
 ### 3.3 Hardware Attestation Binding
 
 The attestation block binds the manifest to a specific TEE hardware measurement. It is produced by the the Confidential Runtime at agent launch time and is not part of the draft manifest - it is appended after the TEE measurement is complete.
@@ -923,6 +931,8 @@ TPM note
 
 `attest_runtime_state()` on `TPMProvider` requires a pre-provisioned Attestation Key (AK) passed at construction time. See the SDK documentation for provisioning steps. SEV-SNP and TDX do not have this requirement.
 
+<a id="am-delegation-chain"></a>
+
 ### 3.4 A2A Delegation Chain
 
 <!-- CHANGED: F-04 - clarified delegation chain is original design with no A2A protocol dependency; SPEC-05 - added normative Scope Grant Semantics subsection; SCHEMA F-10 - added normative max_delegation_depth default and Cedar constraint validation rules -->
@@ -1031,6 +1041,8 @@ At Level 2, a verifier MUST return `APPROVAL_INSUFFICIENT` when any otherwise-cu
 `hitl_runtime` block declares the runtime human oversight capabilities required by EU AI Act Art. 14(4) operational oversight obligations. The `hitl_record.approvals` structure satisfies Art. 14 pre-deployment documentation obligations (Art. 14(4)(b)-(e)). The `hitl_runtime` block separately addresses the runtime stop/override capability requirement (Art. 14(4)(a)). Both are required for full Art. 14 compliance. See section 9.1 for the regulatory mapping. <!-- CHANGED: REG-001 -->
 
 Each `approval_signature` is produced by the approver's hardware-backed key (FIDO2/passkey at minimum, HSM for high-risk approvals).
+
+<a id="am-manifest-signature"></a>
 
 ### 3.6 Manifest Signature
 
@@ -1180,6 +1192,8 @@ Key rotation procedure:
 7. Revoke the old signing key in the key management system
 
 Implementations MUST NOT re-use the old `manifest_id` for the rotated manifest - a new UUID v7 MUST be generated. The old manifest_id MAY be referenced in the new manifest's metadata for continuity tracing.
+
+<a id="am-declared-intent"></a>
 
 ### 3.9 Declared Intent <!-- CHANGED: new OPTIONAL top-level field; AARM R2/R3 input -->
 
@@ -1433,6 +1447,8 @@ An evidence pack is a JSON document with the following structure:
 `pack_hash` is the SHA-256 of the RFC 8785 canonical JSON of this document. The pack is signed using the TEE-sealed key, with the signature appended as a top-level `pack_signature` field in the same detached form as the manifest `signature` object (section 3.6).
 
 Access control for confidential payloads: Tool call payload fields in TRACE envelopes MUST be replaced with their SHA-256 hashes in packs served to unauthenticated verifiers. Full payloads are available only to verifiers presenting a valid SPIFFE SVID with an authorized role declared in the manifest's `policy_bundle`.
+
+<a id="am-verification-semantics"></a>
 
 ### 5.3 Verification Semantics
 

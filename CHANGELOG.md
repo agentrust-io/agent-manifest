@@ -21,6 +21,18 @@
 
   The v0.2 manifest specification now removes the top-level `signature` and `transparency_log_entry` fields from the manifest shape. Transparency receipts follow the COSE envelope model defined by ADR-0011 and are carried through the `receipts` header. The v0.1 signing and transparency semantics remain unchanged.
 
+- **[SDK]** `check_validity_period()` (`_cert_chain.py`) rejected a certificate
+  checked at the exact second of its `notAfter` timestamp. RFC 5280 §4.1.2.5
+  defines the validity period as "the period of time from notBefore through
+  notAfter, **inclusive**," and `cryptography`'s `not_valid_before_utc` /
+  `not_valid_after_utc` document the same inclusive semantics; the check used
+  a strict `<` on the upper bound instead of `<=`. This is the single shared
+  primitive behind every certificate-chain verifier in the package (SEV-SNP
+  VCEK/ASK/ARK, TDX PCK chain, TPM AK chain, and `verify_cert_chain()`
+  itself), so the off-by-one affected all of them identically. The bound is
+  now `<=`, matching both the RFC and the library's documented behavior; the
+  lower bound was already inclusive and is unchanged.
+
 - **[SDK]** `verify_manifest()` now recomputes a tool catalog's Merkle root
   from its supplied `tools` before accepting the declared `catalog_hash`.
   A valid signature and a matching runtime hash no longer hide inconsistent
@@ -28,6 +40,19 @@
   independent, and legacy bindings that omit `tools` retain their existing
   hash-comparison behavior. Observed by solloek369-arch on #340 and filed as
   #416 by Imran Siddique.
+
+- **[SDK]** `manifest sign` (CLI) overwrote the signature block's
+  `signed_at` after `Ed25519Signer.sign()` had already set it correctly,
+  replacing the canonical `_signed_at_now()` value (UTC, second precision,
+  `Z`-suffixed - the format `MlDsa65Signer` and `HybridSigner` also produce,
+  regression-guarded for #165) with
+  `datetime.now(timezone.utc).isoformat()`, which emits a `+00:00` offset
+  and a microsecond component instead. The redundant line has been
+  removed; the CLI now writes exactly what the signer produced. Signatures
+  already issued by the CLI remain valid - `signed_at` is not part of the
+  signed pre-image - but downstream tooling that parses the field against
+  the library's documented format would have rejected CLI-signed
+  manifests that other signing paths accept.
 
 - **[SDK]** `verify_manifest()` returned `MISMATCH`/`EXPIRED`/`INVALID`/
   `UNVERIFIABLE` for `hitl_record` when *any* approval in `hitl_record.approvals`

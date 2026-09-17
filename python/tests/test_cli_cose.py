@@ -81,6 +81,35 @@ def test_signing_a_v01_manifest_is_unchanged(workspace):
     assert data["signature"]["algorithm"] == "Ed25519"
 
 
+def test_cli_sign_preserves_signers_signed_at_byte_for_byte(workspace, monkeypatch):
+    """The CLI must not re-stamp signed_at after Ed25519Signer.sign() has
+    already set it (regression: #165 format invariant, second regression
+    beyond MlDsa65Signer/HybridSigner/Ed25519Signer unit coverage - the CLI
+    command has its own code path and was overwriting the correctly
+    formatted value with a differently formatted one).
+
+    _signed_at_now() is frozen to a fixed sentinel so this asserts the
+    value the CLI writes is *identical* to what the signer produced -
+    not merely a value that happens to match the same format. A wall-clock
+    comparison could pass even with a stray overwrite line (both calls
+    landing in the same second, both happening to be reformatted the same
+    way) or fail on an unrelated second-boundary race; freezing the clock
+    removes both failure modes.
+    """
+    sentinel = "2026-01-01T00:00:00Z"
+    monkeypatch.setattr("agent_manifest._signing._signed_at_now", lambda: sentinel)
+
+    draft = workspace / "draft.json"
+    draft.write_text(json.dumps(manifest(version="0.1")))
+    signed = workspace / "signed.json"
+
+    result = run("sign", draft, "--key", workspace / "key.hex", "-o", signed)
+    assert result.exit_code == 0, result.output
+
+    data = json.loads(signed.read_text())
+    assert data["signature"]["signed_at"] == sentinel
+
+
 def test_a_cose_envelope_is_not_written_to_the_terminal(workspace):
     """Binary CBOR down stdout would corrupt it; refuse instead."""
     draft = workspace / "draft.json"
