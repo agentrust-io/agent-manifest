@@ -67,6 +67,9 @@ Usage: manifest keygen [OPTIONS]
     private.hex - 64-hex private key seed (keep secret, mode 0600)
     public.hex  - 64-hex public key bytes
 
+  Refuses to overwrite an existing private.hex -- delete it first if you really want to
+  replace it.
+
   Example:
     manifest keygen -d ./keys/
 

@@ -255,7 +255,10 @@ def keygen(output_dir: str) -> None:
       private.hex - 64-hex private key seed (keep secret, mode 0600)
       public.hex  - 64-hex public key bytes
 
-    
+    Refuses to overwrite an existing private.hex -- delete it first if you
+    really want to replace it.
+
+    \b
     Example:
       manifest keygen -d ./keys/
     """
@@ -272,9 +275,40 @@ def keygen(output_dir: str) -> None:
     private_path = out / "private.hex"
     public_path = out / "public.hex"
 
-    # CRYPTO-008/SEC-005: write private key with restrictive permissions (0600)
-    private_path.write_text(priv_raw)
-    os.chmod(private_path, 0o600)
+    # CRYPTO-008/SEC-005: create private.hex fresh, at mode 0600, and never
+    # overwrite an existing one.
+    #
+    # Writing with the default umask and chmod'ing afterwards leaves the key
+    # briefly world-readable. Even truncating an *existing* file in place
+    # (open + O_TRUNC + chmod) isn't safe either: permissions only block new
+    # opens, so if someone already has that path open for reading -- e.g. it
+    # was world-readable before this ran -- they keep reading the same
+    # inode and see the brand-new key we just wrote into it.
+    #
+    # O_EXCL avoids both problems: it atomically creates a brand-new file
+    # (nobody could have had it open before it existed) or fails if the
+    # path is already taken, without touching whatever's there -- including
+    # a symlink, which O_EXCL also refuses to follow.
+    #
+    # The mode passed to os.open() is still narrowed by the umask, so an
+    # unusually restrictive umask (e.g. 0777) could leave the file at 0000.
+    # fchmod() sets the intended mode directly, so the final mode is
+    # exactly 0600.
+    try:
+        fd = os.open(str(private_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        raise click.ClickException(
+            f"{private_path} already exists. Refusing to overwrite an "
+            "existing private key -- delete it first if you want a new one."
+        )
+    try:
+        if hasattr(os, "fchmod"):  # POSIX only; os.open's mode already
+            os.fchmod(fd, 0o600)   # covers Windows, which has no umask
+    except BaseException:
+        os.close(fd)
+        raise
+    with os.fdopen(fd, "w") as f:
+        f.write(priv_raw)
     public_path.write_text(pub_hex)
 
     # Send success messages to stderr so stdout is clean for scripting
