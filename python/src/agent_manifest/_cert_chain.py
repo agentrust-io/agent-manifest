@@ -56,7 +56,7 @@ def check_validity_period(
     if now.tzinfo is None or now.utcoffset() is None:
         raise CertChainError("verification_time must be timezone-aware")
     now = now.astimezone(timezone.utc)
-    if not (cert.not_valid_before_utc <= now < cert.not_valid_after_utc):
+    if not (cert.not_valid_before_utc <= now <= cert.not_valid_after_utc):
         raise CertChainError(
             f"{label} is outside its validity period "
             f"({cert.not_valid_before_utc.isoformat()} - "
