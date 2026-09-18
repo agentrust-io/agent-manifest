@@ -20,6 +20,14 @@
 - **[SPEC]** Align v0.2 transparency log semantics with the governing COSE envelope specification (issue #414).
 
   The v0.2 manifest specification now removes the top-level `signature` and `transparency_log_entry` fields from the manifest shape. Transparency receipts follow the COSE envelope model defined by ADR-0011 and are carried through the `receipts` header. The v0.1 signing and transparency semantics remain unchanged.
+
+- **[SDK]** `manifest keygen` (CRYPTO-008/SEC-005) wrote the private key
+  file with the default umask, then chmod'd it to 0600 - briefly
+  world-readable, and overwriting an existing `private.hex` could leak a
+  new key to anyone already holding the old file open. It now creates
+  `private.hex` fresh with `O_EXCL` at mode 0600 and refuses to overwrite
+  an existing one.
+
 - **[SDK]** HITL approval `approval_duration_seconds` handling didn't match
   spec 3.5, which requires a positive integer. Missing, zero, or negative
   values could be accepted as valid forever instead of being rejected;
