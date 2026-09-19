@@ -97,6 +97,8 @@ KP = generate_ed25519()
 TRUSTED_KEYS = {KP.key_id: KP.public_b64url()}
 APPROVER_KP = generate_ed25519()
 APPROVER_ID = "mailto:alice@example.com"
+BOB_KP = generate_ed25519()
+BOB_ID = "mailto:bob@example.com"
 
 
 def base_manifest(**overrides):
@@ -165,6 +167,19 @@ def approval(**overrides):
             approval_method=a.get("approval_method"),
         )
     a.pop("manifest_id", None)
+    return a
+
+
+def approval_by(approver_id, keypair, **overrides):
+    """A valid approval from the given approver, signed with their key."""
+    a = approval(approver_id=approver_id, approval_signature="placeholder", **overrides)
+    a["approval_signature"] = HitlApprovalSigner(keypair).sign_approval(
+        manifest_id=base_manifest()["manifest_id"],
+        approved_at=a["approved_at"],
+        approved_scope=a["approved_scope"],
+        approver_id=approver_id,
+        approval_method=a.get("approval_method"),
+    )
     return a
 
 
@@ -332,6 +347,148 @@ def test_attestation_and_approvals_land_in_the_unprotected_header():
     assert result.attestation == {"platform": "amd-sev-snp"}
     assert result.approvals == [{"approver_id": "a"}]
     assert set(result.unprotected) == {LABEL_ATTESTATION, LABEL_APPROVALS}
+
+
+def test_approvals_accumulate():
+    """A later attach must not drop earlier approvals (same as receipts)."""
+    alice = approval(approval_id="018f4a3b-2c1d-7e5f-a8b9-0d1e2f3a4b61")
+    bob = approval_by(
+        BOB_ID, BOB_KP, approval_id="018f4a3b-2c1d-7e5f-a8b9-0d1e2f3a4b62"
+    )
+    signed = sign_cose_sign1(base_manifest(hitl_record={"required": True}), KP)
+
+    first = attach_approvals(signed, [alice])
+    second = attach_approvals(first, [bob])
+
+    result = verify_cose_manifest(second, TRUSTED_KEYS)
+    assert result.verified is True
+    assert result.approvals == [alice, bob]
+    # The signed parts are unchanged.
+    for envelope in (first, second):
+        assert parts(envelope)[1][0] == parts(signed)[1][0]
+        assert parts(envelope)[1][2] == parts(signed)[1][2]
+        assert parts(envelope)[1][3] == parts(signed)[1][3]
+
+
+def test_approvals_accumulate_within_and_across_calls_preserving_order():
+    signed = sign_cose_sign1(base_manifest(), KP)
+    signed = attach_approvals(signed, [{"approver_id": "a"}, {"approver_id": "b"}])
+    signed = attach_approvals(signed, [{"approver_id": "c"}])
+    signed = attach_approvals(signed, [{"approver_id": "d"}, {"approver_id": "e"}])
+    assert verify_cose_manifest(signed, TRUSTED_KEYS).approvals == [
+        {"approver_id": name} for name in "abcde"
+    ]
+
+
+def test_attaching_no_approvals_keeps_the_existing_ones():
+    signed = attach_approvals(sign_cose_sign1(base_manifest(), KP), [{"approver_id": "a"}])
+    signed = attach_approvals(signed, [])
+    assert verify_cose_manifest(signed, TRUSTED_KEYS).approvals == [{"approver_id": "a"}]
+
+
+def test_attaching_approvals_to_a_fresh_envelope_still_sets_the_label():
+    """An empty attach on a fresh envelope still creates the (empty) array."""
+    signed = attach_approvals(sign_cose_sign1(base_manifest(), KP), [])
+    result = verify_cose_manifest(signed, TRUSTED_KEYS)
+    assert result.approvals == []
+    assert set(result.unprotected) == {LABEL_APPROVALS}
+
+
+def test_attach_approvals_leaves_other_unprotected_parameters_alone():
+    signed = sign_cose_sign1(base_manifest(), KP)
+    signed = attach_receipt(signed, b"receipt")
+    signed = attach_attestation(signed, {"platform": "amd-sev-snp"})
+    signed = attach_approvals(signed, [{"approver_id": "a"}])
+    signed = attach_approvals(signed, [{"approver_id": "b"}])
+    result = verify_cose_manifest(signed, TRUSTED_KEYS)
+    assert result.receipts == [b"receipt"]
+    assert result.attestation == {"platform": "amd-sev-snp"}
+    assert result.approvals == [{"approver_id": "a"}, {"approver_id": "b"}]
+
+
+def test_attach_approvals_does_not_mutate_the_callers_list():
+    mine = [{"approver_id": "a"}]
+    signed = attach_approvals(sign_cose_sign1(base_manifest(), KP), mine)
+    attach_approvals(signed, mine)
+    assert mine == [{"approver_id": "a"}]
+
+
+def test_attach_approvals_is_a_pure_function_of_its_inputs():
+    """Two attaches from the same envelope don't affect each other."""
+    base = attach_approvals(sign_cose_sign1(base_manifest(), KP), [{"approver_id": "a"}])
+    left = attach_approvals(base, [{"approver_id": "left"}])
+    right = attach_approvals(base, [{"approver_id": "right"}])
+    assert verify_cose_manifest(base, TRUSTED_KEYS).approvals == [{"approver_id": "a"}]
+    assert verify_cose_manifest(left, TRUSTED_KEYS).approvals == [
+        {"approver_id": "a"},
+        {"approver_id": "left"},
+    ]
+    assert verify_cose_manifest(right, TRUSTED_KEYS).approvals == [
+        {"approver_id": "a"},
+        {"approver_id": "right"},
+    ]
+
+
+def test_attach_unprotected_is_still_the_way_to_replace_the_approvals():
+    """To replace the approvals, use attach_unprotected()."""
+    signed = attach_approvals(sign_cose_sign1(base_manifest(), KP), [{"approver_id": "a"}])
+    replaced = attach_unprotected(signed, LABEL_APPROVALS, [{"approver_id": "b"}])
+    assert verify_cose_manifest(replaced, TRUSTED_KEYS).approvals == [{"approver_id": "b"}]
+
+
+def test_a_missing_approvals_label_is_not_the_same_as_a_null_one():
+    """A missing label means empty; a null label is malformed and refused."""
+    signed = sign_cose_sign1(base_manifest(), KP)
+    assert LABEL_APPROVALS not in parts(signed)[1][1]
+    attached = attach_approvals(signed, [{"approver_id": "a"}])
+    assert verify_cose_manifest(attached, TRUSTED_KEYS).approvals == [{"approver_id": "a"}]
+
+    with_null = attach_unprotected(signed, LABEL_APPROVALS, None)
+    assert LABEL_APPROVALS in parts(with_null)[1][1]
+    with pytest.raises(CoseStructureError, match="must be an array, got NoneType"):
+        attach_approvals(with_null, [{"approver_id": "a"}])
+
+
+@pytest.mark.parametrize(
+    "not_a_list",
+    [{"approver_id": "a"}, ({"approver_id": "a"},), "a", b"a", None, 7],
+    ids=["dict", "tuple", "str", "bytes", "none", "int"],
+)
+def test_attach_approvals_rejects_anything_but_a_list_of_records(not_a_list):
+    """A single record passed by mistake must not be split into its keys."""
+    signed = sign_cose_sign1(base_manifest(), KP)
+    with pytest.raises(CoseStructureError, match="approvals must be a list"):
+        attach_approvals(signed, not_a_list)
+
+
+@pytest.mark.parametrize(
+    "malformed",
+    [{"approver_id": "a"}, b"abc", "abc", None, 0, False],
+    ids=["map", "bytes", "text", "null", "zero", "false"],
+)
+def test_attach_approvals_refuses_to_overwrite_a_malformed_existing_value(malformed):
+    """A non-array approvals value is refused, not overwritten."""
+    signed = attach_unprotected(
+        sign_cose_sign1(base_manifest(), KP), LABEL_APPROVALS, malformed
+    )
+    with pytest.raises(CoseStructureError, match="must be an array"):
+        attach_approvals(signed, [{"approver_id": "a"}])
+    # attach_unprotected(), named in the error, can replace it.
+    repaired = attach_unprotected(signed, LABEL_APPROVALS, [{"approver_id": "a"}])
+    assert verify_cose_manifest(repaired, TRUSTED_KEYS).approvals == [{"approver_id": "a"}]
+
+
+@require_pq
+def test_approvals_accumulate_on_a_cose_sign_envelope(pq_backend):
+    """A hybrid COSE_Sign envelope accumulates approvals too."""
+    kp = generate_hybrid()
+    signed = sign_cose_sign_hybrid(base_manifest(crypto_profile="post-quantum"), kp)
+    signed = attach_approvals(signed, [{"approver_id": "a"}])
+    signed = attach_approvals(signed, [{"approver_id": "b"}])
+    result = verify_cose_manifest(signed, hybrid_trusted(kp))
+    assert result.tag == COSE_SIGN_TAG
+    assert result.verified is True
+    assert result.approvals == [{"approver_id": "a"}, {"approver_id": "b"}]
 
 
 # ---------------------------------------------------------------------------
@@ -1038,6 +1195,87 @@ def test_engine_approves_when_a_later_approval_in_the_unprotected_header_is_vali
     result = verify_manifest(signed, base_context(enforce_hitl=True), store())
     assert result.fields_verified.hitl_record == HitlResult.APPROVED
     assert result.result == OverallResult.VALID
+
+
+def test_engine_keeps_an_earlier_approvers_approval_when_a_later_one_attaches():
+    """Regression: Bob's attach used to drop Alice's approval.
+
+    A party trusting only Alice went from APPROVED to UNVERIFIABLE.
+    """
+    manifest = base_manifest(hitl_record={"required": True})
+    alice = approval(approval_id="018f4a3b-2c1d-7e5f-a8b9-0d1e2f3a4b61")
+    bob = approval_by(
+        BOB_ID, BOB_KP, approval_id="018f4a3b-2c1d-7e5f-a8b9-0d1e2f3a4b62"
+    )
+    # Trusts Alice only.
+    context = base_context(enforce_hitl=True)
+    signed = sign_cose_sign1(manifest, KP)
+
+    with_alice = attach_approvals(signed, [alice])
+    with_both = attach_approvals(with_alice, [bob])
+
+    alone = verify_manifest(with_alice, context, store())
+    assert alone.fields_verified.hitl_record == HitlResult.APPROVED
+
+    both = verify_manifest(with_both, context, store())
+    assert both.fields_verified.hitl_record == HitlResult.APPROVED
+    assert both.result == OverallResult.VALID
+
+
+def test_engine_accepts_two_approvers_attached_one_after_the_other():
+    """Both approvals are kept and both verify."""
+    manifest = base_manifest(hitl_record={"required": True})
+    alice = approval(approval_id="018f4a3b-2c1d-7e5f-a8b9-0d1e2f3a4b61")
+    bob = approval_by(
+        BOB_ID, BOB_KP, approval_id="018f4a3b-2c1d-7e5f-a8b9-0d1e2f3a4b62"
+    )
+    signed = sign_cose_sign1(manifest, KP)
+    signed = attach_approvals(signed, [alice])
+    signed = attach_approvals(signed, [bob])
+
+    carried = verify_cose_manifest(signed, TRUSTED_KEYS).approvals
+    assert [a["approver_id"] for a in carried] == [APPROVER_ID, BOB_ID]
+
+    # Trusting only Bob still gives APPROVED.
+    only_bob = base_context(
+        enforce_hitl=True, approver_public_keys={BOB_ID: BOB_KP.public_b64url()}
+    )
+    assert (
+        verify_manifest(signed, only_bob, store()).fields_verified.hitl_record
+        == HitlResult.APPROVED
+    )
+
+    both_trusted = base_context(
+        enforce_hitl=True,
+        approver_public_keys={
+            APPROVER_ID: APPROVER_KP.public_b64url(),
+            BOB_ID: BOB_KP.public_b64url(),
+        },
+    )
+    result = verify_manifest(signed, both_trusted, store())
+    assert result.fields_verified.hitl_record == HitlResult.APPROVED
+    assert result.result == OverallResult.VALID
+
+
+def test_engine_still_rejects_approvals_that_fail_authentication_when_accumulated():
+    """Approvals that all fail authentication are still not an approval."""
+    manifest = base_manifest(hitl_record={"required": True})
+    forged_alice = approval(approval_signature="c2ln")  # not a real signature
+    forged_bob = approval_by(BOB_ID, BOB_KP)
+    forged_bob["approval_signature"] = "c2ln"
+    signed = sign_cose_sign1(manifest, KP)
+    signed = attach_approvals(signed, [forged_alice])
+    signed = attach_approvals(signed, [forged_bob])
+    context = base_context(
+        enforce_hitl=True,
+        approver_public_keys={
+            APPROVER_ID: APPROVER_KP.public_b64url(),
+            BOB_ID: BOB_KP.public_b64url(),
+        },
+    )
+    result = verify_manifest(signed, context, store())
+    assert result.fields_verified.hitl_record == HitlResult.INVALID
+    assert result.result == OverallResult.MISMATCH
 
 
 # ---------------------------------------------------------------------------
