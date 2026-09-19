@@ -7,12 +7,12 @@ that is by design (see the docstring on
 appraisal, like hardware signature/chain appraisal via
 ``verify_attestation_chain()``, reaches ``verify_manifest()`` only as a result
 the caller already computed and placed in
-``VerificationContext.verified_attestation_manifest_hashes`` neither
+``VerificationContext.verified_attestation_manifest_hashes``; neither
 appraisal function is called by ``verify_manifest()`` itself. This is an
 integration-style test of that documented caller-side composition, run
 through the actual ``verify_manifest()`` path against a cryptographically
 self-consistent synthetic SEV-SNP report and certificate chain (same
-technique as ``test_attestation_chain.py``, extended with PLATFORM_INFO bits
+technique as ``test_attestation_chain.py``, extended with PLATFORM_INFO bits:
 freshly generated keys shaped like the real VCEK/ASK/ARK hierarchy, not
 AMD-rooted hardware evidence; see ``_snp_synthetic.py``).
 
