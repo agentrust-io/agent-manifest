@@ -534,6 +534,11 @@ def _strict_schema_violations(manifest: dict[str, Any]) -> list[tuple[str, str]]
     property there - ``_signature_key_issuer_mismatch`` uses it for key
     authorization - so a v0.2 manifest missing it is a genuine schema
     violation and must fail closed like any other missing required claim.
+
+    ``approval_duration_seconds`` is excluded from that carve-out: it bounds
+    a HITL approval's validity window (ADR-0006), so omitting it must fail
+    closed the same way setting it to 0 does, not be waved through as an
+    approval that never expires.
     """
     from pydantic import ValidationError
 
@@ -554,10 +559,13 @@ def _strict_schema_violations(manifest: dict[str, Any]) -> list[tuple[str, str]]
         violations: list[tuple[str, str]] = []
         for err in exc.errors():
             loc_parts = err.get("loc", ())
-            if err.get("type") == "missing" and (
+            is_legacy_omission = err.get("type") == "missing" and (
                 len(loc_parts) > 1
                 or (loc_parts == ("issuer",) and is_legacy_v01)
-            ):
+            )
+            if loc_parts and loc_parts[-1] == "approval_duration_seconds":
+                is_legacy_omission = False
+            if is_legacy_omission:
                 continue
             loc = ".".join(str(p) for p in loc_parts)
             violations.append((loc, err.get("msg", "schema error")))
@@ -1288,7 +1296,11 @@ def verify_manifest(
             # manifest ID, approver, timestamp, and exact scope.
             from datetime import timedelta
 
-            from ._delegation import verify_hitl_approval
+            from ._delegation import (
+                _check_hitl_approval_duration,
+                _parse_hitl_approval_timestamp,
+                verify_hitl_approval,
+            )
             from ._signing import _b64url_decode
 
             now = datetime.now(timezone.utc)
@@ -1305,20 +1317,49 @@ def verify_manifest(
             approval_unverifiable = False
             any_expired = False
             for approval in approvals:
-                approved_at = approval.get("approved_at", "")
-                duration = approval.get("approved_scope", {}).get("approval_duration_seconds", 0)
+                # Establish the shapes this loop reads before interpreting
+                # them - same discipline verify_hitl_approval() applies to
+                # the same fields - so a malformed entry in the approvals
+                # array always lands in the approval_invalid bucket below
+                # rather than raising an incidental AttributeError out of
+                # this loop and crashing verify_manifest() entirely. Schema
+                # validation already rejects these shapes before this loop
+                # runs; this is defense in depth.
+                if not isinstance(approval, dict):
+                    approval_invalid = True
+                    continue
+                approved_scope = approval.get("approved_scope")
+                if not isinstance(approved_scope, dict):
+                    approval_invalid = True
+                    continue
+                duration = approved_scope.get("approval_duration_seconds", 0)
+                # Same check verify_hitl_approval() uses (HITL-003, spec
+                # 3.5) - shared so the two can't drift apart again.
                 try:
-                    ap_time = datetime.fromisoformat(approved_at.replace("Z", "+00:00"))
+                    _check_hitl_approval_duration(duration)
+                except ValueError:
+                    approval_invalid = True
+                    continue
+                try:
+                    # Same parse+tz-awareness check verify_hitl_approval()
+                    # uses (shared so the two can't drift apart again). A
+                    # tz-naive approved_at ("2026-09-16T10:00:00") parses
+                    # fine with a bare datetime.fromisoformat() but then
+                    # raises TypeError when compared below against `now`
+                    # (aware) - that TypeError isn't in this except clause
+                    # on purpose, so a regression here would be loud rather
+                    # than silently escaping verify_manifest() again.
+                    ap_time = _parse_hitl_approval_timestamp(approval.get("approved_at", ""))
                     if now > ap_time + timedelta(seconds=duration):
                         any_expired = True
                         continue
-                except (ValueError, AttributeError):
-                    # Unparseable timestamp - treat as expired to fail safe (HITL-001)
+                except (ValueError, OverflowError):
+                    # Unparseable/tz-naive timestamp or out-of-range
+                    # duration - treat as expired to fail safe (HITL-001).
                     any_expired = True
                     continue
                 if context.conformance_level >= 2:
-                    scope = approval.get("approved_scope") or {}
-                    risk_tier = scope.get("risk_tier")
+                    risk_tier = approved_scope.get("risk_tier")
                     method = approval.get("approval_method")
                     if method == "software-key" or (
                         risk_tier in {"high", "critical"} and method != "hardware-key"
@@ -1327,6 +1368,9 @@ def verify_manifest(
                         continue
 
                 approver_id = approval.get("approver_id")
+                if not isinstance(approver_id, str):
+                    approval_invalid = True
+                    continue
                 public_key_b64 = context.approver_public_keys.get(approver_id)
                 if public_key_b64 is None:
                     approval_unverifiable = True

@@ -17,6 +17,21 @@
 
 ### Fixed
 
+- **[SPEC]** Align v0.2 transparency log semantics with the governing COSE envelope specification (issue #414).
+
+  The v0.2 manifest specification now removes the top-level `signature` and `transparency_log_entry` fields from the manifest shape. Transparency receipts follow the COSE envelope model defined by ADR-0011 and are carried through the `receipts` header. The v0.1 signing and transparency semantics remain unchanged.
+- **[SDK]** HITL approval `approval_duration_seconds` handling didn't match
+  spec 3.5, which requires a positive integer. Missing, zero, or negative
+  values could be accepted as valid forever instead of being rejected;
+  fractional values (e.g. `1.5`) were accepted at all, though the spec
+  requires a whole number. ADR-0006: this field bounds how long an
+  approval is valid, so an approval without a proper one isn't
+  "unbounded", it's malformed. Fixed consistently across all three layers
+  that touch it - schema validation, the exported `verify_hitl_approval()`,
+  and the integrated verifier's HITL loop (defense in depth if schema
+  validation is ever bypassed) - via one shared check so the three can't
+  drift apart again.
+
 - **[DOCS]** Corrected the Art. 14(4) point citations and the satisfaction
   language in spec sections 3.5 and 9.1. Automation bias is point (b) rather
   than point (c), the interrupt and override capabilities are points (e) and

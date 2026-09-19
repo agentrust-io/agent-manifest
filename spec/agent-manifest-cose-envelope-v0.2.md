@@ -88,7 +88,7 @@ Nothing in the unprotected header is covered by the issuer signature, which is p
 
 `sha256` of the **payload bytes**: the canonical JSON of the manifest document, exactly the bytes carried in the COSE payload.
 
-This is a simplification of v0.1, where the attestation bound a hash of the manifest with `attestation`, `signature`, and `transparency_log_entry` excluded, and every future top-level field had to be classified. Here the payload is by construction the settled part of the manifest, so there is nothing to exclude and nothing to keep in sync.
+This is a simplification of v0.1, where the attestation bound a hash of the manifest with `attestation` and `transparency_log_entry` excluded, `signature` included, and every future top-level field had to be classified. Here the payload is by construction the settled part of the manifest, so there is nothing to exclude and nothing to keep in sync.
 
 The binding is carried in the platform's caller-supplied field as v0.1 section 3.3.1 already specifies per platform (`HOST_DATA` for SEV-SNP boot binding, `REPORT_DATA` and `REPORTDATA` for the runtime freshness proofs of section 3.3.2). Those sections are unchanged.
 

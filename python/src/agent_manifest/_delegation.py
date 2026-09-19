@@ -616,6 +616,73 @@ class HitlApprovalSigner:
         return base64.urlsafe_b64encode(sig_bytes).rstrip(b"=").decode()
 
 
+def _check_hitl_approval_duration(duration: Any) -> None:
+    """Raise ValueError unless duration is a valid approval_duration_seconds
+    (spec 3.5: REQUIRED, positive integer; ADR-0006: bounds every approval
+    so none is valid forever). Single source of truth: verify_hitl_approval(),
+    the integrated verifier's HITL loop, and models.ApprovedScope's own
+    pydantic field (as a ``mode="before"`` validator) all call this, so none
+    of them can drift apart on what counts as a valid duration.
+
+    A plain ``int`` pydantic field would disagree with this function on its
+    own, in both directions:
+
+    - More permissive: pydantic's lax-mode ``int`` coercion accepts a
+      numeric string ("3600" -> 3600) and ``True`` (bool is an int
+      subclass, coerces to 1) - both of which we reject outright below.
+    - Stricter in one spot: lax-mode ``int`` accepts a float with no
+      fractional part (``3600.0`` -> ``3600``) the same way we do here, so
+      rejecting that case would itself reopen a gap, just in the opposite
+      direction (verified: ``ApprovedScope(...,
+      approval_duration_seconds=3600.0)`` succeeds with an ``int`` value of
+      3600; ``1.5`` fails with "got a number with a fractional part", same
+      as the fractional check below).
+
+    Calling this from the model closes the first gap without reopening the
+    second.
+    """
+    if not isinstance(duration, (int, float)) or isinstance(duration, bool):
+        raise ValueError(
+            f"HITL approval.approved_scope.approval_duration_seconds must be "
+            f"numeric, got {type(duration).__name__}"
+        )
+    if duration < 1 or (isinstance(duration, float) and not duration.is_integer()):
+        raise ValueError(
+            f"HITL approval.approved_scope.approval_duration_seconds must be "
+            f"a positive integer, got {duration!r}"
+        )
+
+
+def _parse_hitl_approval_timestamp(value: Any) -> datetime:
+    """Parse HITL approval.approved_at into a tz-aware datetime, or raise
+    ValueError. Single source of truth for verify_hitl_approval() and the
+    integrated verifier's HITL loop (_verify.py), so they can't drift apart
+    on this the way approval_duration_seconds validation once did.
+
+    A tz-aware result is the whole point: every caller immediately compares
+    the return value against ``datetime.now(timezone.utc)`` (an aware
+    datetime) to check expiry. ``datetime.fromisoformat()`` happily parses
+    an offset-naive string like "2026-09-16T10:00:00" - if that were
+    returned as-is, comparing it against an aware ``now`` would raise
+    ``TypeError: can't compare offset-naive and offset-aware datetimes``
+    from wherever the comparison happens to run, instead of the documented
+    ValueError. Rejecting naive input here, once, means every caller gets a
+    guaranteed-aware datetime back and never has to guard against that
+    TypeError itself.
+    """
+    if not isinstance(value, str):
+        raise ValueError(
+            f"HITL approval.approved_at must be a string, got {type(value).__name__}"
+        )
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as e:
+        raise ValueError(f"HITL approval has invalid approved_at: {e}") from e
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError("HITL approval.approved_at must include a timezone")
+    return parsed
+
+
 def verify_hitl_approval(
     approval: dict[str, Any],
     manifest_id: str,
@@ -671,36 +738,25 @@ def verify_hitl_approval(
             f"HITL approval.approval_signature must be a string, got {type(sig).__name__}"
         )
 
-    # HITL-003: enforce approval expiry before verifying signature
+    # HITL-003: approval_duration_seconds is REQUIRED and must be a positive
+    # integer (spec 3.5) - it bounds the approval so it can't be valid
+    # forever (ADR-0006). Missing (defaults to 0), 0, and negative are all
+    # invalid, not "no expiry".
     duration = approved_scope.get("approval_duration_seconds", 0)
-    # Type-check unconditionally, before the truthiness gate below: a falsy
-    # malformed value (False, "", [], {}, None) must still be rejected rather
-    # than silently treated the same as an absent/zero duration (no expiry).
-    # bool is an int subclass, but a JSON boolean is not a numeric duration.
-    if not isinstance(duration, (int, float)) or isinstance(duration, bool):
+    _check_hitl_approval_duration(duration)
+    approved_at = _parse_hitl_approval_timestamp(approved_at_str)
+    try:
+        expiry = approved_at + timedelta(seconds=duration)
+    except OverflowError as e:
         raise ValueError(
-            f"HITL approval.approved_scope.approval_duration_seconds must be "
-            f"numeric, got {type(duration).__name__}"
+            f"HITL approval.approved_scope.approval_duration_seconds is out of "
+            f"range: {duration}"
+        ) from e
+    if datetime.now(timezone.utc) > expiry:
+        raise ValueError(
+            f"HITL approval expired: approved_at={approved_at_str}, "
+            f"duration={duration}s"
         )
-    if duration:
-        try:
-            approved_at = datetime.fromisoformat(approved_at_str.replace("Z", "+00:00"))
-        except ValueError as e:
-            raise ValueError(f"HITL approval has invalid approved_at: {e}") from e
-        if approved_at.tzinfo is None or approved_at.utcoffset() is None:
-            raise ValueError("HITL approval.approved_at must include a timezone")
-        try:
-            expiry = approved_at + timedelta(seconds=duration)
-        except OverflowError as e:
-            raise ValueError(
-                f"HITL approval.approved_scope.approval_duration_seconds is out of "
-                f"range: {duration}"
-            ) from e
-        if datetime.now(timezone.utc) > expiry:
-            raise ValueError(
-                f"HITL approval expired: approved_at={approved_at_str}, "
-                f"duration={duration}s"
-            )
 
     pre = _approval_pre_image(
         manifest_id=manifest_id,
