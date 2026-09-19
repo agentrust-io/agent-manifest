@@ -2,9 +2,13 @@
 from __future__ import annotations
 
 import json
+import os
+import stat
+import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import pytest
 from click.testing import CliRunner
 
 from agent_manifest.cli import cli
@@ -699,3 +703,133 @@ def test_cli_verify_rejects_missing_approver_key_file(tmp_path):
 
     assert result.exit_code != 0
     assert "Approver key file not found" in result.output
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission bits only")
+@pytest.mark.parametrize("umask", [0o022, 0o077, 0o777])
+def test_cli_keygen_private_key_mode_0600_under_umask(tmp_path, umask):
+    """CRYPTO-008/SEC-005: private.hex must end up 0600 regardless of umask.
+
+    0o777 is the interesting case: os.open()'s mode argument is itself
+    narrowed by the umask, so without an explicit fchmod() a maximally
+    restrictive umask would leave the file at 0000 -- unreadable even by
+    its owner -- instead of the intended 0600.
+    """
+    old_umask = os.umask(umask)
+    try:
+        priv_path = tmp_path / "private.hex"
+        result = CliRunner().invoke(cli, ["keygen", "-d", str(tmp_path)])
+        assert result.exit_code == 0, result.output
+        assert stat.S_IMODE(os.stat(priv_path).st_mode) == 0o600
+    finally:
+        os.umask(old_umask)
+
+
+def test_cli_keygen_refuses_to_overwrite_existing_private_key(tmp_path):
+    """keygen must not touch an existing private.hex, not even to fix its mode.
+
+    Overwriting in place is unsafe even with a perfect chmod: if something
+    already has the old file open for reading, it keeps reading the same
+    inode and would see the brand-new key. Refusing outright avoids that
+    case entirely instead of trying to out-race it.
+
+    The file's mode is recorded rather than hardcoded because os.chmod()
+    on Windows doesn't implement Unix permission bits -- it only toggles
+    the read-only attribute -- so a literal 0o400 check wouldn't hold there.
+
+    The fixture mode is 0o400 (owner read-only) rather than the 0600
+    keygen would produce: it's still a different value, so the
+    mode-preserved assertion below actually proves something, but unlike
+    0o640/0o644 it grants no group or other access, so the fixture is
+    never itself group- or world-readable, even transiently.
+    """
+    priv_path = tmp_path / "private.hex"
+    priv_path.write_text("existing-key-material")
+    os.chmod(priv_path, 0o400)
+    original_mode = stat.S_IMODE(priv_path.stat().st_mode)
+
+    result = CliRunner().invoke(cli, ["keygen", "-d", str(tmp_path)])
+
+    assert result.exit_code != 0
+    assert "already exists" in result.output
+    assert priv_path.read_text() == "existing-key-material"
+    assert stat.S_IMODE(priv_path.stat().st_mode) == original_mode
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX symlink semantics")
+def test_cli_keygen_refuses_symlink_private_key(tmp_path):
+    """O_EXCL must refuse to follow a private.hex that's actually a symlink.
+
+    Not required for the confidentiality fix itself (the pre-open-FD test
+    below already covers that), but it locks in a property the implementation
+    comment explicitly relies on.
+    """
+    target = tmp_path / "target"
+    private = tmp_path / "private.hex"
+
+    target.write_text("do-not-touch")
+    private.symlink_to(target)
+
+    result = CliRunner().invoke(cli, ["keygen", "-d", str(tmp_path)])
+
+    assert result.exit_code != 0
+    assert target.read_text() == "do-not-touch"
+    assert private.is_symlink()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="requires POSIX file descriptors")
+def test_cli_keygen_never_leaks_new_key_through_a_preopened_descriptor(tmp_path):
+    """End-to-end reproduction of the pre-open-FD disclosure this patch closes.
+
+    Simulates an attacker who opened a loosely-permissioned private.hex
+    before keygen ran. Since keygen now refuses to write into an existing
+    file at all, that pre-opened descriptor must never see new key
+    material -- only whatever was there before.
+    """
+    priv_path = tmp_path / "private.hex"
+    priv_path.write_text("OLD-SECRET-KEY")
+    # 0o400 (owner read-only): the "attacker" here is just this same test
+    # process holding an earlier file descriptor open, so no group/other
+    # bits are needed to exercise that path, and none are granted.
+    os.chmod(priv_path, 0o400)
+
+    attacker_fd = os.open(str(priv_path), os.O_RDONLY)
+    try:
+        result = CliRunner().invoke(cli, ["keygen", "-d", str(tmp_path)])
+        assert result.exit_code != 0
+
+        os.lseek(attacker_fd, 0, os.SEEK_SET)
+        data = os.read(attacker_fd, 4096)
+        assert data == b"OLD-SECRET-KEY"
+    finally:
+        os.close(attacker_fd)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission bits only")
+def test_cli_keygen_private_key_created_with_mode_0600_and_o_excl(tmp_path, monkeypatch):
+    """CRYPTO-008/SEC-005 regression test (deterministic, not timing-based).
+
+    The private key file must be created with O_EXCL and mode 0600 passed
+    directly to the creating syscall -- both so the mode is never applied
+    after the fact (the original write-then-chmod TOCTOU) and so an
+    existing file is never truncated and reused (the FD-disclosure case).
+    """
+    calls = []
+    real_open = os.open
+
+    def spying_open(path, flags, *args, **kwargs):
+        if os.fspath(path).endswith("private.hex") and (flags & os.O_CREAT):
+            mode = args[0] if args else kwargs.get("mode")
+            calls.append((flags, mode))
+        return real_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(os, "open", spying_open)
+
+    result = CliRunner().invoke(cli, ["keygen", "-d", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+
+    assert len(calls) == 1
+    flags, mode = calls[0]
+    assert mode == 0o600
+    assert flags & os.O_EXCL
+    assert not flags & os.O_TRUNC
