@@ -40,9 +40,64 @@ assert runtime_report.context_hash == context_hash
 second = provider.attest_runtime_state(secrets.token_bytes(32), context_hash)
 assert second.report_data_hash != runtime_report.report_data_hash
 print("PASS: a new nonce changes the software binding; no hardware proof was produced")
+
+from agent_manifest import parse_platform_info, appraise_platform_info, SnpVerificationError
+
+# On real SEV-SNP hardware: parse_platform_info(parse_snp_report(report.quote).platform_info).
+# PLATFORM_INFO (offset 0x40) sits inside the signed report body, so a mutated byte
+# invalidates the signature just like a mutated measurement would - the field is
+# authenticated. What verify_attestation_chain() does not do is interpret it: it has
+# no opinion on whether SMT-on or an unconfirmed alias check is acceptable. That
+# policy judgment is appraise_platform_info()'s job, as its own explicit step (see
+# limitations.md).
+good_platform_info = parse_platform_info(0b0010_0000)  # alias_check_complete set, SMT off
+appraise_platform_info(good_platform_info, require={"alias_check_complete"}, forbid={"smt_enabled"})
+print("PASS: platform policy satisfied (alias_check_complete set, SMT off)")
+
+bad_platform_info = parse_platform_info(0b0000_0001)  # SMT on, alias_check_complete unset
+try:
+    appraise_platform_info(bad_platform_info, require={"alias_check_complete"}, forbid={"smt_enabled"})
+    raise AssertionError("expected the platform policy to reject this report")
+except SnpVerificationError:
+    print("PASS: platform policy rejects an SMT-enabled report with no alias check")
 ```
 
-Expect two additional `PASS` lines. These assertions test software behavior. Copying the returned nonce or context into a response would not prove freshness or hardware authenticity.
+Expect four `PASS` lines in total from this page (two from the software-binding example above, two from the platform-policy calls just added). Copying the returned nonce or context into a response would not prove freshness or hardware authenticity; the two new platform-policy assertions test policy logic decoded from literal bits, not a captured hardware report that end-to-end path is exercised separately (linked below).
+
+### Appraise platform state before trusting hardware evidence
+
+`appraise_platform_info()` is not called by `verify_manifest()`, and is not called by `verify_attestation_chain()` either see [platform limitations](../limitations.md). Neither function is invoked by the other; each is an appraisal the caller runs and hands to `verify_manifest()` as a result via `VerificationContext`. Combine the two appraisals signature/chain/measurement and platform state into a single pass/fail before deciding whether the manifest hash is trustworthy evidence. This is a composition sketch, not a runnable snippet `report`, `expected_hash`, `context`, and `record` are whatever your own attestation flow already produced earlier in this tutorial:
+
+```
+hw_result = verify_attestation_chain(
+    report, expected_manifest_hash=expected_hash, snp_report_bytes=report.quote,
+    vcek_cert_der=vcek_der, cert_chain_pem=cert_chain_pem,
+)
+
+# Only attempt platform appraisal once hardware appraisal has already passed.
+# A tampered or malformed report can fail hw_result.passed on its own; there
+# is no reason to also risk parse_snp_report() raising on the same bad bytes
+# before the caller ever reaches its decision, and no reason to trust
+# PLATFORM_INFO from a report whose signature has not verified in the first
+# place.
+platform_ok = False
+if hw_result.passed:
+    platform_info = parse_platform_info(parse_snp_report(report.quote).platform_info)
+    try:
+        appraise_platform_info(platform_info, require={"alias_check_complete"}, forbid={"smt_enabled"})
+        platform_ok = True
+    except SnpVerificationError:
+        platform_ok = False
+
+if hw_result.passed and platform_ok:
+    context.verified_attestation_manifest_hashes.add(expected_hash)
+    context.attestation_evidence_manifest_id = record["manifest_id"]
+```
+
+No new field is needed on `VerificationContext` for this: `verify_manifest()` already gates `attestation_verified` (and, with `enforce_attestation=True`, the overall `VALID`/`ATTESTATION_UNAVAILABLE` result) purely on membership in `verified_attestation_manifest_hashes`. Calling `appraise_platform_info()` with no `require`/`forbid` at all or not calling it asserts nothing and reproduces prior behavior exactly, so adopting a platform policy is opt in and cannot regress an existing deployment that never sets one.
+
+
+This composes two things the caller is already responsible for; `verify_manifest()` itself still has no idea PLATFORM_INFO exists. [`test_platform_info_verify_manifest.py`](https://github.com/agentrust-io/agent-manifest/blob/main/python/tests/test_platform_info_verify_manifest.py) is an integration-style test of this composition against a cryptographically self-consistent synthetic SEV-SNP chain freshly generated keys and certificates shaped like the real VCEK/ASK/ARK hierarchy, not AMD-rooted hardware evidence covering the accept case, a `require`-only failure, a `forbid`-only failure, that hardware appraisal failing correctly stops platform appraisal from being reached at all (checked with a monkeypatch, not just the final verdict, since a broken ordering can still land on the same verdict by coincidence), that a genuinely malformed report doesn't crash the corrected ordering, and confirming a `PLATFORM_INFO` byte flipped after signing invalidates the signature rather than silently changing the appraisal. The policy decision itself (only add the hash when both appraisals pass) is implemented by that test's own helper, the same way it would be in your caller code it is not new behavior added to `verify_manifest()`.
 
 ## Select the hardware path
 
