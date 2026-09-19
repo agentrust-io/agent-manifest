@@ -63,6 +63,11 @@ For SNP, construct `SEVSNPProvider(require_vcek_verification=True, product="Mila
 
 Then call `extend_manifest_hash(record)` and `get_attestation_report()`. The SNP result includes `raw["vcek_cert_chain_verified"]`; TDX includes `raw["quote_verified"]`. Both verification flags default to false when their constructor options are omitted. `TDXProvider` has no `rtmr_index` constructor argument; this binding uses `REPORTDATA` rather than extending an RTMR.
 
+!!! note "SDK binding differs from the spec's launch-time profile"
+    `SEVSNPProvider` and `TDXProvider` bind the manifest digest at runtime, from inside the guest, in the guest-controlled field: the first 32 bytes of `REPORT_DATA` (SNP) or `REPORTDATA` (TDX) carry `SHA-256(manifest pre-image)` and the remaining 32 bytes are zero. The GCP TDX captures in `python/tests/fixtures/hardware/gcp-tdx-2026-07-21/` show this: the digest is in `REPORTDATA` and `RTMR[3]` is all zeros.
+
+    [Specification section 3.3.1](../spec/agent-manifest-v0.2.md) defines the target launch-time binding instead: SNP `HOST_DATA` set by the launcher at `SNP_LAUNCH_FINISH`, a TDX `RTMR[3]` extend before workload code runs, and PCR15 on AWS Nitro. The SDK does not implement those profiles yet. An `attestation` block produced by these providers therefore does not meet the section 3.3.1 profile, and a verifier that expects `HOST_DATA` or `RTMR[3]` will not find the digest there. The runtime freshness binding in section 3.3.2 is separate and does not carry the manifest digest: the context object it hashes holds the policy bundle, system prompt, and tool catalog hashes, not the manifest.
+
 `verify_manifest_in_report()` checks the manifest binding. Treat it as one check in the appraisal, not a complete signature, certificate, freshness, and workload-policy verdict. The recipient must examine authenticated quote bytes and compare the measurements with its own allowlist.
 
 ## Runtime state attestation (freshness proofs)
