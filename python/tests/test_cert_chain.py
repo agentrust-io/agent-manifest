@@ -13,6 +13,7 @@ import pytest
 crypto = pytest.importorskip("cryptography")
 
 from cryptography import x509  # noqa: E402
+from cryptography.exceptions import InvalidSignature, UnsupportedAlgorithm  # noqa: E402
 from cryptography.hazmat.primitives import hashes  # noqa: E402
 from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa  # noqa: E402
 from cryptography.x509.oid import NameOID  # noqa: E402
@@ -235,6 +236,74 @@ def test_issuer_key_usage_must_allow_certificate_signing():
     leaf = _cert("leaf", "root", lk.public_key(), rk)
     with pytest.raises(CertChainError, match="cannot sign certificates"):
         verify_cert_chain([leaf, root], [root])
+
+
+def test_malformed_issuer_extension_raises_cert_chain_error_not_value_error():
+    """Extensions parse lazily: a chain can load and then fail on access.
+    That must be a CertChainError, not a bare ValueError.
+    """
+    from cryptography.hazmat.primitives.serialization import Encoding
+
+    (leaf, inter, root), _ = _ec_chain()
+    der = bytearray(inter.public_bytes(Encoding.DER))
+    marker = bytes.fromhex("30030101ff")  # BasicConstraints value: CA=TRUE, no pathLen
+    at = bytes(der).find(marker)
+    assert at != -1
+    der[at + 2] = 0x05  # BOOLEAN tag -> NULL tag
+    broken = x509.load_der_x509_certificate(bytes(der))
+    with pytest.raises(CertChainError, match="malformed extensions"):
+        verify_cert_chain([leaf, broken, root], [root])
+
+
+def test_issuer_with_unsupported_public_key_curve_raises_cert_chain_error():
+    """An issuer whose key the library cannot use is a rejection.
+
+    The library raises different exceptions for this depending on the release, so
+    assert the CertChainError contract, not which exception it picks.
+    """
+    from cryptography.hazmat.primitives.serialization import Encoding
+
+    (leaf, inter, root), _ = _ec_chain()  # P-384 keys
+    der = bytearray(inter.public_bytes(Encoding.DER))
+    curve_oid = bytes.fromhex("06052b81040022")  # secp384r1
+    at = bytes(der).find(curve_oid)
+    assert at != -1
+    der[at + len(curve_oid) - 1] = 0x7F  # 1.3.132.0.127: well-formed OID, no such curve
+    broken = x509.load_der_x509_certificate(bytes(der))  # still loads
+
+    with pytest.raises(CertChainError, match="not validly issued by the next"):
+        verify_cert_chain([leaf, broken, root], [root])
+
+
+class _FailingIssuedByCheck:
+    """A real certificate whose ``verify_directly_issued_by`` raises ``exc``."""
+
+    def __init__(self, cert, exc):
+        self._cert = cert
+        self._exc = exc
+
+    def __getattr__(self, name):
+        return getattr(self._cert, name)
+
+    def verify_directly_issued_by(self, issuer):
+        raise self._exc
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        ValueError("issuer name does not match subject"),
+        TypeError("unsupported issuer public key type"),
+        InvalidSignature(),
+        UnsupportedAlgorithm("Curve 1.2.840.10045.3.1.9 is not supported"),
+    ],
+    ids=["ValueError", "TypeError", "InvalidSignature", "UnsupportedAlgorithm"],
+)
+def test_every_issued_by_failure_the_library_can_raise_becomes_cert_chain_error(exc):
+    """Independent of which cryptography release is installed."""
+    (leaf, inter, root), _ = _ec_chain()
+    with pytest.raises(CertChainError, match="not validly issued by the next"):
+        verify_cert_chain([_FailingIssuedByCheck(leaf, exc), inter, root], [root])
 
 
 # --- pathLenConstraint (RFC 5280 4.2.1.9) -----------------------------------

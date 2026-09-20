@@ -17,9 +17,24 @@
 
 ### Fixed
 
+
 - **[SPEC]** Align v0.2 transparency log semantics with the governing COSE envelope specification (issue #414).
 
   The v0.2 manifest specification now removes the top-level `signature` and `transparency_log_entry` fields from the manifest shape. Transparency receipts follow the COSE envelope model defined by ADR-0011 and are carried through the `receipts` header. The v0.1 signing and transparency semantics remain unchanged.
+
+- **[SDK]** `verify_tdx_quote()` now checks the PCK chain with the shared
+  `verify_cert_chain()`. It used to check only signatures, the root pin and
+  validity, so a non-CA intermediate, a violated `pathLenConstraint`, a
+  `KeyUsage` without `keyCertSign`, or broken issuer/subject names still
+  verified. Real Intel chains pass the stricter checks. A custom
+  `trusted_root_pem` must now be a CA certificate (`BasicConstraints` `CA=TRUE`).
+
+- **[SDK]** Malformed certificate material is now a rejection instead of a raw
+  exception. A corrupt PCK chain PEM, an off-curve attestation key or a bad
+  `trusted_root_pem` raised `ValueError` from `verify_tdx_quote()`, and
+  `verify_cert_chain()` let malformed extensions or an unsupported issuer key
+  escape (also through the TPM path). These now raise `TdxVerificationError` or
+  `CertChainError`.
 
 - **[SDK]** `manifest keygen` (CRYPTO-008/SEC-005) wrote the private key
   file with the default umask, then chmod'd it to 0600 - briefly

@@ -658,3 +658,48 @@ def test_malformed_certificate_material_raises_tpm_error_not_value_error():
 
     with pytest.raises(TpmVerificationError, match="malformed"):
         verify_tpm_quote(attest, sig, b"-----BEGIN CERTIFICATE-----\nnope\n", trusted_roots_pem=roots)
+
+
+def test_malformed_issuer_extension_raises_tpm_error_not_value_error():
+    """A chain with malformed extensions must be a TpmVerificationError, not a ValueError."""
+    ak_key, chain, roots = _chain_with_issuer(ca=True, key_cert_sign=True)
+    marker = bytes.fromhex("30030101ff")  # BasicConstraints value: CA=TRUE, no pathLen
+
+    def corrupt(pem: bytes) -> bytes:
+        certs = x509.load_pem_x509_certificates(pem)
+        out = b""
+        for cert in certs:
+            der = bytearray(cert.public_bytes(Encoding.DER))
+            at = bytes(der).find(marker)
+            if at != -1:  # only the root carries BasicConstraints
+                der[at + 2] = 0x05  # BOOLEAN tag -> NULL tag
+            out += x509.load_der_x509_certificate(bytes(der)).public_bytes(Encoding.PEM)
+        return out
+
+    attest = _build_attest(NONCE, PCR)
+    sig = _sign(ak_key, attest)
+    with pytest.raises(TpmVerificationError, match="malformed extensions"):
+        verify_tpm_quote(attest, sig, corrupt(chain), trusted_roots_pem=corrupt(roots))
+
+
+def test_issuer_with_unsupported_key_curve_raises_tpm_error():
+    """A root with an unsupported curve must be a TpmVerificationError."""
+    ak_key, chain, roots = _chain_with_issuer(ca=True, key_cert_sign=True)
+    prime256v1 = bytes.fromhex("06082a8648ce3d030107")
+
+    def corrupt_root(pem: bytes) -> bytes:
+        (root_cert,) = x509.load_pem_x509_certificates(pem)
+        der = bytearray(root_cert.public_bytes(Encoding.DER))
+        at = bytes(der).find(prime256v1)
+        assert at != -1
+        der[at + len(prime256v1) - 1] = 0x09  # 1.2.840.10045.3.1.9: no such curve
+        return x509.load_der_x509_certificate(bytes(der)).public_bytes(Encoding.PEM)
+
+    ak_cert, root_cert = x509.load_pem_x509_certificates(chain)
+    bad_root = corrupt_root(root_cert.public_bytes(Encoding.PEM))
+    bad_chain = ak_cert.public_bytes(Encoding.PEM) + bad_root
+
+    attest = _build_attest(NONCE, PCR)
+    sig = _sign(ak_key, attest)
+    with pytest.raises(TpmVerificationError, match="not validly issued by the next"):
+        verify_tpm_quote(attest, sig, bad_chain, trusted_roots_pem=bad_root)
