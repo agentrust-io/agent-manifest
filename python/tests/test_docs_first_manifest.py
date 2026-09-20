@@ -59,6 +59,8 @@ def test_first_manifest(tmp_path):
     ("tutorials/hardware-attestation.md", (
         "PASS: software binding matches the record and rejects an edited record",
         "PASS: a new nonce changes the software binding; no hardware proof was produced",
+        "PASS: platform policy satisfied (alias_check_complete set, SMT off)",
+        "PASS: platform policy rejects an SMT-enabled report with no alias check",
     )),
 ])
 def test_followup_tutorial(tmp_path, relative, expected):
