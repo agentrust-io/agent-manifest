@@ -306,6 +306,42 @@ def test_every_issued_by_failure_the_library_can_raise_becomes_cert_chain_error(
         verify_cert_chain([_FailingIssuedByCheck(leaf, exc), inter, root], [root])
 
 
+class _FailingExtensions:
+    """A real certificate whose ``extensions`` access raises ``exc``."""
+
+    def __init__(self, cert, exc):
+        self._cert = cert
+        self._exc = exc
+
+    def __getattr__(self, name):
+        return getattr(self._cert, name)
+
+    @property
+    def extensions(self):
+        raise self._exc
+
+
+@pytest.mark.parametrize("where", ["intermediate", "root"])
+@pytest.mark.parametrize(
+    "exc",
+    [
+        ValueError("malformed extension"),
+        x509.DuplicateExtension("duplicate extension", x509.oid.ExtensionOID.BASIC_CONSTRAINTS),
+        x509.UnsupportedGeneralNameType("unsupported general name", 9),
+    ],
+    ids=["ValueError", "DuplicateExtension", "UnsupportedGeneralNameType"],
+)
+def test_every_extension_parse_failure_becomes_cert_chain_error(exc, where):
+    """These are the exceptions cryptography raises when it reads extensions."""
+    (leaf, inter, root), _ = _ec_chain()
+    if where == "intermediate":
+        chain = [leaf, _FailingExtensions(inter, exc), root]
+    else:
+        chain = [leaf, inter, _FailingExtensions(root, exc)]
+    with pytest.raises(CertChainError, match="malformed extensions"):
+        verify_cert_chain(chain, [root])
+
+
 # --- pathLenConstraint (RFC 5280 4.2.1.9) -----------------------------------
 
 
