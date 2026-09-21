@@ -48,6 +48,15 @@ envelope = attach_receipt(envelope, receipt_bytes)          # label 394, RFC 994
 envelope = attach_attestation(envelope, attestation_block)
 envelope = attach_approvals(envelope, approvals)
 ```
+Receipts and approvals accumulate: each call adds to what the envelope already carries, so approvals can be collected one approver at a time without losing earlier ones.
+
+```python
+envelope = attach_approvals(envelope, [alice_approval])
+envelope = attach_approvals(envelope, [bob_approval])   # both are now attached
+```
+
+The attestation block is a single value, so `attach_attestation` sets it. To replace the receipts or the approvals wholesale, for example to drop a superseded approval, call `attach_unprotected` with the label and the full new array.
+
 
 ::: agent_manifest._cose.attach_receipt
 
