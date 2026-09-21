@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from cryptography import x509
@@ -95,12 +95,13 @@ def verify_cert_chain(
             validly issued by the next, an expired or not-yet-valid certificate,
             an issuer that is not a CA, an issuer whose key usage forbids
             certificate signing, an issuer whose ``pathLenConstraint`` is
-            violated by the CA certificates below it, an unpinned root, or
+            violated by the CA certificates below it, an issuer with
+            unparseable extensions or an unsupported key, an unpinned root, or
             missing ``cryptography``.
     """
     try:
         from cryptography import x509
-        from cryptography.exceptions import InvalidSignature
+        from cryptography.exceptions import InvalidSignature, UnsupportedAlgorithm
         from cryptography.hazmat.primitives.hashes import SHA256
     except ImportError as e:  # pragma: no cover - exercised via install extra
         raise CertChainError(
@@ -120,15 +121,26 @@ def verify_cert_chain(
     for i, cert in enumerate(chain):
         check_validity_period(cert, label=f"certificate at position {i}", verification_time=now)
 
-    for i, issuer in enumerate(chain[1:], start=1):
+    def _extension(cert: x509.Certificate, ext_class: Any, position: int) -> Any:
+        """Return the extension value, ``None`` if absent, or raise CertChainError.
+
+        Extensions parse lazily, so an untrusted chain can load fine and only fail here.
+        """
         try:
-            constraints = issuer.extensions.get_extension_for_class(
-                x509.BasicConstraints
-            ).value
-        except x509.ExtensionNotFound as exc:
+            return cert.extensions.get_extension_for_class(ext_class).value
+        except x509.ExtensionNotFound:
+            return None
+        except (ValueError, x509.DuplicateExtension, x509.UnsupportedGeneralNameType) as exc:
+            raise CertChainError(
+                f"certificate at position {position} has malformed extensions: {exc}"
+            ) from exc
+
+    for i, issuer in enumerate(chain[1:], start=1):
+        constraints = _extension(issuer, x509.BasicConstraints, i)
+        if constraints is None:
             raise CertChainError(
                 f"issuer certificate at position {i} has no BasicConstraints"
-            ) from exc
+            )
         if not constraints.ca:
             raise CertChainError(f"issuer certificate at position {i} is not a CA")
         # RFC 5280 4.2.1.9: pathLenConstraint bounds how many CA certificates
@@ -148,22 +160,20 @@ def verify_cert_chain(
                 f"{constraints.path_length}, but {i - 1} CA certificate(s) "
                 "follow it toward the leaf"
             )
-        try:
-            key_usage = issuer.extensions.get_extension_for_class(x509.KeyUsage).value
-        except x509.ExtensionNotFound:
-            pass
-        else:
-            if not key_usage.key_cert_sign:
-                raise CertChainError(
-                    f"issuer certificate at position {i} cannot sign certificates"
-                )
+        key_usage = _extension(issuer, x509.KeyUsage, i)
+        if key_usage is not None and not key_usage.key_cert_sign:
+            raise CertChainError(
+                f"issuer certificate at position {i} cannot sign certificates"
+            )
 
     for i in range(len(chain) - 1):
         try:
             # Honors the child's own signature algorithm (ECDSA / RSA-PSS /
             # RSA-PKCS#1 v1.5) and checks issuer/subject-name chaining.
+            # The chain is untrusted input; whatever the library raises for an
+            # unusable link (including UnsupportedAlgorithm) must be a CertChainError.
             chain[i].verify_directly_issued_by(chain[i + 1])
-        except (ValueError, TypeError, InvalidSignature) as exc:
+        except (ValueError, TypeError, InvalidSignature, UnsupportedAlgorithm) as exc:
             raise CertChainError(
                 f"certificate at position {i} is not validly issued by the next: {exc}"
             ) from exc

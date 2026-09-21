@@ -16,8 +16,10 @@ A TDX v4 quote (Intel DCAP) is verified in four steps, all fail-closed:
 2. the Quoting Enclave (QE) report binds that attestation key
    (``report_data[:32] == sha256(att_pub || qe_auth_data)``);
 3. the QE report is itself signed by the platform's PCK certificate; and
-4. the embedded PCK certificate chain verifies up to the **Intel SGX Root CA**,
-   which is pinned (embedded below; the chain's self-signed root must match it).
+4. the embedded PCK certificate chain passes the shared
+   :func:`._cert_chain.verify_cert_chain` (validity, issuer names, CA /
+   ``pathLenConstraint`` / ``keyCertSign`` constraints) up to the **Intel SGX
+   Root CA**, which is pinned (embedded below; matched by fingerprint).
 
 The manifest hash a guest binds lands in the TD report's ``REPORTDATA``
 (guest-controlled on non-paravisor TDX). Only the ``cryptography`` package is
@@ -258,12 +260,14 @@ def verify_tdx_quote(
     malformed/unsupported quote or broken chain, or if ``cryptography`` is
     unavailable; returns False on a well-formed-but-invalid signature.
 
-    Every certificate in the PCK chain must be within its validity period (see
-    :func:`._cert_chain.check_validity_period`); an expired PCK leaf,
-    intermediate, or root is rejected even if every signature in the chain is
-    otherwise valid.
+    The PCK chain is checked by :func:`._cert_chain.verify_cert_chain`, the same
+    primitive the TPM path uses: validity periods, issuer/subject names and
+    signatures, ``CA=TRUE`` and ``pathLenConstraint`` on issuers, and
+    ``keyCertSign`` when ``KeyUsage`` is present. A malformed chain, attestation
+    key or trusted root raises :class:`TdxVerificationError`.
 
-    ``trusted_root_pem`` overrides the embedded Intel root (for testing).
+    ``trusted_root_pem`` overrides the embedded Intel root (for testing). It is
+    checked as the chain's root, so it must be a CA certificate.
     """
     # The signed header authorizes the only verification profile implemented
     # here. Establish it before accepting any signature/certification semantics.
@@ -271,11 +275,10 @@ def verify_tdx_quote(
 
     try:
         from cryptography import x509
-        from cryptography.exceptions import InvalidSignature
-        from cryptography.hazmat.primitives import hashes
+        from cryptography.exceptions import InvalidSignature, UnsupportedAlgorithm
         from cryptography.hazmat.primitives.asymmetric import ec
 
-        from ._cert_chain import CertChainError, check_validity_period
+        from ._cert_chain import CertChainError, verify_cert_chain
     except ImportError as e:  # pragma: no cover
         raise TdxVerificationError(
             "TDX quote verification requires the 'cryptography' package"
@@ -287,7 +290,11 @@ def verify_tdx_quote(
 
     # Step 1: attestation key signs the quote header + TD report body.
     try:
-        _verify_raw_ecdsa(_p256(parsed.attestation_key), parsed.quote_signature, parsed.signed_body)
+        att_pub = _p256(parsed.attestation_key)
+    except ValueError as e:
+        raise TdxVerificationError("attestation key is not a valid P-256 point") from e
+    try:
+        _verify_raw_ecdsa(att_pub, parsed.quote_signature, parsed.signed_body)
     except InvalidSignature:
         return False
 
@@ -296,47 +303,42 @@ def verify_tdx_quote(
     if not hmac.compare_digest(qe_report[_OFF_QE_REPORT_DATA:_OFF_QE_REPORT_DATA + 32], expected_bind):
         return False
 
-    # Parse the PCK chain (leaf first).
-    certs = x509.load_pem_x509_certificates(parsed.pck_chain_pem)
+    # Parse the PCK chain (leaf first) and the pinned root. The chain comes from
+    # the quote, so malformed PEM must be a TdxVerificationError, not a ValueError.
+    try:
+        certs = x509.load_pem_x509_certificates(parsed.pck_chain_pem)
+    except ValueError as e:
+        raise TdxVerificationError(f"PCK chain is not valid PEM: {e}") from e
+    try:
+        root = x509.load_pem_x509_certificate(trusted_root_pem or INTEL_SGX_ROOT_CA_PEM)
+    except ValueError as e:
+        raise TdxVerificationError(f"pinned Intel SGX Root CA is not valid PEM: {e}") from e
     if len(certs) < 2:
         raise TdxVerificationError("PCK chain must contain at least a leaf and the root")
-    pck = certs[0]
+    # Step 4, run before step 3 so the PCK key is used only once it chains to
+    # the pinned root. Use the shared primitive; "signed by the next" alone
+    # would accept a non-CA intermediate.
+    try:
+        verify_cert_chain(certs, [root], verification_time=verification_time)
+    except CertChainError as e:
+        raise TdxVerificationError(
+            f"PCK chain does not verify to the pinned Intel SGX Root CA: {e}"
+        ) from e
 
-    for i, c in enumerate(certs):
-        try:
-            check_validity_period(
-                c, label=f"PCK chain certificate at position {i}", verification_time=verification_time
+    # An Intel PCK chain is all-EC; the shared primitive does not enforce that.
+    try:
+        keys = [c.public_key() for c in certs]
+    except (ValueError, UnsupportedAlgorithm) as e:
+        raise TdxVerificationError(f"PCK chain carries an unusable public key: {e}") from e
+    for i, key in enumerate(keys):
+        if not isinstance(key, ec.EllipticCurvePublicKey):
+            raise TdxVerificationError(
+                f"PCK chain certificate at position {i} does not carry an EC key"
             )
-        except CertChainError as e:
-            raise TdxVerificationError(str(e)) from e
 
     # Step 3: the PCK certificate signs the QE report.
-    pck_pub = pck.public_key()
-    if not isinstance(pck_pub, ec.EllipticCurvePublicKey):
-        raise TdxVerificationError("PCK certificate is not an EC key")
     try:
-        _verify_raw_ecdsa(pck_pub, qe_report_sig, qe_report)
+        _verify_raw_ecdsa(keys[0], qe_report_sig, qe_report)
     except InvalidSignature:
         return False
-
-    # Step 4: chain the PCK cert up to the pinned Intel SGX Root CA.
-    root = x509.load_pem_x509_certificate(trusted_root_pem or INTEL_SGX_ROOT_CA_PEM)
-    for i in range(len(certs) - 1):
-        issuer_pub = certs[i + 1].public_key()
-        if not isinstance(issuer_pub, ec.EllipticCurvePublicKey):
-            raise TdxVerificationError("PCK chain issuer is not an EC key")
-        halg = certs[i].signature_hash_algorithm
-        if halg is None:
-            raise TdxVerificationError(f"PCK chain link {i} has no signature hash algorithm")
-        try:
-            issuer_pub.verify(
-                certs[i].signature,
-                certs[i].tbs_certificate_bytes,
-                ec.ECDSA(halg),
-            )
-        except InvalidSignature as e:
-            raise TdxVerificationError(f"PCK chain link {i} signature invalid") from e
-    chain_root = certs[-1]
-    if chain_root.fingerprint(hashes.SHA256()) != root.fingerprint(hashes.SHA256()):
-        raise TdxVerificationError("PCK chain root does not match the pinned Intel SGX Root CA")
     return True
