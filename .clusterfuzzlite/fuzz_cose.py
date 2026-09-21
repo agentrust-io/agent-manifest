@@ -23,6 +23,7 @@ import atheris
 with atheris.instrument_imports():
     from agent_manifest._cose import (
         CoseError,
+        attach_approvals,
         attach_receipt,
         decode_cose_manifest,
         read_payload_manifest,
@@ -36,7 +37,7 @@ def TestOneInput(data: bytes) -> None:
     if not data:
         return
     fdp = atheris.FuzzedDataProvider(data)
-    choice = fdp.ConsumeIntInRange(0, 3)
+    choice = fdp.ConsumeIntInRange(0, 4)
     blob = fdp.ConsumeBytes(fdp.remaining_bytes())
 
     try:
@@ -46,8 +47,10 @@ def TestOneInput(data: bytes) -> None:
             decode_cose_manifest(blob)
         elif choice == 2:
             read_payload_manifest(blob)
-        else:
+        elif choice == 3:
             attach_receipt(blob, b"\xa0")
+        else:
+            attach_approvals(blob, [{"approver_id": "a"}])
     except CoseError:
         pass
 

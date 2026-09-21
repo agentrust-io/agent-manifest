@@ -435,8 +435,41 @@ def attach_attestation(cose_bytes: bytes, attestation: dict[str, Any]) -> bytes:
 
 
 def attach_approvals(cose_bytes: bytes, approvals: list[dict[str, Any]]) -> bytes:
-    """Attach HITL approval records, each authenticated by its own signature."""
-    return attach_unprotected(cose_bytes, LABEL_APPROVALS, approvals)
+    """Add HITL approvals to the ``agent-manifest-approvals`` array.
+
+    Existing approvals are kept and the new ones go after them, so approvers
+    can attach one at a time (ADR-0006). ``attach_receipt()`` works the same
+    way. To replace the whole array, use
+    ``attach_unprotected(cose_bytes, LABEL_APPROVALS, approvals)``.
+
+    Raises:
+        CoseStructureError: The envelope is malformed, *approvals* is not a
+            list, or the envelope already has an approvals value that is not
+            an array (``null`` included). Nothing is overwritten silently.
+    """
+    _, body = _decode_tagged(cose_bytes)
+    # A dict, str or bytes would be split into keys, characters or bytes.
+    if not isinstance(approvals, list):
+        raise CoseStructureError(
+            f"approvals must be a list of approval records, got "
+            f"{type(approvals).__name__}"
+        )
+    # Only a missing label means there is nothing to keep. A label that is
+    # present but not an array (even ``null``) is an error.
+    unprotected = body[1]
+    if LABEL_APPROVALS not in unprotected:
+        carried: list[Any] = []
+    else:
+        existing = unprotected[LABEL_APPROVALS]
+        # cbor2 6.x decodes arrays to tuples, 5.x to lists.
+        if not isinstance(existing, (list, tuple)):
+            raise CoseStructureError(
+                f"the envelope's {LABEL_APPROVALS!r} value must be an array, "
+                f"got {type(existing).__name__}; use attach_unprotected() to "
+                f"replace it"
+            )
+        carried = _plain(existing)
+    return attach_unprotected(cose_bytes, LABEL_APPROVALS, [*carried, *approvals])
 
 
 # ---------------------------------------------------------------------------
