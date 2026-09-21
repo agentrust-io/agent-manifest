@@ -134,6 +134,9 @@ markdown_extensions:
 
 extra:
   social:
+    - icon: fontawesome/brands/linkedin
+      link: https://www.linkedin.com/company/agentrust-io/
+      name: AgenTrust on LinkedIn
     - icon: fontawesome/brands/github
       link: https://github.com/agentrust-io/agent-manifest
       name: agent-manifest on GitHub
