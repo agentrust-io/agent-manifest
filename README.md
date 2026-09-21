@@ -4,6 +4,8 @@
 
 # Agent Manifest
 
+Community updates and contributor highlights: [AgenTrust on LinkedIn](https://www.linkedin.com/company/agentrust-io/).
+
 ### Prove what your agent was, not just who called it
 
 <p align="center">
