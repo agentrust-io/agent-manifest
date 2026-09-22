@@ -8,6 +8,7 @@
 
 ### Fixed
 
+- **[SDK]** `manifest create/sign/attest` crashed with a raw AttributeError/TypeError if the input file was valid JSON but not an object (e.g. `[]`), instead of a clean CLI error. `_load_json()` now checks for this, along with malformed JSON, non-UTF-8 files, and directories, and reports each cleanly (CLI-LOAD-001).
 - **[SDK]** `attach_approvals()` replaced the approvals array instead of adding to it, so a second approver's attach silently dropped the first approver's approval, while `attach_receipt()` kept both. It now appends. It also raises `CoseStructureError` if `approvals` is not a list, or if the envelope's existing approvals value is not an array (`null` included), instead of overwriting it. To replace the array, use `attach_unprotected(envelope, LABEL_APPROVALS, approvals)`. The COSE fuzz target now covers `attach_approvals()`.
 - **[SPEC]** Align v0.2 transparency log semantics with the governing COSE envelope specification (issue #414).
 
