@@ -8,6 +8,7 @@ Strategy:
     list (empty and populated), get-found, get-404, signature fields present.
   No hardware or network required.
 """
+import hmac
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -226,6 +227,110 @@ def test_revocation_rejects_mismatched_signer_key_id(tmp_path):
         crl.revoke(record)
 
     assert not crl.is_revoked(MID)
+
+
+# ---------------------------------------------------------------------------
+# signer_key_id comparison: constant-time regression tests
+# ---------------------------------------------------------------------------
+
+
+def test_verify_revocation_rejects_none_signer_key_id():
+    """signer_key_id=None must fail closed, not raise or match."""
+    kp = generate_ed25519()
+    rec = sign_revocation(MID, "test", "admin", kp).model_copy(
+        update={"signer_key_id": None}
+    )
+    with pytest.raises(InvalidSignature):
+        verify_revocation_signature(rec, kp.public_bytes)
+
+
+def test_verify_revocation_rejects_empty_string_signer_key_id():
+    """An empty signer_key_id must not be treated as a wildcard match."""
+    kp = generate_ed25519()
+    rec = sign_revocation(MID, "test", "admin", kp).model_copy(
+        update={"signer_key_id": ""}
+    )
+    with pytest.raises(InvalidSignature):
+        verify_revocation_signature(rec, kp.public_bytes)
+
+
+def test_verify_revocation_rejects_non_ascii_signer_key_id():
+    """signer_key_id has no ASCII/hex validator, so attacker-controlled CRL
+    data can contain non-ASCII text (e.g. "é"). hmac.compare_digest raises
+    TypeError on that instead of returning False, so it must be rejected as
+    InvalidSignature before reaching compare_digest."""
+    kp = generate_ed25519()
+    rec = sign_revocation(MID, "test", "admin", kp).model_copy(
+        update={"signer_key_id": "é"}
+    )
+    with pytest.raises(InvalidSignature):
+        verify_revocation_signature(rec, kp.public_bytes)
+
+
+def test_file_crl_revoke_rejects_non_ascii_signer_key_id_without_typeerror(tmp_path):
+    """FileCRL.revoke() doesn't wrap verify_revocation_signature()'s
+    exceptions, so a non-ASCII signer_key_id must still surface as
+    InvalidSignature here, not a TypeError."""
+    trusted = generate_ed25519()
+    record = sign_revocation(MID, "test", "admin", trusted).model_copy(
+        update={"signer_key_id": "é" * 64}
+    )
+    crl = FileCRL(tmp_path / "crl.jsonl", trusted_signer_key=trusted.public_bytes)
+
+    with pytest.raises(InvalidSignature):
+        crl.revoke(record)
+
+    assert not crl.is_revoked(MID)
+
+
+def test_verify_revocation_rejects_signer_key_id_differing_only_in_last_char():
+    """A key_id differing from the expected one only in its last character
+    must still be rejected."""
+    kp = generate_ed25519()
+    rec = sign_revocation(MID, "test", "admin", kp)
+    correct_key_id = rec.signer_key_id
+    assert correct_key_id is not None
+    flipped_last_char = "0" if correct_key_id[-1] != "0" else "1"
+    tampered = rec.model_copy(
+        update={"signer_key_id": correct_key_id[:-1] + flipped_last_char}
+    )
+    with pytest.raises(InvalidSignature):
+        verify_revocation_signature(tampered, kp.public_bytes)
+
+
+def test_verify_revocation_accepts_matching_signer_key_id():
+    """Sanity check: a legitimate, matching signer_key_id still verifies."""
+    kp = generate_ed25519()
+    rec = sign_revocation(MID, "test", "admin", kp)
+    verify_revocation_signature(rec, kp.public_bytes)  # must not raise
+
+
+def test_verify_revocation_signer_key_id_uses_constant_time_compare(monkeypatch):
+    """The signer_key_id check must go through hmac.compare_digest, not a
+    plain ==/!= comparison."""
+    import agent_manifest._revocation as revocation_module
+
+    kp = generate_ed25519()
+    rec = sign_revocation(MID, "test", "admin", kp)
+
+    calls = []
+    real_compare_digest = hmac.compare_digest
+
+    def spy(a, b):
+        calls.append((a, b))
+        return real_compare_digest(a, b)
+
+    monkeypatch.setattr(revocation_module.hmac, "compare_digest", spy)
+
+    verify_revocation_signature(rec, kp.public_bytes)  # matching case
+    assert calls, "verify_revocation_signature must call hmac.compare_digest"
+    assert calls[0] == (rec.signer_key_id, kp.key_id)
+
+    calls.clear()
+    tampered = rec.model_copy(update={"signer_key_id": "0" * 64})
+    with pytest.raises(InvalidSignature):
+        verify_revocation_signature(tampered, kp.public_bytes)
+    assert calls, "mismatched signer_key_id must also go through hmac.compare_digest"
 
 
 def test_file_crl_authenticated_load_fails_closed_on_tampered_record(tmp_path):
