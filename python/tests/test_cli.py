@@ -8,8 +8,14 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import click
 import pytest
 from click.testing import CliRunner
+from cryptography.hazmat.primitives.serialization import (
+    Encoding,
+    NoEncryption,
+    PrivateFormat,
+)
 
 from agent_manifest.cli import cli
 from agent_manifest._delegation import HitlApprovalSigner
@@ -833,3 +839,178 @@ def test_cli_keygen_private_key_created_with_mode_0600_and_o_excl(tmp_path, monk
     assert mode == 0o600
     assert flags & os.O_EXCL
     assert not flags & os.O_TRUNC
+
+
+# ---------------------------------------------------------------------------
+# CLI-LOAD-001: _load_json() must reject non-object JSON with a clean
+# ClickException instead of crashing with a raw AttributeError/TypeError.
+#
+# json.load() can return a list, string, number, bool, or null for valid
+# JSON that isn't an object, and cast() doesn't check that at runtime -- so
+# e.g. `manifest sign bad.json ...` where bad.json is `[]` used to crash
+# with `AttributeError: 'list' object has no attribute 'get'`.
+#
+# Note: CliRunner reports a caught ClickException via result.exception as
+# SystemExit(1), not the ClickException itself, so these tests check the
+# clean "Error: ..." output instead of the exception's type.
+# ---------------------------------------------------------------------------
+
+
+def _write_private_key(tmp_path: Path, keypair, name: str = "key.hex") -> Path:
+    key_path = tmp_path / name
+    key_path.write_text(
+        keypair.private_key.private_bytes(
+            Encoding.Raw, PrivateFormat.Raw, NoEncryption()
+        ).hex()
+    )
+    return key_path
+
+
+def _write_draft(tmp_path: Path, name: str = "draft.json") -> Path:
+    draft_path = tmp_path / name
+    draft_path.write_text(json.dumps({"agent_id": "spiffe://trust.example/agent/x"}))
+    return draft_path
+
+
+@pytest.mark.parametrize(
+    "content",
+    ["[]", '"a string"', "42", "null", "true"],
+    ids=["list", "string", "number", "null", "bool"],
+)
+@pytest.mark.parametrize("command", ["create", "sign", "attest"])
+def test_cli_non_object_json_fails_cleanly(tmp_path, content, command):
+    """CLI-LOAD-001: non-object JSON must fail cleanly, not crash."""
+    bad_path = tmp_path / "bad.json"
+    bad_path.write_text(content)
+
+    args = [command, str(bad_path)]
+    if command == "sign":
+        args += ["--key", str(_write_private_key(tmp_path, generate_ed25519()))]
+    elif command == "attest":
+        args += ["--provider", "software"]
+
+    result = CliRunner().invoke(cli, args)
+
+    assert result.exit_code != 0
+    assert "Traceback" not in result.output
+    assert result.output == f"Error: {bad_path} does not contain a JSON object.\n"
+
+
+def test_cli_create_malformed_json_fails_cleanly(tmp_path):
+    """CLI-LOAD-001."""
+    bad_path = tmp_path / "bad.json"
+    bad_path.write_text("{not valid json")
+
+    result = CliRunner().invoke(cli, ["create", str(bad_path)])
+
+    assert result.exit_code != 0
+    assert "Traceback" not in result.output
+    assert result.output.startswith(f"Error: {bad_path} is not valid JSON: ")
+
+
+def test_cli_create_empty_file_fails_cleanly(tmp_path):
+    """CLI-LOAD-001."""
+    bad_path = tmp_path / "empty.json"
+    bad_path.write_text("")
+
+    result = CliRunner().invoke(cli, ["create", str(bad_path)])
+
+    assert result.exit_code != 0
+    assert "Traceback" not in result.output
+    assert result.output.startswith(f"Error: {bad_path} is not valid JSON: ")
+
+def test_cli_create_non_utf8_file_fails_cleanly(tmp_path):
+    """CLI-LOAD-001."""
+    bad_path = tmp_path / "bad.json"
+    bad_path.write_bytes(b"\xff\xfe\x00\x01")
+
+    result = CliRunner().invoke(cli, ["create", str(bad_path)])
+
+    assert result.exit_code != 0
+    assert "Traceback" not in result.output
+    assert result.output.startswith(f"Error: {bad_path} is not valid UTF-8: ")
+
+
+@pytest.mark.parametrize("command", ["create", "sign", "attest"])
+def test_cli_directory_argument_fails_cleanly(tmp_path, command):
+    """CLI-LOAD-001: a directory must fail cleanly, not crash."""
+    a_dir = tmp_path / "somedir"
+    a_dir.mkdir()
+
+    args = [command, str(a_dir)]
+    if command == "sign":
+        args += ["--key", str(_write_private_key(tmp_path, generate_ed25519()))]
+    elif command == "attest":
+        args += ["--provider", "software"]
+
+    result = CliRunner().invoke(cli, args)
+
+    assert result.exit_code != 0
+    assert "Traceback" not in result.output
+    assert result.output == f"Error: {a_dir} is a directory, not a JSON file.\n"
+
+
+def test_load_json_reports_directory_on_windows_style_permission_error():
+    """CLI-LOAD-001: Windows raises PermissionError, not IsADirectoryError,
+    for a directory. Fake that and check we still report it as one."""
+    from unittest import mock
+    from agent_manifest.cli import _load_json
+
+    with mock.patch.object(Path, "read_bytes", side_effect=PermissionError("denied")), \
+         mock.patch.object(Path, "is_dir", return_value=True):
+        with pytest.raises(click.ClickException, match="is a directory"):
+            _load_json("fake_dir")
+
+
+def test_load_json_does_not_mask_a_real_permission_error():
+    """CLI-LOAD-001: a real permission error on a regular file must not
+    get relabeled as "is a directory"."""
+    from unittest import mock
+    from agent_manifest.cli import _load_json
+
+    with mock.patch.object(Path, "read_bytes", side_effect=PermissionError("denied")), \
+         mock.patch.object(Path, "is_dir", return_value=False):
+        with pytest.raises(PermissionError):
+            _load_json("fake_file")
+
+
+def test_cli_create_valid_object_still_works(tmp_path):
+    """CLI-LOAD-001 regression: a genuine top-level object is unaffected."""
+    config_path = _write_draft(tmp_path, "config.json")
+
+    result = CliRunner().invoke(cli, ["create", str(config_path)])
+
+    assert result.exit_code == 0, result.output
+    payload = _json_stdout(result)
+    assert payload["agent_id"] == "spiffe://trust.example/agent/x"
+    assert payload["version"] == "0.1"
+
+
+def test_cli_sign_valid_object_still_works(tmp_path):
+    """CLI-LOAD-001 regression: `sign` is the reported repro, so a valid
+    object must still sign successfully."""
+    draft_path = _write_draft(tmp_path)
+    keypair = generate_ed25519()
+    key_path = _write_private_key(tmp_path, keypair)
+
+    result = CliRunner().invoke(cli, ["sign", str(draft_path), "--key", str(key_path)])
+
+    assert result.exit_code == 0, result.output
+    payload = _json_stdout(result)
+    assert payload["agent_id"] == "spiffe://trust.example/agent/x"
+    assert payload["signature"]["key_id"] == keypair.key_id
+
+
+def test_cli_attest_valid_object_still_works(tmp_path):
+    """CLI-LOAD-001 regression: `attest` is a second _load_json() caller,
+    so a valid object must still attest successfully."""
+    draft_path = _write_draft(tmp_path)
+
+    result = CliRunner().invoke(
+        cli, ["attest", str(draft_path), "--provider", "software"]
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = _json_stdout(result)
+    assert payload["agent_id"] == "spiffe://trust.example/agent/x"
+    assert payload["attestation"]["platform"] == "software"
