@@ -18,7 +18,7 @@ import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional, cast
+from typing import Any, Optional
 
 try:
     import click
@@ -44,8 +44,37 @@ from ._verify import (
 
 
 def _load_json(path: str) -> dict[str, Any]:
-    with open(path) as f:
-        return cast(dict[str, Any], json.load(f))
+    """Load a JSON file and require its top-level value to be an object.
+
+    ``json.load`` can return a list, string, number, bool, or null for
+    valid JSON that isn't an object, and ``cast()`` doesn't check that at
+    runtime -- so callers used to crash with a raw AttributeError/TypeError
+    instead of a clean CLI error (CLI-LOAD-001). Malformed JSON, non-UTF-8
+    files, and directories are reported cleanly too.
+
+    A directory raises ``IsADirectoryError`` on POSIX but ``PermissionError``
+    on Windows, so we double-check with ``is_dir()`` before treating a
+    ``PermissionError`` as "it's a directory" -- a real permission error on
+    a regular file is re-raised as-is, not hidden behind that message.
+    """
+    path_obj = Path(path)
+    try:
+        raw = path_obj.read_bytes()
+    except IsADirectoryError:
+        raise click.ClickException(f"{path} is a directory, not a JSON file.")
+    except PermissionError:
+        if not path_obj.is_dir():
+            raise
+        raise click.ClickException(f"{path} is a directory, not a JSON file.")
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except UnicodeDecodeError as exc:
+        raise click.ClickException(f"{path} is not valid UTF-8: {exc}")
+    except json.JSONDecodeError as exc:
+        raise click.ClickException(f"{path} is not valid JSON: {exc}")
+    if not isinstance(data, dict):
+        raise click.ClickException(f"{path} does not contain a JSON object.")
+    return data
 
 
 def _load_manifest_or_envelope(path: str) -> "dict[str, Any] | bytes":
