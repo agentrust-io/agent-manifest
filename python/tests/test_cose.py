@@ -51,6 +51,7 @@ from agent_manifest._cose import (
 )
 from agent_manifest._signing import (
     AlgorithmUnavailableError,
+    _b64url_encode,
     generate_ed25519,
     generate_hybrid,
     generate_ml_dsa65,
@@ -315,6 +316,20 @@ def test_ml_dsa_sign1_roundtrip(pq_backend):
     assert result.algorithms == (ALG_ML_DSA_65,)
 
 
+@require_pq
+def test_ml_dsa_sign1_wrong_length_trusted_key_is_rejected(pq_backend):
+    """A trusted_keys entry that is the wrong length for ML-DSA-65 (e.g. a
+    truncated or misconfigured key) must be rejected with a clear error,
+    not passed straight into the crypto backend (regression: _ml_dsa_verify
+    used to call the raw backend directly, unlike _ed25519_verify, which
+    already went through Ed25519Verifier's length check)."""
+    kp = generate_ml_dsa65()
+    signed = sign_cose_sign1(base_manifest(crypto_profile="post-quantum"), kp)
+    truncated_pub = _b64url_encode(kp.public_key_bytes[:100])
+    with pytest.raises(ValueError, match="1952"):
+        verify_cose_manifest(signed, {kp.key_id: truncated_pub})
+
+
 # ---------------------------------------------------------------------------
 # Post-signing attachment (unprotected header)
 # ---------------------------------------------------------------------------
@@ -523,15 +538,22 @@ def test_alg_substitution_in_the_protected_header_fails_the_signature():
     tag, body = parts(sign_cose_sign1(base_manifest(), KP))
     header = cbor2.loads(body[0])
     header[HDR_ALG] = ALG_ML_DSA_65
+    # kid must point at a correctly-sized (1952-byte) ML-DSA-65 key too -
+    # otherwise this test would only prove the key-length check works, not
+    # that alg substitution itself fails.
+    pq_pub = b"\x05" * 1952
+    pq_kid = hashlib.sha256(pq_pub).digest()
+    header[HDR_KID] = pq_kid
     body[0] = cbor2.dumps(header, canonical=True)
-    # Never accepted, either way. A build with an ML-DSA backend reaches the
-    # fails it, because the protected bytes are inside the Sig_structure. A
-    # signature and fails it; a build without one cannot perform ML-DSA-65
-    # at all and says so, which
+    trusted = {**TRUSTED_KEYS, pq_kid.hex(): _b64url_encode(pq_pub)}
+    # Never accepted, either way. A build with an ML-DSA backend reaches real
+    # signature verification and fails it, because the bytes carried as the
+    # signature are still the Ed25519 signature, not a valid ML-DSA-65 one.
+    # A build without one cannot perform ML-DSA-65 at all and says so, which
     # is UNVERIFIABLE (envelope spec 6 step 6) and still not a fallback to
     # the classical algorithm the manifest was actually signed with.
     with pytest.raises((InvalidSignature, AlgorithmUnavailableError)):
-        verify_cose_manifest(rebuild(tag, body), TRUSTED_KEYS)
+        verify_cose_manifest(rebuild(tag, body), trusted)
 
 
 def test_alg_in_the_unprotected_header_is_rejected():

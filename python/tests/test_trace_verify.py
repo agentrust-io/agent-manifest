@@ -722,6 +722,40 @@ def test_hybrid_pack_signature_verifies():
     assert result.status is TraceStatus.VERIFIED
 
 
+@pytest.mark.skipif(not _OQS, reason="no ML-DSA-65 backend available")
+def test_hybrid_pack_wrong_length_trusted_key_fails_closed():
+    """The detached-signature path (_verify_detached) shares
+    _split_hybrid_public_key with the manifest verifier - a wrong-length
+    combined key must fail here too, not just for manifests."""
+    from agent_manifest._signing import generate_hybrid
+
+    hybrid = generate_hybrid()
+    pack = _pack([])
+    pre_image = evidence_pack_pre_image(pack)
+    classical = _b64url_encode(hybrid.ed25519.private_key.sign(pre_image))
+    from agent_manifest._signing import _ml_dsa_sign_raw
+
+    pq = _b64url_encode(
+        _ml_dsa_sign_raw(hybrid.ml_dsa65.private_key_bytes, pre_image)
+    )
+    pack["pack_signature"] = {
+        "algorithm": "hybrid-Ed25519-ML-DSA-65",
+        "key_id": hybrid.key_id,
+        "classical_signature": classical,
+        "pq_signature": pq,
+        "signature_value": "",
+    }
+    truncated_pq = hybrid.ml_dsa65.public_key_bytes[:100]  # not 1952 bytes
+    combined = hybrid.ed25519.public_bytes + truncated_pq
+    bad_key_id = hashlib.sha256(combined).hexdigest()
+    pack["pack_signature"]["key_id"] = bad_key_id
+    result = verify_evidence_pack(
+        pack, trusted_keys={bad_key_id: _b64url_encode(combined)}
+    )
+    assert result.status is TraceStatus.FAILED
+    assert any("signature_malformed" in f for f in result.failures)
+
+
 # ---------------------------------------------------------------------------
 # Regression: the refactor that made the verifiers reusable
 # ---------------------------------------------------------------------------

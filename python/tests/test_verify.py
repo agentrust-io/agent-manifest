@@ -834,6 +834,55 @@ def test_hybrid_trusted_key_must_match_combined_key_id():
 
 
 # ---------------------------------------------------------------------------
+# _split_hybrid_public_key rejects a wrong-length key instead of only
+# checking it's longer than 32 bytes
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "pq_len",
+    [0, 1, 1951, 1953, 3000],
+    ids=["no_pq_bytes", "one_pq_byte", "pq_too_short", "pq_too_long", "pq_way_too_long"],
+)
+def test_split_hybrid_public_key_rejects_wrong_total_length(pq_len):
+    from agent_manifest._verify import _split_hybrid_public_key
+
+    pub = b"e" * 32 + b"p" * pq_len
+    key_id = hashlib.sha256(pub).hexdigest()
+    with pytest.raises(ValueError, match="1984"):
+        _split_hybrid_public_key(key_id, pub)
+
+
+def test_split_hybrid_public_key_accepts_exact_length():
+    from agent_manifest._verify import _split_hybrid_public_key
+
+    pub = b"e" * 32 + b"p" * 1952
+    key_id = hashlib.sha256(pub).hexdigest()
+    ed_bytes, pq_bytes = _split_hybrid_public_key(key_id, pub)
+    assert ed_bytes == b"e" * 32
+    assert pq_bytes == b"p" * 1952
+
+
+def test_hybrid_trusted_key_wrong_length_is_mismatch_not_a_crash():
+    """A wrong-length combined key in trusted_keys must be a MISMATCH,
+    not an unhandled exception."""
+    ed_pub = b"e" * 32
+    short_pq_pub = b"p" * 100  # not 1952
+    combined_pub = ed_pub + short_pq_pub
+    key_id = hashlib.sha256(combined_pub).hexdigest()
+    ctx = base_context(trusted_keys={key_id: _b64url_encode(combined_pub)})
+
+    result = verify_manifest(_hybrid_manifest(key_id), ctx, store())
+
+    assert result.result == OverallResult.MISMATCH
+    assert result.signature_verified is False
+    assert any(
+        d.field == "signature" and "1984" in d.actual_hash
+        for d in result.mismatch_details
+    )
+
+
+# ---------------------------------------------------------------------------
 # Unsupported algorithm: capability gap, not a bad manifest (spec 4.2)
 # ---------------------------------------------------------------------------
 

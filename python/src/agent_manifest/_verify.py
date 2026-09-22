@@ -428,10 +428,18 @@ def _split_hybrid_public_key(
     public_key_bytes: bytes,
 ) -> tuple[bytes, bytes]:
     """Split and authenticate a combined Ed25519 || ML-DSA-65 public key."""
-    if len(public_key_bytes) <= _HYBRID_ED25519_PUBLIC_KEY_BYTES:
+    # Lazy import, like other `_signing` uses in this module - keeps the
+    # `[pq]` extra optional. Reads the length from `_signing` instead of
+    # hardcoding 1952 here so the two can't drift apart.
+    from ._signing import _ML_DSA_65_PUBLIC_LEN
+
+    expected_len = _HYBRID_ED25519_PUBLIC_KEY_BYTES + _ML_DSA_65_PUBLIC_LEN
+    if len(public_key_bytes) != expected_len:
         raise ValueError(
-            "Hybrid public key must be Ed25519 public key bytes followed by "
-            "ML-DSA-65 public key bytes"
+            "Hybrid public key must be Ed25519 public key bytes "
+            f"({_HYBRID_ED25519_PUBLIC_KEY_BYTES} bytes) followed by "
+            f"ML-DSA-65 public key bytes ({_ML_DSA_65_PUBLIC_LEN} bytes): "
+            f"expected {expected_len} bytes total, got {len(public_key_bytes)}"
         )
 
     actual_key_id = hashlib.sha256(public_key_bytes).hexdigest()
