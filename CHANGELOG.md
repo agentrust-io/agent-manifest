@@ -17,6 +17,13 @@
 
 ### Fixed
 
+- **[SDK]** `verify_revocation_signature()` compared `signer_key_id` with
+  `!=` instead of a constant-time compare, unlike every other key_id/digest
+  check in the SDK. It now uses `hmac.compare_digest()`, with an explicit
+  guard for `None` and non-ASCII values (`signer_key_id` has no ASCII/hex
+  validator, and `compare_digest` raises `TypeError` on non-ASCII `str`
+  input instead of returning `False`).
+
 - **[SDK]** `manifest create/sign/attest` crashed with a raw
   AttributeError/TypeError if the input file was valid JSON but not an
   object (e.g. `[]`), instead of a clean CLI error. `_load_json()` now

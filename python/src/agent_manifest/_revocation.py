@@ -11,6 +11,7 @@ mechanism. The CRL format follows RFC 5280 conceptually but uses JSON.
 """
 from __future__ import annotations
 
+import hmac
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -107,7 +108,17 @@ def verify_revocation_signature(
     # CRL-001: null/empty signature must raise InvalidSignature, not ValueError
     if not record.revocation_signature:
         raise InvalidSignature("revocation_signature is absent or null")
-    if record.signer_key_id != _key_id(signer_public_key):
+    # Constant-time compare, like the other key_id checks in the SDK (!=
+    # would leak timing on the first differing byte). Guard against None
+    # and non-ASCII first, since compare_digest raises TypeError on
+    # non-ASCII str input instead of returning False.
+    expected_key_id = _key_id(signer_public_key)
+    actual_key_id = record.signer_key_id
+    if (
+        actual_key_id is None
+        or not actual_key_id.isascii()
+        or not hmac.compare_digest(actual_key_id, expected_key_id)
+    ):
         raise InvalidSignature("signer_key_id does not identify the trusted signer key")
 
     sig = record.revocation_signature
