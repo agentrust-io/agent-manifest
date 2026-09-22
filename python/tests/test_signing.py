@@ -31,6 +31,9 @@ except (ImportError, RuntimeError):
 require_oqs = pytest.mark.skipif(
     not OQS_AVAILABLE, reason="no ML-DSA-65 backend available"
 )
+# Same check (ml_dsa65_available(), true for either the cryptography or the
+# liboqs backend) - just the name test_cose.py uses for it.
+require_pq = require_oqs
 
 
 # ---------------------------------------------------------------------------
@@ -506,6 +509,38 @@ def test_ed25519_verifier_rsa_sized_bytes_raises():
     """256-byte RSA-sized blob raises ValueError (wrong length for Ed25519)."""
     with pytest.raises(ValueError):
         Ed25519Verifier(b"\x01" * 256)
+
+
+# ---------------------------------------------------------------------------
+# MlDsa65Verifier / HybridVerifier reject wrong-length public keys
+# (regression: hybrid public key split did not enforce ML-DSA-65 length)
+# ---------------------------------------------------------------------------
+
+
+@require_pq
+@pytest.mark.parametrize("bad_len", [0, 1, 1951, 1953, 3000])
+def test_ml_dsa65_verifier_wrong_length_key_raises(bad_len):
+    """MlDsa65Verifier must reject any key that is not exactly 1952 bytes,
+    the same way Ed25519Verifier already rejects anything but 32 bytes."""
+    with pytest.raises(ValueError, match="1952"):
+        MlDsa65Verifier(b"\x03" * bad_len)
+
+
+@require_pq
+def test_ml_dsa65_verifier_correct_length_key_is_accepted():
+    kp = generate_ml_dsa65()
+    MlDsa65Verifier(kp.public_key_bytes)  # must not raise
+
+
+@require_pq
+@pytest.mark.parametrize("bad_len", [0, 1, 1951, 1953, 3000])
+def test_hybrid_verifier_wrong_length_pq_component_raises(bad_len):
+    """HybridVerifier must validate its ML-DSA-65 component the same way a
+    standalone MlDsa65Verifier does, not accept whatever bytes remain after
+    the classical 32 are taken off the front of a combined key."""
+    kp = generate_hybrid()
+    with pytest.raises(ValueError, match="1952"):
+        HybridVerifier(kp.ed25519.public_bytes, b"\x04" * bad_len)
 
 
 # ---------------------------------------------------------------------------

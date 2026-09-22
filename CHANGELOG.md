@@ -32,6 +32,21 @@
   `attach_unprotected(envelope, LABEL_APPROVALS, approvals)`. The COSE fuzz
   target now covers `attach_approvals()`.
 
+- **[SDK]** ML-DSA-65 public keys weren't checked for length before use.
+  `_split_hybrid_public_key()` only checked that a hybrid key was longer
+  than the 32-byte Ed25519 prefix, not that the rest was the correct
+  1952-byte ML-DSA-65 encoding, so a wrong-length key passed through and
+  only failed later, opaquely, inside the crypto backend. `MlDsa65Verifier`
+  and `HybridVerifier` had the same gap - unlike `Ed25519Verifier`, they
+  accepted a key of any length. The COSE (v0.2) path had it too:
+  `_ml_dsa_verify()` called the backend directly instead of going through
+  `MlDsa65Verifier`, the way `_ed25519_verify()` already goes through
+  `Ed25519Verifier`. All four now reject a wrong-length ML-DSA-65 key with
+  a clear `ValueError` at construction time. Trusted keys come from the
+  relying party's own config, not the manifest, so no previously-`VALID`
+  manifest is affected - a misconfigured key now fails clearly instead of
+  reaching the backend unchecked.
+
 - **[SPEC]** Align v0.2 transparency log semantics with the governing COSE envelope specification (issue #414).
 
   The v0.2 manifest specification now removes the top-level `signature` and `transparency_log_entry` fields from the manifest shape. Transparency receipts follow the COSE envelope model defined by ADR-0011 and are carried through the `receipts` header. The v0.1 signing and transparency semantics remain unchanged.

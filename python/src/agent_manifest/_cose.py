@@ -261,7 +261,10 @@ def _ml_dsa_sign(private_key_bytes: bytes, data: bytes) -> bytes:
 
 
 def _ml_dsa_verify(public_key_bytes: bytes, data: bytes, signature: bytes) -> None:
-    _signing._require_ml_dsa()
+    # MlDsa65Verifier applies the public-key length check at load time; go
+    # through it rather than around it (mirrors _ed25519_verify below, which
+    # already does this for the classical key).
+    _signing.MlDsa65Verifier(public_key_bytes)
     if not _signing._ml_dsa_verify_raw(public_key_bytes, data, signature):
         raise InvalidSignature("ML-DSA-65 signature verification failed")
 
@@ -962,6 +965,7 @@ def verify_cose_manifest(
         CoseVersionError: The payload is not a version 0.2 manifest.
         CoseDowngradeError: ``crypto_profile`` requires more than ``alg`` gives.
         CoseKeyError: A ``kid`` is absent from *trusted_keys*.
+        ValueError: A trusted key is the wrong length for its algorithm.
         cryptography.exceptions.InvalidSignature: A signature did not verify.
         AlgorithmUnavailableError: This build cannot perform the algorithm.
     """

@@ -543,6 +543,12 @@ class MlDsa65Signer:
 class MlDsa65Verifier:
     def __init__(self, public_key_bytes: bytes) -> None:
         _require_ml_dsa()
+        # Same check as Ed25519Verifier above, for the same reason.
+        if len(public_key_bytes) != _ML_DSA_65_PUBLIC_LEN:
+            raise ValueError(
+                f"ML-DSA-65 public key must be {_ML_DSA_65_PUBLIC_LEN} bytes, "
+                f"got {len(public_key_bytes)}"
+            )
         self._pub = public_key_bytes
         self._key_id = _key_id(public_key_bytes)
 
@@ -642,8 +648,11 @@ class HybridVerifier:
         self, ed25519_public_bytes: bytes, ml_dsa65_public_bytes: bytes
     ) -> None:
         _require_ml_dsa()
+        # Delegate to each component verifier instead of storing raw bytes -
+        # they check their own key's length, and verify_bytes() below can
+        # call them directly instead of reaching into their internals.
         self._classical = Ed25519Verifier(ed25519_public_bytes)
-        self._pq_pub = ml_dsa65_public_bytes
+        self._pq = MlDsa65Verifier(ml_dsa65_public_bytes)
 
     def verify_bytes(
         self, pre_image: bytes, signature_block: dict[str, Any]
@@ -657,13 +666,13 @@ class HybridVerifier:
             KeyError: If the signature block is missing required fields.
         """
         # Verify classical component
-        classical_bytes = _b64url_decode(signature_block["classical_signature"])
-        self._classical._pub.verify(classical_bytes, pre_image)
+        self._classical.verify_bytes(pre_image, signature_block["classical_signature"])
 
         # Verify PQ component
-        pq_bytes = _b64url_decode(signature_block["pq_signature"])
-        if not _ml_dsa_verify_raw(self._pq_pub, pre_image, pq_bytes):
-            raise InvalidSignature("Hybrid signature: ML-DSA-65 component failed")
+        try:
+            self._pq.verify_bytes(pre_image, signature_block["pq_signature"])
+        except InvalidSignature:
+            raise InvalidSignature("Hybrid signature: ML-DSA-65 component failed") from None
 
     def verify(
         self, manifest_dict: dict[str, Any], signature_block: dict[str, Any]
