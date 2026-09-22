@@ -31,6 +31,9 @@ except (ImportError, RuntimeError):
 require_oqs = pytest.mark.skipif(
     not OQS_AVAILABLE, reason="no ML-DSA-65 backend available"
 )
+# Same check (ml_dsa65_available(), true for either the cryptography or the
+# liboqs backend) - just the name test_cose.py uses for it.
+require_pq = require_oqs
 
 
 # ---------------------------------------------------------------------------
@@ -514,7 +517,7 @@ def test_ed25519_verifier_rsa_sized_bytes_raises():
 # ---------------------------------------------------------------------------
 
 
-@require_oqs
+@require_pq
 @pytest.mark.parametrize("bad_len", [0, 1, 1951, 1953, 3000])
 def test_ml_dsa65_verifier_wrong_length_key_raises(bad_len):
     """MlDsa65Verifier must reject any key that is not exactly 1952 bytes,
@@ -523,13 +526,13 @@ def test_ml_dsa65_verifier_wrong_length_key_raises(bad_len):
         MlDsa65Verifier(b"\x03" * bad_len)
 
 
-@require_oqs
+@require_pq
 def test_ml_dsa65_verifier_correct_length_key_is_accepted():
     kp = generate_ml_dsa65()
     MlDsa65Verifier(kp.public_key_bytes)  # must not raise
 
 
-@require_oqs
+@require_pq
 @pytest.mark.parametrize("bad_len", [0, 1, 1951, 1953, 3000])
 def test_hybrid_verifier_wrong_length_pq_component_raises(bad_len):
     """HybridVerifier must validate its ML-DSA-65 component the same way a

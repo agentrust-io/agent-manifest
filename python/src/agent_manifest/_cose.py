@@ -965,6 +965,7 @@ def verify_cose_manifest(
         CoseVersionError: The payload is not a version 0.2 manifest.
         CoseDowngradeError: ``crypto_profile`` requires more than ``alg`` gives.
         CoseKeyError: A ``kid`` is absent from *trusted_keys*.
+        ValueError: A trusted key is the wrong length for its algorithm.
         cryptography.exceptions.InvalidSignature: A signature did not verify.
         AlgorithmUnavailableError: This build cannot perform the algorithm.
     """
