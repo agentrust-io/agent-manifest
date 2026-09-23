@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
-from typing import Callable, NamedTuple
+from typing import Callable, Iterable, NamedTuple
 
 from .models import ToolEntry
 
@@ -327,6 +327,80 @@ def verify_consistency(
         sn >>= 1
     fr, sr, sn = _fold_consistency_terms(terms, fn, sn, h)
     return fr is not None and fr == first_root and sr == second_root and sn == 0
+
+
+def _consistency_ranges(first_size: int, second_size: int) -> list[tuple[int, int]]:
+    """Leaf intervals for RFC 9162 SUBPROOF nodes, in proof order.
+
+    Descend iteratively and reverse the pending sibling intervals on return.
+    Inputs are bounded and validated by verify_consistency_append.
+    """
+    start, m, n, complete = 0, first_size, second_size, True
+    siblings: list[tuple[int, int]] = []
+    while m != n:
+        split = 1 << ((n - 1).bit_length() - 1)
+        if m <= split:
+            siblings.append((start + split, start + n))
+            n = split
+        else:
+            siblings.append((start, start + split))
+            start += split
+            m -= split
+            n -= split
+            complete = False
+    prefix = [] if complete else [(start, start + n)]
+    return prefix + list(reversed(siblings))
+
+
+def verify_consistency_append(
+    first_root: bytes,
+    second_root: bytes,
+    first_size: int,
+    second_size: int,
+    proof: list[bytes],
+    appended_preimages: Iterable[bytes],
+    *,
+    algorithm: str = "sha256",
+) -> bool:
+    """Verify both consistency and the exact appended leaf sequence.
+
+    Proof nodes cover intervals wholly before or after first_size. Authenticate
+    the proof first, then recompute every appended interval from the supplied
+    preimages. No old log is needed. The iterable is consumed only after proof
+    validation, and at most the declared delta plus one elements are read.
+    Empty prior trees require re-baselining rather than delta acceptance.
+    """
+    h = _HASH_FNS[algorithm]
+    digest_size = len(h(b""))
+    if (type(first_size) is not int or type(second_size) is not int
+            or not 0 < first_size <= second_size <= _MAX_MERKLE_LEAVES):
+        return False
+    if (not isinstance(first_root, bytes) or len(first_root) != digest_size
+            or not isinstance(second_root, bytes) or len(second_root) != digest_size
+            or not isinstance(proof, list)
+            or len(proof) > second_size.bit_length() + 1
+            or any(not isinstance(node, bytes) or len(node) != digest_size for node in proof)):
+        return False
+    if not verify_consistency(first_root, second_root, first_size, second_size,
+                              proof, algorithm=algorithm):
+        return False
+    ranges = _consistency_ranges(first_size, second_size)
+    if len(ranges) != len(proof):
+        return False
+    leaves: list[bytes] = []
+    count = second_size - first_size
+    for preimage in appended_preimages:
+        if len(leaves) == count or not isinstance(preimage, bytes):
+            return False
+        leaves.append(h(b"\x00" + preimage))
+    if len(leaves) != count:
+        return False
+    tree = MerkleTree(algorithm=algorithm)
+    for (start, end), node in zip(ranges, proof):
+        if start >= first_size:
+            if tree._mth(leaves[start - first_size:end - first_size]) != node:
+                return False
+    return True
 
 
 def _fold_consistency_terms(

@@ -83,6 +83,30 @@ manifest = Manifest(
 )
 ```
 
+### Memory delta verification
+
+The private SDK helper `agent_manifest._memory_delta.verify_delta` checks both
+the append-only proof and the operations claimed to have produced the advance:
+
+```python
+verdict = verify_delta(
+    previous_checkpoint, new_checkpoint,
+    appended_ops, consistency_proof,
+    representation="kv",  # or "vector" / "graph", matching the checkpoints
+)
+```
+
+Migration for existing callers: pass only the operations appended since the
+previous checkpoint, in order, and supply the required `representation` keyword.
+The whole new log or an empty list for a nonempty advance is rejected as `drift`.
+Previously the helper ignored `ops`, so its acceptance did not authenticate them.
+Existing checkpoint roots and consistency proofs retain their formats.
+
+Only fields included by the existing representation's leaf encoder are bound;
+extra operation metadata is not authenticated. The caller remains responsible for
+trusted checkpoints and policy inputs. This helper does not verify checkpoint
+approval signatures or establish whether the resulting memory behavior is safe.
+
 ## The 10 Attested Artifacts
 
 | # | Artifact | What it proves |

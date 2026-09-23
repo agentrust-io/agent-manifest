@@ -820,7 +820,7 @@ def test_verification_accepts_bound_delta():
         memory_root=new.memory_root, seq=new.seq, approved_at=now, ttl_seconds=86400,
     )
     proof = memory_merkletree(new_ops, "kv").consistency_proof(len(prev_ops))
-    v = verify_delta(prev, new, new_ops, proof, now=now)
+    v = verify_delta(prev, new, new_ops[len(prev_ops):], proof, representation="kv", now=now)
     assert v.accepted is True
     # the manifest binding round-trips and preserves the checkpoint anchor
     parsed = MemoryCheckpointBinding.model_validate(binding.model_dump())
