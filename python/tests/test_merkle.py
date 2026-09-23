@@ -8,6 +8,8 @@ from agent_manifest._merkle import (
     CorpusDocument,
     InclusionProof,
     MerkleTree,
+    _compute_root_from_proof,
+    _sha256,
     build_catalog_tree,
     build_corpus_tree,
 )
@@ -258,6 +260,308 @@ def test_inclusion_proof_out_of_range():
     tree.add_leaf(b"x")
     with pytest.raises(IndexError):
         tree.inclusion_proof(1)
+
+
+def test_inclusion_proof_round_trip_many_sizes():
+    """Every genuine proof must still verify, across balanced and
+    unbalanced (non-power-of-2) tree shapes, now that verify_inclusion
+    also checks tree_size, leaf_index range, and audit_path length."""
+    for n in range(1, 40):
+        tree = MerkleTree()
+        for i in range(n):
+            tree.add_leaf(f"leaf-{i}".encode())
+        for idx in range(n):
+            assert tree.verify_inclusion(tree.inclusion_proof(idx))
+
+
+# ---------------------------------------------------------------------------
+# verify_inclusion: tree_size / leaf_index confusion (security regression)
+# ---------------------------------------------------------------------------
+
+
+def test_verify_inclusion_rejects_mismatched_tree_size():
+    """A proof for leaf 0 of a 4-leaf tree, replayed with a forged
+    tree_size=8 and the *same* audit_path, must not verify against the
+    real 4-leaf tree — even though the forged direction arithmetic
+    happens to reduce the same way as the genuine (index=0) path."""
+    tree = MerkleTree()
+    for i in range(4):
+        tree.add_leaf(f"leaf-{i}".encode())
+    proof = tree.inclusion_proof(0)
+    assert tree.verify_inclusion(proof)
+
+    forged = InclusionProof(
+        leaf_index=proof.leaf_index,
+        tree_size=8,
+        leaf_hash=proof.leaf_hash,
+        audit_path=proof.audit_path,
+    )
+    assert not tree.verify_inclusion(forged)
+
+
+def test_verify_inclusion_rejects_mismatched_tree_size_same_path_length():
+    """Isolates the tree_size check from the audit_path length check.
+
+    tree_size=8 above also fails the length check on its own (a size-8
+    proof for leaf 0 needs 3 path elements, this one has 2), so that
+    test alone doesn't prove the tree_size check is doing anything.
+    Here, tree_size=3 needs exactly the same 2-element path length as
+    the real tree_size=4, so this can only be rejected by the tree_size
+    check itself."""
+    tree = MerkleTree()
+    for i in range(4):
+        tree.add_leaf(f"leaf-{i}".encode())
+    proof = tree.inclusion_proof(0)
+
+    forged = InclusionProof(
+        leaf_index=proof.leaf_index,
+        tree_size=3,
+        leaf_hash=proof.leaf_hash,
+        audit_path=proof.audit_path,
+    )
+    assert not tree.verify_inclusion(forged)
+
+
+def test_verify_inclusion_rejects_out_of_range_leaf_index():
+    """tree_size here matches the real tree, so this can't be caught by
+    the tree_size check — it's rejected by the leaf_index bounds check,
+    in verify_inclusion() and/or in _compute_root_from_proof() (both
+    now validate this independently)."""
+    tree = MerkleTree()
+    for i in range(4):
+        tree.add_leaf(f"leaf-{i}".encode())
+    proof = tree.inclusion_proof(0)
+
+    forged = InclusionProof(
+        leaf_index=100,
+        tree_size=proof.tree_size,
+        leaf_hash=proof.leaf_hash,
+        audit_path=proof.audit_path,
+    )
+    assert not tree.verify_inclusion(forged)
+
+
+def test_verify_inclusion_rejects_leaf_index_equal_to_tree_size():
+    """Off-by-one boundary: leaf_index == tree_size (one past the last
+    valid index n-1), with tree_size matching the real tree."""
+    tree = MerkleTree()
+    for i in range(4):
+        tree.add_leaf(f"leaf-{i}".encode())
+    proof = tree.inclusion_proof(0)
+
+    forged = InclusionProof(
+        leaf_index=4,
+        tree_size=proof.tree_size,
+        leaf_hash=proof.leaf_hash,
+        audit_path=proof.audit_path,
+    )
+    assert not tree.verify_inclusion(forged)
+
+
+def test_verify_inclusion_rejects_forged_tree_size_and_out_of_range_index():
+    """Combined attack: both tree_size and leaf_index forged together,
+    covering the original reported repro's exact shape (leaf_index=100,
+    tree_size=8, replayed against a real 4-leaf tree)."""
+    tree = MerkleTree()
+    for i in range(4):
+        tree.add_leaf(f"leaf-{i}".encode())
+    proof = tree.inclusion_proof(0)
+
+    forged = InclusionProof(
+        leaf_index=100,
+        tree_size=8,
+        leaf_hash=proof.leaf_hash,
+        audit_path=proof.audit_path,
+    )
+    assert not tree.verify_inclusion(forged)
+
+
+def test_verify_inclusion_rejects_negative_leaf_index():
+    tree = MerkleTree()
+    for i in range(4):
+        tree.add_leaf(f"leaf-{i}".encode())
+    proof = tree.inclusion_proof(0)
+
+    forged = InclusionProof(
+        leaf_index=-1,
+        tree_size=proof.tree_size,
+        leaf_hash=proof.leaf_hash,
+        audit_path=proof.audit_path,
+    )
+    assert not tree.verify_inclusion(forged)
+
+
+def test_verify_inclusion_rejects_truncated_audit_path():
+    tree = MerkleTree()
+    for i in range(4):
+        tree.add_leaf(f"leaf-{i}".encode())
+    proof = tree.inclusion_proof(0)
+    assert len(proof.audit_path) > 1
+
+    truncated = InclusionProof(
+        leaf_index=proof.leaf_index,
+        tree_size=proof.tree_size,
+        leaf_hash=proof.leaf_hash,
+        audit_path=proof.audit_path[:1],
+    )
+    assert not tree.verify_inclusion(truncated)
+
+
+def test_verify_inclusion_rejects_padded_audit_path():
+    tree = MerkleTree()
+    for i in range(4):
+        tree.add_leaf(f"leaf-{i}".encode())
+    proof = tree.inclusion_proof(0)
+
+    padded = InclusionProof(
+        leaf_index=proof.leaf_index,
+        tree_size=proof.tree_size,
+        leaf_hash=proof.leaf_hash,
+        audit_path=proof.audit_path + [b"\x00" * 32],
+    )
+    assert not tree.verify_inclusion(padded)
+
+
+def test_verify_inclusion_rejects_genuine_proof_from_differently_sized_tree():
+    """A *real* proof generated against an 8-leaf tree must not verify
+    against a different, 4-leaf tree, even for the same leaf_index."""
+    small = MerkleTree()
+    for i in range(4):
+        small.add_leaf(f"leaf-{i}".encode())
+
+    big = MerkleTree()
+    for i in range(8):
+        big.add_leaf(f"leaf-{i}".encode())
+    proof_from_big = big.inclusion_proof(0)
+
+    assert big.verify_inclusion(proof_from_big)
+    assert not small.verify_inclusion(proof_from_big)
+
+
+def test_verify_inclusion_rejects_any_proof_against_empty_tree():
+    tree = MerkleTree()
+    bogus = InclusionProof(
+        leaf_index=0, tree_size=0, leaf_hash=b"\x00" * 32, audit_path=[]
+    )
+    assert not tree.verify_inclusion(bogus)
+
+
+def test_verify_inclusion_shape_confusion_across_unbalanced_sizes():
+    """Broader sweep: for every pair of distinct sizes in range, a proof
+    generated for one tree must never verify against another tree unless
+    the sizes (and thus the whole shape) match."""
+    trees = {}
+    for n in range(1, 12):
+        t = MerkleTree()
+        for i in range(n):
+            t.add_leaf(f"leaf-{i}".encode())
+        trees[n] = t
+
+    for n, tree in trees.items():
+        for idx in range(n):
+            proof = tree.inclusion_proof(idx)
+            for other_n, other_tree in trees.items():
+                if other_n == n:
+                    continue
+                assert not other_tree.verify_inclusion(proof), (
+                    f"leaf {idx} proof from size-{n} tree wrongly verified "
+                    f"against size-{other_n} tree"
+                )
+
+
+# ---------------------------------------------------------------------------
+# _compute_root_from_proof direct unit tests
+#
+# Called directly (bypassing verify_inclusion's checks) to confirm the
+# helper is safe on its own, not just when verify_inclusion validates
+# the proof shape first.
+# ---------------------------------------------------------------------------
+
+
+def test_compute_root_from_proof_rejects_out_of_range_index_directly():
+    tree = MerkleTree()
+    for i in range(5):
+        tree.add_leaf(f"leaf-{i}".encode())
+    proof = tree.inclusion_proof(0)
+
+    # Called directly (bypassing verify_inclusion's guards) with an
+    # index that is out of range for tree_size=5.
+    assert (
+        _compute_root_from_proof(
+            proof.leaf_hash, 8, proof.tree_size, proof.audit_path, tree._h
+        )
+        is None
+    )
+
+
+def test_compute_root_from_proof_rejects_negative_index_directly():
+    tree = MerkleTree()
+    for i in range(5):
+        tree.add_leaf(f"leaf-{i}".encode())
+    proof = tree.inclusion_proof(0)
+
+    assert (
+        _compute_root_from_proof(
+            proof.leaf_hash, -1, proof.tree_size, proof.audit_path, tree._h
+        )
+        is None
+    )
+
+
+def test_compute_root_from_proof_rejects_non_positive_tree_size_directly():
+    assert _compute_root_from_proof(b"\x00" * 32, 0, 0, [], _sha256) is None
+    assert _compute_root_from_proof(b"\x00" * 32, 0, -1, [], _sha256) is None
+
+
+def test_compute_root_from_proof_rejects_padded_audit_path_directly():
+    tree = MerkleTree()
+    for i in range(5):
+        tree.add_leaf(f"leaf-{i}".encode())
+    proof = tree.inclusion_proof(0)
+
+    padded = proof.audit_path + [b"\x11" * 32]
+    assert (
+        _compute_root_from_proof(
+            proof.leaf_hash, proof.leaf_index, proof.tree_size, padded, tree._h
+        )
+        is None
+    )
+
+
+def test_compute_root_from_proof_rejects_truncated_audit_path_directly():
+    tree = MerkleTree()
+    for i in range(5):
+        tree.add_leaf(f"leaf-{i}".encode())
+    proof = tree.inclusion_proof(0)
+    assert len(proof.audit_path) >= 1
+
+    truncated = proof.audit_path[:-1]
+    assert (
+        _compute_root_from_proof(
+            proof.leaf_hash, proof.leaf_index, proof.tree_size, truncated, tree._h
+        )
+        is None
+    )
+
+
+def test_compute_root_from_proof_accepts_every_genuine_proof_directly():
+    """The added upfront/loop guards must not reject any genuine proof,
+    for every leaf of every tree size 1-40, called directly."""
+    for n in range(1, 41):
+        tree = MerkleTree()
+        for i in range(n):
+            tree.add_leaf(f"leaf-{i}".encode())
+        root = tree.root()
+        for idx in range(n):
+            proof = tree.inclusion_proof(idx)
+            got = _compute_root_from_proof(
+                proof.leaf_hash,
+                proof.leaf_index,
+                proof.tree_size,
+                proof.audit_path,
+                tree._h,
+            )
+            assert got == root, (n, idx)
 
 
 # ---------------------------------------------------------------------------

@@ -17,6 +17,32 @@
 
 ### Fixed
 
+- **[SDK]** `MerkleTree.verify_inclusion()` didn't check `InclusionProof.tree_size`
+  or `leaf_index` against the tree it was called on, and its root-reconstruction
+  arithmetic was an incomplete port of RFC 9162 §2.1.3.2. Two separate bugs,
+  both in `_merkle.py`:
+
+  - A proof could verify against a tree other than the one it was generated
+    for: a leaf-0 proof from a 4-leaf tree, replayed with a forged
+    `tree_size=8`, verified against the real 4-leaf tree's root, because
+    nothing checked `tree_size` against the tree's actual leaf count.
+    `verify_inclusion()` now rejects a mismatched `tree_size`, an
+    out-of-range `leaf_index`, and an `audit_path` of the wrong length for
+    that `(leaf_index, tree_size)` pair (new `_expected_audit_path_length()`).
+  - Separately, `_compute_root_from_proof()` was missing a reduction step
+    RFC 9162 §2.1.3.2 requires, so genuine proofs failed to verify for
+    non-power-of-2 tree sizes (e.g. `tree_size=7, leaf_index=6`). Checked
+    every leaf of every tree size 1-300 (45,150 proofs): the old code failed
+    1,171 of them (2.59%), the fixed version fails 0. It also now rejects an
+    out-of-range index or an over-length `audit_path` itself, so it's
+    correct even called directly, not only through `verify_inclusion()`.
+
+  `verify_inclusion()` has no production callers outside `_merkle.py`.
+  `MerkleTree` itself is used internally by the tree builders in this file
+  (`build_corpus_tree()`, `build_catalog_tree()`), but isn't re-exported
+  from the package root (only `models.InclusionProof` is) — direct use of
+  `_merkle` is not part of the package-root API.
+
 - **[SDK]** `verify_revocation_signature()` compared `signer_key_id` with
   `!=` instead of a constant-time compare, unlike every other key_id/digest
   check in the SDK. It now uses `hmac.compare_digest()`, with an explicit

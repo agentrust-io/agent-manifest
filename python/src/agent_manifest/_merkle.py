@@ -141,7 +141,21 @@ class MerkleTree:
         )
 
     def verify_inclusion(self, proof: InclusionProof) -> bool:
-        """Verify *proof* against the current tree root."""
+        """Verify *proof* against the current tree root.
+
+        The ``tree_size`` check is what binds the proof to *this* tree:
+        a correct-length ``audit_path`` for the right ``leaf_index`` can
+        still exist for a different tree size, since structural depth
+        alone doesn't imply the same tree. ``leaf_index`` range and
+        ``audit_path`` length are checked too, as defense in depth.
+        """
+        n = len(self._leaf_hashes)
+        if proof.tree_size != n:
+            return False
+        if not 0 <= proof.leaf_index < n:
+            return False
+        if len(proof.audit_path) != _expected_audit_path_length(n, proof.leaf_index):
+            return False
         expected_root = self.root()
         computed = _compute_root_from_proof(
             proof.leaf_hash,
@@ -219,30 +233,61 @@ def _split_point(n: int) -> int:
     return k >> 1
 
 
+def _expected_audit_path_length(n: int, index: int) -> int:
+    """Depth of *index* in an RFC 9162 tree with *n* leaves.
+
+    Same recursion as ``MerkleTree._audit_path``, but on plain integers
+    (no hashes needed), so ``verify_inclusion`` can check an external
+    proof's ``audit_path`` length before trusting its contents.
+    """
+    if n == 1:
+        return 0
+    k = _split_point(n)
+    if index < k:
+        return 1 + _expected_audit_path_length(k, index)
+    return 1 + _expected_audit_path_length(n - k, index - k)
+
+
 def _compute_root_from_proof(
     leaf_hash: bytes,
     index: int,
     tree_size: int,
     audit_path: list[bytes],
     h_fn: Callable[[bytes], bytes],
-) -> bytes:
-    """Reconstruct root from an inclusion proof (RFC 9162 §2.2).
+) -> bytes | None:
+    """Reconstruct the root from an inclusion proof (RFC 9162 §2.1.3.2).
 
-    Audit path elements are ordered bottom-to-top (leaf sibling first).
-    Direction at each level is determined by parity: odd index or rightmost
-    node means sibling is on the left.
-    """
+    Returns None for any proof that's structurally invalid for
+    ``(index, tree_size)`` — out-of-range index, or an audit_path
+    that's too short or too long — rather than a wrong hash. That makes
+    this function safe to call directly, not just through
+    ``verify_inclusion`` (which validates the same things up front).
+
+    Note: an even, non-last node index means its level has no sibling
+    in the proof (it's the left child of a complete subtree), so the
+    inner ``while`` loop skips that level without consuming a proof
+    element. Skipping this loop breaks verification for non-power-of-2
+    tree sizes, e.g. tree_size=7, leaf_index=6.
+     """
+    if tree_size <= 0 or index < 0 or index >= tree_size:
+        return None
     node = leaf_hash
-    fn = tree_size
-    fr = index
+    fn = index
+    sn = tree_size - 1
     for step in audit_path:
-        if fr == fn - 1 or fr % 2 == 1:
+        if sn == 0:
+            return None  # audit_path longer than this proof needs
+        if fn % 2 == 1 or fn == sn:
             node = h_fn(b"\x01" + step + node)
-            fr = (fr - 1) // 2
+            while fn % 2 == 0 and fn != 0:
+                fn //= 2
+                sn //= 2
         else:
             node = h_fn(b"\x01" + node + step)
-            fr = fr // 2
-        fn = (fn + 1) // 2
+        fn //= 2
+        sn //= 2
+    if sn != 0:
+        return None
     return node
 
 
