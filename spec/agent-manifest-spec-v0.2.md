@@ -1156,9 +1156,10 @@ Revocation record schema:
   "reason_text": "<human-readable description>  -- OPTIONAL",
   "scope": "manifest | agent  -- REQUIRED",
   "revocation_signature": "<Ed25519 | ML-DSA-65 signature by manifest issuer key or successor key>  -- REQUIRED",
-  "transparency_log_entry": "<transparency log entry object per section 3.6>  -- REQUIRED"
+  "transparency_log_entry": "<transparency log entry object per section 3.6 -- REQUIRED for a revoked v0.1 manifest; for a revoked v0.2 manifest, the transparency proof is the COSE receipt carried in the `receipts` header per `agent-manifest-cose-envelope-v0.2.md`, not this field>"
 }
 ```
+The revocation record schema and endpoints below apply to both v0.1 and v0.2 manifests. Only the `transparency_log_entry` field within the record is version-specific, following the same v0.1/v0.2 split as the manifest's own transparency proof (section 2.2).
 
 `scope` values:
 - `manifest`: Revokes only the specific `manifest_id`. Prior manifests for the same `agent_id` are unaffected.
@@ -1175,8 +1176,7 @@ GET /revocation-status?manifest_id=<UUID v7>
 Returns: <revocation record> if revoked, 404 if not revoked
 ```
 
-Revocation records MUST be published to the same transparency log as the manifest, using a leaf type of `revocation`. The `transparency_log_entry` in the revocation record confirms non-repudiation of the revocation event.
-
+Revocation records MUST be published to the same transparency log as the manifest, using a leaf type of `revocation`. For a revoked v0.1 manifest, the `transparency_log_entry` in the revocation record confirms non-repudiation of the revocation event. For a revoked v0.2 manifest, the COSE receipt in the record's `receipts` header serves the same role; the record's `transparency_log_entry` field does not apply.
 
 ### 3.8 Key Rotation and Manifest Re-signing <!-- CHANGED: closes #42 -->
 
