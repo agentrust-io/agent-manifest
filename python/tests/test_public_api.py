@@ -19,6 +19,8 @@ _PUBLIC_VERIFY_API = (
     "FieldResult",
     "DelegationResult",
     "HitlResult",
+    "HitlAdmissibility",
+    "HitlAdmissibilityResult",
     "FieldsVerified",
     "MismatchDetail",
     "EvidencePack",

@@ -83,6 +83,32 @@ manifest = Manifest(
 )
 ```
 
+### Human approval and current applicability
+
+`VerificationResult.hitl_admissibility` reports present applicability separately
+from `fields_verified.hitl_record`. The existing `APPROVED` result means the
+implemented approval checks passed; it does not establish that the approver still
+has authority or that the approval applies to current circumstances. The SDK has
+no current-state evidence input or successor-discovery mechanism for this decision.
+
+| Status | Reason | Meaning |
+|---|---|---|
+| `UNDECIDABLE` | `current_state_evidence_unavailable` | Approval checks passed, but current applicability is unknown. |
+| `UNDECIDABLE` | `approval_checks_not_satisfied` | Approval checks did not pass; they cannot establish applicability. |
+| `UNDECIDABLE` | `verification_incomplete` | Verification stopped before HITL evaluation, or an older result lacks this metadata. |
+| `NOT_REQUIRED` | `approval_not_required` | The evaluated manifest and caller policy did not require approval. This is not a positive applicability verdict. |
+
+The legacy result is not a separate historical-authenticity verdict: for example,
+`EXPIRED` can be returned for malformed timestamps before signature verification.
+Approval duration sets a time window, not continuing authority. A signed
+`previous_manifest_id` link alone does not establish current applicability either.
+
+This additive SDK reporting field does not change approval enforcement or the
+overall verification result. An overall `VALID` result can therefore coexist with
+`UNDECIDABLE` applicability. Callers requiring present applicability must apply
+their own evidence policy; they cannot treat `UNDECIDABLE` as permission to proceed.
+The field adds no manifest approval fields or normative specification requirements.
+
 ## The 10 Attested Artifacts
 
 | # | Artifact | What it proves |
