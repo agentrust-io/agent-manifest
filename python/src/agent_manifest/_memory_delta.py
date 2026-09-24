@@ -18,12 +18,13 @@ corpus incremental-update protocol (B-1) will reuse.
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 
 from ._canonicalize import canonicalize
-from ._merkle import _HASH_FNS, _MAX_MERKLE_LEAVES, MerkleTree, verify_consistency
+from ._merkle import _HASH_FNS, _MAX_MERKLE_LEAVES, MerkleTree, verify_consistency_append
 
 # Domain-separation tags keep one representation's leaf from colliding with
 # another's even for structurally identical canonical payloads.
@@ -177,15 +178,36 @@ def verify_delta(
     ops: list[dict[str, Any]],
     consistency_proof: list[bytes],
     *,
+    representation: str,
     now: datetime | None = None,
 ) -> DeltaVerdict:
     """Adjudicate a checkpoint advance prev -> new.
 
-    Order (fail-closed; LD-5): consistency proof -> seq monotonic -> ttl window
+    ``ops`` contains only the appended operations, in order, encoded using the
+    caller-selected representation. Existing roots and proof formats do not change.
+    Only fields included by the representation's leaf encoder are authenticated.
+    Unknown representations raise ValueError; malformed evidence returns drift.
+
+    Order (fail-closed; LD-5): proof and operation binding -> seq monotonic -> ttl window
     -> delta budget. A failure at the consistency stage is ``drift`` — exactly
     the v0.1 path an unproven memory change already takes.
     """
-    now = _as_utc(now) if now else datetime.now(timezone.utc)
+    if representation not in _ENCODERS:
+        raise ValueError(f"unknown memory representation: {representation!r}")
+    encode = _ENCODERS[representation]
+    for checkpoint in (prev, new):
+        if (any(type(v) is not int for v in
+                (checkpoint.tree_size, checkpoint.seq, checkpoint.ttl_seconds))
+                or not isinstance(checkpoint.memory_root, str)
+                or not isinstance(checkpoint.approved_at, datetime)
+                or type(checkpoint.max_delta_fraction) not in (int, float)):
+            return DeltaVerdict(False, "drift")
+    if (not isinstance(ops, list) or len(ops) != new.tree_size - prev.tree_size
+            or any(not isinstance(op, dict) for op in ops)):
+        return DeltaVerdict(False, "drift")
+    if now is not None and not isinstance(now, datetime):
+        return DeltaVerdict(False, "drift")
+    now = _as_utc(now) if now is not None else datetime.now(timezone.utc)
     try:
         algorithm, prev_bytes = _root_bytes(prev.memory_root)
         new_algorithm, new_bytes = _root_bytes(new.memory_root)
@@ -194,20 +216,29 @@ def verify_delta(
     if algorithm != new_algorithm:
         return DeltaVerdict(False, "drift")  # an algorithm switch is not an append
 
-    # Stage 1: consistency proof (append-only positional prefix).
-    if not verify_consistency(prev_bytes, new_bytes, prev.tree_size,
-                              new.tree_size, consistency_proof, algorithm=algorithm):
+    # Encoding is lazy: the helper verifies the proof before hashing operations.
+    try:
+        bound = verify_consistency_append(
+            prev_bytes, new_bytes, prev.tree_size, new.tree_size,
+            consistency_proof, (encode(op) for op in ops), algorithm=algorithm,
+        )
+    except (KeyError, TypeError, ValueError, OverflowError, RecursionError):
         return DeltaVerdict(False, "drift")
-    # An empty prior log has no approved state to extend; a 0 -> N jump is a
-    # re-baseline (full re-approval per spec §3.2.6.1), not a governed delta.
-    # verify_consistency accepts an empty proof for first_size==0, so reject here.
-    if prev.tree_size == 0:
+    if not bound:
         return DeltaVerdict(False, "drift")
     if new.seq <= prev.seq:
         return DeltaVerdict(False, "rollback")
-    if now > _as_utc(new.approved_at) + timedelta(seconds=new.ttl_seconds):
+    try:
+        expires_at = _as_utc(new.approved_at) + timedelta(seconds=new.ttl_seconds)
+    except OverflowError:
+        return DeltaVerdict(False, "expired")
+    if now > expires_at:
         return DeltaVerdict(False, "expired")
     added = new.tree_size - prev.tree_size
-    if added / prev.tree_size > new.max_delta_fraction:
+    try:
+        finite_budget = math.isfinite(new.max_delta_fraction)
+    except OverflowError:
+        finite_budget = False
+    if not finite_budget or not (added / prev.tree_size <= new.max_delta_fraction):
         return DeltaVerdict(False, "budget")
     return DeltaVerdict(True, "accepted")

@@ -88,7 +88,7 @@ def test_verify_delta_accepts_proven_in_budget_advance():
     prev = _checkpoint(prev_ops, 1, now)
     new = _checkpoint(new_ops, 2, now)
     proof = memory_merkletree(new_ops, "kv").consistency_proof(len(prev_ops))
-    v = verify_delta(prev, new, new_ops, proof, now=now)
+    v = verify_delta(prev, new, new_ops[len(prev_ops):], proof, representation="kv", now=now)
     assert isinstance(v, DeltaVerdict) and v.accepted is True and v.reason == "accepted"
 
 
@@ -96,7 +96,7 @@ def test_verify_delta_rejects_unproven_delta_as_drift():
     now = datetime(2026, 6, 15, 12, 0, tzinfo=UTC)
     prev_ops, new_ops = _kv(6), _kv(6) + [{"op": "PUT", "key": "k6", "value": 1}]
     prev, new = _checkpoint(prev_ops, 1, now), _checkpoint(new_ops, 2, now)
-    v = verify_delta(prev, new, new_ops, [], now=now)  # empty/invalid proof
+    v = verify_delta(prev, new, new_ops[len(prev_ops):], [], representation="kv", now=now)  # empty/invalid proof
     assert v.accepted is False and v.reason == "drift"
 
 
@@ -108,7 +108,7 @@ def test_verify_delta_rejects_mutated_prior_leaf():
         [{"op": "PUT", "key": "k6", "value": 1}]
     prev, new = _checkpoint(prev_ops, 1, now), _checkpoint(mutated, 2, now)
     proof = memory_merkletree(mutated, "kv").consistency_proof(len(prev_ops))
-    v = verify_delta(prev, new, mutated, proof, now=now)
+    v = verify_delta(prev, new, mutated[len(prev_ops):], proof, representation="kv", now=now)
     assert v.accepted is False and v.reason == "drift"
 
 
@@ -119,7 +119,7 @@ def test_verify_delta_rejects_expired_checkpoint():
     prev = _checkpoint(prev_ops, 1, approved)
     new = _checkpoint(new_ops, 2, approved)
     proof = memory_merkletree(new_ops, "kv").consistency_proof(len(prev_ops))
-    v = verify_delta(prev, new, new_ops, proof, now=now)
+    v = verify_delta(prev, new, new_ops[len(prev_ops):], proof, representation="kv", now=now)
     assert v.accepted is False and v.reason == "expired"
 
 
@@ -129,7 +129,7 @@ def test_verify_delta_rejects_seq_rollback():
     prev = _checkpoint(prev_ops, 5, now)
     new = _checkpoint(new_ops, 5, now)  # seq not advanced
     proof = memory_merkletree(new_ops, "kv").consistency_proof(len(prev_ops))
-    v = verify_delta(prev, new, new_ops, proof, now=now)
+    v = verify_delta(prev, new, new_ops[len(prev_ops):], proof, representation="kv", now=now)
     assert v.accepted is False and v.reason == "rollback"
 
 
@@ -154,7 +154,7 @@ def test_verify_delta_naive_approved_at_does_not_crash():
                                     "kv", seq=2, approved_at=naive, ttl_seconds=3600)
     proof = memory_merkletree(_kv(4) + [{"op": "PUT", "key": "k4", "value": 1}],
                               "kv").consistency_proof(4)
-    v = verify_delta(prev, new, [], proof, now=datetime(2026, 6, 15, 12, 30, tzinfo=UTC))
+    v = verify_delta(prev, new, [{"op": "PUT", "key": "k4", "value": 1}], proof, representation="kv", now=datetime(2026, 6, 15, 12, 30, tzinfo=UTC))
     assert isinstance(v, DeltaVerdict) and v.accepted is True  # no TypeError
 
 
@@ -164,7 +164,7 @@ def test_verify_delta_rejects_empty_prev_checkpoint():
     empty = MemoryCheckpoint.from_ops([], "kv", seq=1, approved_at=now, ttl_seconds=3600)
     big_ops = [{"op": "PUT", "key": f"k{i}", "value": i} for i in range(50)]
     big = MemoryCheckpoint.from_ops(big_ops, "kv", seq=2, approved_at=now, ttl_seconds=3600)
-    v = verify_delta(empty, big, big_ops, [], now=now)
+    v = verify_delta(empty, big, big_ops, [], representation="kv", now=now)
     assert v.accepted is False and v.reason == "drift"
 
 
@@ -173,7 +173,8 @@ def test_verify_delta_rejects_malformed_root_as_drift():
     now = datetime(2026, 6, 15, 12, 0, tzinfo=UTC)
     good = MemoryCheckpoint.from_ops(_kv(4), "kv", seq=1, approved_at=now, ttl_seconds=3600)
     bad = MemoryCheckpoint("deadbeef", 5, 2, now, 3600)  # no 'algo:' prefix
-    v = verify_delta(good, bad, [], [], now=now)
+    v = verify_delta(good, bad, [{"op": "PUT", "key": "k4", "value": 1}], [],
+                     representation="kv", now=now)
     assert v.accepted is False and v.reason == "drift"
 
 
@@ -183,7 +184,8 @@ def test_verify_delta_rejects_algorithm_switch_as_drift():
     # same hex but a different (valid) algorithm prefix is not an append
     switched = MemoryCheckpoint("shake256:" + prev.memory_root.split(":")[1],
                                 5, 2, now, 3600)
-    v = verify_delta(prev, switched, [], [], now=now)
+    v = verify_delta(prev, switched, [{"op": "PUT", "key": "k4", "value": 1}], [],
+                     representation="kv", now=now)
     assert v.accepted is False and v.reason == "drift"
 
 
@@ -203,5 +205,5 @@ def test_verify_delta_rejects_nonempty_forged_proof_as_drift():
     prev = MemoryCheckpoint.from_ops(prev_ops, "kv", seq=1, approved_at=now, ttl_seconds=3600)
     new = MemoryCheckpoint.from_ops(new_ops, "kv", seq=2, approved_at=now, ttl_seconds=3600)
     forged = [b"\x00" * 32]  # structurally non-empty but bogus
-    v = verify_delta(prev, new, new_ops, forged, now=now)
+    v = verify_delta(prev, new, new_ops[len(prev_ops):], forged, representation="kv", now=now)
     assert v.accepted is False and v.reason == "drift"
