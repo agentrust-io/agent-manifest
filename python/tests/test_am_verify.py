@@ -232,13 +232,15 @@ def test_mismatch_tool_catalog():
 
 def tool_catalog(tools=None, algorithm="sha256"):
     if tools is None:
+        # A manifest uses one hash algorithm throughout (spec 3.1), so a
+        # tool's hashes must use the same algorithm as the catalog tree.
         tools = [
             {
                 "tool_id": tool_id,
                 "tool_name": tool_id.rsplit(".", 1)[-1],
                 "endpoint_id": "spiffe://trust.example/mcp/server",
-                "schema_hash": SHA_A,
-                "description_hash": SHA_B,
+                "schema_hash": f"{algorithm}:" + "a" * 64,
+                "description_hash": f"{algorithm}:" + "b" * 64,
                 "version": "1.0.0",
             }
             for tool_id in ("com.example.read", "com.example.send")
@@ -263,7 +265,12 @@ def sign_catalog_manifest(m, version):
 
 
 @pytest.mark.parametrize("version", ["0.1", "0.2"])
-@pytest.mark.parametrize("algorithm", ["sha256", "shake256"])
+# crypto_profile isn't cross-checked against artifact hash algorithms (only
+# against signature.algorithm - see the profile downgrade check above), so a
+# "shake256" catalog here would sit inside a "standard"-profile manifest
+# without that being flagged. shake256 catalog behavior is covered directly
+# in test_merkle.py instead.
+@pytest.mark.parametrize("algorithm", ["sha256"])
 @pytest.mark.parametrize("empty", [False, True], ids=["two-tools", "empty"])
 def test_tool_catalog_rejects_root_unrelated_to_tools(version, algorithm, empty):
     """AM-VERIFY-20 / spec 3.2.3: a valid signature cannot bless a false root."""
@@ -289,7 +296,10 @@ def test_tool_catalog_rejects_root_unrelated_to_tools(version, algorithm, empty)
 
 
 @pytest.mark.parametrize("version", ["0.1", "0.2"])
-@pytest.mark.parametrize("algorithm", ["sha256", "shake256"])
+# See the comment on test_tool_catalog_rejects_root_unrelated_to_tools above:
+# crypto_profile isn't cross-checked against artifact hash algorithms, so
+# this stays sha256-only here.
+@pytest.mark.parametrize("algorithm", ["sha256"])
 @pytest.mark.parametrize("empty", [False, True], ids=["two-tools", "empty"])
 def test_tool_catalog_valid_root_and_context_match(version, algorithm, empty):
     """AM-VERIFY-07 / spec 3.2.3: honest catalogs, including empty ones, match."""
@@ -324,14 +334,23 @@ def test_tool_catalog_correct_root_still_checks_context():
     ]
 
 
-@pytest.mark.parametrize("algorithm", ["sha256", "shake256"])
-@pytest.mark.parametrize("field,value", [
+# standard profile only - see comment above
+@pytest.mark.parametrize("algorithm", ["sha256"])
+@pytest.mark.parametrize("field,fixed_value", [
     ("tool_id", "com.example.changed"),
-    ("schema_hash", SHA_C),
-    ("description_hash", SHA_C),
+    ("schema_hash", None),
+    ("description_hash", None),
 ])
-def test_tool_catalog_detects_changed_leaf_before_signing(algorithm, field, value):
-    """AM-VERIFY-20 / spec 3.2.3: every committed leaf component is checked."""
+def test_tool_catalog_detects_changed_leaf_before_signing(
+    algorithm, field, fixed_value
+):
+    """AM-VERIFY-20 / spec 3.2.3: every committed leaf component is checked.
+
+    schema_hash/description_hash change to a different digest, same
+    algorithm as the catalog - this is about detecting content tampering,
+    not an algorithm mismatch (covered separately in test_merkle.py).
+    """
+    value = fixed_value if fixed_value is not None else f"{algorithm}:" + "c" * 64
     m = manifest()
     catalog = tool_catalog(algorithm=algorithm)
     approved_root = catalog["catalog_hash"]
@@ -348,6 +367,29 @@ def test_tool_catalog_detects_changed_leaf_before_signing(algorithm, field, valu
     assert r.mismatch_details[0].actual_hash == tool_catalog(
         catalog["tools"], algorithm=algorithm,
     )["catalog_hash"]
+
+
+def test_tool_catalog_mismatched_hash_algorithm_is_detected_end_to_end():
+    """A tool's schema_hash relabeled to a different algorithm, same raw
+    digest bytes - the exact scenario build_catalog_tree's algorithm check
+    exists for - must surface as a MISMATCH through the full verify_manifest
+    path, not just when calling build_catalog_tree directly."""
+    m = manifest()
+    catalog = tool_catalog()
+    approved_root = catalog["catalog_hash"]
+    raw_hex = catalog["tools"][0]["schema_hash"].split(":", 1)[1]
+    # same digest, wrong label
+    catalog["tools"][0]["schema_hash"] = f"shake256:{raw_hex}"
+    m["artifacts"]["tool_manifest"] = catalog
+
+    r = verify_manifest(sign(m), ctx(tool_catalog_hash=approved_root), store())
+
+    assert r.signature_verified
+    assert r.result == OverallResult.MISMATCH
+    assert r.fields_verified.tool_manifest == FieldResult.MISMATCH
+    assert [d.field for d in r.mismatch_details] == ["tool_manifest.catalog_hash"]
+    assert r.mismatch_details[0].expected_hash == approved_root
+    assert r.mismatch_details[0].actual_hash == "<unverifiable tools>"
 
 
 def test_tool_catalog_reordered_tools_match():

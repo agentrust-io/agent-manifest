@@ -166,6 +166,154 @@ def test_catalog_empty():
     assert build_catalog_tree([]).startswith("sha256:")
 
 
+def test_catalog_empty_rejects_unsupported_algorithm():
+    """Empty and non-empty catalogs must reject a bad algorithm the same way."""
+    with pytest.raises(ValueError, match="Unsupported algorithm"):
+        build_catalog_tree([], algorithm="bogus")
+
+
+# ---------------------------------------------------------------------------
+# Catalog tree - algorithm binding (regression: leaf algorithm confusion)
+#
+# build_catalog_tree() used to build each leaf from HashValue.hex_digest
+# alone, dropping the "sha256:"/"shake256:" prefix. Two hashes with the same
+# raw digest but different algorithm labels then produced the same leaf, and
+# the same catalog root - the algorithm each was declared under was silently
+# lost. These tests pin the fix: a tool's schema_hash/description_hash
+# algorithm must match the catalog tree's own algorithm, or it's rejected.
+# ---------------------------------------------------------------------------
+
+
+def _make_tool_with_algorithms(
+    tool_id: str,
+    schema_alg: str,
+    schema_hex: str,
+    desc_alg: str,
+    desc_hex: str,
+) -> ToolEntry:
+    return ToolEntry(
+        tool_id=tool_id,
+        tool_name=tool_id.split(".")[-1],
+        endpoint_id="spiffe://trust.example/mcp/server",
+        schema_hash=HashValue(f"{schema_alg}:{schema_hex}"),
+        description_hash=HashValue(f"{desc_alg}:{desc_hex}"),
+        version="1.0.0",
+    )
+
+
+def test_catalog_rejects_schema_hash_algorithm_mismatch():
+    """A shake256-labeled schema_hash in a sha256 catalog tree must be rejected."""
+    tool = _make_tool_with_algorithms(
+        "com.example.tool", "shake256", "aa" * 32, "sha256", "bb" * 32
+    )
+    with pytest.raises(ValueError, match="schema_hash"):
+        build_catalog_tree([tool], algorithm="sha256")
+
+
+def test_catalog_rejects_description_hash_algorithm_mismatch():
+    """A shake256-labeled description_hash in a sha256 catalog tree must be rejected."""
+    tool = _make_tool_with_algorithms(
+        "com.example.tool", "sha256", "aa" * 32, "shake256", "bb" * 32
+    )
+    with pytest.raises(ValueError, match="description_hash"):
+        build_catalog_tree([tool], algorithm="sha256")
+
+
+def test_catalog_rejects_mismatch_against_shake256_tree():
+    """The check is symmetric: a sha256-labeled hash in a shake256 tree also fails."""
+    tool = _make_tool_with_algorithms(
+        "com.example.tool", "sha256", "aa" * 32, "shake256", "bb" * 32
+    )
+    with pytest.raises(ValueError, match="schema_hash"):
+        build_catalog_tree([tool], algorithm="shake256")
+
+
+def test_catalog_rejects_description_hash_mismatch_against_shake256_tree():
+    """Same as above, but for description_hash - schema_hash matches so this
+    proves the description_hash check independently fails in this direction."""
+    tool = _make_tool_with_algorithms(
+        "com.example.tool", "shake256", "aa" * 32, "sha256", "bb" * 32
+    )
+    with pytest.raises(ValueError, match="description_hash"):
+        build_catalog_tree([tool], algorithm="shake256")
+
+
+def test_catalog_rejects_mismatch_on_non_first_tool():
+    """Checked for every tool, not just the first one built.
+
+    "tool_a" sorts before "tool_b", so the bad one is processed second -
+    it must still be caught.
+    """
+    good = _make_tool_with_algorithms(
+        "com.example.tool_a", "sha256", "aa" * 32, "sha256", "bb" * 32
+    )
+    bad = _make_tool_with_algorithms(
+        "com.example.tool_b", "shake256", "cc" * 32, "sha256", "dd" * 32
+    )
+    with pytest.raises(ValueError, match="tool_b"):
+        build_catalog_tree([good, bad], algorithm="sha256")
+
+
+def test_catalog_same_digest_bytes_different_algorithm_no_longer_collide():
+    """Core regression: same raw digest, different algorithm label -> rejected,
+    not silently accepted with the same (or any) root."""
+    raw_hex = "a" * 64
+    labeled_sha256 = _make_tool_with_algorithms(
+        "com.example.tool", "sha256", raw_hex, "sha256", "b" * 64
+    )
+    labeled_shake256 = _make_tool_with_algorithms(
+        "com.example.tool", "shake256", raw_hex, "sha256", "b" * 64
+    )
+    root = build_catalog_tree([labeled_sha256], algorithm="sha256")
+    assert root.startswith("sha256:")
+    with pytest.raises(ValueError, match="schema_hash"):
+        build_catalog_tree([labeled_shake256], algorithm="sha256")
+
+
+def test_catalog_error_identifies_offending_tool_and_algorithms():
+    """The error must be actionable: name the tool, field, and both algorithms."""
+    tool = _make_tool_with_algorithms(
+        "com.example.specific_tool_id", "shake256", "aa" * 32, "sha256", "bb" * 32
+    )
+    with pytest.raises(ValueError) as exc_info:
+        build_catalog_tree([tool], algorithm="sha256")
+    message = str(exc_info.value)
+    assert "com.example.specific_tool_id" in message
+    assert "schema_hash" in message
+    assert "shake256" in message
+    assert "sha256" in message
+
+
+def test_catalog_shake256_profile_builds_when_internally_consistent():
+    """A fully shake256-labeled catalog (post-quantum profile) still builds
+    normally when every tool's algorithm matches the tree's algorithm."""
+    tools = [
+        _make_tool_with_algorithms(
+            "com.example.read", "shake256", "aa" * 32, "shake256", "bb" * 32
+        ),
+        _make_tool_with_algorithms(
+            "com.example.send", "shake256", "cc" * 32, "shake256", "dd" * 32
+        ),
+    ]
+    result = build_catalog_tree(tools, algorithm="shake256")
+    assert result.startswith("shake256:")
+
+
+def test_catalog_shake256_and_sha256_profiles_produce_different_roots():
+    """Sanity check that the algorithm actually participates in the root:
+    the same tool_id/digest bytes under consistently-different algorithms
+    must not collide with each other either."""
+    sha_tools = [_make_tool_with_algorithms(
+        "com.example.tool", "sha256", "aa" * 32, "sha256", "bb" * 32
+    )]
+    shake_tools = [_make_tool_with_algorithms(
+        "com.example.tool", "shake256", "aa" * 32, "shake256", "bb" * 32
+    )]
+    sha_root = build_catalog_tree(sha_tools, algorithm="sha256")
+    shake_root = build_catalog_tree(shake_tools, algorithm="shake256")
+    assert sha_root != shake_root
+
+
 # ---------------------------------------------------------------------------
 # Corpus tree test vectors
 # ---------------------------------------------------------------------------

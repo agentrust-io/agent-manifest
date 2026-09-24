@@ -27,6 +27,7 @@ import hashlib
 from dataclasses import dataclass
 from typing import Callable, Iterable, NamedTuple
 
+from ._types import HashValue
 from .models import ToolEntry
 
 
@@ -506,14 +507,33 @@ def build_catalog_tree(
     Both schema_hash and description_hash are bound so that silent MCP tool
     description mutation (rug-pull) changes the catalog root.
 
+    ``schema_hash_bytes`` / ``description_hash_bytes`` are the raw digest
+    bytes of each ``HashValue`` - the algorithm prefix (``"sha256:"`` or
+    ``"shake256:"``) is stripped before hashing, per the catalog-tree
+    construction in spec Section 3.2.3. A manifest uses one algorithm
+    throughout (spec Section 3.1; profile tables in 4.1/4.2), so each
+    tool's ``schema_hash``/``description_hash`` algorithm MUST match
+    *algorithm* before its raw bytes are trusted as leaf input. Otherwise
+    two hashes with the same digest but different algorithm labels
+    (``"sha256:aa..."`` vs. ``"shake256:aa..."``) would hash to the same
+    leaf, silently dropping the algorithm each was declared under.
+
     Tools are sorted by tool_id (lexicographic) before tree construction.
 
     Returns:
-        Root in HashValue format: ``"sha256:<64-hex>"``
+        Root in HashValue format: ``"sha256:<64-hex>"`` (or ``"shake256:..."``
+        when *algorithm* is ``"shake256"``).
 
     Raises:
-        ValueError: If the number of tools exceeds MAX_LEAVES.
+        ValueError: If *algorithm* is unsupported, if the number of tools
+            exceeds MAX_LEAVES, or if any tool's ``schema_hash`` or
+            ``description_hash`` uses a different algorithm than *algorithm*.
     """
+    if algorithm not in _HASH_FNS:
+        raise ValueError(
+            f"Unsupported algorithm {algorithm!r}. Use 'sha256' or 'shake256'."
+        )
+
     if len(tools) > _MAX_MERKLE_LEAVES:
         raise ValueError(
             f"build_catalog_tree: {len(tools)} tools exceeds the "
@@ -526,6 +546,10 @@ def build_catalog_tree(
 
     tree = MerkleTree(algorithm=algorithm)
     for tool in sorted_tools:
+        _require_matching_algorithm(tool, "schema_hash", tool.schema_hash, algorithm)
+        _require_matching_algorithm(
+            tool, "description_hash", tool.description_hash, algorithm
+        )
         schema_bytes = bytes.fromhex(tool.schema_hash.hex_digest)
         desc_bytes = bytes.fromhex(tool.description_hash.hex_digest)
         leaf_data = (
@@ -537,3 +561,23 @@ def build_catalog_tree(
         tree.add_leaf(leaf_data)
 
     return tree.root_hex()
+
+
+def _require_matching_algorithm(
+    tool: ToolEntry, field_name: str, hash_value: HashValue, algorithm: str
+) -> None:
+    """Reject a tool hash whose algorithm doesn't match the tree's.
+
+    Without this, a tool's raw digest bytes get used as leaf input no
+    matter what algorithm they claim to be - see build_catalog_tree's
+    docstring for why that's unsafe.
+    """
+    tool_algorithm = hash_value.algorithm
+    if tool_algorithm != algorithm:
+        raise ValueError(
+            f"build_catalog_tree: tool {tool.tool_id!r} has {field_name} "
+            f"algorithm {tool_algorithm!r}, but the catalog tree algorithm "
+            f"is {algorithm!r}. A manifest uses one hash algorithm "
+            f"throughout (spec Section 3.1); mixing algorithms in one "
+            f"catalog is not permitted."
+        )
