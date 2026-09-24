@@ -369,17 +369,18 @@ def test_tool_catalog_detects_changed_leaf_before_signing(
     )["catalog_hash"]
 
 
-def test_tool_catalog_mismatched_hash_algorithm_is_detected_end_to_end():
-    """A tool's schema_hash relabeled to a different algorithm, same raw
-    digest bytes - the exact scenario build_catalog_tree's algorithm check
-    exists for - must surface as a MISMATCH through the full verify_manifest
-    path, not just when calling build_catalog_tree directly."""
+@pytest.mark.parametrize("field", ["schema_hash", "description_hash"])
+def test_tool_catalog_mismatched_hash_algorithm_is_detected_end_to_end(field):
+    """A tool's schema_hash/description_hash relabeled to a different
+    algorithm, same raw digest bytes - the exact scenario build_catalog_tree's
+    algorithm check exists for - must surface as a MISMATCH through the full
+    verify_manifest path, not just when calling build_catalog_tree directly."""
     m = manifest()
     catalog = tool_catalog()
     approved_root = catalog["catalog_hash"]
-    raw_hex = catalog["tools"][0]["schema_hash"].split(":", 1)[1]
+    raw_hex = catalog["tools"][0][field].split(":", 1)[1]
     # same digest, wrong label
-    catalog["tools"][0]["schema_hash"] = f"shake256:{raw_hex}"
+    catalog["tools"][0][field] = f"shake256:{raw_hex}"
     m["artifacts"]["tool_manifest"] = catalog
 
     r = verify_manifest(sign(m), ctx(tool_catalog_hash=approved_root), store())
