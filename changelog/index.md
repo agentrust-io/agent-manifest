@@ -4,6 +4,7 @@
 
 ### Added
 
+- **[SDK]** Separate `VerificationResult.hitl_admissibility` reporting for issue #348. Passing approval checks leaves present applicability `UNDECIDABLE` because the verifier cannot establish current approver standing or successor state. Results distinguish approval not required, failed approval checks, and incomplete verification. Existing HITL enforcement and overall verdicts are unchanged.
 - **[SPEC] Section 6.2.1 records the enforcement mode vocabulary crosswalk** (issue #344). The manifest names the three policy enforcement states `enforce`, `advisory` and `audit-only`, the cMCP runtime names them `enforcing`, `advisory` and `silent`, and the TRACE claim schema uses a third set, `enforce`, `advisory` and `silent`. Section 6.2 requires the manifest and the attested runtime mode to match but never said which name denoted which state, so the only written statement of the correspondence sat inside a consumer (agentrust-io/cmcp#584). The new subsection is informative, carries no RFC 2119 keyword, and adds no requirement beyond the existing row. It records the correspondence without asserting that `silent` and `audit-only` are the same state. Reported by Imran Siddique.
 
 ### Fixed
