@@ -19,7 +19,7 @@ import hmac
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Callable, Optional, Union
+from typing import Any, Callable, Literal, Optional, Union
 
 from pydantic import BaseModel, Field, TypeAdapter, field_validator
 
@@ -124,6 +124,25 @@ class HitlResult(str, Enum):
     UNVERIFIABLE = "UNVERIFIABLE"
 
 
+class HitlAdmissibility(str, Enum):
+    """Present applicability, separate from the existing approval checks."""
+
+    UNDECIDABLE = "UNDECIDABLE"
+    NOT_REQUIRED = "NOT_REQUIRED"
+
+
+class HitlAdmissibilityResult(BaseModel):
+    """No positive verdict without evidence of current authority and state."""
+
+    status: HitlAdmissibility = HitlAdmissibility.UNDECIDABLE
+    reason: Literal[
+        "verification_incomplete",
+        "approval_not_required",
+        "current_state_evidence_unavailable",
+        "approval_checks_not_satisfied",
+    ] = "verification_incomplete"
+
+
 class MismatchDetail(BaseModel):
     field: str
     expected_hash: str
@@ -189,6 +208,7 @@ class VerificationResult(BaseModel):
     # not a pass, and reporting it is what lets a relying party tell the two
     # apart instead of inferring one from silence.
     configuration_assurance: ConfigurationAssurance = ConfigurationAssurance.NOT_ASSESSED
+    hitl_admissibility: HitlAdmissibilityResult = Field(default_factory=HitlAdmissibilityResult)
     mismatch_details: list[MismatchDetail] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     # Spec 5.2 / 6.4.2: what a consumer joins this manifest to its runtime
@@ -1465,6 +1485,22 @@ def verify_manifest(
             expected_hash="<hitl_record with valid approval>",
             actual_hash="<hitl_record absent>",
         ))
+
+    # Approval duration and signature checks do not establish current authority,
+    # successor state, or applicability. Report this limitation separately;
+    # preserve the existing HITL enforcement and overall-result calculation.
+    if fields.hitl_record == HitlResult.NOT_REQUIRED:
+        result.hitl_admissibility = HitlAdmissibilityResult(
+            status=HitlAdmissibility.NOT_REQUIRED, reason="approval_not_required"
+        )
+    elif fields.hitl_record == HitlResult.APPROVED:
+        result.hitl_admissibility = HitlAdmissibilityResult(
+            reason="current_state_evidence_unavailable"
+        )
+    else:
+        result.hitl_admissibility = HitlAdmissibilityResult(
+            reason="approval_checks_not_satisfied"
+        )
 
     # --- Attestation block verification (HW-010)
     # Check that manifest_hash_in_report matches the computed manifest hash.
