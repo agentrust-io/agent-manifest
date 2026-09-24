@@ -78,6 +78,7 @@ from ._verify import (
     AgentCorrelation,
     verification_context_hash, derive_runtime_nonce,
     OverallResult, FieldResult, DelegationResult, HitlResult,
+    HitlAdmissibility, HitlAdmissibilityResult,
     FieldsVerified, MismatchDetail, EvidencePack,
     RevocationStore, RevocationRecord,
 )
@@ -171,6 +172,7 @@ __all__ = [
     "AgentCorrelation",
     "verification_context_hash", "derive_runtime_nonce",
     "OverallResult", "FieldResult", "DelegationResult", "HitlResult",
+    "HitlAdmissibility", "HitlAdmissibilityResult",
     "FieldsVerified", "MismatchDetail", "EvidencePack",
     "RevocationStore", "RevocationRecord",
     "verify_trace_envelope", "verify_evidence_pack",

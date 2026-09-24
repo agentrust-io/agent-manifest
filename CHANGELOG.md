@@ -4,6 +4,12 @@
 
 ### Added
 
+- **[SDK]** Separate `VerificationResult.hitl_admissibility` reporting for issue
+  #348. Passing approval checks leaves present applicability `UNDECIDABLE` because
+  the verifier cannot establish current approver standing or successor state.
+  Results distinguish approval not required, failed approval checks, and incomplete
+  verification. Existing HITL enforcement and overall verdicts are unchanged.
+
 - **[SPEC] Section 6.2.1 records the enforcement mode vocabulary crosswalk** (issue #344).
   The manifest names the three policy enforcement states `enforce`, `advisory` and
   `audit-only`, the cMCP runtime names them `enforcing`, `advisory` and `silent`, and the

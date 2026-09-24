@@ -1160,11 +1160,14 @@ def test_engine_rejects_an_attestation_bound_to_other_bytes():
 
 
 def test_engine_evaluates_approvals_from_the_unprotected_header():
+    """HITL-001: v0.2 approval checks do not establish present applicability."""
     manifest = base_manifest(hitl_record={"required": True})
     signed = sign_cose_sign1(manifest, KP)
     signed = attach_approvals(signed, [approval()])
     result = verify_manifest(signed, base_context(enforce_hitl=True), store())
     assert result.fields_verified.hitl_record == HitlResult.APPROVED
+    assert result.hitl_admissibility.status == "UNDECIDABLE"
+    assert result.hitl_admissibility.reason == "current_state_evidence_unavailable"
 
 
 def test_engine_rejects_approval_bound_to_another_manifest():
