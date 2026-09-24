@@ -3310,6 +3310,14 @@ This project is targeting contribution to CoSAI Working Stream 4, an OASIS Open 
 
 Amendments to this document require a PR, 14-day comment period, and Project Lead approval.
 
+## Disclosures
+
+Mohammed Zoheb Shaik (@zohebk8s) has disclosed that he builds Custodian, a key broker for model weights that uses the Weight Custody Manifest SDK as a dependency rather than a fork.
+
+He will note this interest on relevant proposals and reviews, recuse where Custodian's own design is the question, and update the disclosure if the interest changes materially. Custodian is neither endorsed by this project nor its reference implementation. This disclosure does not grant a project role or change existing decision rights or conflict-of-interest requirements.
+
+Source: [commercial-interest disclosure](https://github.com/agentrust-io/agent-manifest/issues/412).
+
 # Changelog
 
 ## Unreleased
