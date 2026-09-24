@@ -83,7 +83,6 @@ manifest = Manifest(
 )
 ```
 
-<<<<<<< HEAD
 ### Memory delta verification
 
 The private SDK helper `agent_manifest._memory_delta.verify_delta` checks both
@@ -107,7 +106,6 @@ Only fields included by the existing representation's leaf encoder are bound;
 extra operation metadata is not authenticated. The caller remains responsible for
 trusted checkpoints and policy inputs. This helper does not verify checkpoint
 approval signatures or establish whether the resulting memory behavior is safe.
-=======
 ### Human approval and current applicability
 
 `VerificationResult.hitl_admissibility` reports present applicability separately
@@ -133,7 +131,6 @@ overall verification result. An overall `VALID` result can therefore coexist wit
 `UNDECIDABLE` applicability. Callers requiring present applicability must apply
 their own evidence policy; they cannot treat `UNDECIDABLE` as permission to proceed.
 The field adds no manifest approval fields or normative specification requirements.
->>>>>>> origin/main
 
 ## The 10 Attested Artifacts
 
