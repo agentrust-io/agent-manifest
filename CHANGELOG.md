@@ -17,6 +17,8 @@
 
 ### Fixed
 
+- **[DOCS]** Correct section 9.1 applicability wording to the adopted Article 113(c) dates, with Article 111 transitions and the existing duty to verify deadlines retained (#410, Problem 2). Link the official consolidated Regulation; no field, conformance or requirement-level changes. Reported by @ioanavalea; maintainer-carried follow-up to #439.
+
 - **[SDK]** `MerkleTree.verify_inclusion()` didn't check `InclusionProof.tree_size`
   or `leaf_index` against the tree it was called on, and its root-reconstruction
   arithmetic was an incomplete port of RFC 9162 §2.1.3.2. Two separate bugs,
