@@ -9,6 +9,7 @@
 
 ### Fixed
 
+- **[SDK]** Bind presented memory delta operations to the consistency proof (#446). `verify_delta` previously ignored `ops`, accepting substituted or missing operations under a valid root advance. Callers now pass only appended operations and the required `representation` keyword (`kv`, `vector`, or `graph`). Malformed evidence returns `drift`; nonfinite budgets and unrepresentable TTLs fail closed. Roots and proof formats are unchanged.
 - **[DOCS]** Correct section 9.1 applicability wording to the adopted Article 113(c) dates, with Article 111 transitions and the existing duty to verify deadlines retained (#410, Problem 2). Link the official consolidated Regulation; no field, conformance or requirement-level changes. Reported by @ioanavalea; maintainer-carried follow-up to #439.
 - **[SDK]** `MerkleTree.verify_inclusion()` didn't check `InclusionProof.tree_size` or `leaf_index` against the tree it was called on, and its root-reconstruction arithmetic was an incomplete port of RFC 9162 §2.1.3.2. Two separate bugs, both in `_merkle.py`:
 - A proof could verify against a tree other than the one it was generated for: a leaf-0 proof from a 4-leaf tree, replayed with a forged `tree_size=8`, verified against the real 4-leaf tree's root, because nothing checked `tree_size` against the tree's actual leaf count. `verify_inclusion()` now rejects a mismatched `tree_size`, an out-of-range `leaf_index`, and an `audit_path` of the wrong length for that `(leaf_index, tree_size)` pair (new `_expected_audit_path_length()`).
