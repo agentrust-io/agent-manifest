@@ -15,7 +15,7 @@ from agent_manifest import RevocationStore, VerificationContext, verify_manifest
 `VerificationContext.trusted_keys` maps an issuer `key_id` (the SHA-256 hex of
 the public key bytes) to its base64url-encoded Ed25519 public key, the form
 returned by `Ed25519KeyPair.public_b64url()`. A consumer that holds raw public
-key bytes must base64url-encode them before populating `trusted_keys`. 
+key bytes must base64url-encode them before populating `trusted_keys`.
 `agent_manifest.signing_pre_image()` is the v0.1 signature pre-image: signers
 and verifiers share it for the exact RFC 8785 canonical byte sequence,
 including the `hitl_record.approvals` normalization, so a relying party never
