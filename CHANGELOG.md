@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## [0.13.0] - 2026-09-25
 
 ### Added
 
@@ -22,6 +22,26 @@
   Imran Siddique.
 
 ### Fixed
+
+- **[SECURITY][SDK]** `canonicalize()` is now RFC 8785 conformant (#404,
+  closes #322). Checked against the `rfc8785` reference implementation on 30,000
+  randomised documents. Three divergences are gone: strings are no longer NFC
+  normalized (two distinct strings could share one signature, and two sibling keys
+  that normalized alike emitted invalid JSON that dropped a signed field); the
+  escape set is now ECMAScript QuoteJSONString (U+2028, U+2029 and U+007F to U+009F
+  are no longer escaped); integers above 2**53 - 1 are refused. **Compatibility:** a
+  document containing non-NFC text, those characters, or an integer outside the
+  safe range now canonicalizes differently or is refused, so signatures produced by
+  0.12.0 over such documents do not verify. Documents without them produce the same
+  bytes as before.
+
+- **[SDK]** `verify_hitl_approval()` raised `AttributeError`, `KeyError` or
+  `TypeError` on malformed approvals (non-object approval or scope, missing
+  fields, non-numeric duration, non-string signature). Every shape is now checked
+  first and rejected with `ValueError` (#378, fixes #360).
+
+- **[LICENSE]** `LICENSE` is the canonical Apache-2.0 text again; the altered copy
+  failed licence detection (#406). No licence terms changed.
 
 - **[SDK]** `build_catalog_tree()` built each tool's Merkle leaf from the raw
   digest bytes of `schema_hash`/`description_hash`, dropping the
@@ -81,7 +101,7 @@
   `verify_inclusion()` has no production callers outside `_merkle.py`.
   `MerkleTree` itself is used internally by the tree builders in this file
   (`build_corpus_tree()`, `build_catalog_tree()`), but isn't re-exported
-  from the package root (only `models.InclusionProof` is) — direct use of
+  from the package root (only `models.InclusionProof` is); direct use of
   `_merkle` is not part of the package-root API.
 
 - **[SDK]** `verify_revocation_signature()` compared `signer_key_id` with
@@ -330,7 +350,7 @@
   mode: a malformed, unsigned, tampered, or wrong-key record used to be
   silently skipped, which meant a party able to corrupt one line of an
   authenticated CRL file could make that manifest register as *not*
-  revoked — the exact outcome `--crl-trusted-key` exists to prevent. Any
+  revoked, the exact outcome `--crl-trusted-key` exists to prevent. Any
   such record now raises `CRLIntegrityError` (surfaced by the CLI as a
   clean, non-zero-exit error) instead of silently disappearing from the
   in-memory set before `is_revoked()` runs.
@@ -338,7 +358,7 @@
 - **[DOCS]** Corrected an overclaim in the `--crl-trusted-key` help text
   and `manifest verify` docs: authenticating records that are present in
   a CRL file is not the same as proving the file is complete. Per-record
-  signatures cannot detect that a valid line — or the entire file — was
+  signatures cannot detect that a valid line (or the entire file) was
   deleted, so `--crl-trusted-key` does not by itself prevent un-revocation
   by deletion. Closing that gap needs a signed, versioned CRL
   snapshot/digest mechanism, which is not yet implemented.
