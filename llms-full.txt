@@ -3320,6 +3320,13 @@ Source: [commercial-interest disclosure](https://github.com/agentrust-io/agent-m
 
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- **[SDK]** `verify_evidence_pack()` returned `VERIFIED` whatever the embedded section 5.2 `verification_result` said. Only its enum membership was checked, so a pack carrying `REVOKED`, `EXPIRED` or `MISMATCH`, or a result naming a different manifest, verified the same as one carrying `VALID`, and its `verification_signature` was never checked. A non-`VALID` verdict or a `manifest_id` that differs from the pack's manifest now fails the pack, and a result without `manifest_id` is `MALFORMED`. New keyword arguments `result_key_id` and `result_algorithm` appraise `verification_signature` over the new `verification_result_pre_image()`; when `result_key_id` is omitted the result carries `verification_result_signature_verified=False` and a `verification_result_signature_not_appraised` warning. `signature_verified` still describes the outer `pack_signature` only.
+- **[SDK]** `verify_evidence_pack()` and `verify_trace_envelope()` raised `TypeError` or `ValueError` on some untrusted input instead of returning a status: a non-string `verification_result.result` or `pack_signature.key_id`, and any value RFC 8785 cannot represent (NaN, Infinity, a lone surrogate, an integer beyond 2^53, nesting deeper than 64). All of these now return `MALFORMED`.
+
 ## [0.13.0] - 2026-09-25
 
 ### Added
