@@ -35,6 +35,20 @@
   `ValueError` from this function as `<unverifiable tools>` (a catalog
   mismatch), so no caller changes were needed.
 
+- **[SDK]** Delegation hop verification and `verify_hitl_approval()` called
+  the Ed25519 primitive directly instead of going through
+  `Ed25519Verifier.verify_bytes()`, so neither enforced the fixed 64-byte
+  signature length before the bytes reached the crypto backend (SIGN-001,
+  #122). `_cose.py` and `_revocation.py` already checked the length
+  themselves, so this gap was specific to `_delegation.py`. The backend
+  already rejects a wrong-length signature safely on its own (checked on
+  `cryptography` 42.0.0, 46.0.6, 47.0.0, and 50.0.1), so this wasn't an
+  active bypass, but both call sites now go through `verify_bytes()` like
+  the rest of the SDK. `verify_hitl_approval()` also now builds its
+  `Ed25519Verifier` before the try/except that wraps base64 errors, so a
+  bad `approver_public_key` reports as a key error instead of being
+  mislabeled as a bad signature encoding.
+
 - **[SDK]** Bind presented memory delta operations to the consistency proof
   (#446). `verify_delta` previously ignored `ops`, accepting substituted or
   missing operations under a valid root advance. Callers now pass only appended

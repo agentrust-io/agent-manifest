@@ -388,11 +388,12 @@ def _verify_hops(
             manifest_id=manifest_id,
         )
 
-        from ._signing import _b64url_decode
         sig = hop["delegation_signature"]
-        sig_bytes = _b64url_decode(sig)
         verifier = Ed25519Verifier(pub_bytes)
-        verifier._pub.verify(sig_bytes, pre)  # raises InvalidSignature on failure
+        # SIGN-001: go through verify_bytes() rather than the raw primitive,
+        # so the fixed-length check applies here the same as everywhere else
+        # in the SDK that verifies an Ed25519 signature.
+        verifier.verify_bytes(pre, sig)  # raises InvalidSignature on failure
 
         # Scope narrowing check
         scope = hop["scope_grant"]
@@ -766,17 +767,16 @@ def verify_hitl_approval(
         approval_method=approval.get("approval_method"),
     )
 
-    # _b64url_decode() (shared with delegation-hop verification) already
-    # rejects the standard base64 alphabet and any non-URL-safe characters
-    # (CRYPTO-006), so reuse it here instead of re-implementing the same
-    # check inline. Wrapped to keep the field-qualified error message.
-    from ._signing import _b64url_decode
+    # verify_bytes() (SIGN-001) checks the signature length before touching
+    # the crypto backend, so use it instead of the raw primitive. The
+    # verifier is built outside the try: a bad approver_public_key raises
+    # its own ValueError (CRYPTO-005) and shouldn't be mislabeled as a
+    # base64 error. Only verify_bytes()'s own ValueError is wrapped below.
+    verifier = Ed25519Verifier(approver_public_key)
 
     try:
-        sig_bytes = _b64url_decode(sig)
+        verifier.verify_bytes(pre, sig)
     except ValueError as e:
         raise ValueError(
             f"HITL approval.approval_signature is not valid base64url: {e}"
         ) from e
-
-    Ed25519Verifier(approver_public_key)._pub.verify(sig_bytes, pre)

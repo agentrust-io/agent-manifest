@@ -1,5 +1,6 @@
 """Tests for A2A delegation chain and HITL approval signing - issues #12 and #13."""
 from datetime import datetime, timedelta, timezone
+from unittest import mock
 
 import pytest
 from agent_manifest._delegation import (
@@ -11,7 +12,7 @@ from agent_manifest._delegation import (
     verify_delegation_chain,
     verify_hitl_approval,
 )
-from agent_manifest._signing import generate_ed25519
+from agent_manifest._signing import Ed25519Verifier, generate_ed25519
 from cryptography.exceptions import InvalidSignature
 
 NOW = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -65,6 +66,52 @@ def test_delegation_wrong_key_fails():
                "delegated_at": NOW, "scope_grant": SCOPE, "delegation_signature": sig}]
     with pytest.raises(InvalidSignature):
         verify_delegation_chain(chain, {"spiffe://x/o": kp2.public_bytes}, MID)
+
+def test_delegation_wrong_length_signature_raises_clear_error():
+    """SIGN-001: a wrong-length hop signature is rejected end to end. The
+    length check itself lives in and is tested at
+    Ed25519Verifier.verify_bytes() - see test_signing.py."""
+    kp = generate_ed25519()
+    sig = DelegationHopSigner(kp).sign_hop(
+        hop=0, principal_id="spiffe://x/o", principal_type="agent",
+        delegated_at=NOW, scope_grant=SCOPE, manifest_id=MID,
+    )
+    chain = [{"hop": 0, "principal_id": "spiffe://x/o", "principal_type": "agent",
+               "delegated_at": NOW, "scope_grant": SCOPE,
+               "delegation_signature": sig + ("AAAA" * 10)}]
+    with pytest.raises(InvalidSignature, match="must be 64 bytes"):
+        verify_delegation_chain(chain, {"spiffe://x/o": kp.public_bytes}, MID)
+
+def test_delegation_truncated_signature_raises_clear_error():
+    """Same as above, undershooting instead of overshooting the length."""
+    kp = generate_ed25519()
+    sig = DelegationHopSigner(kp).sign_hop(
+        hop=0, principal_id="spiffe://x/o", principal_type="agent",
+        delegated_at=NOW, scope_grant=SCOPE, manifest_id=MID,
+    )
+    chain = [{"hop": 0, "principal_id": "spiffe://x/o", "principal_type": "agent",
+               "delegated_at": NOW, "scope_grant": SCOPE,
+               "delegation_signature": sig[:-8]}]
+    with pytest.raises(InvalidSignature, match="must be 64 bytes"):
+        verify_delegation_chain(chain, {"spiffe://x/o": kp.public_bytes}, MID)
+
+
+def test_delegation_hop_verification_goes_through_verify_bytes():
+    """SIGN-001: guards against a regression back to the raw primitive,
+    which would silently drop the length check. Spies on
+    Ed25519Verifier.verify_bytes() and lets the real call through."""
+    kp = generate_ed25519()
+    sig = DelegationHopSigner(kp).sign_hop(
+        hop=0, principal_id="spiffe://x/o", principal_type="agent",
+        delegated_at=NOW, scope_grant=SCOPE, manifest_id=MID,
+    )
+    chain = [{"hop": 0, "principal_id": "spiffe://x/o", "principal_type": "agent",
+               "delegated_at": NOW, "scope_grant": SCOPE, "delegation_signature": sig}]
+    with mock.patch.object(
+        Ed25519Verifier, "verify_bytes", autospec=True, side_effect=Ed25519Verifier.verify_bytes,
+    ) as spy:
+        verify_delegation_chain(chain, {"spiffe://x/o": kp.public_bytes}, MID)
+    spy.assert_called_once()
 
 def test_delegation_wrong_manifest_id_fails():
     kp = generate_ed25519()
@@ -825,6 +872,47 @@ def test_standard_alphabet_signature_raises_value_error_not_silently_accepted():
     approval["approval_signature"] = "AAAA+AAA/AAA"
     with pytest.raises(ValueError, match="not valid base64url"):
         verify_hitl_approval(approval, MID, key)
+
+
+def test_wrong_length_signature_raises_clear_error():
+    """SIGN-001: a wrong-length approval signature is rejected end to end.
+    The length check itself lives in and is tested at
+    Ed25519Verifier.verify_bytes() - see test_signing.py."""
+    approval, key = _valid_approval()
+    real_sig = approval["approval_signature"]
+    approval["approval_signature"] = real_sig + ("AAAA" * 10)
+    with pytest.raises(InvalidSignature, match="must be 64 bytes"):
+        verify_hitl_approval(approval, MID, key)
+
+
+def test_truncated_signature_raises_clear_error():
+    """Same as above, undershooting instead of overshooting the length."""
+    approval, key = _valid_approval()
+    approval["approval_signature"] = approval["approval_signature"][:-8]
+    with pytest.raises(InvalidSignature, match="must be 64 bytes"):
+        verify_hitl_approval(approval, MID, key)
+
+
+def test_hitl_verification_goes_through_verify_bytes():
+    """SIGN-001: guards against a regression back to the raw primitive,
+    which would silently drop the length check. Spies on
+    Ed25519Verifier.verify_bytes() and lets the real call through."""
+    approval, key = _valid_approval()
+    with mock.patch.object(
+        Ed25519Verifier, "verify_bytes", autospec=True, side_effect=Ed25519Verifier.verify_bytes,
+    ) as spy:
+        verify_hitl_approval(approval, MID, key)
+    spy.assert_called_once()
+
+
+def test_invalid_approver_public_key_is_not_reported_as_a_base64_error():
+    """A bad approver_public_key (CRYPTO-005) must raise its own key error,
+    not get relabeled as a bad signature encoding by the base64
+    try/except."""
+    approval, _ = _valid_approval()
+    with pytest.raises(ValueError, match="Invalid Ed25519 public key") as exc_info:
+        verify_hitl_approval(approval, MID, b"\x00" * 31)
+    assert "base64" not in str(exc_info.value)
 
 
 def test_non_string_approved_at_raises_value_error():
