@@ -193,10 +193,17 @@ class TraceVerificationResult:
 
 @dataclass
 class EvidencePackVerificationResult:
-    """Appraisal of an evidence pack and, optionally, the TRACEs inside it."""
+    """Appraisal of an evidence pack and, optionally, the TRACEs inside it.
+
+    ``signature_verified`` describes the outer ``pack_signature`` only.
+    ``verification_result_signature_verified`` is True only when the embedded
+    section 5.2 result's ``verification_signature`` was checked against a
+    caller-named key (``result_key_id``) and verified.
+    """
 
     status: TraceStatus
     signature_verified: bool = False
+    verification_result_signature_verified: bool = False
     pack_hash: Optional[str] = None
     pack_hash_matches: Optional[bool] = None
     envelopes: list[TraceVerificationResult] = field(default_factory=list)
@@ -225,6 +232,18 @@ def evidence_pack_pre_image(pack: dict[str, Any]) -> bytes:
     document after hashing and signing.
     """
     return canonicalize({k: v for k, v in pack.items() if k != "pack_signature"})
+
+
+def verification_result_pre_image(verification_result: dict[str, Any]) -> bytes:
+    """Return the RFC 8785 canonical bytes a section 5.2 ``verification_signature`` covers.
+
+    Spec 5.1.2 rule 4 requires the signature to cover the whole result, so this
+    is every field except ``verification_signature`` itself, the same
+    construction as :func:`trace_signing_pre_image`.
+    """
+    return canonicalize(
+        {k: v for k, v in verification_result.items() if k != "verification_signature"}
+    )
 
 
 def compute_pack_hash(pack: dict[str, Any]) -> str:
@@ -286,6 +305,12 @@ def _verify_detached(
         return TraceStatus.MALFORMED, ["signature_block_missing_algorithm"]
     if not key_id:
         return TraceStatus.MALFORMED, ["signature_block_missing_key_id"]
+    # Both are looked up or compared below; an unhashable key_id would raise
+    # TypeError from the dict lookup instead of returning a status.
+    if not isinstance(algorithm, str):
+        return TraceStatus.MALFORMED, ["signature_block_algorithm_not_a_string"]
+    if not isinstance(key_id, str):
+        return TraceStatus.MALFORMED, ["signature_block_key_id_not_a_string"]
 
     pub_b64 = trusted_keys.get(key_id)
     if pub_b64 is None:
@@ -311,6 +336,40 @@ def _verify_detached(
     except (KeyError, ValueError) as exc:
         return TraceStatus.FAILED, [f"signature_malformed:{type(exc).__name__}"]
 
+    return TraceStatus.VERIFIED, []
+
+
+def _verify_bare(
+    pre_image: bytes,
+    signature: str,
+    pub_b64: str,
+    algorithm: str,
+) -> tuple[TraceStatus, list[str]]:
+    """Verify a bare-string signature (TRACE envelope, section 5.2 result).
+
+    Neither form carries an algorithm or key id, so the caller supplies both.
+    """
+    from cryptography.exceptions import InvalidSignature
+
+    from ._signing import (
+        AlgorithmUnavailableError,
+        Ed25519Verifier,
+        MlDsa65Verifier,
+        _b64url_decode,
+    )
+
+    try:
+        pub_bytes = _b64url_decode(pub_b64)
+        if algorithm == "Ed25519":
+            Ed25519Verifier(pub_bytes).verify_bytes(pre_image, signature)
+        else:
+            MlDsa65Verifier(pub_bytes).verify_bytes(pre_image, signature)
+    except AlgorithmUnavailableError as exc:
+        return TraceStatus.UNVERIFIABLE, [f"algorithm_unavailable:{exc}"]
+    except InvalidSignature:
+        return TraceStatus.FAILED, ["signature_invalid"]
+    except ValueError as exc:
+        return TraceStatus.FAILED, [f"signature_malformed:{exc}"]
     return TraceStatus.VERIFIED, []
 
 
@@ -402,33 +461,18 @@ def verify_trace_envelope(
         result.failures.append(key_failure or "no_trusted_keys")
         return result
 
-    from cryptography.exceptions import InvalidSignature
-
-    from ._signing import (
-        AlgorithmUnavailableError,
-        Ed25519Verifier,
-        MlDsa65Verifier,
-        _b64url_decode,
-    )
-
-    pre_image = trace_signing_pre_image(envelope)
     try:
-        pub_bytes = _b64url_decode(pub_b64)
-        if algorithm == "Ed25519":
-            Ed25519Verifier(pub_bytes).verify_bytes(pre_image, signature)
-        else:
-            MlDsa65Verifier(pub_bytes).verify_bytes(pre_image, signature)
-    except AlgorithmUnavailableError as exc:
-        result.status = TraceStatus.UNVERIFIABLE
-        result.failures.append(f"algorithm_unavailable:{exc}")
+        pre_image = trace_signing_pre_image(envelope)
+    except (ValueError, TypeError) as exc:
+        # NaN, a lone surrogate, an unsafe integer or excess depth in any
+        # field: RFC 8785 cannot represent it, so no signature can cover it.
+        result.failures.append(f"envelope_not_canonicalizable:{type(exc).__name__}")
         return result
-    except InvalidSignature:
-        result.status = TraceStatus.FAILED
-        result.failures.append("signature_invalid")
-        return result
-    except ValueError as exc:
-        result.status = TraceStatus.FAILED
-        result.failures.append(f"signature_malformed:{exc}")
+
+    status, failures = _verify_bare(pre_image, signature, pub_b64, algorithm)
+    if status is not TraceStatus.VERIFIED:
+        result.status = status
+        result.failures.extend(failures)
         return result
 
     result.status = TraceStatus.VERIFIED
@@ -532,8 +576,14 @@ def _evidence_pack_content_failures(pack: dict[str, Any]) -> list[str]:
         declared = verification_result.get("result")
         if declared is None:
             failures.append("verification_result_missing_result")
-        elif declared not in VERIFICATION_RESULTS:
+        # isinstance first: `[] in frozenset` raises TypeError on unhashables.
+        elif not isinstance(declared, str) or declared not in VERIFICATION_RESULTS:
             failures.append(f"illegal_verification_result:{declared!r}")
+        # Spec 5.2 marks manifest_id REQUIRED. It is what ties the verdict to
+        # the manifest in this pack, so a result without one is not usable.
+        result_manifest_id = verification_result.get("manifest_id")
+        if not isinstance(result_manifest_id, str) or not result_manifest_id:
+            failures.append("verification_result_missing_manifest_id")
 
     report = pack["attestation_report"]
     if not report:
@@ -616,6 +666,78 @@ def _check_manifest_binding(
 # ---------------------------------------------------------------------------
 
 
+def _appraise_embedded_result(
+    pack: dict[str, Any],
+    result: EvidencePackVerificationResult,
+    trusted_keys: dict[str, str],
+    result_key_id: Optional[str],
+    result_algorithm: str,
+) -> None:
+    """Appraise the section 5.2 result carried in *pack*, recording into *result*.
+
+    The pack signature proves who assembled the pack, not what the result
+    inside it says or who signed that result. A pack carrying ``REVOKED`` is an
+    authentic record of a revoked manifest, so the verdict is checked the same
+    way an envelope's ``manifest_verification_result`` is.
+
+    Only ``VALID`` passes. ``SIGNATURE_MISSING`` and ``UNVERIFIABLE`` are
+    accepted as enum values by :data:`VERIFICATION_RESULTS` but are not in the
+    spec 5.2 producer enum; either way they are not ``VALID``.
+    """
+    verification_result = pack["verification_result"]
+
+    declared = verification_result["result"]
+    if declared != "VALID":
+        result.failures.append(f"verification_result_not_valid:{declared}")
+
+    manifest_id = pack["manifest"]["manifest_id"]
+    result_manifest_id = verification_result["manifest_id"]
+    if result_manifest_id != manifest_id:
+        result.failures.append(
+            f"verification_result_manifest_id_mismatch:result={result_manifest_id!r},"
+            f"manifest={manifest_id!r}"
+        )
+
+    if result_key_id is None:
+        result.warnings.append("verification_result_signature_not_appraised")
+        return
+
+    def _downgrade(status: TraceStatus) -> None:
+        # Never upgrade: a pack already FAILED/UNVERIFIABLE on its own
+        # signature keeps that status.
+        if result.status is TraceStatus.VERIFIED:
+            result.status = status
+
+    signature = verification_result.get("verification_signature")
+    if not signature or not isinstance(signature, str):
+        result.failures.append("verification_result_signature_absent")
+        _downgrade(TraceStatus.SIGNATURE_MISSING)
+        return
+    if result_algorithm not in TRACE_SIGNATURE_ALGORITHMS:
+        result.failures.append(
+            f"unsupported_verification_result_algorithm:{result_algorithm!r}"
+        )
+        _downgrade(TraceStatus.UNVERIFIABLE)
+        return
+    pub_b64 = trusted_keys.get(result_key_id)
+    if pub_b64 is None:
+        result.failures.append(f"verification_result_key_id_not_trusted:{result_key_id}")
+        _downgrade(TraceStatus.UNVERIFIABLE)
+        return
+
+    status, failures = _verify_bare(
+        verification_result_pre_image(verification_result),
+        signature,
+        pub_b64,
+        result_algorithm,
+    )
+    if status is TraceStatus.VERIFIED:
+        result.verification_result_signature_verified = True
+        return
+    result.failures.extend(f"verification_result_{f}" for f in failures)
+    _downgrade(status)
+
+
 def verify_evidence_pack(
     pack: dict[str, Any],
     *,
@@ -624,24 +746,39 @@ def verify_evidence_pack(
     trace_key_id: Optional[str] = None,
     trace_algorithm: str = "Ed25519",
     verify_envelopes: bool = True,
+    result_key_id: Optional[str] = None,
+    result_algorithm: str = "Ed25519",
 ) -> EvidencePackVerificationResult:
-    """Verify an evidence pack's ``pack_signature`` and its TRACE envelopes.
+    """Verify an evidence pack's ``pack_signature``, its embedded verification
+    result, and its TRACE envelopes.
 
     Args:
         pack: The evidence pack document (spec 5.2.1).
-        trusted_keys: key_id -> base64url public key, covering both the pack's
-            TEE-sealed key and the envelope signing key.
+        trusted_keys: key_id -> base64url public key, covering the pack's
+            TEE-sealed key, the envelope signing key and, when
+            ``result_key_id`` is given, the attestation service key.
         expected_pack_hash: When supplied (e.g. the ``pack_hash`` carried in a
             verification result's ``evidence_pack`` reference), it is compared
             against the recomputed hash.
         trace_key_id: Key id for the envelopes inside the pack.
         trace_algorithm: Envelope signature algorithm.
         verify_envelopes: Set False to appraise only the pack signature.
+        result_key_id: Key id of the attestation service that signed the
+            embedded section 5.2 result. When given, its
+            ``verification_signature`` MUST be present and verify. When
+            omitted it is not appraised, ``verification_result_signature_verified``
+            stays False, and a ``verification_result_signature_not_appraised``
+            warning is added.
+        result_algorithm: ``"Ed25519"`` or ``"ML-DSA-65"``. Spec 5.2 types
+            ``verification_signature`` as a bare string, so hybrid is not
+            expressible.
 
     Returns:
         An :class:`EvidencePackVerificationResult`. ``status`` is ``VERIFIED``
-        only when the pack signature verifies, any supplied ``pack_hash``
-        matches, and (when checked) every envelope is admissible.
+        only when the pack signature verifies, the embedded result says
+        ``VALID`` for this pack's manifest, its signature verifies when a
+        ``result_key_id`` was given, any supplied ``pack_hash`` matches, and
+        (when checked) every envelope is admissible.
     """
     result = EvidencePackVerificationResult(status=TraceStatus.MALFORMED)
 
@@ -695,7 +832,15 @@ def verify_evidence_pack(
         result.failures.extend(content_failures)
         return result
 
-    result.pack_hash = compute_pack_hash(pack)
+    # Every later pre-image (pack, envelope, embedded result) is a subset of
+    # this one, so a value RFC 8785 cannot represent (NaN, a lone surrogate,
+    # an unsafe integer, excess depth) is caught once, here, as MALFORMED
+    # rather than escaping as ValueError to a caller expecting a status.
+    try:
+        result.pack_hash = compute_pack_hash(pack)
+    except (ValueError, TypeError) as exc:
+        result.failures.append(f"pack_not_canonicalizable:{type(exc).__name__}")
+        return result
     if expected_pack_hash is not None:
         # Constant-time compare is unnecessary: both values are public hashes
         # and an attacker who can supply one can compute the other.
@@ -722,6 +867,10 @@ def verify_evidence_pack(
     result.status = status
     result.failures.extend(failures)
     result.signature_verified = status is TraceStatus.VERIFIED
+
+    _appraise_embedded_result(
+        pack, result, trusted_keys or {}, result_key_id, result_algorithm
+    )
 
     if verify_envelopes:
         envelopes = pack.get("trace_envelopes") or []

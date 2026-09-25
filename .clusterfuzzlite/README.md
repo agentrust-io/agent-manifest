@@ -13,6 +13,7 @@ about the party that supplied them.
 | `fuzz_attestation_parsers.py` | SNP report, TDX quote, TPM quote and TPMT_SIGNATURE parsing. Fixed offsets and four levels of attacker-chosen declared length. |
 | `fuzz_cose.py` | `verify_cose_manifest` and the other envelope decoders: CBOR tags, protected header, crit list, JSON payload. |
 | `fuzz_canonicalize.py` | The bytes that get signed. |
+| `fuzz_trace.py` | `verify_evidence_pack` and `verify_trace_envelope`: arbitrary JSON, and fuzzed fields overlaid on a correctly signed pack so the signature, embedded-result and envelope checks are reached. A `VERIFIED` pack must carry a `VALID` result for its own manifest. |
 
 ## The properties
 
