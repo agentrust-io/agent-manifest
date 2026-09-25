@@ -1,14 +1,12 @@
 name: CodeQL
 
 on:
+  # No paths filter: Scorecard SAST counts every merged commit, and a PR that
+  # only touches docs or workflows otherwise lands without a CodeQL run.
   push:
     branches: [main]
-    paths:
-      - "python/**"
   pull_request:
     branches: [main]
-    paths:
-      - "python/**"
   schedule:
     - cron: "0 3 * * 1"  # Weekly on Monday at 03:00 UTC
 
@@ -20,9 +18,6 @@ jobs:
   analyze:
     name: Analyze Python
     runs-on: ubuntu-latest
-    # Dependabot PRs run with read-only token; skip CodeQL to avoid permission errors.
-    # The weekly scheduled run still covers the dependency surface.
-    if: github.actor != 'dependabot[bot]'
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

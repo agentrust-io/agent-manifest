@@ -80,6 +80,16 @@ claims `VALID` over a conflicting hash is a spec violation and fails.
 Verification is fail-closed: a missing key, an unknown algorithm, or a build
 without the `[pq]` extra yields `UNVERIFIABLE`, never `VERIFIED`.
 
+`verify_evidence_pack()` also appraises the section 5.2 `verification_result`
+inside the pack. The pack signature proves who assembled the pack, not what the
+result says, so the pack is `VERIFIED` only when that result is `VALID` and its
+`manifest_id` names the pack's manifest. Its `verification_signature` is a bare
+string signed by the attestation service over `verification_result_pre_image()`;
+pass `result_key_id` (and `result_algorithm` for ML-DSA-65) to check it. Without
+`result_key_id` it is not checked, `verification_result_signature_verified` stays
+`False`, and the result carries a `verification_result_signature_not_appraised`
+warning. `signature_verified` refers to the outer `pack_signature` only.
+
 ::: agent_manifest._trace.verify_trace_envelope
 
 ::: agent_manifest._trace.verify_evidence_pack
@@ -100,6 +110,8 @@ and verifiers MUST both use them so the byte sequences match.
 ::: agent_manifest._trace.trace_signing_pre_image
 
 ::: agent_manifest._trace.evidence_pack_pre_image
+
+::: agent_manifest._trace.verification_result_pre_image
 
 ## Revocation
 
