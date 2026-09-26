@@ -1,11 +1,15 @@
 # Changelog
 
-## [Unreleased]
+## [0.13.1] - 2026-09-26
 
 ### Fixed
 
-- **[SDK]** `verify_evidence_pack()` returned `VERIFIED` whatever the embedded section 5.2 `verification_result` said. Only its enum membership was checked, so a pack carrying `REVOKED`, `EXPIRED` or `MISMATCH`, or a result naming a different manifest, verified the same as one carrying `VALID`, and its `verification_signature` was never checked. A non-`VALID` verdict or a `manifest_id` that differs from the pack's manifest now fails the pack, and a result without `manifest_id` is `MALFORMED`. New keyword arguments `result_key_id` and `result_algorithm` appraise `verification_signature` over the new `verification_result_pre_image()`; when `result_key_id` is omitted the result carries `verification_result_signature_verified=False` and a `verification_result_signature_not_appraised` warning. `signature_verified` still describes the outer `pack_signature` only.
-- **[SDK]** `verify_evidence_pack()` and `verify_trace_envelope()` raised `TypeError` or `ValueError` on some untrusted input instead of returning a status: a non-string `verification_result.result` or `pack_signature.key_id`, and any value RFC 8785 cannot represent (NaN, Infinity, a lone surrogate, an integer beyond 2^53, nesting deeper than 64). All of these now return `MALFORMED`.
+- **[SDK]** `verify_evidence_pack()` returned `VERIFIED` whatever the embedded section 5.2 `verification_result` said. Only its enum membership was checked, so a pack carrying `REVOKED`, `EXPIRED` or `MISMATCH`, or a result naming a different manifest, verified the same as one carrying `VALID`, and its `verification_signature` was never checked. A non-`VALID` verdict or a `manifest_id` that differs from the pack's manifest now fails the pack, and a result without `manifest_id` is `MALFORMED`. New keyword arguments `result_key_id` and `result_algorithm` appraise `verification_signature` over the new `verification_result_pre_image()`; when `result_key_id` is omitted the result carries `verification_result_signature_verified=False` and a `verification_result_signature_not_appraised` warning. `signature_verified` still describes the outer `pack_signature` only (#463). **Behaviour change:** a pack whose embedded result is `REVOKED`, `EXPIRED`, `MISMATCH` or any other non-`VALID` value now returns `FAILED`. Callers that accepted such packs as `VERIFIED` under 0.13.0 will see them rejected.
+- **[SDK]** `verify_evidence_pack()` and `verify_trace_envelope()` raised `TypeError` or `ValueError` on some untrusted input instead of returning a status: a non-string `verification_result.result` or `pack_signature.key_id`, and any value RFC 8785 cannot represent (NaN, Infinity, a lone surrogate, an integer beyond 2^53, nesting deeper than 64). All of these now return `MALFORMED` (#463).
+
+### Changed
+
+- **[CI]** CodeQL now analyses every pull request and push to `main`; the `python/**` path filter and the Dependabot skip are gone (#463). Workflow write permissions in `codeql.yml` and `docs.yml` are scoped to the job that uses them (#464). A ClusterFuzzLite target `fuzz_trace.py` covers `verify_evidence_pack()` and `verify_trace_envelope()` (#463).
 
 ## [0.13.0] - 2026-09-25
 
