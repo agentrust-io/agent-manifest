@@ -39,6 +39,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Literal
 
 from ._merkle import _HASH_FNS, _MAX_MERKLE_LEAVES, verify_consistency
+from ._types import HashValue
 
 TraceKind = Literal["hash-chained", "merkle-log"]
 ContinuityReason = Literal["accepted", "discontinuity", "rollback", "expired"]
@@ -123,14 +124,17 @@ def _as_utc(dt: datetime) -> datetime:
 
 
 def _root_bytes(hashvalue: str) -> tuple[str, bytes]:
-    """Parse a ``'algorithm:hex'`` HashValue. Raises ValueError if malformed."""
-    algorithm, sep, hex_digest = hashvalue.partition(":")
-    if not sep or algorithm not in _HASH_FNS or not hex_digest:
-        raise ValueError(f"malformed audit_chain_root: {hashvalue!r}")
+    """Parse a ``'algorithm:hex'`` HashValue. Raises ValueError if malformed.
+
+    Delegates to ``HashValue.parse`` — see ``_memory_delta._root_bytes``
+    for why: ``audit_chain_root`` is plain ``str`` here, and a
+    live-observed checkpoint never goes through schema validation, so
+    this parser is the only format check it gets.
+    """
     try:
-        return algorithm, bytes.fromhex(hex_digest)
+        return HashValue.parse(hashvalue)
     except ValueError as exc:
-        raise ValueError(f"malformed audit_chain_root hex: {hashvalue!r}") from exc
+        raise ValueError(f"malformed audit_chain_root: {hashvalue!r}") from exc
 
 
 def verify_continuity(
@@ -151,8 +155,22 @@ def verify_continuity(
 
     An identical root at an identical size is continuous by inspection and
     still walks the seq and TTL stages, so a stale checkpoint cannot be
-    replayed forever just because nothing was appended.
+
+    Only the container the active *trace_type* uses is checked:
+    ``consistency_proof`` for ``merkle-log``, ``appended_entry_leaves`` for
+    ``hash-chained``. Garbage in the other one is simply unused.
     """
+    if not isinstance(signed, AuditCheckpoint) or not isinstance(current, AuditCheckpoint):
+        return ContinuityVerdict(False, "discontinuity")
+    for checkpoint in (signed, current):
+        if (any(type(v) is not int for v in
+                (checkpoint.tree_size, checkpoint.seq, checkpoint.ttl_seconds))
+                or not isinstance(checkpoint.audit_chain_root, str)
+                or not isinstance(checkpoint.observed_at, datetime)):
+            return ContinuityVerdict(False, "discontinuity")
+    if now is not None and not isinstance(now, datetime):
+        return ContinuityVerdict(False, "discontinuity")
+
     now = _as_utc(now) if now else datetime.now(timezone.utc)
     try:
         algorithm, signed_bytes = _root_bytes(signed.audit_chain_root)
@@ -175,20 +193,31 @@ def verify_continuity(
         # not a proven advance; the same rule memory applies to re-baselining.
         return ContinuityVerdict(False, "discontinuity")
 
-    # Stage 1: continuity proof.
+    # Stage 1: continuity proof. Only check/use the container this
+    # trace_type actually needs, and pass it through unchanged (no
+    # list(...) copy) so a bad or oversized value is rejected cheaply
+    # instead of copied or scanned first.
     if trace_type == "merkle-log":
+        if consistency_proof is not None and not isinstance(consistency_proof, list):
+            return ContinuityVerdict(False, "discontinuity")
         if not verify_consistency(
             signed_bytes,
             current_bytes,
             signed.tree_size,
             current.tree_size,
-            list(consistency_proof or []),
+            consistency_proof or [],
             algorithm=algorithm,
         ):
             return ContinuityVerdict(False, "discontinuity")
     elif trace_type == "hash-chained":
-        appended = list(appended_entry_leaves or [])
+        if appended_entry_leaves is not None and not isinstance(appended_entry_leaves, list):
+            return ContinuityVerdict(False, "discontinuity")
+        appended = appended_entry_leaves or []
+        # Check the length before scanning elements, so a wrong-size (or
+        # huge) list is rejected without walking it.
         if len(appended) != current.tree_size - signed.tree_size:
+            return ContinuityVerdict(False, "discontinuity")
+        if any(not isinstance(leaf, bytes) for leaf in appended):
             return ContinuityVerdict(False, "discontinuity")
         if extend_hash_chain(signed_bytes, appended, algorithm=algorithm) != current_bytes:
             return ContinuityVerdict(False, "discontinuity")
