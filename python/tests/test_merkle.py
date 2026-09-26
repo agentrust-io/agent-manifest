@@ -780,3 +780,81 @@ def test_consistency_proof_rfc9162_known_vector():
     assert proof == [_subrange_root(6, 7), _subrange_root(7, 8),
                      _subrange_root(4, 6), _subrange_root(0, 4)]
     assert verify_consistency(_tree_of(7).root(), big.root(), 7, 8, proof) is True
+
+
+# ---------------------------------------------------------------------------
+# verify_consistency shape validation. A direct caller (not going through
+# verify_consistency_append) used to be able to crash it with bad input, or
+# for two identically-malformed same-size roots — get a spurious match.
+# ---------------------------------------------------------------------------
+
+
+def test_verify_consistency_rejects_wrong_length_roots():
+    m, n = 5, 9
+    big = _tree_of(n)
+    proof = big.consistency_proof(m)
+    short_root = _tree_of(m).root()[:16]  # half-length digest
+    assert verify_consistency(short_root, big.root(), m, n, proof) is False
+    assert verify_consistency(_tree_of(m).root(), big.root()[:16], m, n, proof) is False
+
+
+def test_verify_consistency_rejects_non_bytes_roots():
+    m, n = 5, 9
+    big = _tree_of(n)
+    proof = big.consistency_proof(m)
+    assert verify_consistency("not-bytes", big.root(), m, n, proof) is False
+    assert verify_consistency(_tree_of(m).root(), "not-bytes", m, n, proof) is False
+    assert verify_consistency(None, big.root(), m, n, proof) is False
+
+
+def test_verify_consistency_rejects_non_list_or_non_bytes_proof():
+    m, n = 5, 9
+    big = _tree_of(n)
+    small_root, big_root = _tree_of(m).root(), big.root()
+    assert verify_consistency(small_root, big_root, m, n, "not-a-list") is False
+    proof = big.consistency_proof(m)
+    tampered = ["not-bytes"] + proof[1:]
+    assert verify_consistency(small_root, big_root, m, n, tampered) is False
+    wrong_length = [p[:-1] for p in proof]
+    assert verify_consistency(small_root, big_root, m, n, wrong_length) is False
+
+
+def test_verify_consistency_rejects_unknown_algorithm():
+    m, n = 5, 9
+    big = _tree_of(n)
+    proof = big.consistency_proof(m)
+    assert verify_consistency(
+        _tree_of(m).root(), big.root(), m, n, proof, algorithm="md5"
+    ) is False
+
+
+def test_verify_consistency_rejects_non_int_or_negative_sizes():
+    m, n = 5, 9
+    big = _tree_of(n)
+    proof = big.consistency_proof(m)
+    small_root, big_root = _tree_of(m).root(), big.root()
+    assert verify_consistency(small_root, big_root, "5", n, proof) is False
+    assert verify_consistency(small_root, big_root, m, "9", proof) is False
+    assert verify_consistency(small_root, big_root, -1, n, proof) is False
+    assert verify_consistency(small_root, big_root, m, -1, proof) is False
+
+
+def test_verify_consistency_same_size_still_requires_a_real_digest():
+    # Two identically malformed roots at equal sizes used to satisfy
+    # `first_root == second_root` and pass, since that branch never
+    # checked the value was an actual digest.
+    assert verify_consistency(b"\xab", b"\xab", 3, 3, []) is False
+
+
+def test_verify_consistency_rejects_oversized_proof():
+    # verify_consistency_append already bounds proof length to
+    # second_size.bit_length() + 1. Without that bound, an over-long
+    # proof is still rejected (the fold arithmetic notices it's
+    # over-consumed) but only after every element is scanned. The bound
+    # rejects it in O(1) instead.
+    m, n = 5, 9
+    big = _tree_of(n)
+    oversized = big.consistency_proof(m) + [big.root()] * (n.bit_length() + 2)
+    assert verify_consistency(
+        _tree_of(m).root(), big.root(), m, n, oversized
+    ) is False

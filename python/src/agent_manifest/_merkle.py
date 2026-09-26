@@ -309,8 +309,36 @@ def verify_consistency(
     the leaf data — so a verifier without the store can check a checkpoint
     advance. A non-prefix, tampered, or truncated proof returns False (the
     fail-closed path for memory-delta verification).
+
+    Shape is checked first: known algorithm, non-negative int sizes, roots
+    and every proof element the right length in bytes, and the proof no
+    longer than a real RFC 9162 proof for *second_size* could be (the same
+    bound ``verify_consistency_append`` already used). This means a direct
+    caller can't crash it with bad input, can't make it scan an oversized
+    proof list before rejecting it, and two equal-but-malformed roots can't
+    coincidentally "match". Any shape violation returns False, same as a
+    failed proof.
+
+    Not checked here on purpose: the ``_MAX_MERKLE_LEAVES`` cap
+    ``verify_consistency_append`` applies to *second_size*. That's an
+    operational limit this codebase's callers choose (and
+    ``verify_continuity`` already applies it before calling in) — not a
+    property of the RFC 9162 proof itself.
     """
+    if algorithm not in _HASH_FNS:
+        return False
     h = _HASH_FNS[algorithm]
+    digest_size = len(h(b""))
+    if (type(first_size) is not int or type(second_size) is not int
+            or first_size < 0 or second_size < 0):
+        return False
+    if (not isinstance(first_root, bytes) or len(first_root) != digest_size
+            or not isinstance(second_root, bytes) or len(second_root) != digest_size
+            or not isinstance(proof, list)
+            or len(proof) > second_size.bit_length() + 1):
+        return False
+    if any(not isinstance(node, bytes) or len(node) != digest_size for node in proof):
+        return False
     if first_size > second_size:
         return False
     if first_size == second_size:

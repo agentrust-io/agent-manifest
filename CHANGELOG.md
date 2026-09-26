@@ -47,6 +47,20 @@
 
 ### Fixed
 
+- **[SDK]** `verify_delta` and `verify_continuity` parsed a checkpoint's
+  `memory_root` / `audit_chain_root` with `partition(":")` + `fromhex()`
+  instead of the `HashValue` schema's own validator, so a root that never
+  went through pydantic (both fields are plain `str`, populated from
+  runtime-observed checkpoints) could be malformed and still verify.
+  Uppercase hex invalid per the schema, since `bytes.fromhex` doesn't
+  care about case let a checkpoint advance verify as accepted/continuous
+  when it should have failed closed; confirmed by reproduction in both
+  functions. Also hardened: `verify_consistency` now validates its own
+  inputs (a direct caller had no shape checks at all, unlike
+  `verify_consistency_append`) and applies the same proof-length bound, and
+  `verify_continuity` now rejects malformed/wrong-typed checkpoints instead
+  of raising, matching `verify_delta`'s existing behavior.
+
 - **[SECURITY][SDK]** `canonicalize()` is now RFC 8785 conformant (#404,
   closes #322). Checked against the `rfc8785` reference implementation on 30,000
   randomised documents. Three divergences are gone: strings are no longer NFC

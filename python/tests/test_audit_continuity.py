@@ -186,13 +186,242 @@ def test_algorithm_switch_is_not_an_append():
     assert not verdict.accepted and verdict.reason == "discontinuity"
 
 
-@pytest.mark.parametrize("root", ["not-a-hash", "sha256:", ":abc", "sha256:zz", ""])
+@pytest.mark.parametrize("root", [
+    "not-a-hash", "sha256:", ":abc", "sha256:zz", "",
+    "sha256:ab",                          # short hex the reported bug's case
+    "sha256:" + "a" * 62,                 # short (63-hex-digit) but plausible
+    "sha256:" + "a" * 66,                 # long
+    "sha256:" + "a" * 30 + " " + "a" * 33,  # embedded whitespace (64 chars)
+])
 def test_malformed_roots_fail_closed(root):
     verdict = verify_continuity(
         _cp(root, 2, 1), _cp(CHAIN_3, 3, 2),
         trace_type="hash-chained", appended_entry_leaves=_leaves(3)[2:],
     )
     assert not verdict.accepted and verdict.reason == "discontinuity"
+
+
+def test_uppercase_hex_signed_root_is_rejected_not_silently_accepted():
+    # bytes.fromhex is case insensitive, so uppercase hex used to verify
+    # fine even though HashValue requires lowercase.
+    leaves = _leaves(3)
+    proof = _tree(leaves).consistency_proof(2)
+    upper_signed = MERKLE_2.split(":")[0] + ":" + MERKLE_2.split(":")[1].upper()
+    verdict = verify_continuity(
+        _cp(upper_signed, 2, 1), _cp(MERKLE_3, 3, 2),
+        trace_type="merkle-log", consistency_proof=proof,
+    )
+    assert not verdict.accepted and verdict.reason == "discontinuity"
+
+
+def test_uppercase_hex_current_root_is_rejected_not_silently_accepted():
+    # Same bug, but on the live/untrusted side rather than the signed side.
+    leaves = _leaves(3)
+    proof = _tree(leaves).consistency_proof(2)
+    upper_current = MERKLE_3.split(":")[0] + ":" + MERKLE_3.split(":")[1].upper()
+    verdict = verify_continuity(
+        _cp(MERKLE_2, 2, 1), _cp(upper_current, 3, 2),
+        trace_type="merkle-log", consistency_proof=proof,
+    )
+    assert not verdict.accepted and verdict.reason == "discontinuity"
+
+
+def test_uppercase_hex_root_is_rejected_for_hash_chained_too():
+    leaves = _leaves(3)
+    upper_signed = CHAIN_2.split(":")[0] + ":" + CHAIN_2.split(":")[1].upper()
+    verdict = verify_continuity(
+        _cp(upper_signed, 2, 1), _cp(CHAIN_3, 3, 2),
+        trace_type="hash-chained", appended_entry_leaves=leaves[2:],
+    )
+    assert not verdict.accepted and verdict.reason == "discontinuity"
+
+
+# ---------------------------------------------------------------------------
+# Bad-type inputs fail closed instead of crashing (verify_delta already
+# checked MemoryCheckpoint's fields this way; verify_continuity didn't).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("bad_root", [None, 123, b"sha256:" + b"a" * 64, ["sha256:" + "a" * 64]])
+def test_non_string_audit_chain_root_fails_closed_not_crashes(bad_root):
+    verdict = verify_continuity(
+        _cp(bad_root, 2, 1), _cp(CHAIN_3, 3, 2),
+        trace_type="hash-chained", appended_entry_leaves=_leaves(3)[2:],
+    )
+    assert not verdict.accepted and verdict.reason == "discontinuity"
+
+
+@pytest.mark.parametrize("field,bad_value", [
+    ("tree_size", "four"), ("tree_size", 4.0), ("tree_size", None),
+    ("seq", "one"), ("seq", None),
+    ("ttl_seconds", "3600"), ("ttl_seconds", None),
+])
+def test_non_int_checkpoint_fields_fail_closed_not_crash(field, bad_value):
+    base = _cp(CHAIN_2, 2, 1)
+    cp = AuditCheckpoint(**{**base.__dict__, field: bad_value})
+    verdict = verify_continuity(
+        cp, _cp(CHAIN_3, 3, 2),
+        trace_type="hash-chained", appended_entry_leaves=_leaves(3)[2:],
+    )
+    assert not verdict.accepted and verdict.reason == "discontinuity"
+
+
+def test_non_datetime_observed_at_fails_closed_not_crashes():
+    cp = _cp(CHAIN_2, 2, 1)
+    bad = AuditCheckpoint(**{**cp.__dict__, "observed_at": "2026-06-15"})
+    verdict = verify_continuity(
+        bad, _cp(CHAIN_3, 3, 2),
+        trace_type="hash-chained", appended_entry_leaves=_leaves(3)[2:],
+    )
+    assert not verdict.accepted and verdict.reason == "discontinuity"
+
+
+def test_non_datetime_now_fails_closed_not_crashes():
+    verdict = verify_continuity(
+        _cp(CHAIN_2, 2, 1), _cp(CHAIN_2, 2, 1),
+        trace_type="hash-chained", appended_entry_leaves=[], now="not-a-datetime",
+    )
+    assert not verdict.accepted and verdict.reason == "discontinuity"
+
+
+def test_non_bytes_appended_entry_leaves_fail_closed_not_crash():
+    verdict = verify_continuity(
+        _cp(CHAIN_2, 2, 1), _cp(CHAIN_3, 3, 2),
+        trace_type="hash-chained", appended_entry_leaves=["not-bytes"],
+    )
+    assert not verdict.accepted and verdict.reason == "discontinuity"
+
+
+def test_non_list_consistency_proof_fails_closed_not_crashes():
+    verdict = verify_continuity(
+        _cp(MERKLE_2, 2, 1), _cp(MERKLE_3, 3, 2),
+        trace_type="merkle-log", consistency_proof="not-a-list",
+    )
+    assert not verdict.accepted and verdict.reason == "discontinuity"
+
+
+def test_non_bytes_consistency_proof_elements_fail_closed_not_crash():
+    leaves = _leaves(3)
+    proof = _tree(leaves).consistency_proof(2)
+    verdict = verify_continuity(
+        _cp(MERKLE_2, 2, 1), _cp(MERKLE_3, 3, 2),
+        trace_type="merkle-log", consistency_proof=["not-bytes"] + proof[1:],
+    )
+    assert not verdict.accepted and verdict.reason == "discontinuity"
+
+
+def test_non_iterable_appended_entry_leaves_fails_closed_not_crashes():
+    # list(123) raises TypeError the isinstance check must catch this first.
+    verdict = verify_continuity(
+        _cp(CHAIN_2, 2, 1), _cp(CHAIN_3, 3, 2),
+        trace_type="hash-chained", appended_entry_leaves=123,
+    )
+    assert not verdict.accepted and verdict.reason == "discontinuity"
+
+
+def test_non_iterable_consistency_proof_fails_closed_not_crashes():
+    verdict = verify_continuity(
+        _cp(MERKLE_2, 2, 1), _cp(MERKLE_3, 3, 2),
+        trace_type="merkle-log", consistency_proof=123,
+    )
+    assert not verdict.accepted and verdict.reason == "discontinuity"
+
+
+def test_non_auditcheckpoint_argument_fails_closed_not_crashes():
+    good = _cp(CHAIN_3, 3, 2)
+    verdict = verify_continuity(
+        None, good, trace_type="hash-chained", appended_entry_leaves=_leaves(3)[2:],
+    )
+    assert not verdict.accepted and verdict.reason == "discontinuity"
+    verdict2 = verify_continuity(
+        good, "not-a-checkpoint", trace_type="hash-chained",
+        appended_entry_leaves=_leaves(3)[2:],
+    )
+    assert not verdict2.accepted and verdict2.reason == "discontinuity"
+
+
+# ---------------------------------------------------------------------------
+# Garbage in the container the active trace_type does NOT use is simply
+# unused, not a rejection reason.
+# ---------------------------------------------------------------------------
+
+
+def test_garbage_in_unused_consistency_proof_is_ignored_for_hash_chained():
+    leaves = _leaves(3)
+    verdict = verify_continuity(
+        _cp(CHAIN_2, 2, 1), _cp(CHAIN_3, 3, 2),
+        trace_type="hash-chained", appended_entry_leaves=[leaves[2]],
+        consistency_proof="garbage-not-even-a-list",
+    )
+    assert verdict.accepted
+
+
+def test_garbage_in_unused_appended_entry_leaves_is_ignored_for_merkle_log():
+    leaves = _leaves(3)
+    proof = _tree(leaves).consistency_proof(2)
+    verdict = verify_continuity(
+        _cp(MERKLE_2, 2, 1), _cp(MERKLE_3, 3, 2),
+        trace_type="merkle-log", consistency_proof=proof,
+        appended_entry_leaves="garbage-not-even-a-list",
+    )
+    assert verdict.accepted
+
+
+# ---------------------------------------------------------------------------
+# The validated container is used as-is, not re-copied with list(...)
+# that copy would be O(n) on an attacker-controlled list, undoing the point
+# of the O(1) length checks. `_CountingList` tracks whether it was ever
+# iterated (list(x) iterates; len()/truthiness don't), which proves this
+# more reliably than timing would.
+# ---------------------------------------------------------------------------
+
+
+class _CountingList(list):
+    """A list subclass that counts how many times it has been iterated."""
+
+    def __init__(self, *args):
+        super().__init__(*args)
+        self.iterations = 0
+
+    def __iter__(self):
+        self.iterations += 1
+        return super().__iter__()
+
+
+def test_validated_consistency_proof_is_not_copied_before_rejection():
+    # Oversized for MERKLE_2/MERKLE_3, so the length bound rejects it
+    # immediately, before any per-element scan.
+    tracked = _CountingList([b"\x00" * 32] * 1000)
+    verdict = verify_continuity(
+        _cp(MERKLE_2, 2, 1), _cp(MERKLE_3, 3, 2),
+        trace_type="merkle-log", consistency_proof=tracked,
+    )
+    assert not verdict.accepted and verdict.reason == "discontinuity"
+    assert tracked.iterations == 0, "consistency_proof was copied/iterated before rejection"
+
+
+def test_validated_appended_entry_leaves_is_not_copied_before_rejection():
+    # Length mismatched (current.tree_size - signed.tree_size == 1), so the
+    # length check rejects it before any per-leaf scan.
+    tracked = _CountingList([b"\x00" * 32] * 1000)
+    verdict = verify_continuity(
+        _cp(CHAIN_2, 2, 1), _cp(CHAIN_3, 3, 2),
+        trace_type="hash-chained", appended_entry_leaves=tracked,
+    )
+    assert not verdict.accepted and verdict.reason == "discontinuity"
+    assert tracked.iterations == 0, "appended_entry_leaves was copied/iterated before rejection"
+
+
+def test_correctly_sized_appended_entry_leaves_is_still_used_correctly():
+    # Sanity check: removing the copy didn't break the legitimate path.
+    leaves = _leaves(3)
+    tracked = _CountingList([leaves[2]])
+    verdict = verify_continuity(
+        _cp(CHAIN_2, 2, 1), _cp(CHAIN_3, 3, 2),
+        trace_type="hash-chained", appended_entry_leaves=tracked,
+    )
+    assert verdict.accepted
+    assert tracked.iterations >= 1
 
 
 def test_unknown_trace_type_is_discontinuity():
