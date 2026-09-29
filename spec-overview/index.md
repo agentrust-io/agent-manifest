@@ -1,6 +1,6 @@
 # Specification Overview
 
-The Agent Manifest Specification v0.2 is a formal RFC 2119 document defining the complete cryptographic identity and provenance standard for AI agents.
+The Agent Manifest Specification v0.2 is a formal RFC 2119 document defining a verifiable declaration of an AI agent's deployment content.
 
 TL;DR
 
