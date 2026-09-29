@@ -4,6 +4,16 @@
 
 ### Fixed
 
+- **[SPEC]** Three statements corrected, raised on cosai-oasis/ws4-secure-design-agentic-systems#149.
+  The subtitle, abstract and section 1.1 called the manifest an identity standard; it is a
+  declaration of deployment content and references identity credentials rather than replacing
+  them. Section 3.2.8 required `container_image_digest` to match the TEE hardware measurement,
+  which covers firmware and the initial guest image, not a container: the digest is now
+  hardware-bound only through a measured runtime layer that extends it into an RTMR or vTPM PCR,
+  and a verifier MUST NOT report it as hardware-bound otherwise. The NVIDIA Blackwell profile
+  had the runtime write a custom SPDM measurement index; SPDM measurements are produced by the
+  responder, so the manifest is bound through the host CPU profile instead.
+
 - **[SPEC]** Section 3.2.3 requires a two-tool `catalog_hash` test vector in
   Appendix D, and Appendix D held only the RFC 8785 vector. Appendix D now carries
   both: D.1 is the existing canonical JSON vector, D.2 the two-tool catalog with
