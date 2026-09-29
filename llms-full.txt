@@ -2377,7 +2377,9 @@ ______________________________________________________________________
 
 *Agent Manifest Specification v0.1 - AgentTrust - June 2026*
 
-### D. RFC 8785 Canonical JSON Test Vector
+### D. Test Vectors
+
+#### D.1 RFC 8785 Canonical JSON
 
 Input:
 
@@ -2409,6 +2411,48 @@ obj = {"version":"0.1","issued_at":"2026-06-23T09:00:00Z",
 canonical = canonicalize(obj)
 assert hashlib.sha256(canonical).hexdigest() == "b83293348255f4427dc030478f354b83f4f82662223be0926ad9f2db946b5319"
 ```
+
+#### D.2 Two-tool `catalog_hash` (section 3.2.3)
+
+The vector section 3.2.3 requires. Algorithm: SHA-256 with the RFC 9162 domain separation of section 4.1 (`0x00` leaf prefix, `0x01` interior prefix). Committed fields per leaf: `tool_id`, `schema_hash`, `description_hash`, in that order. Hash values below are the raw 32 digest bytes, not the `sha256:` string.
+
+|        | `tool_id`                          | `schema_hash` bytes    | `description_hash` bytes |
+| ------ | ---------------------------------- | ---------------------- | ------------------------ |
+| Tool 1 | `com.example.read_customer_record` | `aa` repeated 32 times | `bb` repeated 32 times   |
+| Tool 2 | `com.example.send_notification`    | `cc` repeated 32 times | `dd` repeated 32 times   |
+
+Leaf pre-images, sorted by `tool_id`:
+
+```
+leaf1 = SHA-256(0x00 || "com.example.read_customer_record" || 0x00 || aa*32 || bb*32)
+      = f7af288cd917b5258bfd6322d215fb6648d0bff244c6c8893287339cfb7039e0
+leaf2 = SHA-256(0x00 || "com.example.send_notification"   || 0x00 || cc*32 || dd*32)
+      = b6b7227c3a7f64b152baf401952d55e6e844a4b9bccc963098acae963c62607a
+```
+
+Root:
+
+```
+catalog_hash = SHA-256(0x01 || leaf1 || leaf2)
+             = afd1d90ec5aa07f31ae20ab040a04652c76f3078c4d0434de2a17b0cb61c40dd
+```
+
+Reordered-input control: supplying Tool 2 before Tool 1 produces the same `catalog_hash`, because leaves are sorted by `tool_id` before tree construction. An implementation that hashes in input order produces a different root and fails this vector.
+
+Empty catalog: the root of a tree with no leaves is SHA-256 of the empty string, `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`.
+
+Verification:
+
+```
+import hashlib
+def leaf(tool_id, schema, description):
+    return hashlib.sha256(b"\x00" + tool_id.encode() + b"\x00" + schema + description).digest()
+l1 = leaf("com.example.read_customer_record", b"\xaa" * 32, b"\xbb" * 32)
+l2 = leaf("com.example.send_notification", b"\xcc" * 32, b"\xdd" * 32)
+assert hashlib.sha256(b"\x01" + l1 + l2).hexdigest() == "afd1d90ec5aa07f31ae20ab040a04652c76f3078c4d0434de2a17b0cb61c40dd"
+```
+
+The reference implementation carries the same values in `python/tests/test_merkle.py`.
 
 # Agent Manifest COSE Envelope (manifest version 0.2)
 
@@ -3319,6 +3363,12 @@ He will note this interest on relevant proposals and reviews, recuse where Custo
 Source: [commercial-interest disclosure](https://github.com/agentrust-io/agent-manifest/issues/412).
 
 # Changelog
+
+## [Unreleased]
+
+### Fixed
+
+- **[SPEC]** Section 3.2.3 requires a two-tool `catalog_hash` test vector in Appendix D, and Appendix D held only the RFC 8785 vector. Appendix D now carries both: D.1 is the existing canonical JSON vector, D.2 the two-tool catalog with its leaf pre-images, root, reordered-input control and empty root. The values are the ones `python/tests/test_merkle.py` already asserts. Reported on #340.
 
 ## [0.13.1] - 2026-09-26
 

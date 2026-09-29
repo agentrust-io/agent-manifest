@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- **[SPEC]** Section 3.2.3 requires a two-tool `catalog_hash` test vector in Appendix D, and Appendix D held only the RFC 8785 vector. Appendix D now carries both: D.1 is the existing canonical JSON vector, D.2 the two-tool catalog with its leaf pre-images, root, reordered-input control and empty root. The values are the ones `python/tests/test_merkle.py` already asserts. Reported on #340.
+
 ## [0.13.1] - 2026-09-26
 
 ### Fixed
