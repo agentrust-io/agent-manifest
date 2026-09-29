@@ -48,7 +48,7 @@ envelope = attach_receipt(envelope, receipt_bytes)          # label 394, RFC 994
 envelope = attach_attestation(envelope, attestation_block)
 envelope = attach_approvals(envelope, approvals)
 ```
-Receipts and approvals accumulate: each call adds to what the envelope already carries, so approvals can be collected one approver at a time without losing earlier ones.
+Receipts and approvals accumulate: each call adds to what the envelope already carries, so approvals can be collected one approver at a time without losing earlier ones. If the existing value isn't an array (`null` included), both raise `CoseStructureError` instead of overwriting it - use `attach_unprotected` to replace it.
 
 ```python
 envelope = attach_approvals(envelope, [alice_approval])

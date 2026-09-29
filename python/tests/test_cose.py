@@ -28,6 +28,7 @@ from agent_manifest._cose import (
     HDR_CRIT,
     HDR_KID,
     HDR_TYP,
+    HDR_RECEIPTS,
     LABEL_APPROVALS,
     LABEL_ATTESTATION,
     MEDIA_TYPE_MANIFEST_COSE,
@@ -351,6 +352,128 @@ def test_receipts_accumulate():
     signed = attach_receipt(sign_cose_sign1(base_manifest(), KP), b"one")
     signed = attach_receipt(signed, b"two")
     assert verify_cose_manifest(signed, TRUSTED_KEYS).receipts == [b"one", b"two"]
+
+
+def test_receipts_accumulate_in_order_and_do_not_mutate_earlier_envelopes():
+    base = attach_receipt(sign_cose_sign1(base_manifest(), KP), b"one")
+    left = attach_receipt(base, b"left")
+    right = attach_receipt(attach_receipt(base, b"right"), b"right-2")
+    assert verify_cose_manifest(base, TRUSTED_KEYS).receipts == [b"one"]
+    assert verify_cose_manifest(left, TRUSTED_KEYS).receipts == [b"one", b"left"]
+    assert verify_cose_manifest(right, TRUSTED_KEYS).receipts == [
+        b"one",
+        b"right",
+        b"right-2",
+    ]
+
+
+def test_attaching_a_receipt_to_an_empty_receipts_array():
+    signed = attach_unprotected(
+        sign_cose_sign1(base_manifest(), KP), HDR_RECEIPTS, []
+    )
+    attached = attach_receipt(signed, b"one")
+    assert verify_cose_manifest(attached, TRUSTED_KEYS).receipts == [b"one"]
+
+
+def test_attach_receipt_leaves_other_unprotected_parameters_alone():
+    signed = attach_attestation(
+        sign_cose_sign1(base_manifest(), KP), {"platform": "x"}
+    )
+    signed = attach_approvals(signed, [{"approver_id": "a"}])
+    signed = attach_receipt(signed, b"one")
+    signed = attach_receipt(signed, b"two")
+    result = verify_cose_manifest(signed, TRUSTED_KEYS)
+    assert result.receipts == [b"one", b"two"]
+    assert result.attestation == {"platform": "x"}
+    assert result.approvals == [{"approver_id": "a"}]
+
+
+@pytest.mark.parametrize(
+    "malformed",
+    [
+        {"x": 1},
+        b"abc",
+        "abc",
+        None,
+        0,
+        False,
+        "",
+        b"",
+        7,
+        True,
+        {b"old"},
+    ],
+    ids=[
+        "map", "bytes", "text", "null", "zero", "false",
+        "empty-text", "empty-bytes", "int", "true", "set",
+    ],
+)
+def test_attach_receipt_refuses_to_overwrite_a_malformed_existing_value(malformed):
+    """A non-array ``receipts`` value is refused, never coerced or replaced."""
+    signed = attach_unprotected(
+        sign_cose_sign1(base_manifest(), KP), HDR_RECEIPTS, malformed
+    )
+    with pytest.raises(CoseStructureError, match="must be an array, got"):
+        attach_receipt(signed, b"new")
+    # The envelope is untouched, and attach_unprotected(), named in the
+    # error, can replace the value.
+    assert parts(signed)[1][1][HDR_RECEIPTS] == malformed
+    repaired = attach_unprotected(signed, HDR_RECEIPTS, [b"new"])
+    assert verify_cose_manifest(repaired, TRUSTED_KEYS).receipts == [b"new"]
+
+
+def test_a_missing_receipts_label_is_not_the_same_as_a_null_one():
+    """A missing label means empty; a null label is malformed and refused."""
+    signed = sign_cose_sign1(base_manifest(), KP)
+    assert HDR_RECEIPTS not in parts(signed)[1][1]
+    attached = attach_receipt(signed, b"new")
+    assert verify_cose_manifest(attached, TRUSTED_KEYS).receipts == [b"new"]
+
+    with_null = attach_unprotected(signed, HDR_RECEIPTS, None)
+    assert HDR_RECEIPTS in parts(with_null)[1][1]
+    with pytest.raises(CoseStructureError, match="must be an array, got NoneType"):
+        attach_receipt(with_null, b"new")
+
+
+def test_attach_receipt_accepts_an_existing_tuple_array():
+    """cbor2 6.x decodes arrays as tuples; that still counts as an array."""
+    signed = attach_unprotected(
+        sign_cose_sign1(base_manifest(), KP), HDR_RECEIPTS, (b"old",)
+    )
+    attached = attach_receipt(signed, b"new")
+    assert verify_cose_manifest(attached, TRUSTED_KEYS).receipts == [b"old", b"new"]
+
+
+@pytest.mark.parametrize(
+    "not_bytes",
+    ["receipt", None, 7, {"r": 1}, [b"r"], ("r",)],
+    ids=["str", "none", "int", "dict", "list", "tuple"],
+)
+def test_attach_receipt_rejects_anything_but_a_byte_string(not_bytes):
+    """RFC 9942 receipts are byte strings."""
+    signed = sign_cose_sign1(base_manifest(), KP)
+    with pytest.raises(CoseStructureError, match="receipt must be a byte string"):
+        attach_receipt(signed, not_bytes)
+
+
+def test_attach_receipt_accepts_a_bytearray_and_stores_bytes():
+    signed = attach_receipt(sign_cose_sign1(base_manifest(), KP), bytearray(b"one"))
+    receipts = verify_cose_manifest(signed, TRUSTED_KEYS).receipts
+    assert receipts == [b"one"]
+    assert type(receipts[0]) is bytes
+
+
+@require_pq
+def test_receipts_accumulate_on_a_cose_sign_envelope(pq_backend):
+    """A hybrid COSE_Sign envelope accumulates receipts too."""
+    kp = generate_hybrid()
+    signed = sign_cose_sign_hybrid(base_manifest(crypto_profile="post-quantum"), kp)
+    signed = attach_receipt(signed, b"one")
+    signed = attach_receipt(signed, b"two")
+    result = verify_cose_manifest(signed, hybrid_trusted(kp))
+    assert result.tag == COSE_SIGN_TAG
+    assert result.verified is True
+    assert result.receipts == [b"one", b"two"]
 
 
 def test_attestation_and_approvals_land_in_the_unprotected_header():

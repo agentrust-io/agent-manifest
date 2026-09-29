@@ -424,11 +424,49 @@ def attach_unprotected(cose_bytes: bytes, label: Union[int, str], value: Any) ->
         raise CoseStructureError(f"unprotected header is not re-encodable: {exc}") from exc
 
 
-def attach_receipt(cose_bytes: bytes, receipt: bytes) -> bytes:
-    """Append a SCITT receipt (RFC 9942) to the ``receipts`` array (label 394)."""
-    tag, body = _decode_tagged(cose_bytes)
-    receipts = list(body[1].get(HDR_RECEIPTS) or [])
-    receipts.append(receipt)
+def _existing_array(
+    unprotected: Mapping[Any, Any],
+    label: Union[int, str],
+    name: Optional[str] = None,
+) -> list[Any]:
+    """Return the array already stored under *label*, or ``[]`` if absent.
+
+    A present value that isn't an array (``null`` included) is rejected,
+    not coerced - shared by ``attach_receipt()`` and ``attach_approvals()``
+    so they can't drift apart.
+    """
+    if label not in unprotected:
+        return []
+    existing = unprotected[label]
+    # cbor2 6.x decodes arrays to tuples, 5.x to lists.
+    if not isinstance(existing, (list, tuple)):
+        raise CoseStructureError(
+            f"the envelope's {name or repr(label)} value must be an array, "
+            f"got {type(existing).__name__}; use attach_unprotected() to "
+            f"replace it"
+        )
+    return list(existing)
+
+
+def attach_receipt(cose_bytes: bytes, receipt: Union[bytes, bytearray]) -> bytes:
+    """Append a SCITT receipt (RFC 9942) to the ``receipts`` array (label 394).
+
+    Existing receipts are kept, same as ``attach_approvals()``. To replace
+    the whole array, use ``attach_unprotected(cose_bytes, HDR_RECEIPTS, ...)``.
+    *receipt* may be ``bytes`` or ``bytearray``; it is stored as ``bytes``.
+
+    Raises:
+        CoseStructureError: *receipt* isn't ``bytes``/``bytearray``, or the
+            envelope's existing ``receipts`` value isn't an array (``null``
+            included).
+    """
+    _, body = _decode_tagged(cose_bytes)
+    if not isinstance(receipt, (bytes, bytearray)):
+        raise CoseStructureError(
+            f"receipt must be a byte string, got {type(receipt).__name__}"
+        )
+    receipts = _existing_array(body[1], HDR_RECEIPTS, "'receipts' (label 394)")
+    receipts.append(bytes(receipt))
     return attach_unprotected(cose_bytes, HDR_RECEIPTS, receipts)
 
 
@@ -459,19 +497,7 @@ def attach_approvals(cose_bytes: bytes, approvals: list[dict[str, Any]]) -> byte
         )
     # Only a missing label means there is nothing to keep. A label that is
     # present but not an array (even ``null``) is an error.
-    unprotected = body[1]
-    if LABEL_APPROVALS not in unprotected:
-        carried: list[Any] = []
-    else:
-        existing = unprotected[LABEL_APPROVALS]
-        # cbor2 6.x decodes arrays to tuples, 5.x to lists.
-        if not isinstance(existing, (list, tuple)):
-            raise CoseStructureError(
-                f"the envelope's {LABEL_APPROVALS!r} value must be an array, "
-                f"got {type(existing).__name__}; use attach_unprotected() to "
-                f"replace it"
-            )
-        carried = _plain(existing)
+    carried = _plain(_existing_array(body[1], LABEL_APPROVALS))
     return attach_unprotected(cose_bytes, LABEL_APPROVALS, [*carried, *approvals])
 
 
