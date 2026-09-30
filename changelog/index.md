@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Added
+
+- **[SDK]** Experimental, opt-in `evidence-requirements-experimental-v1` profile. A v0.2 manifest that declares it may carry a signed `evidence_requirements` block (components, required relationships, combination policy reference), and `agent_manifest.evidence_requirements.verify_evidence_manifest()` returns it only after `verify_manifest()` is `VALID`. Without the profile the block is still rejected as an unknown field, so existing manifests verify as before. Under the profile every 0.14.0 check still applies, including the signed `audit_key_sealed` rule under `enforce_attestation`. Not part of the specification; see `docs/evidence-requirements-experimental.md`. Consumer: agentrust-io/trace-spec#439.
+
+### Fixed
+
 - **[SDK]** `attach_receipt()` corrupted or crashed when the envelope's `receipts` header (label 394) wasn't already an array - a map became its keys, a string its characters, and `null`/`0`/`false`/`""` were silently replaced with `[]`. `attach_approvals()` was already fixed for the same issue in 0.13.0; `attach_receipt()` now works the same way: a non-array existing value raises `CoseStructureError` instead of being coerced or overwritten, and `receipt` itself must be `bytes` or `bytearray`. To replace the array, use `attach_unprotected(envelope, HDR_RECEIPTS, receipts)`. **Behaviour change:** a bad receipt, or a non-array `receipts` value, now raises instead of being silently coerced.
 
 ## [0.14.0] - 2026-09-30
