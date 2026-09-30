@@ -16,6 +16,7 @@ from agent_manifest._verify import (
     RevocationStore,
     VerificationContext,
     verify_manifest,
+    verify_runtime_report,
 )
 
 NOW = datetime.now(timezone.utc)
@@ -585,6 +586,16 @@ def test_decision_trace_mismatch():
     assert result.result == OverallResult.MISMATCH
 
 
+def test_decision_trace_non_ascii_context_root_is_mismatch_not_crash():
+    """context.audit_chain_root is caller-supplied, not schema-validated,
+    so a non-ASCII value must be a mismatch, not crash compare_digest."""
+    m = base_manifest()
+    m["artifacts"]["decision_trace"] = {"audit_chain_root": "sha256:" + "c" * 64}
+    ctx = base_context(audit_chain_root="é" * 20)
+    result = verify_manifest(sign(m), ctx, store())
+    assert result.fields_verified.decision_trace == FieldResult.MISMATCH
+
+
 # ---------------------------------------------------------------------------
 # RevocationStore
 # ---------------------------------------------------------------------------
@@ -701,6 +712,103 @@ def test_attestation_hash_mismatch_is_fatal_without_enforce():
     assert result.attestation_verified is False
     assert result.result == OverallResult.MISMATCH
     assert [d for d in result.mismatch_details if d.field == "attestation"]
+
+
+# Full attestation presence/value classification matrix, in one place so
+# no case gets missed: a malformed value must not crash compare_digest,
+# and neither a malformed nor falsy/missing/null value counts as "no
+# attestation" - only the key being entirely absent does (spec 3.3:
+# attestation must be omitted, not null, when there's none).
+
+_NO_ATTESTATION_KEY = object()  # sentinel: don't set manifest["attestation"] at all
+
+# (value to assign to manifest["attestation"], expected OverallResult, id)
+_ATTESTATION_MATRIX = [
+    # attestation key/label: absent is a policy question; anything present
+    # (even null or {}) must be a complete, matching object or it's a mismatch
+    (_NO_ATTESTATION_KEY, OverallResult.VALID, "no-attestation-key"),
+    (None, OverallResult.MISMATCH, "attestation-null"),
+    ({}, OverallResult.MISMATCH, "attestation-empty-dict"),
+    ("garbage", OverallResult.MISMATCH, "attestation-string"),
+    (123, OverallResult.MISMATCH, "attestation-int"),
+    ([], OverallResult.MISMATCH, "attestation-list"),
+    ({"platform": "tpm"}, OverallResult.MISMATCH, "hash-field-missing"),
+    # manifest_hash_in_report present but falsy - still a present claim
+    ({"platform": "tpm", "manifest_hash_in_report": ""}, OverallResult.MISMATCH, "hash-empty-str"),
+    ({"platform": "tpm", "manifest_hash_in_report": 0}, OverallResult.MISMATCH, "hash-zero"),
+    ({"platform": "tpm", "manifest_hash_in_report": False}, OverallResult.MISMATCH, "hash-false"),
+    ({"platform": "tpm", "manifest_hash_in_report": None}, OverallResult.MISMATCH, "hash-value-none"),
+    ({"platform": "tpm", "manifest_hash_in_report": []}, OverallResult.MISMATCH, "hash-empty-list"),
+    ({"platform": "tpm", "manifest_hash_in_report": {}}, OverallResult.MISMATCH, "hash-empty-dict-value"),
+    # manifest_hash_in_report present, truthy, wrong type/charset - must
+    # not crash compare_digest
+    ({"platform": "tpm", "manifest_hash_in_report": "é" * 20}, OverallResult.MISMATCH, "hash-non-ascii"),
+    ({"platform": "tpm", "manifest_hash_in_report": 12345}, OverallResult.MISMATCH, "hash-int"),
+    ({"platform": "tpm", "manifest_hash_in_report": ["a"]}, OverallResult.MISMATCH, "hash-list"),
+    ({"platform": "tpm", "manifest_hash_in_report": {"k": 1}}, OverallResult.MISMATCH, "hash-dict"),
+    ({"platform": "tpm", "manifest_hash_in_report": True}, OverallResult.MISMATCH, "hash-bool-true"),
+    # --- manifest_hash_in_report present, well-formed, wrong value
+    ({"platform": "tpm", "manifest_hash_in_report": "sha256:" + "00" * 32}, OverallResult.MISMATCH, "hash-wrong-valid"),
+]
+
+
+@pytest.mark.parametrize(
+    "attestation_value,expected_result",
+    [(v, r) for v, r, _ in _ATTESTATION_MATRIX],
+    ids=[i for _, _, i in _ATTESTATION_MATRIX],
+)
+def test_attestation_classification_matrix(attestation_value, expected_result):
+    m = base_manifest()
+    if attestation_value is not _NO_ATTESTATION_KEY:
+        m["attestation"] = attestation_value
+    result = verify_manifest(m, base_context(), store())
+    assert result.result == expected_result
+    # Garbage attestation is sometimes caught by schema validation first,
+    # tagged "schema:attestation" instead of "attestation" - match on
+    # substring so both count.
+    has_attestation_mismatch = any(
+        "attestation" in d.field for d in result.mismatch_details
+    )
+    assert has_attestation_mismatch == (expected_result == OverallResult.MISMATCH)
+
+
+def test_attestation_correct_hash_is_valid_and_not_a_mismatch():
+    m = base_manifest()
+    m["attestation"] = {"platform": "tpm", "manifest_hash_in_report": _manifest_hash(m)}
+    result = verify_manifest(m, base_context(), store())
+    assert result.result == OverallResult.VALID
+    assert not [d for d in result.mismatch_details if d.field == "attestation"]
+
+
+# Same as above, with enforce_attestation=True: still MISMATCH, not the
+# softer ATTESTATION_UNAVAILABLE.
+@pytest.mark.parametrize(
+    "attestation_value",
+    [
+        None,
+        {},
+        {"platform": "tpm"},
+        {"platform": "tpm", "manifest_hash_in_report": ""},
+        {"platform": "tpm", "manifest_hash_in_report": 12345},
+        {"platform": "tpm", "manifest_hash_in_report": "é" * 20},
+        {"platform": "tpm", "manifest_hash_in_report": "sha256:" + "00" * 32},
+    ],
+    ids=["null", "empty-dict", "hash-field-missing", "hash-empty-str", "hash-int", "hash-non-ascii", "hash-wrong-valid"],
+)
+def test_attestation_incomplete_or_wrong_with_enforce_is_mismatch_not_unavailable(attestation_value):
+    m = base_manifest()
+    m["attestation"] = attestation_value
+    result = verify_manifest(m, base_context(enforce_attestation=True), store())
+    assert result.result == OverallResult.MISMATCH
+
+
+def test_no_attestation_with_enforce_is_unavailable_not_mismatch():
+    """Absent attestation (not a present null) + enforce_attestation=True
+    is ATTESTATION_UNAVAILABLE, never MISMATCH."""
+    m = base_manifest()
+    assert "attestation" not in m
+    result = verify_manifest(m, base_context(enforce_attestation=True), store())
+    assert result.result == OverallResult.ATTESTATION_UNAVAILABLE
 
 
 # ---------------------------------------------------------------------------
@@ -878,6 +986,17 @@ def test_split_hybrid_public_key_accepts_exact_length():
     assert pq_bytes == b"p" * 1952
 
 
+# SEC-TRANS-01: key_id is schema-typed as `str` but not ASCII/hex, so a
+# non-ASCII key_id must raise ValueError (a normal mismatch), not TypeError
+# from compare_digest.
+def test_split_hybrid_public_key_non_ascii_key_id_is_mismatch_not_crash():
+    from agent_manifest._verify import _split_hybrid_public_key
+
+    pub = b"e" * 32 + b"p" * 1952
+    with pytest.raises(ValueError, match="do not match"):
+        _split_hybrid_public_key("é" * 20, pub)
+
+
 def test_hybrid_trusted_key_wrong_length_is_mismatch_not_a_crash():
     """A wrong-length combined key in trusted_keys must be a MISMATCH,
     not an unhandled exception."""
@@ -895,6 +1014,130 @@ def test_hybrid_trusted_key_wrong_length_is_mismatch_not_a_crash():
         d.field == "signature" and "1984" in d.actual_hash
         for d in result.mismatch_details
     )
+
+
+def test_hybrid_non_ascii_key_id_is_mismatch_not_a_crash():
+    """A non-ASCII key_id registered in trusted_keys must be a MISMATCH,
+    not an unhandled TypeError from compare_digest."""
+    ed_pub = b"e" * 32
+    pq_pub = b"p" * 1952
+    combined_pub = ed_pub + pq_pub
+    key_id = "é" * 20
+    ctx = base_context(trusted_keys={key_id: _b64url_encode(combined_pub)})
+
+    result = verify_manifest(_hybrid_manifest(key_id), ctx, store())
+
+    assert result.result == OverallResult.MISMATCH
+    assert result.signature_verified is False
+
+
+# ---------------------------------------------------------------------------
+# verify_runtime_report(): report_data_hash has no ASCII/hex validator
+# ---------------------------------------------------------------------------
+
+
+def _runtime_setup():
+    from agent_manifest._providers import RuntimeAttestationReport
+
+    nonce = b"n" * 16
+    context_hash = "sha256:" + hashlib.sha256(b"ctx").hexdigest()
+    ctx_bytes = bytes.fromhex(context_hash.split(":", 1)[-1])
+    qualifying = hashlib.sha256(nonce + ctx_bytes).digest()
+    correct_hash = "sha256:" + hashlib.sha256(qualifying).hexdigest()
+    return RuntimeAttestationReport, nonce, context_hash, correct_hash
+
+
+def _hash_step_failed(report, nonce, context_hash):
+    """Run verify_runtime_quote and report whether the report_data_hash
+    derivation step rejected the report (as opposed to a later hardware-quote
+    step), along with the overall result."""
+    from agent_manifest._attestation import verify_runtime_quote
+
+    reasons: list[str] = []
+    ok = verify_runtime_quote(report, nonce, context_hash, reasons=reasons)
+    failed = "report_data_hash is not derived from this nonce and context" in reasons
+    return ok, failed
+
+
+def test_verify_runtime_report_correct_hash_without_quote_fails_closed():
+    """0.14.0 (GHSA-32q9-m5rc-rp3w): a matching report_data_hash alone is no
+    longer enough - the hardware quote must verify too. The hash step passes,
+    and the result is False because there is no quote."""
+    RRT, nonce, context_hash, correct_hash = _runtime_setup()
+    report = RRT(platform="amd-sev-snp", report_data_hash=correct_hash,
+                 context_hash=context_hash, nonce_hex=nonce.hex())
+    assert verify_runtime_report(report, nonce, context_hash) is False
+    ok, hash_step_failed = _hash_step_failed(report, nonce, context_hash)
+    assert ok is False
+    assert hash_step_failed is False
+
+
+def test_verify_runtime_report_uses_constant_time_compare():
+    import hmac as real_hmac
+    from unittest.mock import patch
+
+    RRT, nonce, context_hash, correct_hash = _runtime_setup()
+    report = RRT(platform="amd-sev-snp", report_data_hash=correct_hash,
+                 context_hash=context_hash, nonce_hex=nonce.hex())
+    with patch(
+        "agent_manifest._attestation.hmac.compare_digest",
+        wraps=real_hmac.compare_digest,
+    ) as mock_compare:
+        verify_runtime_report(report, nonce, context_hash)
+    mock_compare.assert_any_call(correct_hash, correct_hash)
+
+
+def test_verify_runtime_report_wrong_but_valid_hash_fails():
+    RRT, nonce, context_hash, correct_hash = _runtime_setup()
+    wrong = correct_hash[:-1] + ("0" if correct_hash[-1] != "0" else "1")
+    report = RRT(platform="amd-sev-snp", report_data_hash=wrong,
+                 context_hash=context_hash, nonce_hex=nonce.hex())
+    assert verify_runtime_report(report, nonce, context_hash) is False
+    _, hash_step_failed = _hash_step_failed(report, nonce, context_hash)
+    assert hash_step_failed is True
+
+
+@pytest.mark.parametrize(
+    "bad_value",
+    ["é" * 64, 12345, None],
+    ids=["non-ascii", "int", "none"],
+)
+def test_verify_runtime_report_malformed_hash_fails_closed_not_crash(bad_value):
+    """A malformed report_data_hash must return False, not crash."""
+    RRT, nonce, context_hash, _ = _runtime_setup()
+    report = RRT(platform="amd-sev-snp", report_data_hash=bad_value,
+                 context_hash=context_hash, nonce_hex=nonce.hex())
+    assert verify_runtime_report(report, nonce, context_hash) is False
+    _, hash_step_failed = _hash_step_failed(report, nonce, context_hash)
+    assert hash_step_failed is True
+
+
+# ---------------------------------------------------------------------------
+# Generic artifact _check(): not every field it compares is HashValue-typed
+# (model_identity's `version` fallback is a plain str, and runtime_val comes
+# from the caller's own VerificationContext, not the schema).
+# ---------------------------------------------------------------------------
+
+
+def test_model_identity_non_ascii_manifest_version_is_mismatch_not_crash():
+    m = base_manifest()
+    m["artifacts"]["model_identity"]["version"] = "é" * 20
+    result = verify_manifest(m, base_context(model_version="claude-3"), store())
+    assert result.result == OverallResult.MISMATCH
+    assert result.fields_verified.model_identity == FieldResult.MISMATCH
+
+
+def test_model_identity_non_ascii_runtime_version_is_mismatch_not_crash():
+    m = base_manifest()
+    result = verify_manifest(m, base_context(model_version="é" * 20), store())
+    assert result.result == OverallResult.MISMATCH
+    assert result.fields_verified.model_identity == FieldResult.MISMATCH
+
+
+def test_model_identity_matching_version_is_still_a_match():
+    m = base_manifest()
+    result = verify_manifest(m, base_context(model_version="claude-3"), store())
+    assert result.fields_verified.model_identity == FieldResult.MATCH
 
 
 # ---------------------------------------------------------------------------

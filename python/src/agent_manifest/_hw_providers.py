@@ -206,12 +206,17 @@ class SEVSNPProvider(AttestationProvider):
         self, report: AttestationReport, manifest_json: dict[str, Any]
     ) -> bool:
         import hmac as _hmac
-        expected_hex = self.manifest_hash_value(manifest_json).split(":", 1)[-1]
+        expected = self.manifest_hash_value(manifest_json)
+        expected_hex = expected.split(":", 1)[-1]
         if self._report_bytes is not None:
             from ._snp_verify import parse_snp_report
             actual = parse_snp_report(self._report_bytes).report_data[:32].hex()
             return _hmac.compare_digest(actual, expected_hex)
-        return report.manifest_hash == self.manifest_hash_value(manifest_json)
+        # External report: constant-time compare (SEC-TRANS-01). Guard
+        # non-str/non-ASCII first, since compare_digest raises on those.
+        if not isinstance(report.manifest_hash, str) or not report.manifest_hash.isascii():
+            return False
+        return _hmac.compare_digest(report.manifest_hash, expected)
 
     def attest_runtime_state(
         self,
@@ -625,12 +630,17 @@ class TDXProvider(AttestationProvider):
         self, report: AttestationReport, manifest_json: dict[str, Any]
     ) -> bool:
         import hmac as _hmac
-        expected_hex = self.manifest_hash_value(manifest_json).split(":", 1)[-1]
+        expected = self.manifest_hash_value(manifest_json)
+        expected_hex = expected.split(":", 1)[-1]
         if self._quote is not None:
             from ._tdx_verify import parse_tdx_quote
             actual = parse_tdx_quote(self._quote).report_data[:32].hex()
             return _hmac.compare_digest(actual, expected_hex)
-        return report.manifest_hash == self.manifest_hash_value(manifest_json)
+        # External report: constant-time compare (SEC-TRANS-01). Guard
+        # non-str/non-ASCII first, since compare_digest raises on those.
+        if not isinstance(report.manifest_hash, str) or not report.manifest_hash.isascii():
+            return False
+        return _hmac.compare_digest(report.manifest_hash, expected)
 
     def attest_runtime_state(
         self,
