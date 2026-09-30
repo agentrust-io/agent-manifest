@@ -1126,6 +1126,18 @@ def test_engine_binds_attestation_to_the_payload_hash():
 
 def test_engine_accepts_attestation_with_an_independent_appraisal():
     manifest = base_manifest()
+    # enforce_attestation reads audit_key_sealed from the signed payload
+    # (GHSA-489r-r3g9-g24r); the unprotected-header copy alone is not enough.
+    manifest["artifacts"]["decision_trace"] = {
+        "trace_type": "hash-chained",
+        "audit_chain_root": "sha256:" + "d" * 64,
+        "audit_chain_uri": "https://audit.example/chains/kyc",
+        "signing_key_id": "tee-sealed-audit-key",
+        "audit_key_sealed": True,
+        "first_entry_at": NOW.isoformat().replace("+00:00", "Z"),
+        "last_entry_at": NOW.isoformat().replace("+00:00", "Z"),
+        "bound_at": NOW.isoformat().replace("+00:00", "Z"),
+    }
     signed = sign_cose_sign1(manifest, KP)
     bound_hash = payload_hash(cose_payload(manifest))
     signed = attach_attestation(
@@ -1140,6 +1152,7 @@ def test_engine_accepts_attestation_with_an_independent_appraisal():
         enforce_attestation=True,
         verified_attestation_manifest_hashes={bound_hash},
         attestation_evidence_manifest_id=manifest["manifest_id"],
+        audit_chain_root="sha256:" + "d" * 64,
     )
 
     result = verify_manifest(signed, ctx, store())

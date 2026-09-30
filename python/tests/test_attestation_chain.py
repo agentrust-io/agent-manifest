@@ -144,6 +144,7 @@ pytest.importorskip("cryptography")
 # 0x40, added 2026-08-20) can reuse the same synthetic hardware chain instead
 # of duplicating this certificate-building boilerplate.
 from ._snp_synthetic import build_synthetic_snp_report_with_chain as _synthetic_snp_with_chain  # noqa: E402
+from ._snp_synthetic import ark_der_from_chain  # noqa: E402
 
 
 def test_full_chain_passes_when_signature_and_binding_verify():
@@ -156,6 +157,7 @@ def test_full_chain_passes_when_signature_and_binding_verify():
         snp_report_bytes=snp,
         vcek_cert_der=vcek_der,
         cert_chain_pem=chain,
+        trusted_ark_der=ark_der_from_chain(chain),
     )
     assert result.signature is SignatureStatus.VERIFIED
     assert result.report_data_matched is True
@@ -174,6 +176,7 @@ def test_full_chain_fails_when_report_signature_tampered():
         snp_report_bytes=bytes(tampered),
         vcek_cert_der=vcek_der,
         cert_chain_pem=chain,
+        trusted_ark_der=ark_der_from_chain(chain),
     )
     assert result.signature is SignatureStatus.FAILED
     assert result.passed is False
@@ -227,6 +230,7 @@ def test_full_chain_reads_snp_bytes_from_report_quote():
         expected_manifest_hash=MANIFEST_HASH,
         vcek_cert_der=vcek_der,
         cert_chain_pem=chain,
+        trusted_ark_der=ark_der_from_chain(chain),
     )
     assert result.signature is SignatureStatus.VERIFIED
     assert result.passed is True
@@ -361,6 +365,7 @@ def test_azure_report_full_composite_chain_passes():
         expected_manifest_hash=MANIFEST_HASH,
         vcek_cert_der=fx["vcek_der"],
         cert_chain_pem=fx["chain"],
+        trusted_ark_der=ark_der_from_chain(fx["chain"]),
     )
     assert result.signature is SignatureStatus.VERIFIED
     assert result.report_data_matched is True
@@ -385,6 +390,7 @@ def test_azure_explicit_empty_snp_report_bytes_is_not_silently_replaced():
         snp_report_bytes=b"",
         vcek_cert_der=fx["vcek_der"],
         cert_chain_pem=fx["chain"],
+        trusted_ark_der=ark_der_from_chain(fx["chain"]),
     )
     assert result.report_data_matched is False
     assert result.passed is False
@@ -403,6 +409,7 @@ def test_azure_omitted_snp_report_bytes_still_falls_back_to_report_quote():
         expected_manifest_hash=MANIFEST_HASH,
         vcek_cert_der=fx["vcek_der"],
         cert_chain_pem=fx["chain"],
+        trusted_ark_der=ark_der_from_chain(fx["chain"]),
     )
     assert result.report_data_matched is True
     assert result.passed is True
@@ -427,6 +434,7 @@ def test_azure_report_with_valid_snp_signature_and_wrong_pcr_does_not_pass():
         expected_manifest_hash=MANIFEST_HASH,
         vcek_cert_der=fx["vcek_der"],
         cert_chain_pem=fx["chain"],
+        trusted_ark_der=ark_der_from_chain(fx["chain"]),
     )
     assert result.signature is SignatureStatus.VERIFIED
     assert result.report_data_matched is False
@@ -456,6 +464,7 @@ def test_azure_report_wrong_pcr_selection_same_digest_bytes():
         expected_manifest_hash=MANIFEST_HASH,
         vcek_cert_der=fx["vcek_der"],
         cert_chain_pem=fx["chain"],
+        trusted_ark_der=ark_der_from_chain(fx["chain"]),
         azure_expected_pcr_index=16,
     )
     assert result.signature is SignatureStatus.VERIFIED
@@ -490,6 +499,7 @@ def test_azure_report_ak_exponent_mismatch():
         expected_manifest_hash=MANIFEST_HASH,
         vcek_cert_der=vcek_der,
         cert_chain_pem=chain,
+        trusted_ark_der=ark_der_from_chain(chain),
     )
     assert result.report_data_matched is False
     assert result.passed is False
@@ -535,6 +545,7 @@ def test_azure_report_malformed_jwk_modulus_encoding_fails_closed(corrupt):
         expected_manifest_hash=MANIFEST_HASH,
         vcek_cert_der=vcek_der,
         cert_chain_pem=chain,
+        trusted_ark_der=ark_der_from_chain(chain),
     )
     # The runtime data is still cryptographically committed into REPORT_DATA
     # (report_data_matched would be True under the old permissive decoder),
@@ -587,6 +598,7 @@ def test_azure_report_malformed_jwk_exponent_encoding_fails_closed(corrupt):
         expected_manifest_hash=MANIFEST_HASH,
         vcek_cert_der=vcek_der,
         cert_chain_pem=chain,
+        trusted_ark_der=ark_der_from_chain(chain),
     )
     # REPORT_DATA still matches (it is a hash of the corrupted runtime_data
     # itself, so corrupting the JWK content inside it does not break step 4);
@@ -699,6 +711,7 @@ def test_azure_report_malformed_runtime_data_keys_shape():
         expected_manifest_hash=MANIFEST_HASH,
         vcek_cert_der=vcek_der,
         cert_chain_pem=chain,
+        trusted_ark_der=ark_der_from_chain(chain),
     )
     assert result.report_data_matched is False
     assert result.passed is False
@@ -857,4 +870,227 @@ def test_non_azure_snp_still_requires_report_data_to_match():
     report = _report(report_data_hex=wrong + "00" * 32)
     result = verify_attestation_chain(report, expected_manifest_hash=MANIFEST_HASH)
     assert result.report_data_matched is False
+    assert result.passed is False
+
+
+# ---------------------------------------------------------------------------
+# GHSA-cf88-228w-w58h (1 of 2): the signature was checked over the quote bytes,
+# but REPORT_DATA and the measurement were then read from report.raw, a dict
+# nothing signs. A genuine report for one manifest and measurement verified as
+# binding whatever the caller wrote into raw. The bound fields now come from
+# the signed bytes, and a raw copy that disagrees with them fails.
+# ---------------------------------------------------------------------------
+
+SIGNED_OTHER = hashlib.sha256(b"some other manifest").hexdigest()
+SIGNED_MEASUREMENT = "cc" * 48  # deliberately outside the allow-list below
+
+
+def _snp_report_claiming(report_data_hex: str, measurement: str, quote: bytes) -> AttestationReport:
+    return AttestationReport(
+        platform="amd-sev-snp",
+        manifest_hash=MANIFEST_HASH,
+        quote=quote,
+        raw={"report_data": report_data_hex, "measurement": measurement},
+    )
+
+
+def test_snp_raw_cannot_substitute_for_the_signed_report_data_and_measurement():
+    snp, vcek_der, chain = _synthetic_snp_with_chain(SIGNED_OTHER, SIGNED_MEASUREMENT)
+    allow = {MEASUREMENT}
+    # Controls: the allow-list is non-empty and the signed measurement is not
+    # in it; the signed REPORT_DATA binds a different manifest.
+    assert allow and SIGNED_MEASUREMENT not in allow
+    assert SIGNED_OTHER != DIGEST
+
+    forged = _snp_report_claiming(DIGEST + "00" * 32, MEASUREMENT, snp)
+    result = verify_attestation_chain(
+        forged,
+        expected_manifest_hash=MANIFEST_HASH,
+        expected_measurements=allow,
+        vcek_cert_der=vcek_der,
+        cert_chain_pem=chain,
+        trusted_ark_der=ark_der_from_chain(chain),
+    )
+    # The hardware signature is genuine; only the unsigned claims were forged.
+    assert result.signature is SignatureStatus.VERIFIED
+    assert result.report_data_matched is False
+    assert result.measurement_matched is False
+    assert result.passed is False
+
+
+def test_snp_signed_fields_pass_without_any_raw_copy():
+    snp, vcek_der, chain = _synthetic_snp_with_chain(DIGEST, MEASUREMENT)
+    report = AttestationReport(platform="amd-sev-snp", manifest_hash=MANIFEST_HASH, quote=snp)
+    result = verify_attestation_chain(
+        report,
+        expected_manifest_hash=MANIFEST_HASH,
+        expected_measurements={MEASUREMENT},
+        vcek_cert_der=vcek_der,
+        cert_chain_pem=chain,
+        trusted_ark_der=ark_der_from_chain(chain),
+    )
+    assert result.signature is SignatureStatus.VERIFIED
+    assert result.report_data_matched is True
+    assert result.measurement_matched is True
+    assert result.passed is True
+
+
+def test_snp_raw_that_disagrees_with_the_signed_report_fails_even_when_expected_matches():
+    # The signed report is honest for this manifest; raw carries a different
+    # measurement that happens to be allowed. A raw copy is either the signed
+    # value or evidence of tampering.
+    snp, vcek_der, chain = _synthetic_snp_with_chain(DIGEST, MEASUREMENT)
+    tampered = _snp_report_claiming(DIGEST + "00" * 32, SIGNED_MEASUREMENT, snp)
+    result = verify_attestation_chain(
+        tampered,
+        expected_manifest_hash=MANIFEST_HASH,
+        expected_measurements={MEASUREMENT, SIGNED_MEASUREMENT},
+        vcek_cert_der=vcek_der,
+        cert_chain_pem=chain,
+        trusted_ark_der=ark_der_from_chain(chain),
+    )
+    assert result.signature is SignatureStatus.VERIFIED
+    assert result.measurement_matched is False
+    assert result.passed is False
+
+
+def test_snp_tampered_signed_body_still_fails_signature():
+    snp, vcek_der, chain = _synthetic_snp_with_chain(DIGEST, MEASUREMENT)
+    tampered = bytearray(snp)
+    tampered[0x50] ^= 0x01  # REPORT_DATA byte inside the signed body
+    report = _snp_report_claiming(DIGEST + "00" * 32, MEASUREMENT, bytes(tampered))
+    result = verify_attestation_chain(
+        report,
+        expected_manifest_hash=MANIFEST_HASH,
+        vcek_cert_der=vcek_der,
+        cert_chain_pem=chain,
+        trusted_ark_der=ark_der_from_chain(chain),
+    )
+    assert result.signature is SignatureStatus.FAILED
+    assert result.passed is False
+
+
+def _tdx_quote(report_data_digest_hex: str):
+    import os
+    import sys
+    sys.path.insert(0, os.path.dirname(__file__))
+    from test_tdx_verify import _build_quote  # reuse the synthetic quote builder
+
+    return _build_quote(
+        bytes.fromhex(report_data_digest_hex), mrtd=bytes.fromhex(SIGNED_MEASUREMENT)
+    )
+
+
+def test_tdx_raw_cannot_substitute_for_the_signed_reportdata_and_mrtd():
+    quote, root_pem = _tdx_quote(SIGNED_OTHER)
+    allow = {MEASUREMENT}
+    assert allow and SIGNED_MEASUREMENT not in allow
+    forged = AttestationReport(
+        platform="intel-tdx",
+        manifest_hash=MANIFEST_HASH,
+        quote=quote,
+        raw={"report_data": DIGEST + "00" * 32, "measurement": MEASUREMENT},
+    )
+    result = verify_attestation_chain(
+        forged,
+        expected_manifest_hash=MANIFEST_HASH,
+        expected_measurements=allow,
+        trusted_tdx_root_pem=root_pem,
+    )
+    assert result.signature is SignatureStatus.VERIFIED
+    assert result.report_data_matched is False
+    assert result.measurement_matched is False
+    assert result.passed is False
+
+
+def test_tdx_signed_fields_pass_without_any_raw_copy():
+    quote, root_pem = _tdx_quote(DIGEST)
+    report = AttestationReport(platform="intel-tdx", manifest_hash=MANIFEST_HASH, quote=quote)
+    result = verify_attestation_chain(
+        report,
+        expected_manifest_hash=MANIFEST_HASH,
+        expected_measurements={SIGNED_MEASUREMENT},
+        trusted_tdx_root_pem=root_pem,
+    )
+    assert result.signature is SignatureStatus.VERIFIED
+    assert result.report_data_matched is True
+    assert result.measurement_matched is True
+    assert result.passed is True
+
+
+def test_tpm_raw_report_data_cannot_substitute_for_the_signed_extra_data():
+    import os
+    import sys
+    sys.path.insert(0, os.path.dirname(__file__))
+    from test_tpm_verify import PCR, _ak_chain, _build_attest, _sign
+
+    ak_key, chain, roots = _ak_chain()
+    attest = _build_attest(bytes.fromhex(SIGNED_OTHER), PCR)
+    forged = AttestationReport(
+        platform="tpm",
+        manifest_hash=MANIFEST_HASH,
+        raw={"report_data": DIGEST + "00" * 32},
+    )
+    kwargs = dict(
+        expected_manifest_hash=MANIFEST_HASH,
+        tpm_attest=attest,
+        tpm_signature=_sign(ak_key, attest),
+        tpm_ak_chain_pem=chain,
+        tpm_trusted_roots_pem=roots,
+    )
+    result = verify_attestation_chain(forged, **kwargs)
+    assert result.signature is SignatureStatus.VERIFIED
+    assert result.report_data_matched is False
+    assert result.passed is False
+
+    # Control: a quote whose signed extraData carries the manifest digest binds.
+    honest_attest = _build_attest(bytes.fromhex(DIGEST), PCR)
+    kwargs.update(tpm_attest=honest_attest, tpm_signature=_sign(ak_key, honest_attest))
+    honest = AttestationReport(platform="tpm", manifest_hash=MANIFEST_HASH)
+    result = verify_attestation_chain(honest, **kwargs)
+    assert result.signature is SignatureStatus.VERIFIED
+    assert result.report_data_matched is True
+    assert result.passed is True
+
+
+# ---------------------------------------------------------------------------
+# GHSA-cf88-228w-w58h (2 of 2): trusted_ark_der defaulted to None and no AMD
+# root shipped, so a VCEK/ASK/ARK chain made from fresh keys verified. The
+# chain is now pinned to the published AMD ARKs unless the caller names a root.
+# ---------------------------------------------------------------------------
+
+
+def test_self_made_snp_chain_does_not_verify_without_a_pinned_root():
+    snp, vcek_der, chain = _synthetic_snp_with_chain(DIGEST, MEASUREMENT)
+    report = AttestationReport(platform="amd-sev-snp", manifest_hash=MANIFEST_HASH, quote=snp)
+    kwargs = dict(
+        expected_manifest_hash=MANIFEST_HASH,
+        expected_measurements={MEASUREMENT},
+        vcek_cert_der=vcek_der,
+        cert_chain_pem=chain,
+    )
+    result = verify_attestation_chain(report, **kwargs)
+    assert result.signature is SignatureStatus.FAILED
+    assert result.passed is False
+    assert any("published ARKs" in r for r in result.reasons)
+
+    # Control: the identical evidence passes once its root is pinned
+    # explicitly, so the failure above is the missing pin and nothing else.
+    result = verify_attestation_chain(report, trusted_ark_der=ark_der_from_chain(chain), **kwargs)
+    assert result.signature is SignatureStatus.VERIFIED
+    assert result.passed is True
+
+
+def test_pinning_a_different_root_rejects_the_chain():
+    snp, vcek_der, chain = _synthetic_snp_with_chain(DIGEST, MEASUREMENT)
+    _, _, other_chain = _synthetic_snp_with_chain(DIGEST, MEASUREMENT)
+    report = AttestationReport(platform="amd-sev-snp", manifest_hash=MANIFEST_HASH, quote=snp)
+    result = verify_attestation_chain(
+        report,
+        expected_manifest_hash=MANIFEST_HASH,
+        vcek_cert_der=vcek_der,
+        cert_chain_pem=chain,
+        trusted_ark_der=ark_der_from_chain(other_chain),
+    )
+    assert result.signature is SignatureStatus.FAILED
     assert result.passed is False

@@ -115,6 +115,21 @@ def hitl_approval(approved_at, approved_scope, **overrides):
     return approval
 
 
+def sealed_decision_trace(audit_key_sealed):
+    """A complete artifact #7 binding (spec 3.2.7) with the given seal flag."""
+    stamp = NOW.isoformat().replace("+00:00", "Z")
+    return {
+        "trace_type": "hash-chained",
+        "audit_chain_root": "sha256:" + "d" * 64,
+        "audit_chain_uri": "https://audit.example/chains/kyc",
+        "signing_key_id": "tee-sealed-audit-key",
+        "audit_key_sealed": audit_key_sealed,
+        "first_entry_at": stamp,
+        "last_entry_at": stamp,
+        "bound_at": stamp,
+    }
+
+
 # ---------------------------------------------------------------------------
 # VALID result
 # ---------------------------------------------------------------------------
@@ -1403,13 +1418,19 @@ def _appraised_ctx(m, **overrides):
 
 def test_audit_key_sealed_true_is_accepted_under_enforcement():
     m = base_manifest()
+    # The signed artifact #7 copy is what enforcement accepts
+    # (GHSA-489r-r3g9-g24r); the attestation block must agree with it.
+    m["artifacts"]["decision_trace"] = sealed_decision_trace(True)
+    sign(m)
     m["attestation"] = {
         "platform": "tpm",
         "manifest_hash_in_report": _manifest_hash(m),
         "audit_key_sealed": True,
     }
 
-    result = verify_manifest(m, _appraised_ctx(m), store())
+    result = verify_manifest(
+        m, _appraised_ctx(m, audit_chain_root="sha256:" + "d" * 64), store()
+    )
 
     assert result.result == OverallResult.VALID
 
@@ -1435,6 +1456,80 @@ def test_audit_key_sealed_absent_is_rejected_under_enforcement():
     result = verify_manifest(m, _appraised_ctx(m), store())
 
     assert result.result == OverallResult.ATTESTATION_UNAVAILABLE
+
+
+# ---------------------------------------------------------------------------
+# GHSA-489r-r3g9-g24r: attestation.audit_key_sealed sits outside the signature
+# and outside the hash the hardware report binds, so it can be flipped to true
+# after signing. Enforcement now also requires the signed artifact #7 copy,
+# artifacts.decision_trace.audit_key_sealed, to be true.
+# ---------------------------------------------------------------------------
+
+
+def _attested(m, sealed_in_block):
+    m["attestation"] = {
+        "platform": "tpm",
+        "manifest_hash_in_report": _manifest_hash(m),
+        "audit_key_sealed": sealed_in_block,
+    }
+    return m
+
+
+def _sealed_ctx(m):
+    return _appraised_ctx(m, audit_chain_root="sha256:" + "d" * 64)
+
+
+def test_flipping_unsigned_audit_key_sealed_after_signing_does_not_verify():
+    m = base_manifest()
+    m["artifacts"]["decision_trace"] = sealed_decision_trace(False)
+    sign(m)
+    _attested(m, False)
+    ctx = _sealed_ctx(m)
+    # Controls: keys are loaded, the appraisal names this manifest, and the
+    # issuer-signed document as issued is refused for an unsealed key.
+    assert ctx.trusted_keys and ctx.verified_attestation_manifest_hashes
+    baseline = verify_manifest(m, ctx, store())
+    assert baseline.signature_verified is True
+    assert baseline.result == OverallResult.ATTESTATION_UNAVAILABLE
+
+    import copy
+
+    flipped = copy.deepcopy(m)
+    flipped["attestation"]["audit_key_sealed"] = True  # no re-sign
+    result = verify_manifest(flipped, _sealed_ctx(flipped), store())
+    assert result.signature_verified is True
+    assert result.attestation_verified is True
+    assert result.result == OverallResult.ATTESTATION_UNAVAILABLE
+    assert any("decision_trace.audit_key_sealed" in w for w in result.warnings)
+
+
+def test_audit_key_sealed_claim_without_a_signed_decision_trace_is_refused():
+    m = _attested(base_manifest(), True)
+    result = verify_manifest(m, _sealed_ctx(m), store())
+    assert result.signature_verified is True
+    assert result.result == OverallResult.ATTESTATION_UNAVAILABLE
+
+
+def test_flipping_the_signed_decision_trace_copy_breaks_the_signature():
+    m = base_manifest()
+    m["artifacts"]["decision_trace"] = sealed_decision_trace(False)
+    sign(m)
+    import copy
+
+    flipped = copy.deepcopy(m)
+    flipped["artifacts"]["decision_trace"]["audit_key_sealed"] = True
+    _attested(flipped, True)
+    result = verify_manifest(flipped, _sealed_ctx(flipped), store())
+    assert result.signature_verified is False
+    assert result.result != OverallResult.VALID
+
+
+def test_signed_sealed_audit_key_still_verifies_without_enforcement():
+    # The signed-copy requirement applies under enforce_attestation only; the
+    # default verifier is unchanged for manifests that never declared it.
+    m = _attested(base_manifest(), True)
+    result = verify_manifest(m, base_context(), store())
+    assert result.result == OverallResult.VALID
 
 
 # ---------------------------------------------------------------------------

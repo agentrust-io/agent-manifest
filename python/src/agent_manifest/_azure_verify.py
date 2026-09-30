@@ -236,14 +236,12 @@ def verify_azure_manifest_binding(
     # Imports are local to avoid a module-load-time cycle: _snp_verify and
     # _tpm_verify are heavier modules not needed unless Azure binding is
     # actually being checked.
-    from ._snp_verify import SnpVerificationError, parse_snp_report, verify_runtime_data_binding
     from ._tpm_verify import (
         TPM_ALG_SHA256,
         TPM_GENERATED_VALUE,
         TPM_ST_ATTEST_QUOTE,
         TpmVerificationError,
         parse_tpm_quote,
-        verify_ak_signature,
     )
     try:
         quote_msg = base64.b64decode(quote_msg_b64, validate=True)
@@ -323,6 +321,28 @@ def verify_azure_manifest_binding(
     if selection.indices() != expected_indices:
         return False
 
+    return _ak_quote_bound_to_snp(
+        quote.raw, quote_sig, ak_pub_pem, runtime_data, bytes(snp_report_bytes)
+    )
+
+
+def _ak_quote_bound_to_snp(
+    quote_raw: bytes,
+    quote_sig: bytes,
+    ak_pub_pem: str,
+    runtime_data: bytes,
+    snp_report_bytes: bytes,
+) -> bool:
+    """Links 2 to 4 of the Azure chain, shared by the boot and runtime checks.
+
+    ``quote_sig`` verifies over ``quote_raw`` under ``ak_pub_pem``; that key is
+    the ``HCLAkPub`` the runtime data names; and the runtime data hashes into
+    ``REPORT_DATA`` of ``snp_report_bytes``. The SNP report's own VCEK chain
+    is the caller's check. Never raises.
+    """
+    from ._snp_verify import SnpVerificationError, parse_snp_report, verify_runtime_data_binding
+    from ._tpm_verify import TpmVerificationError, verify_ak_signature
+
     # 2. quote_sig is a valid AK signature over quote_msg under ak_pub_pem.
     try:
         from cryptography.hazmat.primitives.asymmetric import rsa
@@ -332,7 +352,7 @@ def verify_azure_manifest_binding(
     except Exception:
         return False
     try:
-        if not verify_ak_signature(ak_key, quote.raw, quote_sig):
+        if not verify_ak_signature(ak_key, quote_raw, quote_sig):
             return False
     except TpmVerificationError:
         return False
@@ -364,3 +384,63 @@ def verify_azure_manifest_binding(
         return False
 
     return True
+
+
+def verify_azure_runtime_quote(
+    *,
+    expected_qualifying_data: bytes,
+    quote_msg_b64: Optional[str],
+    quote_sig_b64: Optional[str],
+    ak_pub_pem: Optional[str],
+    runtime_data_hex: Optional[str],
+    snp_report_bytes: Optional[bytes],
+) -> bool:
+    """Check an Azure runtime quote carries the verifier's qualifying data.
+
+    ``attest_runtime_state`` on Azure asks the vTPM AK to quote with
+    ``sha256(nonce || context_hash_bytes)`` as ``extraData``. This returns
+    ``True`` only when that AK-signed quote's ``extraData`` equals
+    ``expected_qualifying_data`` and the AK is bound to ``snp_report_bytes``
+    exactly as in :func:`verify_azure_manifest_binding` (links 2 to 4). The
+    SNP report's VCEK chain is the caller's check. Never raises.
+    """
+    if (
+        not isinstance(expected_qualifying_data, (bytes, bytearray))
+        or not isinstance(quote_msg_b64, str)
+        or not isinstance(quote_sig_b64, str)
+        or not isinstance(ak_pub_pem, str)
+        or not isinstance(runtime_data_hex, str)
+        or not isinstance(snp_report_bytes, (bytes, bytearray))
+        or not expected_qualifying_data
+        or not quote_msg_b64
+        or not quote_sig_b64
+        or not ak_pub_pem
+        or not runtime_data_hex
+        or not snp_report_bytes
+    ):
+        return False
+
+    from ._tpm_verify import (
+        TPM_GENERATED_VALUE,
+        TPM_ST_ATTEST_QUOTE,
+        TpmVerificationError,
+        parse_tpm_quote,
+    )
+
+    try:
+        quote_msg = base64.b64decode(quote_msg_b64, validate=True)
+        quote_sig = base64.b64decode(quote_sig_b64, validate=True)
+        runtime_data = bytes.fromhex(runtime_data_hex)
+    except (binascii.Error, ValueError, TypeError):
+        return False
+    try:
+        quote = parse_tpm_quote(quote_msg)
+    except TpmVerificationError:
+        return False
+    if quote.magic != TPM_GENERATED_VALUE or quote.attest_type != TPM_ST_ATTEST_QUOTE:
+        return False
+    if not hmac.compare_digest(quote.qualifying_data, bytes(expected_qualifying_data)):
+        return False
+    return _ak_quote_bound_to_snp(
+        quote.raw, quote_sig, ak_pub_pem, runtime_data, bytes(snp_report_bytes)
+    )

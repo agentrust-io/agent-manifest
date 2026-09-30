@@ -525,6 +525,9 @@ class AzureCVMProvider(AttestationProvider):
                 "quote_sig": blobs["quote_sig"],
                 "quote_pcrs": blobs["quote_pcrs"],
                 "qualifying_data": qualifying.hex(),
+                # verify_runtime_report needs it to tie the AK that signed
+                # this quote to the SNP report's REPORT_DATA.
+                "runtime_data_hex": blobs["runtime_data_hex"],
             },
         )
 

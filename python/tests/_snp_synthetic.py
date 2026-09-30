@@ -83,3 +83,17 @@ def build_synthetic_snp_report_with_chain(
     vcek = cert("SEV-VCEK-test", ec_key.public_key(), ask_name, ask_key)
     chain = ask.public_bytes(Encoding.PEM) + ark.public_bytes(Encoding.PEM)
     return snp, vcek.public_bytes(Encoding.DER), chain
+
+
+def ark_der_from_chain(cert_chain_pem: bytes) -> bytes:
+    """Return the DER of the ARK (second certificate) in a synthetic chain.
+
+    ``verify_vcek_chain`` pins AMD's published ARKs by default, so a test chain
+    verifies only when its own root is passed as ``trusted_ark_der``.
+    """
+    import re
+
+    pems = re.findall(
+        rb"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----", cert_chain_pem, re.S
+    )
+    return x509.load_pem_x509_certificate(pems[1]).public_bytes(Encoding.DER)
