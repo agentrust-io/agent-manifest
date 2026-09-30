@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-09-30
+
 ### Security
 
 - **\[SDK\] `verify_attestation_chain()` refuses debug guests.** The SEV-SNP
