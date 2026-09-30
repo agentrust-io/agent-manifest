@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+- **[SDK]** `attach_receipt()` corrupted or crashed when the envelope's
+  `receipts` header (label 394) wasn't already an array - a map became its
+  keys, a string its characters, and `null`/`0`/`false`/`""` were silently
+  replaced with `[]`. `attach_approvals()` was already fixed for the same
+  issue in 0.13.0; `attach_receipt()` now works the same way: a non-array
+  existing value raises `CoseStructureError` instead of being coerced or
+  overwritten, and `receipt` itself must be `bytes` or `bytearray`. To
+  replace the array, use
+  `attach_unprotected(envelope, HDR_RECEIPTS, receipts)`.
+  **Behaviour change:** a bad receipt, or a non-array `receipts` value,
+  now raises instead of being silently coerced.
+
 ## [0.14.0] - 2026-09-30
 
 ### Security
@@ -70,18 +82,6 @@ reached a passing verdict from a value nothing signs.
   both: D.1 is the existing canonical JSON vector, D.2 the two-tool catalog with
   its leaf pre-images, root, reordered-input control and empty root. The values
   are the ones `python/tests/test_merkle.py` already asserts. Reported on #340.
-
-- **[SDK]** `attach_receipt()` corrupted or crashed when the envelope's
-  `receipts` header (label 394) wasn't already an array - a map became its
-  keys, a string its characters, and `null`/`0`/`false`/`""` were silently
-  replaced with `[]`. `attach_approvals()` was already fixed for the same
-  issue in 0.13.0; `attach_receipt()` now works the same way: a non-array
-  existing value raises `CoseStructureError` instead of being coerced or
-  overwritten, and `receipt` itself must be `bytes` or `bytearray`. To
-  replace the array, use
-  `attach_unprotected(envelope, HDR_RECEIPTS, receipts)`.
-  **Behaviour change:** a bad receipt, or a non-array `receipts` value,
-  now raises instead of being silently coerced.
 
 ## [0.13.1] - 2026-09-26
 
