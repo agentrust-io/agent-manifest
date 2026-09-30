@@ -30,9 +30,11 @@ verifier has checked three things:
 
 :func:`verify_attestation_chain` **fails closed**: ``passed`` is ``True`` only
 when the hardware signature is ``VERIFIED``, the manifest-hash binding matches,
-and the measurement is accepted (or no allow-list was requested). If no VCEK /
-certificate material is supplied, the signature step is reported as
-``NOT_IMPLEMENTED`` (not performed) and the result cannot pass.
+the measurement is accepted (or no allow-list was requested), and the signed
+report comes from a production guest: SEV-SNP guest policy DEBUG clear and
+VMPL 0, TDX TDATTRIBUTES.DEBUG clear. If no VCEK / certificate material is
+supplied, the signature step is reported as ``NOT_IMPLEMENTED`` (not
+performed) and the result cannot pass.
 """
 
 from __future__ import annotations
@@ -81,6 +83,12 @@ class ChainVerificationResult:
     full composite chain (PCR-in-quote, AK signature, AK identity, runtime
     data -> REPORT_DATA binding) verified; ``False`` for any missing,
     malformed, or mismatched evidence, including simply having none at all.
+
+    ``debug`` is the debug state read from the signed report once the
+    signature verified (SNP guest policy bit 19, TDX TDATTRIBUTES bit 0), and
+    ``None`` when there were no verified signed bytes to read it from or the
+    platform has no such field (TPM). ``vmpl`` is the signed SNP VMPL, and
+    ``None`` for other platforms or an unverified signature.
     """
 
     passed: bool
@@ -88,6 +96,8 @@ class ChainVerificationResult:
     report_data_matched: bool
     measurement_matched: Optional[bool]  # None = no allow-list supplied
     reasons: list[str] = field(default_factory=list)
+    debug: Optional[bool] = None
+    vmpl: Optional[int] = None
 
 
 @dataclass
@@ -102,6 +112,10 @@ class _SignedFields:
 
     report_data: Optional[bytes] = None
     measurement: Optional[bytes] = None
+    # Debug state from the signed bytes (SNP policy bit 19, TDX TDATTRIBUTES
+    # bit 0); None for platforms that carry no such field. vmpl is SNP only.
+    debug: Optional[bool] = None
+    vmpl: Optional[int] = None
 
 
 def _raw_str(report: Any, key: str) -> Optional[str]:
@@ -191,6 +205,8 @@ def _verify_snp_signature_step(
     if signed is not None:
         signed.report_data = parsed.report_data
         signed.measurement = parsed.measurement
+        signed.debug = parsed.debug
+        signed.vmpl = parsed.vmpl
     return SignatureStatus.VERIFIED
 
 
@@ -219,6 +235,7 @@ def _verify_tdx_signature_step(
                 parsed = parse_tdx_quote(quote)
                 signed.report_data = parsed.report_data
                 signed.measurement = parsed.mrtd
+                signed.debug = parsed.debug
             return SignatureStatus.VERIFIED
         reasons.append("TDX quote signature did not verify")
         return SignatureStatus.FAILED
@@ -273,6 +290,45 @@ def _verify_tpm_signature_step(
     return SignatureStatus.FAILED
 
 
+def _guest_state_rejects(
+    signed: _SignedFields, reasons: list[str], *, allow_debug: bool = False
+) -> bool:
+    """True when the signed guest state rules the report out.
+
+    Read only from bytes whose signature verified. A debug guest (SNP guest
+    policy DEBUG, TDX TDATTRIBUTES.DEBUG) lets the host read and write guest
+    memory, so REPORT_DATA and the running code are the host's to choose, and
+    a genuine signature over them proves nothing about the workload.
+
+    An SNP report at a VMPL other than 0 was requested by a less privileged
+    layer than the one this package's producers request from:
+    ``SEVSNPProvider`` uses the configfs-TSM default privilege level 0, and on
+    Azure the paravisor, which runs at VMPL0, requests the report. Neither
+    emits another VMPL, so one appearing is refused rather than guessed at.
+    """
+    rejected = False
+    if signed.debug:
+        if allow_debug:
+            reasons.append(
+                "guest is debug-enabled (the host can read and modify its "
+                "memory); accepted only because allow_debug=True"
+            )
+        else:
+            reasons.append(
+                "guest is debug-enabled (SNP guest policy DEBUG / TDX "
+                "TDATTRIBUTES.DEBUG): the host can read and modify its memory, "
+                "so the report binds nothing the guest controls"
+            )
+            rejected = True
+    if signed.vmpl is not None and signed.vmpl != 0:
+        reasons.append(
+            f"SNP report was requested at VMPL{signed.vmpl}; only VMPL0 reports "
+            "are accepted"
+        )
+        rejected = True
+    return rejected
+
+
 def verify_attestation_chain(
     report: Any,
     *,
@@ -290,6 +346,7 @@ def verify_attestation_chain(
     expected_qualifying_data: Optional[bytes] = None,
     expected_pcr_digest: Optional[bytes] = None,
     azure_expected_pcr_index: int = 16,
+    allow_debug: bool = False,
 ) -> ChainVerificationResult:
     """Verify a boot-time ``AttestationReport`` against expected values.
 
@@ -317,12 +374,19 @@ def verify_attestation_chain(
             default. This is verifier configuration the caller supplies, not
             something inferred from a self-reported field on the report
             (``report.raw`` is not signed by anything).
+        allow_debug: Accept a debug-enabled guest (SEV-SNP guest policy
+            DEBUG, bit 19; TDX TDATTRIBUTES.DEBUG, bit 0). Default ``False``:
+            a debug guest's memory is open to the host, so the report fails.
+            Set it only for development against a debug guest; the result's
+            ``debug`` field and ``reasons`` still record it. It does not
+            relax the SEV-SNP VMPL0 requirement.
 
     Returns:
         A :class:`ChainVerificationResult`. ``passed`` is ``True`` only when the
         hardware signature is ``VERIFIED``, the manifest-hash binding matches,
-        and the measurement is accepted (or no allow-list was requested).
-        Without VCEK material the signature step is not performed and the result
+        the measurement is accepted (or no allow-list was requested), and the
+        signed report is from a non-debug guest (for SEV-SNP, also requested
+        at VMPL0). Without VCEK material the signature step is not performed and the result
         cannot pass, because an unverified report proves nothing. An
         unrecognized ``report.platform`` value also cannot pass: the signature
         step is reported as ``NOT_IMPLEMENTED`` rather than falling through to
@@ -518,10 +582,18 @@ def verify_attestation_chain(
                 "signed report; the unsigned copy was altered"
             )
 
+    # Step 4: guest state, from the signed bytes. Without it a debug guest
+    # with an allow-listed measurement passed, although the host could have
+    # written its REPORT_DATA.
+    guest_rejected = verified and _guest_state_rejects(
+        signed, reasons, allow_debug=allow_debug
+    )
+
     passed = bool(
         signature == SignatureStatus.VERIFIED
         and report_data_matched
         and measurement_matched is not False
+        and not guest_rejected
     )
 
     return ChainVerificationResult(
@@ -530,6 +602,8 @@ def verify_attestation_chain(
         report_data_matched=report_data_matched,
         measurement_matched=measurement_matched,
         reasons=reasons,
+        debug=signed.debug if verified else None,
+        vmpl=signed.vmpl if verified else None,
     )
 
 
@@ -552,7 +626,10 @@ def _runtime_quote_binds(
     The caller-controlled field the provider wrote (SNP ``REPORT_DATA``, TDX
     ``REPORTDATA``: ``qualifying || 32 zero bytes``; TPM and Azure vTPM
     ``extraData``: ``qualifying``) is read from the signed bytes after the
-    signature verifies. Nothing on the report object itself counts.
+    signature verifies. Nothing on the report object itself counts. A debug
+    guest, or an SNP report not requested at VMPL0, never binds; there is no
+    opt-in here, because a nonce the host could have written is not evidence
+    of freshness.
     """
     platform = getattr(report, "platform", "") or ""
     signed = _SignedFields()
@@ -563,6 +640,8 @@ def _runtime_quote_binds(
             report, None, vcek_cert_der, cert_chain_pem, trusted_ark_der, reasons, signed
         )
         if status != SignatureStatus.VERIFIED or signed.report_data is None:
+            return False
+        if _guest_state_rejects(signed, reasons):
             return False
         if platform == "amd-sev-snp":
             if not hmac.compare_digest(signed.report_data, padded):
@@ -591,6 +670,8 @@ def _runtime_quote_binds(
     if platform == "intel-tdx":
         status = _verify_tdx_signature_step(report, reasons, trusted_tdx_root_pem, signed)
         if status != SignatureStatus.VERIFIED or signed.report_data is None:
+            return False
+        if _guest_state_rejects(signed, reasons):
             return False
         if not hmac.compare_digest(signed.report_data, padded):
             reasons.append("the signed REPORTDATA does not carry this nonce and context")

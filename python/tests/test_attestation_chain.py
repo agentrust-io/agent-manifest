@@ -289,7 +289,7 @@ def _azure_tpmt_sign(ak_key, attest: bytes) -> bytes:
     return (0x0014).to_bytes(2, "big") + (0x000B).to_bytes(2, "big") + len(sig).to_bytes(2, "big") + sig
 
 
-def _azure_good_fixture(*, manifest_digest_hex: str = DIGEST):
+def _azure_good_fixture(*, manifest_digest_hex: str = DIGEST, snp_policy: int = 0):
     """Build a fully self-consistent, cryptographically-valid Azure evidence set.
 
     Every field is genuinely tied together: the AK signs a quote over the
@@ -323,7 +323,9 @@ def _azure_good_fixture(*, manifest_digest_hex: str = DIGEST):
     runtime_data = json.dumps({"keys": [{"kid": "HCLAkPub", "n": n_b64, "e": "AQAB"}]}).encode()
 
     report_data = hashlib.sha256(runtime_data).digest() + bytes(32)
-    snp, vcek_der, chain = _synthetic_snp_with_chain(report_data.hex()[:64], MEASUREMENT)
+    snp, vcek_der, chain = _synthetic_snp_with_chain(
+        report_data.hex()[:64], MEASUREMENT, policy=snp_policy
+    )
 
     return {
         "snp": snp,

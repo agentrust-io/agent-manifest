@@ -2,6 +2,28 @@
 
 ## [Unreleased]
 
+### Security
+
+- **\[SDK\] `verify_attestation_chain()` refuses debug guests.** The SEV-SNP
+  path never read the signed guest policy and the TDX path never parsed
+  TDATTRIBUTES, so a debug-enabled guest with an allow-listed measurement
+  returned `passed=True`. A debug guest's memory is readable and writable by
+  the host, so its REPORT_DATA and the code that chose it are the host's to
+  set. The verdict now fails when SNP guest policy DEBUG (bit 19, AMD 56860)
+  or TDX `TDATTRIBUTES.DEBUG` (bit 0, TD report body offset 120) is set, read
+  from the signed bytes after the signature verifies. SNP reports must also
+  carry VMPL 0, the level both of this package's SNP producers request at
+  (`SEVSNPProvider` through configfs-TSM, and the Azure paravisor).
+  `verify_runtime_report()` and `verify_runtime_freshness()` apply the same
+  checks with no opt-in.
+  `ChainVerificationResult` gains `debug` and `vmpl`, read from the signed
+  report (`None` without a verified signature, and for platforms with no such
+  field). `verify_attestation_chain(allow_debug=True)` accepts a debug guest
+  for development and records it in `reasons`; it does not relax VMPL.
+  `SnpReport.debug`, `TdxQuote.td_attributes` and `TdxQuote.debug` expose the
+  parsed state. **Behaviour change:** a debug guest, or an SNP report at VMPL
+  1 to 3, that previously verified now fails.
+
 ### Added
 
 - **[SDK]** Experimental, opt-in `evidence-requirements-experimental-v1` profile.

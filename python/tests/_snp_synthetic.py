@@ -31,6 +31,8 @@ def build_synthetic_snp_report_with_chain(
     measurement_hex: str,
     *,
     platform_info: int = 0,
+    policy: int = 0,
+    vmpl: int = 0,
 ) -> tuple[bytes, bytes, bytes]:
     """Return ``(raw_snp_report, vcek_cert_der, cert_chain_pem)``.
 
@@ -41,10 +43,16 @@ def build_synthetic_snp_report_with_chain(
     hardware signature and chain cryptographically verify. Defaults to ``0`` (no
     bits set), matching every existing caller of this builder before
     PLATFORM_INFO appraisal existed.
+
+    ``policy`` (guest policy, offset 0x08) and ``vmpl`` (offset 0x30) are
+    likewise signed, so tests can build a debug guest (policy bit 19) or a
+    non-VMPL0 report whose signature still verifies. Both default to ``0``.
     """
     ec_key = ec.generate_private_key(ec.SECP384R1())  # the "VCEK" signing key
     body = bytearray(_OFF_SIGNATURE)
     body[0:4] = (3).to_bytes(4, "little")
+    body[0x08:0x10] = policy.to_bytes(8, "little")
+    body[0x30:0x34] = vmpl.to_bytes(4, "little")
     body[0x34:0x38] = (1).to_bytes(4, "little")  # sig_algo, as real silicon sets
     body[0x40:0x48] = platform_info.to_bytes(8, "little")
     body[0x50:0x50 + 32] = bytes.fromhex(report_data_digest_hex)

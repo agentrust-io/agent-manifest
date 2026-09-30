@@ -56,6 +56,16 @@ _OFF_CHIP_ID = 0x1A0
 _OFF_SIGNATURE = 0x2A0
 _SNP_REPORT_LEN = 0x4A0  # 1184 bytes
 
+# Guest policy (report offset 0x08) bit that permits the host to debug the
+# guest: AMD SEV Secure Nested Paging Firmware ABI Specification (pub. 56860),
+# Guest Policy structure, DEBUG is bit 19 (1 = debugging allowed). A debug guest's
+# memory can be read and written by the hypervisor through SNP_DBG_DECRYPT /
+# SNP_DBG_ENCRYPT, so neither REPORT_DATA nor the code that chose it is
+# confidential or trustworthy, however genuine the signature. Cross-checked
+# against google/go-sev-guest abi/abi.go (policyDebugBit = 19).
+SNP_POLICY_DEBUG_BIT = 19
+SNP_POLICY_DEBUG = 1 << SNP_POLICY_DEBUG_BIT
+
 # ECDSA-P384 signature layout inside the report: r and s are little-endian,
 # each right-padded to 72 bytes (AMD stores 48 significant bytes of each).
 _SIG_COMPONENT_STRIDE = 72
@@ -255,6 +265,11 @@ class SnpReport:
     signature: bytes  # 512 bytes (r||s padded)
     signed_body: bytes  # report[:0x2a0] — the bytes covered by the signature
     raw: bytes  # the full 1184-byte report
+
+    @property
+    def debug(self) -> bool:
+        """True when the signed guest policy allows host debugging (bit 19)."""
+        return bool(self.policy & SNP_POLICY_DEBUG)
 
     @property
     def tcb_spls(self) -> dict[str, int]:
