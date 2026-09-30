@@ -554,7 +554,7 @@ def verify_vcek_chain(
     The chain's ARK public key must match a pinned root. By default that is one
     of AMD's published ARKs embedded in this module (Milan, Genoa, Turin; see
     :data:`AMD_ARK_SHA256`). ``trusted_ark_der`` replaces that set with a single
-    caller-chosen root. Before 0.13.2 an omitted ``trusted_ark_der`` meant no
+    caller-chosen root. Before 0.14.0 an omitted ``trusted_ark_der`` meant no
     pin at all, so a chain built from freshly generated keys verified
     (GHSA-cf88-228w-w58h).
 

@@ -377,7 +377,7 @@ def verify_attestation_chain(
 
     # Every verdict below reads the bound fields from the bytes the signature
     # covers. report.raw is a provider convenience copy that nothing signs:
-    # before 0.13.2 REPORT_DATA and the measurement were read from it, so a
+    # before 0.14.0 REPORT_DATA and the measurement were read from it, so a
     # genuine report for one manifest and measurement verified as binding any
     # other the caller wrote into raw (GHSA-cf88-228w-w58h). When the
     # signature did not verify there are no signed bytes to read; raw is then

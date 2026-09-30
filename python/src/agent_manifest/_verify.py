@@ -1825,7 +1825,7 @@ def verify_runtime_report(
        ``extraData == qualifying`` on ``tpm``, ``aws-nitro`` and
        ``azure-cvm-sev-snp``.
 
-    Before 0.13.2 only step 1 ran. ``report_data_hash`` is computed by the
+    Before 0.14.0 only step 1 ran. ``report_data_hash`` is computed by the
     provider and signed by nothing, so a replayed quote carrying an old nonce,
     or no quote at all, verified as fresh once the field was recomputed for
     the new nonce (GHSA-32q9-m5rc-rp3w).
