@@ -29,6 +29,7 @@ from ._cose import (
     MEDIA_TYPE_MANIFEST_COSE,
     CoseVerification,
 )
+from .evidence_requirements import EXPERIMENTAL_PROFILE as _EVIDENCE_REQUIREMENTS_PROFILE
 
 
 # ---------------------------------------------------------------------------
@@ -529,8 +530,11 @@ _FULL_BINDING_REQUIRED = ("system_prompt", "policy_bundle", "model_identity")
 
 def _full_binding_violation(manifest: dict[str, Any]) -> Optional[tuple[str, str]]:
     """Return a violation when a full-binding manifest omits a required artifact."""
-    if manifest.get("profile") is not None:
-        return None  # composition-only declares its own unbound set
+    profile = manifest.get("profile")
+    if profile is not None and profile != _EVIDENCE_REQUIREMENTS_PROFILE:
+        # composition-only declares its own unbound set. The experimental
+        # evidence-requirements profile keeps the full-binding rule.
+        return None
     artifacts = manifest.get("artifacts")
     if not isinstance(artifacts, dict):
         return None  # a missing or malformed artifacts block is its own violation
@@ -580,6 +584,9 @@ def _strict_schema_violations(manifest: dict[str, Any]) -> list[tuple[str, str]]
         manifest = {k: v for k, v in manifest.items() if k != "delegation_chain"}
 
     is_legacy_v01 = manifest.get("version") == "0.1"
+    is_evidence_requirements = (
+        manifest.get("profile") == _EVIDENCE_REQUIREMENTS_PROFILE
+    )
 
     try:
         Manifest.model_validate(manifest)
@@ -587,9 +594,15 @@ def _strict_schema_violations(manifest: dict[str, Any]) -> list[tuple[str, str]]
         violations: list[tuple[str, str]] = []
         for err in exc.errors():
             loc_parts = err.get("loc", ())
-            is_legacy_omission = err.get("type") == "missing" and (
-                len(loc_parts) > 1
-                or (loc_parts == ("issuer",) and is_legacy_v01)
+            # The experimental evidence-requirements profile is new, so it has
+            # no legacy omissions to tolerate: every missing field fails closed.
+            is_legacy_omission = (
+                not is_evidence_requirements
+                and err.get("type") == "missing"
+                and (
+                    len(loc_parts) > 1
+                    or (loc_parts == ("issuer",) and is_legacy_v01)
+                )
             )
             if loc_parts and loc_parts[-1] == "approval_duration_seconds":
                 is_legacy_omission = False
