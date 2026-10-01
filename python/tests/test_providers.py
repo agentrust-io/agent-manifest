@@ -146,6 +146,53 @@ def test_verify_manifest_tampered_manifest():
     assert not provider.verify_manifest_in_report(report, tampered)
 
 
+#---------------------------------------------------------------------------
+# SEC-TRANS-01: constant-time manifest_hash comparison
+# ---------------------------------------------------------------------------
+
+
+def test_verify_manifest_in_report_uses_constant_time_compare(monkeypatch):
+    """verify_manifest_in_report must go through hmac.compare_digest."""
+    import hmac as real_hmac
+    from unittest.mock import patch
+
+    provider = TPMProvider()
+    expected_hash = provider.manifest_hash_value(SAMPLE_MANIFEST)
+    report = AttestationReport(platform="tpm", manifest_hash=expected_hash)
+
+    with patch(
+        "agent_manifest._providers.hmac.compare_digest",
+        wraps=real_hmac.compare_digest,
+    ) as mock_compare:
+        assert provider.verify_manifest_in_report(report, SAMPLE_MANIFEST)
+
+    mock_compare.assert_called_once_with(expected_hash, expected_hash)
+
+
+def test_verify_manifest_in_report_same_length_wrong_hash_rejected():
+    """Same-length-but-wrong digest must still fail after the compare_digest switch."""
+    provider = TPMProvider()
+    expected_hash = provider.manifest_hash_value(SAMPLE_MANIFEST)
+    flipped = expected_hash[:-1] + ("0" if expected_hash[-1] != "0" else "1")
+    report = AttestationReport(platform="tpm", manifest_hash=flipped)
+    assert not provider.verify_manifest_in_report(report, SAMPLE_MANIFEST)
+
+
+def test_verify_manifest_in_report_non_string_hash_fails_closed_not_typeerror():
+    """A non-string manifest_hash must return False, not raise TypeError."""
+    provider = TPMProvider()
+    report = AttestationReport(platform="tpm", manifest_hash="tpm")
+    report.manifest_hash = None  # type: ignore[assignment]
+    assert provider.verify_manifest_in_report(report, SAMPLE_MANIFEST) is False
+
+
+def test_verify_manifest_in_report_non_ascii_hash_fails_closed_not_typeerror():
+    """A non-ASCII manifest_hash must also return False, not raise TypeError."""
+    provider = TPMProvider()
+    report = AttestationReport(platform="tpm", manifest_hash="é" * 64)
+    assert provider.verify_manifest_in_report(report, SAMPLE_MANIFEST) is False
+
+
 # ---------------------------------------------------------------------------
 # Error handling
 # ---------------------------------------------------------------------------

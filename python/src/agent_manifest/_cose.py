@@ -557,6 +557,20 @@ class CoseVerification:
         return value if isinstance(value, dict) else None
 
     @property
+    def attestation_label_present(self) -> bool:
+        """Whether the attestation label is present, regardless of type.
+        `.attestation` alone can't tell "absent" from "present but not a
+        dict", since it maps both to None."""
+        return LABEL_ATTESTATION in self.unprotected
+
+    @property
+    def attestation_raw(self) -> Any:
+        """The raw attestation label value, without `.attestation`'s
+        dict-only filtering. Use `.attestation_label_present` to tell an
+        absent label apart from one present holding None."""
+        return self.unprotected.get(LABEL_ATTESTATION)
+
+    @property
     def approvals(self) -> Optional[list[Any]]:
         value = self.unprotected.get(LABEL_APPROVALS)
         return list(value) if isinstance(value, (list, tuple)) else None

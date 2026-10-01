@@ -103,6 +103,43 @@ def test_sevsnp_verify_manifest_mismatch(monkeypatch):
     assert not provider.verify_manifest_in_report(report, SAMPLE_MANIFEST)
 
 
+def test_sevsnp_verify_manifest_fallback_uses_constant_time_compare(monkeypatch):
+    """The external-report fallback must also use hmac.compare_digest, not `==`."""
+    import hmac as real_hmac
+    from unittest.mock import patch
+
+    monkeypatch.setattr(os.path, "isdir", lambda p: p == TSM_DIR)
+    provider = SEVSNPProvider()
+    expected = provider.manifest_hash_value(SAMPLE_MANIFEST)
+    report = AttestationReport(platform="amd-sev-snp", manifest_hash=expected)
+
+    with patch(
+        "hmac.compare_digest",
+        wraps=real_hmac.compare_digest,
+    ) as mock_compare:
+        assert provider.verify_manifest_in_report(report, SAMPLE_MANIFEST)
+
+    mock_compare.assert_called_once_with(expected, expected)
+
+
+def test_sevsnp_verify_manifest_fallback_non_string_hash_fails_closed(monkeypatch):
+    """A non-string manifest_hash in the fallback path must return False,
+    not raise TypeError."""
+    monkeypatch.setattr(os.path, "isdir", lambda p: p == TSM_DIR)
+    provider = SEVSNPProvider()
+    report = AttestationReport(platform="amd-sev-snp", manifest_hash="placeholder")
+    report.manifest_hash = None  # type: ignore[assignment]
+    assert provider.verify_manifest_in_report(report, SAMPLE_MANIFEST) is False
+
+
+def test_sevsnp_verify_manifest_fallback_non_ascii_hash_fails_closed(monkeypatch):
+    """A non-ASCII manifest_hash must also return False, not raise TypeError."""
+    monkeypatch.setattr(os.path, "isdir", lambda p: p == TSM_DIR)
+    provider = SEVSNPProvider()
+    report = AttestationReport(platform="amd-sev-snp", manifest_hash="é" * 64)
+    assert provider.verify_manifest_in_report(report, SAMPLE_MANIFEST) is False
+
+
 def test_sevsnp_extend_with_mocked_tsm(monkeypatch):
     """extend + get_attestation_report over a mocked configfs-TSM report."""
     monkeypatch.setattr(os.path, "isdir", lambda p: p == TSM_DIR)
@@ -986,6 +1023,43 @@ def test_tdx_verify_manifest_mismatch(monkeypatch):
     provider = TDXProvider()
     report = AttestationReport(platform="intel-tdx", manifest_hash="sha256:" + "ff" * 32)
     assert not provider.verify_manifest_in_report(report, SAMPLE_MANIFEST)
+
+
+def test_tdx_verify_manifest_fallback_uses_constant_time_compare(monkeypatch):
+    """The external-report fallback must also use hmac.compare_digest, not `==`."""
+    import hmac as real_hmac
+    from unittest.mock import patch
+
+    monkeypatch.setattr(os.path, "isdir", lambda p: p == TSM_DIR)
+    provider = TDXProvider()
+    expected = provider.manifest_hash_value(SAMPLE_MANIFEST)
+    report = AttestationReport(platform="intel-tdx", manifest_hash=expected)
+
+    with patch(
+        "hmac.compare_digest",
+        wraps=real_hmac.compare_digest,
+    ) as mock_compare:
+        assert provider.verify_manifest_in_report(report, SAMPLE_MANIFEST)
+
+    mock_compare.assert_called_once_with(expected, expected)
+
+
+def test_tdx_verify_manifest_fallback_non_string_hash_fails_closed(monkeypatch):
+    """A non-string manifest_hash in the fallback path must return False,
+    not raise TypeError."""
+    monkeypatch.setattr(os.path, "isdir", lambda p: p == TSM_DIR)
+    provider = TDXProvider()
+    report = AttestationReport(platform="intel-tdx", manifest_hash="placeholder")
+    report.manifest_hash = None  # type: ignore[assignment]
+    assert provider.verify_manifest_in_report(report, SAMPLE_MANIFEST) is False
+
+
+def test_tdx_verify_manifest_fallback_non_ascii_hash_fails_closed(monkeypatch):
+    """A non-ASCII manifest_hash must also return False, not raise TypeError."""
+    monkeypatch.setattr(os.path, "isdir", lambda p: p == TSM_DIR)
+    provider = TDXProvider()
+    report = AttestationReport(platform="intel-tdx", manifest_hash="é" * 64)
+    assert provider.verify_manifest_in_report(report, SAMPLE_MANIFEST) is False
 
 
 def test_tdx_extend_with_mocked_tsm(monkeypatch):

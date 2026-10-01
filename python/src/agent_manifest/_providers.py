@@ -13,6 +13,7 @@ Implemented providers:
 from __future__ import annotations
 
 import hashlib
+import hmac
 import os
 import shutil
 import subprocess
@@ -295,7 +296,11 @@ class TPMProvider(AttestationProvider):
         callers must supply for production use.
         """
         expected = self.manifest_hash_value(manifest_json)
-        return report.manifest_hash == expected
+        # SEC-TRANS-01: constant-time compare. Guard non-str/non-ASCII
+        # first, since compare_digest raises TypeError on those.
+        if not isinstance(report.manifest_hash, str) or not report.manifest_hash.isascii():
+            return False
+        return hmac.compare_digest(report.manifest_hash, expected)
 
     def attest_runtime_state(
         self,

@@ -538,6 +538,10 @@ def verify_attestation_chain(
         if actual_hex is None:
             report_data_matched = False
             reasons.append("report has no 'report_data' field to check the manifest binding against")
+        elif not actual_hex.isascii():
+            # SEC-TRANS-01: compare_digest raises on non-ASCII input.
+            report_data_matched = False
+            reasons.append("report's 'report_data' field contains non-ASCII characters")
         else:
             # The first 32 bytes (64 hex chars) of REPORT_DATA carry the digest.
             report_data_matched = hmac.compare_digest(actual_hex[:64].lower(), expected_digest)
@@ -731,7 +735,13 @@ def verify_runtime_quote(
 
     expected_field = "sha256:" + hashlib.sha256(qualifying).hexdigest()
     reported = getattr(report, "report_data_hash", None)
-    if not isinstance(reported, str) or not hmac.compare_digest(reported, expected_field):
+    # SEC-TRANS-01: compare_digest raises TypeError on non-ASCII str, so guard
+    # the charset first and fail closed instead of crashing.
+    if (
+        not isinstance(reported, str)
+        or not reported.isascii()
+        or not hmac.compare_digest(reported, expected_field)
+    ):
         notes.append("report_data_hash is not derived from this nonce and context")
         return False
 

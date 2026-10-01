@@ -464,7 +464,13 @@ def _split_hybrid_public_key(
         )
 
     actual_key_id = hashlib.sha256(public_key_bytes).hexdigest()
-    if not hmac.compare_digest(actual_key_id, key_id):
+    # SEC-TRANS-01: guard non-str/non-ASCII before compare_digest, which
+    # raises on those instead of False.
+    if (
+        not isinstance(key_id, str)
+        or not key_id.isascii()
+        or not hmac.compare_digest(actual_key_id, key_id)
+    ):
         raise ValueError(
             "Hybrid public key bytes do not match signature.key_id"
         )
@@ -647,7 +653,7 @@ def _check_decision_trace(
         # Unbound, or bound with nothing to compare against: the inner _check
         # owns NOT_BOUND and the strict_artifact_verification bookkeeping.
         return check("decision_trace", signed_root, running_root)
-    if hmac.compare_digest(signed_root, running_root):
+    if isinstance(running_root, str) and running_root.isascii() and hmac.compare_digest(signed_root, running_root):
         return FieldResult.MATCH
 
     continuity = context.audit_chain_continuity
@@ -1083,13 +1089,21 @@ def verify_manifest(
         if runtime_val is None:
             unverified_bound.append(field_name)
             return FieldResult.NOT_BOUND
-        # Constant-time comparison to prevent timing side-channels (CRYPTO-002)
-        if hmac.compare_digest(manifest_val, runtime_val):
+        # Constant-time comparison to prevent timing side-channels (CRYPTO-002).
+        # SEC-TRANS-01: not every caller's manifest_val is HashValue-typed
+        # (model_identity's `version` fallback is a plain str, and runtime_val
+        # comes from the caller's own VerificationContext, not the schema) -
+        # guard non-str/non-ASCII first, since compare_digest raises on those.
+        if (
+            isinstance(manifest_val, str) and manifest_val.isascii()
+            and isinstance(runtime_val, str) and runtime_val.isascii()
+            and hmac.compare_digest(manifest_val, runtime_val)
+        ):
             return FieldResult.MATCH
         mismatches.append(MismatchDetail(
             field=field_name,
-            expected_hash=manifest_val,
-            actual_hash=runtime_val,
+            expected_hash=manifest_val if isinstance(manifest_val, str) else f"<non-string: type={type(manifest_val).__name__}>",
+            actual_hash=runtime_val if isinstance(runtime_val, str) else f"<non-string: type={type(runtime_val).__name__}>",
         ))
         return FieldResult.MISMATCH
 
@@ -1521,67 +1535,88 @@ def verify_manifest(
     # binds is sha256 of the payload bytes (envelope spec 5) - there is no
     # field subset to reconstruct and nothing to keep in sync.
     if _envelope is not None:
-        attestation_block = _envelope.attestation or {}
+        attestation_present = _envelope.attestation_label_present
+        attestation_block = _envelope.attestation_raw
     else:
-        attestation_block = manifest.get("attestation") or {}
-    if attestation_block:
-        reported_hash = attestation_block.get("manifest_hash_in_report", "")
-        if reported_hash:
-            from ._canonicalize import canonicalize as _canonicalize
-            import hashlib as _hashlib
-            if _envelope is not None:
-                expected_attest_hash = _envelope.manifest_hash
+        attestation_present = "attestation" in manifest
+        attestation_block = manifest.get("attestation")
+    if attestation_present:
+        from ._canonicalize import canonicalize as _canonicalize
+        import hashlib as _hashlib
+        if _envelope is not None:
+            expected_attest_hash = _envelope.manifest_hash
+        else:
+            # Spec 3.3: the pre-image excludes the attestation block AND the
+            # top-level transparency_log_entry (populated after log submission).
+            subset = {
+                k: v
+                for k, v in manifest.items()
+                if k not in ("attestation", "transparency_log_entry")
+            }
+            expected_attest_hash = "sha256:" + _hashlib.sha256(_canonicalize(subset)).hexdigest()
+        if not isinstance(attestation_block, dict):
+            # Spec 3.3: attestation MUST be omitted (not null) when there's
+            # none - a present null or other non-dict value is invalid,
+            # not "absent".
+            hash_matches = False
+            reported_hash_repr = f"<attestation present but not an object: type={type(attestation_block).__name__}>"
+        elif "manifest_hash_in_report" not in attestation_block:
+            # manifest_hash_in_report is REQUIRED (spec 3.3) - a present
+            # block omitting it is a mismatch, not "no attestation".
+            hash_matches = False
+            reported_hash_repr = "<manifest_hash_in_report missing>"
+        else:
+            reported_hash = attestation_block["manifest_hash_in_report"]
+            # SEC-TRANS-01: guard non-str/non-ASCII/falsy before
+            # compare_digest, which raises on those instead of False.
+            if isinstance(reported_hash, str) and reported_hash and reported_hash.isascii():
+                hash_matches = hmac.compare_digest(reported_hash, expected_attest_hash)
+                reported_hash_repr = reported_hash
             else:
-                # Spec 3.3: the pre-image excludes the attestation block AND the
-                # top-level transparency_log_entry (populated after log submission).
-                subset = {
-                    k: v
-                    for k, v in manifest.items()
-                    if k not in ("attestation", "transparency_log_entry")
-                }
-                expected_attest_hash = "sha256:" + _hashlib.sha256(_canonicalize(subset)).hexdigest()
-            if hmac.compare_digest(reported_hash, expected_attest_hash):
-                # The hash matching proves the report is *about this manifest*.
-                # It proves nothing about hardware: for a v0.1 manifest the
-                # attestation block is outside the signing pre-image (spec 3.3
-                # excludes it), and for a v0.2 COSE envelope it rides in the
-                # unprotected header. Either way a party holding any validly
-                # signed manifest can append a self-asserted digest it computed
-                # itself. Treating that as attestation let a software-only
-                # manifest satisfy enforce_attestation=True and reach VALID.
-                #
-                # So the binding is necessary and not sufficient. The verdict
-                # also needs an independent appraisal, supplied by the caller
-                # and bound to this manifest, exactly as transparency receipts
-                # are handled below.
-                attestation_evidence_bound = (
-                    context.attestation_evidence_manifest_id == manifest_id
+                hash_matches = False
+                reported_hash_repr = f"<malformed manifest_hash_in_report: type={type(reported_hash).__name__}>"
+        if hash_matches:
+            # The hash matching proves the report is *about this manifest*.
+            # It proves nothing about hardware: for a v0.1 manifest the
+            # attestation block is outside the signing pre-image (spec 3.3
+            # excludes it), and for a v0.2 COSE envelope it rides in the
+            # unprotected header. Either way a party holding any validly
+            # signed manifest can append a self-asserted digest it computed
+            # itself. Treating that as attestation let a software-only
+            # manifest satisfy enforce_attestation=True and reach VALID.
+            #
+            # So the binding is necessary and not sufficient. The verdict
+            # also needs an independent appraisal, supplied by the caller
+            # and bound to this manifest, exactly as transparency receipts
+            # are handled below.
+            attestation_evidence_bound = (
+                context.attestation_evidence_manifest_id == manifest_id
+            )
+            if (
+                attestation_evidence_bound
+                and expected_attest_hash in context.verified_attestation_manifest_hashes
+            ):
+                result.attestation_verified = True
+            else:
+                result.warnings.append(
+                    "attestation block binds this manifest but no independent "
+                    "hardware appraisal was supplied; attestation_verified "
+                    "reflects the binding only, not hardware provenance"
                 )
-                if (
-                    attestation_evidence_bound
-                    and expected_attest_hash in context.verified_attestation_manifest_hashes
-                ):
-                    result.attestation_verified = True
-                else:
-                    result.warnings.append(
-                        "attestation block binds this manifest but no independent "
-                        "hardware appraisal was supplied; attestation_verified "
-                        "reflects the binding only, not hardware provenance"
-                    )
-            else:
-                # A present attestation that binds a different manifest is a
-                # mismatch whether or not the caller asked for enforcement
-                # (spec 3.3, issue #265). Absent is a policy question and
-                # enforce_attestation still governs it; present-and-wrong is
-                # not: it is a report about some other document, and the case
-                # that produces it is the stale attestation left on a re-signed
-                # manifest. Gating it on enforce_attestation meant the default
-                # verifier returned VALID for exactly that.
-                mismatches.append(MismatchDetail(
-                    field="attestation",
-                    expected_hash=expected_attest_hash,
-                    actual_hash=reported_hash,
-                ))
+        else:
+            # A present attestation that binds a different manifest is a
+            # mismatch whether or not the caller asked for enforcement
+            # (spec 3.3, issue #265). Absent is a policy question and
+            # enforce_attestation still governs it; present-and-wrong is
+            # not: it is a report about some other document, and the case
+            # that produces it is the stale attestation left on a re-signed
+            # manifest. Gating it on enforce_attestation meant the default
+            # verifier returned VALID for exactly that.
+            mismatches.append(MismatchDetail(
+                field="attestation",
+                expected_hash=expected_attest_hash,
+                actual_hash=reported_hash_repr,
+            ))
 
     # --- Transparency receipt. The envelope field/header is untrusted input;
     # only an entry ID or receipt digest supplied by an independent log

@@ -52,6 +52,13 @@ def test_missing_report_data_field():
     assert result.report_data_matched is False
 
 
+def test_non_ascii_report_data_is_mismatch_not_crash():
+    """A non-ASCII report_data must be a mismatch, not an unhandled crash."""
+    report = _report(report_data_hex="é" * 64)
+    result = verify_attestation_chain(report, expected_manifest_hash=MANIFEST_HASH)
+    assert result.report_data_matched is False
+
+
 @ pytest.mark.parametrize(
     "bad_hash",
     [
