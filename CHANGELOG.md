@@ -2,7 +2,6 @@
 
 ## [Unreleased]
 
-
 ### Fixed
 
 - **[SDK]** Eleven hash/key-id checks used `==`, or `compare_digest()` with
