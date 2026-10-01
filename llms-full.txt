@@ -3366,6 +3366,11 @@ Source: [commercial-interest disclosure](https://github.com/agentrust-io/agent-m
 
 ## [Unreleased]
 
+### Fixed
+
+- **[SDK]** Eleven hash/key-id checks used `==`, or `compare_digest()` with no type/charset guard, instead of a safe constant-time compare: `verify_transparency_log_entry()`, `TPMProvider`/`SoftwareProvider.verify_manifest_in_report()`, the external-report fallback in `SEVSNPProvider`/`TDXProvider`, the REPORT_DATA check in `verify_attestation_chain()`, and in `_verify.py` the attestation `manifest_hash_in_report` check, `_split_hybrid_public_key()`, the `report_data_hash` check behind `verify_runtime_report()` (`verify_runtime_quote()`), the decision-trace `audit_chain_root` check, and the generic artifact `_check()` used for `system_prompt`, `policy_bundle`, `model_identity`, etc. Same fix as #450 for `_revocation.py`'s `signer_key_id`: guard non-str/non-ASCII input, since `compare_digest()` raises on those instead of returning `False` (SEC-TRANS-01). Without the guard, a malformed manifest, a non-ASCII `model_identity.version` (a plain string, not a hash), or a caller's own non-ASCII `VerificationContext.audit_chain_root`/`model_version` could crash verification with `TypeError` instead of getting a normal `MISMATCH`.
+- **[SDK]** A present `attestation` that was `null`, `{}`, any other non-object value, or missing the REQUIRED `manifest_hash_in_report` field (or that field present but falsy), was silently treated as if attestation were absent instead of the `MISMATCH` spec 3.3 requires. `attestation` MUST be omitted, not `null`, when there's none - only the field being entirely absent is still a policy question governed by `enforce_attestation`. Fixed on both the raw-manifest and COSE-envelope paths; on COSE, two new `CoseVerification` properties (`attestation_label_present`, `attestation_raw`) tell an absent attestation label apart from one present holding a bad value, which `.attestation` alone couldn't.
+
 ## [0.15.0] - 2026-09-30
 
 ### Security
