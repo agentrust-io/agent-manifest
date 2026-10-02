@@ -1925,6 +1925,7 @@ Total: 197 conformance tests. The test suite is published as an open-source repo
 <!-- CHANGED: REG-001 - corrected Art. 14 mapping to distinguish pre-deployment and runtime obligations; CRYPTO-008/REG-006 - added model attestation type note; REG-009 - added Art. 13(3)(c)(e) operational lifecycle fields; REG-005 - added Art. 22 note; REG-006 - added Annex III classification guidance subsection; REG-010 - added applicability dates and Art. 50 subsection -->
 
 <!-- CHANGED: #410 - correct applicability context; retain deadline verification requirement -->
+<!-- CHANGED: #456 - Art. 22 is a GDPR provision and is replaced by a reference to section 9.3; Annex III point 5 sub-points corrected in 9.1.1 -->
 **When these obligations apply.** GPAI model-provider obligations (Arts. 51-53) have applied since 2 August 2025. Article 50 transparency duties have applied since 2 August 2026 (see section 9.1.2). Under Article 113(c), as amended by Regulation (EU) 2026/1744, the high-risk obligations mapped in the table below (Arts. 12-15, 26) apply from 2 December 2027 for systems classified under Article 6(2) and Annex III, and from 2 August 2028 for systems classified under Article 6(1) and Annex I, subject to Article 111 transitional provisions. Implementers MUST verify against the [official consolidated Regulation](https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:02024R1689-20260727) and any subsequent amendments before asserting a compliance deadline. The mappings themselves are unaffected by the deferral. Obligations already in force under other frameworks - DORA for financial entities (section 9.2), HIPAA for US healthcare (section 9.3) - are unaffected.
 
 | Article | Requirement | Agent Manifest Satisfaction |
@@ -1936,7 +1937,8 @@ Total: 197 conformance tests. The test suite is published as an open-source repo
 | Art. 26 - Obligations for Deployers | Deployers must monitor operation and report serious incidents; logging required | `decision_trace` + `audit_chain_root` provides the monitoring log. TEE-sealed signing key satisfies tamper-evidence requirement. |
 | Art. 12 - Record-keeping (tamper-evidence) | High-risk AI must keep logs automatically; logs must be accurate | `audit_key_sealed: true` satisfies the accuracy requirement - logs cannot be retroactively altered without detection. |
 | Art. 12 - Record-keeping (retention) | Art. 26(6) requires minimum six-month log retention | Satisfied only when `log_retention.minimum_retention_days >= 180` is declared and enforced. Required for Level 2 conformance. |
-| Art. 22 - Automated decision-making | Where agents make automated decisions with significant effects on individuals, disclosure is required | When `data_scope.automated_decision_making` is `true`, Art. 22 disclosure obligations are triggered. The manifest's `data_scope` field (section 9.3) provides the machine-readable signal. |
+
+Obligations arising under Regulation (EU) 2016/679, including automated decision-making disclosure under its Article 22, are outside this table and are described in section 9.3.
 
 #### 9.1.1 EU AI Act Annex III Classification Guidance <!-- CHANGED: REG-006 - new subsection -->
 
@@ -1954,7 +1956,7 @@ Decision guidance: If the agent deployment falls within one of the above categor
 
 GPAI model providers (Anthropic, OpenAI, Google, etc.) are subject to separate obligations under Arts. 51-53 of the EU AI Act. These are distinct from the high-risk system obligations described here, which apply to operators deploying agents built on top of GPAI models.
 
-Operators in financial services should note that agents performing creditworthiness assessment or risk scoring for life and health insurance (Annex III Point 5(b)) are likely high-risk regardless of the underlying model provider.
+Operators in financial services should note that agents evaluating the creditworthiness of natural persons or establishing their credit score fall under Annex III point 5(b), which excludes AI systems used for the purpose of detecting financial fraud, and that agents performing risk assessment and pricing in relation to natural persons in the case of life and health insurance fall under Annex III point 5(c). Both are likely high-risk regardless of the underlying model provider.
 
 Article 50 is the exception to this subsection: its transparency duties attach to the interaction and the output, not to an Annex III classification, so they apply to agent deployments that are not high-risk. See section 9.1.2.
 

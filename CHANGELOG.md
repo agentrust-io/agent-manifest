@@ -35,6 +35,8 @@
   attestation label apart from one present holding a bad value, which
   `.attestation` alone couldn't.
 
+- **[DOCS]** Correct the Art. 22 attribution in the section 9.1 EU AI Act table and the Annex III point 5 sub-points in section 9.1.1 (#456). Art. 22 of Regulation (EU) 2024/1689 concerns authorised representatives of providers of high-risk AI systems; the removed row described Art. 22 of Regulation (EU) 2016/679, which section 9.3 already documents, so the row is replaced by a reference to that section and section 9.3 is left unchanged. Annex III point 5(b) covers creditworthiness and excludes systems used for the purpose of detecting financial fraud, and point 5(c) covers risk assessment and pricing for life and health insurance. Editorial only; no field, schema, conformance level or verifier behaviour changes. Reported by @ioanavalea; scope set by @imran-siddique on #456.
+
 ## [0.15.0] - 2026-09-30
 
 ### Security
@@ -279,7 +281,6 @@ reached a passing verdict from a value nothing signs.
   operations and the required `representation` keyword (`kv`, `vector`, or
   `graph`). Malformed evidence returns `drift`; nonfinite budgets and
   unrepresentable TTLs fail closed. Roots and proof formats are unchanged.
-
 - **[DOCS]** Correct section 9.1 applicability wording to the adopted Article 113(c) dates, with Article 111 transitions and the existing duty to verify deadlines retained (#410, Problem 2). Link the official consolidated Regulation; no field, conformance or requirement-level changes. Reported by @ioanavalea; maintainer-carried follow-up to #439.
 
 - **[SDK]** `MerkleTree.verify_inclusion()` didn't check `InclusionProof.tree_size`
