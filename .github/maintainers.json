@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "repository": "agent-manifest",
+  "source": "agentrust-io/.github:maintainers/roster.json",
+  "maintainers": [
+    "imran-siddique",
+    "carloshvp",
+    "zohebk8s",
+    "pforest",
+    "Qiang-Xu",
+    "rajnisht7"
+  ],
+  "security_paths": [],
+  "security_approvals": 1
+}
