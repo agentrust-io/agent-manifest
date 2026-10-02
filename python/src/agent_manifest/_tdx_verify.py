@@ -58,9 +58,21 @@ AiEA4J0lrHoMs+Xo5o/sX6O9QWxHRAvZUGOdRQ7cvqRXaqI=
 _QUOTE_HEADER_LEN = 48
 _TD_REPORT_LEN = 584  # TDX v4 TD report body
 # Field offsets within the TD report body.
+_OFF_TD_ATTRIBUTES = 120  # TDATTRIBUTES, 8 bytes, after SEAMATTRIBUTES
 _OFF_MRTD = 136
 _OFF_RTMR0 = 328
 _OFF_REPORTDATA = 520
+# TDATTRIBUTES bit 0 is DEBUG: Intel TDX Module ABI specification, TD
+# attributes table (ATTRIBUTES.DEBUG, bit 0 of the TUD group). A debug TD's
+# private memory and CPU state are readable and writable by the host VMM
+# through the TDX module's debug interface, so the TD report proves nothing
+# about what ran or who chose REPORTDATA. Offset and bit cross-checked against
+# google/go-tdx-guest abi/abi.go (tdAttributesStart = 0x78) and validate.go
+# (tdAttributesDebugBit = 0x1), and Linux arch/x86/include/asm/shared/tdx.h
+# (TDX_TD_ATTR_DEBUG_BIT 0). The committed GCP C3 captures carry 0x10000000
+# here (bit 28, SEPT_VE_DISABLE), which is how the offset was confirmed on
+# real silicon.
+TDX_TD_ATTR_DEBUG = 1 << 0
 # Quote header: version(2) att_key_type(2) tee_type(4) ...
 _TDX_QUOTE_VERSION = 4
 _ATT_KEY_TYPE_ECDSA_P256 = 2
@@ -87,6 +99,12 @@ class TdxQuote:
     rtmrs: tuple[bytes, bytes, bytes, bytes]  # each 48 bytes
     report_data: bytes  # 64 bytes (guest-supplied; first 32 carry the manifest digest)
     raw: bytes  # the full quote
+    td_attributes: int = 0  # TDATTRIBUTES (little-endian u64); bit 0 is DEBUG
+
+    @property
+    def debug(self) -> bool:
+        """True when the signed TDATTRIBUTES mark this a debug TD (bit 0)."""
+        return bool(self.td_attributes & TDX_TD_ATTR_DEBUG)
 
 
 @dataclass
@@ -228,6 +246,7 @@ def parse_tdx_quote(quote: bytes, *, strict: bool = True) -> TdxQuote:
         rtmrs=rtmrs,  # type: ignore[arg-type]
         report_data=body[_OFF_REPORTDATA:_OFF_REPORTDATA + 64],
         raw=quote,
+        td_attributes=struct.unpack_from("<Q", body, _OFF_TD_ATTRIBUTES)[0],
     )
 
 

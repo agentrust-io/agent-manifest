@@ -39,6 +39,7 @@ import hmac
 import struct
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
 # Raw SNP attestation report field offsets (AMD SEV-SNP ABI, Table 22).
 _OFF_VERSION = 0x00
@@ -54,6 +55,16 @@ _OFF_REPORTED_TCB = 0x180
 _OFF_CHIP_ID = 0x1A0
 _OFF_SIGNATURE = 0x2A0
 _SNP_REPORT_LEN = 0x4A0  # 1184 bytes
+
+# Guest policy (report offset 0x08) bit that permits the host to debug the
+# guest: AMD SEV Secure Nested Paging Firmware ABI Specification (pub. 56860),
+# Guest Policy structure, DEBUG is bit 19 (1 = debugging allowed). A debug guest's
+# memory can be read and written by the hypervisor through SNP_DBG_DECRYPT /
+# SNP_DBG_ENCRYPT, so neither REPORT_DATA nor the code that chose it is
+# confidential or trustworthy, however genuine the signature. Cross-checked
+# against google/go-sev-guest abi/abi.go (policyDebugBit = 19).
+SNP_POLICY_DEBUG_BIT = 19
+SNP_POLICY_DEBUG = 1 << SNP_POLICY_DEBUG_BIT
 
 # ECDSA-P384 signature layout inside the report: r and s are little-endian,
 # each right-padded to 72 bytes (AMD stores 48 significant bytes of each).
@@ -89,6 +100,149 @@ _HCL_MAGIC = b"HCLA"
 _HCL_SNP_REPORT_OFFSET = 0x20
 
 
+# AMD Root Keys (ARK), one per SEV-SNP product line, as served by the AMD Key
+# Distribution Service at https://kdsintf.amd.com/vcek/v1/<product>/cert_chain
+# (the second certificate in that bundle; the vlek/v1 bundle carries the same
+# ARK). Fetched 2026-09-30. Each is a self-signed RSA-4096 certificate whose
+# RSASSA-PSS self-signature and signature over the KDS ASK were checked when
+# it was recorded; tests/fixtures/amd_kds/ holds those KDS bundles so the check
+# is repeatable offline.
+#
+# verify_vcek_chain() pins the chain's ARK to this set by default, the same way
+# _tdx_verify pins the Intel SGX Root CA. Without a pinned root, a VCEK/ASK/ARK
+# chain made from freshly generated keys verified exactly as well as AMD's
+# (GHSA-cf88-228w-w58h). The SHA-256 of each certificate's DER is recorded
+# alongside and re-checked at use, so an edit to the PEM text cannot silently
+# change which root is trusted.
+AMD_ARK_MILAN_PEM = b"""-----BEGIN CERTIFICATE-----
+MIIGYzCCBBKgAwIBAgIDAQAAMEYGCSqGSIb3DQEBCjA5oA8wDQYJYIZIAWUDBAIC
+BQChHDAaBgkqhkiG9w0BAQgwDQYJYIZIAWUDBAICBQCiAwIBMKMDAgEBMHsxFDAS
+BgNVBAsMC0VuZ2luZWVyaW5nMQswCQYDVQQGEwJVUzEUMBIGA1UEBwwLU2FudGEg
+Q2xhcmExCzAJBgNVBAgMAkNBMR8wHQYDVQQKDBZBZHZhbmNlZCBNaWNybyBEZXZp
+Y2VzMRIwEAYDVQQDDAlBUkstTWlsYW4wHhcNMjAxMDIyMTcyMzA1WhcNNDUxMDIy
+MTcyMzA1WjB7MRQwEgYDVQQLDAtFbmdpbmVlcmluZzELMAkGA1UEBhMCVVMxFDAS
+BgNVBAcMC1NhbnRhIENsYXJhMQswCQYDVQQIDAJDQTEfMB0GA1UECgwWQWR2YW5j
+ZWQgTWljcm8gRGV2aWNlczESMBAGA1UEAwwJQVJLLU1pbGFuMIICIjANBgkqhkiG
+9w0BAQEFAAOCAg8AMIICCgKCAgEA0Ld52RJOdeiJlqK2JdsVmD7FktuotWwX1fNg
+W41XY9Xz1HEhSUmhLz9Cu9DHRlvgJSNxbeYYsnJfvyjx1MfU0V5tkKiU1EesNFta
+1kTA0szNisdYc9isqk7mXT5+KfGRbfc4V/9zRIcE8jlHN61S1ju8X93+6dxDUrG2
+SzxqJ4BhqyYmUDruPXJSX4vUc01P7j98MpqOS95rORdGHeI52Naz5m2B+O+vjsC0
+60d37jY9LFeuOP4Meri8qgfi2S5kKqg/aF6aPtuAZQVR7u3KFYXP59XmJgtcog05
+gmI0T/OitLhuzVvpZcLph0odh/1IPXqx3+MnjD97A7fXpqGd/y8KxX7jksTEzAOg
+bKAeam3lm+3yKIcTYMlsRMXPcjNbIvmsBykD//xSniusuHBkgnlENEWx1UcbQQrs
++gVDkuVPhsnzIRNgYvM48Y+7LGiJYnrmE8xcrexekBxrva2V9TJQqnN3Q53kt5vi
+Qi3+gCfmkwC0F0tirIZbLkXPrPwzZ0M9eNxhIySb2npJfgnqz55I0u33wh4r0ZNQ
+eTGfw03MBUtyuzGesGkcw+loqMaq1qR4tjGbPYxCvpCq7+OgpCCoMNit2uLo9M18
+fHz10lOMT8nWAUvRZFzteXCm+7PHdYPlmQwUw3LvenJ/ILXoQPHfbkH0CyPfhl1j
+WhJFZasCAwEAAaN+MHwwDgYDVR0PAQH/BAQDAgEGMB0GA1UdDgQWBBSFrBrRQ/fI
+rFXUxR1BSKvVeErUUzAPBgNVHRMBAf8EBTADAQH/MDoGA1UdHwQzMDEwL6AtoCuG
+KWh0dHBzOi8va2RzaW50Zi5hbWQuY29tL3ZjZWsvdjEvTWlsYW4vY3JsMEYGCSqG
+SIb3DQEBCjA5oA8wDQYJYIZIAWUDBAICBQChHDAaBgkqhkiG9w0BAQgwDQYJYIZI
+AWUDBAICBQCiAwIBMKMDAgEBA4ICAQC6m0kDp6zv4Ojfgy+zleehsx6ol0ocgVel
+ETobpx+EuCsqVFRPK1jZ1sp/lyd9+0fQ0r66n7kagRk4Ca39g66WGTJMeJdqYriw
+STjjDCKVPSesWXYPVAyDhmP5n2v+BYipZWhpvqpaiO+EGK5IBP+578QeW/sSokrK
+dHaLAxG2LhZxj9aF73fqC7OAJZ5aPonw4RE299FVarh1Tx2eT3wSgkDgutCTB1Yq
+zT5DuwvAe+co2CIVIzMDamYuSFjPN0BCgojl7V+bTou7dMsqIu/TW/rPCX9/EUcp
+KGKqPQ3P+N9r1hjEFY1plBg93t53OOo49GNI+V1zvXPLI6xIFVsh+mto2RtgEX/e
+pmMKTNN6psW88qg7c1hTWtN6MbRuQ0vm+O+/2tKBF2h8THb94OvvHHoFDpbCELlq
+HnIYhxy0YKXGyaW1NjfULxrrmxVW4wcn5E8GddmvNa6yYm8scJagEi13mhGu4Jqh
+3QU3sf8iUSUr09xQDwHtOQUVIqx4maBZPBtSMf+qUDtjXSSq8lfWcd8bLr9mdsUn
+JZJ0+tuPMKmBnSH860llKk+VpVQsgqbzDIvOLvD6W1Umq25boxCYJ+TuBoa4s+HH
+CViAvgT9kf/rBq1d+ivj6skkHxuzcxbk1xv6ZGxrteJxVH7KlX7YRdZ6eARKwLe4
+AFZEAwoKCQ==
+-----END CERTIFICATE-----
+"""
+AMD_ARK_GENOA_PEM = b"""-----BEGIN CERTIFICATE-----
+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
+/wMz1R1BHg==
+-----END CERTIFICATE-----
+"""
+AMD_ARK_TURIN_PEM = b"""-----BEGIN CERTIFICATE-----
+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
+zpacMwFusA==
+-----END CERTIFICATE-----
+"""
+
+# SHA-256 of each ARK certificate's DER encoding, keyed by KDS product name.
+AMD_ARK_SHA256: dict[str, str] = {
+    "Milan": "69d063b45344d26a2e94e1f4210de49ef555308287d4c174445c95639a540bcd",
+    "Genoa": "4c6598d19c18719c5dfd4a7d335f674e5bfe1d8f800cea2cf270c10d103db2f1",
+    "Turin": "1f084161a44bb6d93778a904877d4819cafa5d05ef4193b2ded9dd9c73dd3f6a",
+}
+
+_AMD_ARK_PEMS: dict[str, bytes] = {
+    "Milan": AMD_ARK_MILAN_PEM,
+    "Genoa": AMD_ARK_GENOA_PEM,
+    "Turin": AMD_ARK_TURIN_PEM,
+}
+
+
 class SnpVerificationError(Exception):
     """Raised when an SNP report or its certificate chain fails verification."""
 
@@ -111,6 +265,11 @@ class SnpReport:
     signature: bytes  # 512 bytes (r||s padded)
     signed_body: bytes  # report[:0x2a0] — the bytes covered by the signature
     raw: bytes  # the full 1184-byte report
+
+    @property
+    def debug(self) -> bool:
+        """True when the signed guest policy allows host debugging (bit 19)."""
+        return bool(self.policy & SNP_POLICY_DEBUG)
 
     @property
     def tcb_spls(self) -> dict[str, int]:
@@ -405,9 +564,14 @@ def verify_vcek_chain(
     """Verify VCEK <- ASK <- ARK, and that ARK is self-signed (the AMD root).
 
     The AMD KDS signs each link with RSASSA-PSS (MGF1-SHA384, 48-byte salt).
-    ``cert_chain_pem`` is the KDS ``cert_chain`` blob (ASK then ARK). If
-    ``trusted_ark_der`` is supplied, the chain's ARK public key must match it,
-    pinning the root instead of trusting whatever the chain carries.
+    ``cert_chain_pem`` is the KDS ``cert_chain`` blob (ASK then ARK).
+
+    The chain's ARK public key must match a pinned root. By default that is one
+    of AMD's published ARKs embedded in this module (Milan, Genoa, Turin; see
+    :data:`AMD_ARK_SHA256`). ``trusted_ark_der`` replaces that set with a single
+    caller-chosen root. Before 0.14.0 an omitted ``trusted_ark_der`` meant no
+    pin at all, so a chain built from freshly generated keys verified
+    (GHSA-cf88-228w-w58h).
 
     Every certificate in the chain must be within its validity period (see
     :func:`._cert_chain.check_validity_period`); an expired VCEK, ASK, or ARK
@@ -467,20 +631,61 @@ def verify_vcek_chain(
     _check(ask, ark, "ASK<-ARK")
     _check(ark, ark, "ARK self-signature")  # AMD root is self-signed
 
+    def _spki(cert: x509.Certificate) -> bytes:
+        return cert.public_key().public_bytes(
+            serialization.Encoding.DER,
+            serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+
+    chain_spki = _spki(ark)
     if trusted_ark_der is not None:
-        pinned = x509.load_der_x509_certificate(trusted_ark_der)
-        chain_spki = ark.public_key().public_bytes(
-            serialization.Encoding.DER,
-            serialization.PublicFormat.SubjectPublicKeyInfo,
+        # An explicit root replaces the embedded AMD set: it is how a caller
+        # pins one product line, or a test chain, and nothing else is trusted.
+        try:
+            pinned_roots = [x509.load_der_x509_certificate(trusted_ark_der)]
+        except ValueError as e:
+            raise SnpVerificationError(f"trusted_ark_der is not a DER certificate: {e}") from e
+    else:
+        pinned_roots = amd_ark_certificates()
+    if not any(hmac.compare_digest(chain_spki, _spki(root)) for root in pinned_roots):
+        raise SnpVerificationError(
+            "chain ARK does not match the pinned AMD root"
+            if trusted_ark_der is not None
+            else "chain ARK is not one of AMD's published ARKs (Milan, Genoa, "
+            "Turin); pass trusted_ark_der to pin a different root"
         )
-        pinned_spki = pinned.public_key().public_bytes(
-            serialization.Encoding.DER,
-            serialization.PublicFormat.SubjectPublicKeyInfo,
-        )
-        if not hmac.compare_digest(chain_spki, pinned_spki):
-            raise SnpVerificationError("chain ARK does not match the pinned AMD root")
 
     return True
+
+
+def amd_ark_certificates() -> list[Any]:
+    """Return the embedded AMD ARK certificates, each checked against its pin.
+
+    The PEM constants above are loaded and the SHA-256 of each DER encoding is
+    compared with :data:`AMD_ARK_SHA256`. A mismatch raises
+    :class:`SnpVerificationError` rather than trusting whatever the constant
+    now holds.
+    """
+    try:
+        from cryptography import x509
+        from cryptography.hazmat.primitives import serialization
+    except ImportError as e:  # pragma: no cover
+        raise SnpVerificationError(
+            "AMD root pinning requires the 'cryptography' package"
+        ) from e
+
+    roots: list[Any] = []
+    for product, pem in _AMD_ARK_PEMS.items():
+        cert = x509.load_pem_x509_certificate(pem)
+        der = cert.public_bytes(serialization.Encoding.DER)
+        if not hmac.compare_digest(
+            hashlib.sha256(der).hexdigest(), AMD_ARK_SHA256[product]
+        ):
+            raise SnpVerificationError(
+                f"embedded AMD ARK for {product} does not match its recorded SHA-256"
+            )
+        roots.append(cert)
+    return roots
 
 
 # AMD Key Distribution Service. Product names: "Milan", "Genoa", "Turin".

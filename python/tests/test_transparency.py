@@ -402,3 +402,111 @@ def test_verify_entry_uses_correct_url():
     call_url = mock_get.call_args[0][0]
     assert FAKE_ENTRY_UUID in call_url
     assert REKOR_API_PATH in call_url
+
+
+# ---------------------------------------------------------------------------
+# verify_transparency_log_entry: constant-time hash comparison (SEC-TRANS-01)
+# ---------------------------------------------------------------------------
+
+
+def test_verify_entry_hash_compare_uses_constant_time_compare():
+    """The hash check goes through hmac.compare_digest, not `==`."""
+    content_hash = _expected_content_hash()
+    entry = TransparencyLogEntry(
+        log_id=FAKE_LOG_ID,
+        entry_id=FAKE_ENTRY_UUID,
+        inclusion_proof="proof",
+    )
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = _make_get_response_body(
+        FAKE_ENTRY_UUID, content_hash
+    )
+
+    with patch("httpx.get", return_value=mock_response), patch(
+        "agent_manifest._transparency.hmac.compare_digest",
+        wraps=__import__("hmac").compare_digest,
+    ) as mock_compare:
+        result = verify_transparency_log_entry(SAMPLE_MANIFEST, entry)
+
+    assert result is True
+    mock_compare.assert_called_once_with(content_hash, content_hash)
+
+
+def test_verify_entry_same_length_wrong_hash_still_rejected():
+    """A same-length but wrong hash must still fail."""
+    content_hash = _expected_content_hash()
+    wrong_same_length = ("0" if content_hash[0] != "0" else "1") + content_hash[1:]
+    entry = TransparencyLogEntry(
+        log_id=FAKE_LOG_ID,
+        entry_id=FAKE_ENTRY_UUID,
+        inclusion_proof="proof",
+    )
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = _make_get_response_body(
+        FAKE_ENTRY_UUID, wrong_same_length
+    )
+
+    with patch("httpx.get", return_value=mock_response):
+        result = verify_transparency_log_entry(SAMPLE_MANIFEST, entry)
+
+    assert result is False
+
+
+def test_verify_entry_non_string_hash_value_fails_closed_not_typeerror():
+    """A non-string hash `value` must return False, not raise TypeError."""
+    entry = TransparencyLogEntry(
+        log_id=FAKE_LOG_ID,
+        entry_id=FAKE_ENTRY_UUID,
+        inclusion_proof="proof",
+    )
+
+    spec_body = {
+        "spec": {
+            "data": {"hash": {"algorithm": "sha256", "value": 12345}},
+            "signature": {"content": _SIG_VALUE, "publicKey": {"content": _PUB_B64URL}},
+        }
+    }
+    body_b64 = base64.b64encode(json.dumps(spec_body).encode()).decode()
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        FAKE_ENTRY_UUID: {"logID": FAKE_LOG_ID, "logIndex": 1, "body": body_b64}
+    }
+
+    with patch("httpx.get", return_value=mock_response):
+        result = verify_transparency_log_entry(SAMPLE_MANIFEST, entry)
+
+    assert result is False
+
+
+def test_verify_entry_non_ascii_hash_value_fails_closed_not_typeerror():
+    """A non-ASCII hash `value` must also return False, not raise TypeError."""
+    entry = TransparencyLogEntry(
+        log_id=FAKE_LOG_ID,
+        entry_id=FAKE_ENTRY_UUID,
+        inclusion_proof="proof",
+    )
+
+    spec_body = {
+        "spec": {
+            "data": {"hash": {"algorithm": "sha256", "value": "é" * 64}},
+            "signature": {"content": _SIG_VALUE, "publicKey": {"content": _PUB_B64URL}},
+        }
+    }
+    body_b64 = base64.b64encode(json.dumps(spec_body).encode()).decode()
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        FAKE_ENTRY_UUID: {"logID": FAKE_LOG_ID, "logIndex": 1, "body": body_b64}
+    }
+
+    with patch("httpx.get", return_value=mock_response):
+        result = verify_transparency_log_entry(SAMPLE_MANIFEST, entry)
+
+    assert result is False

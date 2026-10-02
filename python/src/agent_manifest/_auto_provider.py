@@ -20,6 +20,7 @@ Callers that require Level 1+ MUST explicitly check provider.level >= 1.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import os
 import shutil
 from typing import Any, cast
@@ -76,7 +77,12 @@ class SoftwareProvider(AttestationProvider):
         return AttestationReport(platform="software", manifest_hash=self._manifest_hash)
 
     def verify_manifest_in_report(self, report: AttestationReport, manifest_json: dict[str, Any]) -> bool:
-        return bool(report.manifest_hash == self.manifest_hash_value(manifest_json))
+        expected = self.manifest_hash_value(manifest_json)
+        # SEC-TRANS-01: constant-time compare. Guard non-str/non-ASCII
+        # first, since compare_digest raises TypeError on those.
+        if not isinstance(report.manifest_hash, str) or not report.manifest_hash.isascii():
+            return False
+        return hmac.compare_digest(report.manifest_hash, expected)
 
     def attest_runtime_state(self, nonce: bytes, context_hash: str) -> RuntimeAttestationReport:
         """Software-only runtime state binding — no hardware involved.

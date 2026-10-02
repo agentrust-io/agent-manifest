@@ -211,8 +211,8 @@ def _rsa_pss_chain():
 
 
 def test_verify_vcek_chain_accepts_valid():
-    vcek_der, chain_pem, _ = _rsa_pss_chain()
-    assert verify_vcek_chain(vcek_der, chain_pem) is True
+    vcek_der, chain_pem, ark_der = _rsa_pss_chain()
+    assert verify_vcek_chain(vcek_der, chain_pem, trusted_ark_der=ark_der) is True
 
 
 def test_verify_vcek_chain_pins_ark():
@@ -299,12 +299,15 @@ def test_verify_vcek_chain_accepts_within_pinned_verification_time():
 
     not_before = datetime(2024, 1, 1, tzinfo=timezone.utc)
     not_after = datetime(2025, 1, 1, tzinfo=timezone.utc)
-    vcek_der, chain_pem, _ = _rsa_pss_chain_at(not_before, not_after)
+    vcek_der, chain_pem, ark_der = _rsa_pss_chain_at(not_before, not_after)
     # A verification_time inside the window passes even though "now" (2026)
     # is well past not_after this is what makes the check testable/
     # deterministic rather than only ever checkable against wall-clock time.
     assert verify_vcek_chain(
-        vcek_der, chain_pem, verification_time=datetime(2024, 6, 1, tzinfo=timezone.utc)
+        vcek_der,
+        chain_pem,
+        trusted_ark_der=ark_der,
+        verification_time=datetime(2024, 6, 1, tzinfo=timezone.utc),
     ) is True
 
 
@@ -537,3 +540,56 @@ def test_platform_info_offset_is_published_for_downstreams():
     from agent_manifest._snp_verify import SNP_OFFSETS
 
     assert SNP_OFFSETS["platform_info"] == 0x40
+
+
+# ---------------------------------------------------------------------------
+# GHSA-cf88-228w-w58h: the AMD ARKs are embedded and pinned by default. The
+# fixtures are the AMD KDS cert_chain bundles (ASK then ARK) fetched from
+# https://kdsintf.amd.com/vcek/v1/<product>/cert_chain on 2026-09-30.
+# ---------------------------------------------------------------------------
+
+AMD_KDS = pathlib.Path(__file__).parent / "fixtures" / "amd_kds"
+
+
+@pytest.mark.parametrize("product", ["Milan", "Genoa", "Turin"])
+def test_embedded_amd_ark_matches_its_pin_and_signs_the_kds_ask(product):
+    import hashlib
+    import re
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import padding
+
+    from agent_manifest._snp_verify import AMD_ARK_SHA256, amd_ark_certificates
+
+    arks = {c.subject.rfc4514_string().split(",")[0]: c for c in amd_ark_certificates()}
+    ark = arks[f"CN=ARK-{product}"]
+    der = ark.public_bytes(serialization.Encoding.DER)
+    assert hashlib.sha256(der).hexdigest() == AMD_ARK_SHA256[product]
+
+    bundle = (AMD_KDS / f"{product.lower()}_cert_chain.pem").read_bytes()
+    ask_pem, ark_pem = re.findall(
+        rb"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----", bundle, re.S
+    )
+    # The KDS ARK is byte-identical to the embedded one...
+    assert x509.load_pem_x509_certificate(ark_pem).public_bytes(serialization.Encoding.DER) == der
+    # ...and it is the key that signed the AMD ASK for this product line.
+    ask = x509.load_pem_x509_certificate(ask_pem)
+    pss = padding.PSS(mgf=padding.MGF1(hashes.SHA384()), salt_length=48)
+    ark.public_key().verify(ask.signature, ask.tbs_certificate_bytes, pss, hashes.SHA384())
+
+
+def test_verify_vcek_chain_rejects_an_unpinned_self_made_root_by_default():
+    vcek_der, chain_pem, ark_der = _rsa_pss_chain()
+    with pytest.raises(SnpVerificationError, match="published ARKs"):
+        verify_vcek_chain(vcek_der, chain_pem)
+    # Control: the same chain verifies when its root is pinned explicitly.
+    assert verify_vcek_chain(vcek_der, chain_pem, trusted_ark_der=ark_der) is True
+
+
+def test_edited_embedded_ark_is_refused(monkeypatch):
+    from agent_manifest import _snp_verify
+
+    monkeypatch.setitem(_snp_verify.AMD_ARK_SHA256, "Milan", "0" * 64)
+    with pytest.raises(SnpVerificationError, match="recorded SHA-256"):
+        _snp_verify.amd_ark_certificates()

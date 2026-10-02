@@ -62,3 +62,24 @@ def test_manifest_id_json_schema_pattern_still_anchored():
 def test_hash_value_json_schema_pattern_still_anchored():
     assert HashValue._PATTERN.pattern.startswith("^")
     assert HashValue._PATTERN.pattern.endswith("$")
+
+
+# ---------------------------------------------------------------------------
+# HashValue.parse — used by _memory_delta._root_bytes and
+# _audit_continuity._root_bytes instead of a local partition(":") +
+# fromhex() parse, which was looser than the HashValue format.
+# ---------------------------------------------------------------------------
+
+
+def test_hash_value_parse_accepts_well_formed_sha256():
+    algorithm, digest = HashValue.parse(GOOD_HASH)
+    assert algorithm == "sha256"
+    assert digest == b"\xaa" * 32
+    assert len(digest) == 32
+
+
+def test_hash_value_parse_accepts_well_formed_shake256():
+    good = "shake256:" + "b" * 64
+    algorithm, digest = HashValue.parse(good)
+    assert algorithm == "shake256"
+    assert digest == b"\xbb" * 32

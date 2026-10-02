@@ -15,10 +15,17 @@ from agent_manifest import RevocationStore, VerificationContext, verify_manifest
 `VerificationContext.trusted_keys` maps an issuer `key_id` (the SHA-256 hex of
 the public key bytes) to its base64url-encoded Ed25519 public key, the form
 returned by `Ed25519KeyPair.public_b64url()`. A consumer that holds raw public
-key bytes must base64url-encode them before populating `trusted_keys`. Signers
-and verifiers share `agent_manifest.signing_pre_image()` for the exact RFC 8785
-canonical byte sequence, including the `hitl_record.approvals` normalization, so
-a relying party never reconstructs the pre-image itself.
+key bytes must base64url-encode them before populating `trusted_keys`.
+`agent_manifest.signing_pre_image()` is the v0.1 signature pre-image: signers
+and verifiers share it for the exact RFC 8785 canonical byte sequence,
+including the `hitl_record.approvals` normalization, so a relying party never
+reconstructs the pre-image itself. It does not apply to v0.2 manifests. A v0.2
+manifest has no field allowlist and no `approvals` normalization at the
+payload level; a verifier checks the COSE `Sig_structure` over the payload
+bytes exactly as received (`agent_manifest.verify_cose_manifest()`, built on
+`agent_manifest.cose_payload()` for the producer side), with
+`hitl_record.approvals` carried in the unprotected header rather than
+normalized out of the signed payload.
 
 ## Core function
 
@@ -80,6 +87,16 @@ claims `VALID` over a conflicting hash is a spec violation and fails.
 Verification is fail-closed: a missing key, an unknown algorithm, or a build
 without the `[pq]` extra yields `UNVERIFIABLE`, never `VERIFIED`.
 
+`verify_evidence_pack()` also appraises the section 5.2 `verification_result`
+inside the pack. The pack signature proves who assembled the pack, not what the
+result says, so the pack is `VERIFIED` only when that result is `VALID` and its
+`manifest_id` names the pack's manifest. Its `verification_signature` is a bare
+string signed by the attestation service over `verification_result_pre_image()`;
+pass `result_key_id` (and `result_algorithm` for ML-DSA-65) to check it. Without
+`result_key_id` it is not checked, `verification_result_signature_verified` stays
+`False`, and the result carries a `verification_result_signature_not_appraised`
+warning. `signature_verified` refers to the outer `pack_signature` only.
+
 ::: agent_manifest._trace.verify_trace_envelope
 
 ::: agent_manifest._trace.verify_evidence_pack
@@ -100,6 +117,8 @@ and verifiers MUST both use them so the byte sequences match.
 ::: agent_manifest._trace.trace_signing_pre_image
 
 ::: agent_manifest._trace.evidence_pack_pre_image
+
+::: agent_manifest._trace.verification_result_pre_image
 
 ## Revocation
 

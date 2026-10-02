@@ -15,7 +15,15 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
+from pydantic_core import PydanticCustomError
 
 from ._delegation import (
     DEFAULT_MAX_DELEGATION_DEPTH,
@@ -24,6 +32,7 @@ from ._delegation import (
 )
 from ._signing import SIGNED_FIELDS
 from ._types import HashValue, ManifestId
+from .evidence_requirements import EvidenceRequirements
 
 
 # ---------------------------------------------------------------------------
@@ -62,6 +71,7 @@ class ManifestProfile(str, Enum):
     """The assurance scope of an Agent Manifest (spec Section 3.1)."""
 
     composition_only = "composition-only"
+    evidence_requirements_experimental = "evidence-requirements-experimental-v1"
 
 
 class SourceBundleFormat(str, Enum):
@@ -847,6 +857,10 @@ class Manifest(SpecModel):
     artifacts: ArtifactBindings
     # attestation is appended by the TEE at launch - excluded from signature pre-image
     attestation: Optional[dict[str, Any]] = None
+    # EXPERIMENTAL and opt-in. Accepted only under the explicit
+    # evidence-requirements-experimental-v1 profile on a v0.2 manifest; under
+    # any other profile it is rejected exactly as an unknown field always was.
+    evidence_requirements: Optional[EvidenceRequirements] = None
     # CONDITIONALLY REQUIRED; an empty array is invalid - omit the field
     # entirely when there is no delegation (spec 3.1 cardinality table).
     delegation_chain: Optional[list[DelegationHop]] = Field(default=None, min_length=1)
@@ -866,6 +880,21 @@ class Manifest(SpecModel):
     # NOT covered by the signature.
     transparency_log_entry: Optional[TransparencyLogEntry] = None
 
+    @field_validator("evidence_requirements", mode="before")
+    @classmethod
+    def _evidence_requirements_opt_in(cls, value: Any, info: ValidationInfo) -> Any:
+        # A field validator rather than a model validator, so the rejection
+        # fires even when another field fails and the model validator never
+        # runs. The verifier filters legacy nested omissions, and a block that
+        # only a skipped model validator rejected would otherwise pass there.
+        # An explicit null is allowed, as for every optional field, so that a
+        # full model_dump() validates again; it carries no requirements.
+        if value is None:
+            return None
+        if info.data.get("profile") != ManifestProfile.evidence_requirements_experimental:
+            raise PydanticCustomError("extra_forbidden", "Extra inputs are not permitted")
+        return value
+
     @model_validator(mode="after")
     def _validate_expiry_window(self) -> "Manifest":
         delta = self.expires_at - self.issued_at
@@ -877,6 +906,15 @@ class Manifest(SpecModel):
 
     @model_validator(mode="after")
     def _validate_manifest_profile(self) -> "Manifest":
+        experimental = self.profile == ManifestProfile.evidence_requirements_experimental
+        if experimental:
+            if self.version != "0.2" or self.evidence_requirements is None:
+                raise ValueError("experimental requirements need v0.2 and a signed block")
+            for component in self.evidence_requirements.components:
+                if component.artifact_ref is not None:
+                    name = component.artifact_ref.split(".")[1]
+                    if getattr(self.artifacts, name, None) is None:
+                        raise ValueError("artifact_ref does not resolve to a signed binding")
         nested_names = {
             "system_prompt",
             "policy_bundle",
@@ -895,7 +933,7 @@ class Manifest(SpecModel):
         if self.hitl_record is not None:
             bound.add("hitl_record")
 
-        if self.profile is None:
+        if self.profile is None or experimental:
             if self.unbound_artifacts is not None:
                 raise ValueError(
                     "unbound_artifacts is only valid when profile is 'composition-only'"

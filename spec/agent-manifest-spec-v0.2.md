@@ -5,7 +5,7 @@
 | Field | Value |
 |---|---|
 | Version | 0.2 - Draft for Review |
-| Subtitle | A cryptographic identity and provenance standard for AI agents |
+| Subtitle | A verifiable declaration of an AI agent's deployment content |
 | Authors | Imran Siddique (AgenTrust) |
 | Status | Draft v0.2 - Proposed Open Standard |
 | Date | August 2026 |
@@ -17,15 +17,15 @@
 
 ## Abstract
 
-The Agent Manifest is a cryptographically signed, hardware-attestable document that establishes the trust surface of an AI agent at deployment time. It binds ten attestable artifacts - system prompt, policy bundle, tool manifest, model identity, RAG corpus, memory baseline, decision-log baseline, A2A delegation chain, supply chain provenance, and human-in-the-loop approval records - into a single tamper-evident identity primitive. A verifying party who holds an Agent Manifest and its accompanying attestation report can prove, without trusting the operator, that a specific agent instance started with specific code, policy, tools, audit-chain root, and human oversight. Decisions produced after deployment are separate TRACE or OCSF evidence records and MUST be joined back to this manifest; their signatures prove integrity, not completeness or behavioral correctness. This specification defines the manifest data model, the cryptographic binding protocol, the hardware attestation integration, the verification API, and the conformance requirements for compliant implementations.
+The Agent Manifest is a cryptographically signed, hardware-attestable document that establishes the trust surface of an AI agent at deployment time. It binds ten attestable artifacts - system prompt, policy bundle, tool manifest, model identity, RAG corpus, memory baseline, decision-log baseline, A2A delegation chain, supply chain provenance, and human-in-the-loop approval records - into a single tamper-evident declaration of the agent's approved deployment content. It is not an identity credential: who the agent is, and on whose behalf it acts, belong to credential and workload-identity standards, which a manifest references rather than replaces. A verifying party who holds an Agent Manifest and its accompanying attestation report can prove, without trusting the operator, that a specific agent instance started with specific code, policy, tools, audit-chain root, and human oversight. Decisions produced after deployment are separate TRACE or OCSF evidence records and MUST be joined back to this manifest; their signatures prove integrity, not completeness or behavioral correctness. This specification defines the manifest data model, the cryptographic binding protocol, the hardware attestation integration, the verification API, and the conformance requirements for compliant implementations.
 
 ## Why This Matters Now
 
-MCP's emergence as the dominant agent-to-tool protocol has made the agent trust surface explicit and exploitable. In the period between January and February 2026, researchers filed over 30 CVEs targeting MCP servers, clients, and tooling. Palo Alto Unit 42 found that with five connected MCP servers, a single compromised server hit a 78.3% attack success rate. The problem is not MCP's protocol design - it is the absence of a standard identity primitive that makes every agent's approved deployment context verifiable to a third party. A signed JWT proves who called an API. An Agent Manifest proves who the agent was, which tools it was approved to hold, how it was built, which audit-chain baseline it started from, who approved it, and whether the deployment configuration changed before execution. It does not prove that a particular call through one of those tools may run; that is the authorization question section 5.3.2 keeps separate.
+MCP's emergence as the dominant agent-to-tool protocol has made the agent trust surface explicit and exploitable. In the period between January and February 2026, researchers filed over 30 CVEs targeting MCP servers, clients, and tooling. Palo Alto Unit 42 found that with five connected MCP servers, a single compromised server hit a 78.3% attack success rate. The problem is not MCP's protocol design - it is the absence of a standard declaration that makes every agent's approved deployment context verifiable to a third party. A signed JWT proves who called an API. An Agent Manifest proves who the agent was, which tools it was approved to hold, how it was built, which audit-chain baseline it started from, who approved it, and whether the deployment configuration changed before execution. It does not prove that a particular call through one of those tools may run; that is the authorization question section 5.3.2 keeps separate.
 
 ## 1. Problem Statement
 
-### 1.1 The Agent Identity Gap
+### 1.1 The Agent Deployment-Content Gap
 
 Every entity in a modern enterprise system has a verifiable identity. Users have X.509 certificates and OAuth tokens. Services have SPIFFE SVIDs. APIs have signed JWTs. Containers have image digests. Infrastructure has hardware TPM measurements. AI agents have none of these. An agent calling a tool today presents no unforgeable proof of:
 
@@ -786,7 +786,7 @@ Limitations (v0.2). Checkpoint co-signing by the TEE-sealed audit key is OPTIONA
 }
 ```
 
-The `container_image_digest` is the primary supply chain binding for the agent runtime. It MUST match the hardware measurement in the TEE attestation report. The `mcp_servers` array binds the supply chain identity of each connected MCP server - `phase2_attested` (JSON boolean) indicates whether the server is running inside a TEE with its own hardware attestation (Phase 2 / cMCP server-side).
+The `container_image_digest` is the primary supply chain binding for the agent runtime. A launch measurement (SNP `MEASUREMENT`, TDX `MRTD`) covers firmware and the initial guest image, not a container image, so the two are never compared directly. The digest is hardware-bound only where a measured runtime layer extends it into a runtime-extendable register (TDX `RTMR`, a vTPM PCR) before the container starts, and the verifier replays that extension against the attestation report. Where no such layer is present, a verifier MUST NOT report `container_image_digest` as hardware-bound; it remains bound by the manifest signature and the SLSA provenance below. The `mcp_servers` array binds the supply chain identity of each connected MCP server - `phase2_attested` (JSON boolean) indicates whether the server is running inside a TEE with its own hardware attestation (Phase 2 / cMCP server-side).
 
 The `slsa_provenance.declared_level` field is non-normative and represents the operator's declared SLSA level summary. The actual SLSA level is determined by the `builder_id` value in the referenced DSSE attestation envelope. Verifiers MUST fetch and validate the DSSE envelope at `provenance_uri` - the manifest binding is a pointer to the attestation, not a substitute for it.
 
@@ -855,9 +855,9 @@ AWS Nitro
 - Extension actor: Instance bootloader extends PCR15; the Confidential Runtime verifies the extension before proceeding.
 
 NVIDIA Blackwell
-- `manifest_hash_in_report` is embedded in the SPDM measurements report as custom measurement index `0x05` (implementation-reserved, distinct from NVIDIA firmware indices 0x00-0x04).
+- There is no requester-writable SPDM measurement index. GPU measurement blocks are produced by the device, the SPDM responder, and a requester supplies only the nonce in `GET_MEASUREMENTS`. `manifest_hash_in_report` is therefore not carried in the GPU report. The manifest is bound through the CPU profile of the confidential VM hosting the GPU (SNP `HOST_DATA` or TDX `RTMR[3]` above), and the GPU evidence is appraised fresh under a verifier-supplied nonce in the same attestation exchange.
 - `measurement` field: SPDM measurement digest as provided by the NVIDIA attestation SDK (format per NVIDIA Hopper/Blackwell attestation documentation).
-- Extension actor: the Confidential Runtime writes the custom measurement index before attestation report generation.
+- Extension actor: none on the GPU. The manifest binding is made by the host CPU profile.
 
 ARM CCA
 - `manifest_hash_in_report` is extended into the Realm Measurement Register (RMR) at index 1 using `RSI_MEASUREMENT_EXTEND` before workload execution.
@@ -1628,7 +1628,7 @@ The Agent Manifest and cMCP are complementary primitives that operate at differe
 | Policy bundle hash | `policy_bundle_hash` in TEE report | `policy_bundle.hash` | MUST be identical. Verifier cross-checks both. |
 | Enforcement mode | `enforcement_mode` in TEE report | `policy_bundle.enforcement_mode` | MUST match. Conflict = attestation failure. |
 | Audit chain root | `audit_chain_root` in TEE report | Referenced by `decision_trace.audit_chain_uri` | Same audit chain; manifest provides the identity context. |
-| Container image digest | `container_image_digest` in TEE report | `supply_chain.container_image_digest` | MUST be identical. Verifier cross-checks both. |
+| Container image digest | Runtime-extended register (TDX `RTMR`, vTPM PCR), where a measured runtime layer extends it | `supply_chain.container_image_digest` | MUST match the replayed extension. Without a measured runtime layer there is no hardware cross-check (section 3.2.8). |
 | Tool catalog hash | Catalog hash in cMCP runtime | `tool_manifest.catalog_hash` (Merkle root) | cMCP enforces; manifest binds what was approved. |
 
 #### 6.2.1 Enforcement Mode Vocabulary <!-- CHANGED: ISSUE-344 - informative crosswalk across the manifest, cMCP runtime and TRACE claim mode names -->
@@ -1864,7 +1864,7 @@ provenance field can supersede it later without changing the signed `source_bund
 | T6 - Scope Laundering | Sub-agent claims broader permissions than delegating agent granted | Undetectable. No delegation chain standard. | `delegation_chain.scope_grant` is signed at each hop. Broader scope fails signature verification. |
 | T7 - Rogue Administrator | Operator with root access rewrites audit logs or policy | Bypassable. Software signing key is operator-held. | `audit_key_sealed: true`. Key never leaves TEE. Log reconstruction hardware-impossible. |
 | T8 - HITL Forgery | Human approval record fabricated without actual human review | Undetectable without physical audit. | `approval_signature` produced by approver hardware key. Forgery requires key compromise. |
-| T9 - Supply Chain Compromise | Malicious dependency runs as approved binary | SLSA covers build-time. Runtime drift undetected. | `container_image_digest` in TEE measurement. Modified binary produces measurement mismatch. |
+| T9 - Supply Chain Compromise | Malicious dependency runs as approved binary | SLSA covers build-time. Runtime drift undetected. | `container_image_digest` extended into a runtime register by a measured runtime layer (section 3.2.8); a modified image fails the replay. Without that layer, detection rests on the manifest signature and SLSA provenance. |
 | T10 - Memory Drift | Long-running agent accumulates unreviewed memory changes | Undetectable. No memory baseline standard. | `memory_baseline.snapshot_hash` bound. `ttl_seconds` forces re-approval of memory state. |
 
 ### 7.2 Out of Scope
@@ -2188,7 +2188,9 @@ This specification builds on architectural work developed across the Agent Gover
 *Agent Manifest Specification v0.1 - AgentTrust - June 2026*
 
 
-### D. RFC 8785 Canonical JSON Test Vector <!-- CHANGED: closes #25 -->
+### D. Test Vectors
+
+#### D.1 RFC 8785 Canonical JSON <!-- CHANGED: closes #25 -->
 
 Input:
 ```json
@@ -2215,3 +2217,44 @@ obj = {"version":"0.1","issued_at":"2026-06-23T09:00:00Z",
 canonical = canonicalize(obj)
 assert hashlib.sha256(canonical).hexdigest() == "b83293348255f4427dc030478f354b83f4f82662223be0926ad9f2db946b5319"
 ```
+
+#### D.2 Two-tool `catalog_hash` (section 3.2.3)
+
+The vector section 3.2.3 requires. Algorithm: SHA-256 with the RFC 9162 domain separation of section 4.1 (`0x00` leaf prefix, `0x01` interior prefix). Committed fields per leaf: `tool_id`, `schema_hash`, `description_hash`, in that order. Hash values below are the raw 32 digest bytes, not the `sha256:` string.
+
+| | `tool_id` | `schema_hash` bytes | `description_hash` bytes |
+|---|---|---|---|
+| Tool 1 | `com.example.read_customer_record` | `aa` repeated 32 times | `bb` repeated 32 times |
+| Tool 2 | `com.example.send_notification` | `cc` repeated 32 times | `dd` repeated 32 times |
+
+Leaf pre-images, sorted by `tool_id`:
+
+```
+leaf1 = SHA-256(0x00 || "com.example.read_customer_record" || 0x00 || aa*32 || bb*32)
+      = f7af288cd917b5258bfd6322d215fb6648d0bff244c6c8893287339cfb7039e0
+leaf2 = SHA-256(0x00 || "com.example.send_notification"   || 0x00 || cc*32 || dd*32)
+      = b6b7227c3a7f64b152baf401952d55e6e844a4b9bccc963098acae963c62607a
+```
+
+Root:
+
+```
+catalog_hash = SHA-256(0x01 || leaf1 || leaf2)
+             = afd1d90ec5aa07f31ae20ab040a04652c76f3078c4d0434de2a17b0cb61c40dd
+```
+
+Reordered-input control: supplying Tool 2 before Tool 1 produces the same `catalog_hash`, because leaves are sorted by `tool_id` before tree construction. An implementation that hashes in input order produces a different root and fails this vector.
+
+Empty catalog: the root of a tree with no leaves is SHA-256 of the empty string, `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`.
+
+Verification:
+```python
+import hashlib
+def leaf(tool_id, schema, description):
+    return hashlib.sha256(b"\x00" + tool_id.encode() + b"\x00" + schema + description).digest()
+l1 = leaf("com.example.read_customer_record", b"\xaa" * 32, b"\xbb" * 32)
+l2 = leaf("com.example.send_notification", b"\xcc" * 32, b"\xdd" * 32)
+assert hashlib.sha256(b"\x01" + l1 + l2).hexdigest() == "afd1d90ec5aa07f31ae20ab040a04652c76f3078c4d0434de2a17b0cb61c40dd"
+```
+
+The reference implementation carries the same values in `python/tests/test_merkle.py`.

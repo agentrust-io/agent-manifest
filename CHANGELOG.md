@@ -1,6 +1,198 @@
 # Changelog
 
-## Unreleased
+## [Unreleased]
+
+### Fixed
+
+- **[SDK]** Eleven hash/key-id checks used `==`, or `compare_digest()` with
+  no type/charset guard, instead of a safe constant-time compare:
+  `verify_transparency_log_entry()`,
+  `TPMProvider`/`SoftwareProvider.verify_manifest_in_report()`, the
+  external-report fallback in `SEVSNPProvider`/`TDXProvider`, the
+  REPORT_DATA check in `verify_attestation_chain()`, and in `_verify.py`
+  the attestation `manifest_hash_in_report` check, `_split_hybrid_public_key()`,
+  the `report_data_hash` check behind `verify_runtime_report()`
+  (`verify_runtime_quote()`), the decision-trace `audit_chain_root` check,
+  and the generic artifact `_check()` used for `system_prompt`,
+  `policy_bundle`, `model_identity`, etc. Same fix as #450 for
+  `_revocation.py`'s `signer_key_id`: guard non-str/non-ASCII input, since
+  `compare_digest()` raises on those instead of returning `False`
+  (SEC-TRANS-01). Without the guard, a malformed manifest, a non-ASCII
+  `model_identity.version` (a plain string, not a hash), or a caller's own
+  non-ASCII `VerificationContext.audit_chain_root`/`model_version` could
+  crash verification with `TypeError` instead of getting a normal
+  `MISMATCH`.
+
+- **[SDK]** A present `attestation` that was `null`, `{}`, any other
+  non-object value, or missing the REQUIRED `manifest_hash_in_report` field
+  (or that field present but falsy), was silently treated as if attestation
+  were absent instead of the `MISMATCH` spec 3.3 requires. `attestation`
+  MUST be omitted, not `null`, when there's none - only the field being
+  entirely absent is still a policy question governed by
+  `enforce_attestation`. Fixed on both the raw-manifest and COSE-envelope
+  paths; on COSE, two new `CoseVerification` properties
+  (`attestation_label_present`, `attestation_raw`) tell an absent
+  attestation label apart from one present holding a bad value, which
+  `.attestation` alone couldn't.
+
+- **[DOCS]** Correct the Art. 22 attribution in the section 9.1 EU AI Act table and the Annex III point 5 sub-points in section 9.1.1 (#456). Art. 22 of Regulation (EU) 2024/1689 concerns authorised representatives of providers of high-risk AI systems; the removed row described Art. 22 of Regulation (EU) 2016/679, which section 9.3 already documents, so the row is replaced by a reference to that section and section 9.3 is left unchanged. Annex III point 5(b) covers creditworthiness and excludes systems used for the purpose of detecting financial fraud, and point 5(c) covers risk assessment and pricing for life and health insurance. Editorial only; no field, schema, conformance level or verifier behaviour changes. Reported by @ioanavalea; scope set by @imran-siddique on #456.
+
+## [0.15.0] - 2026-09-30
+
+### Security
+
+- **\[SDK\] `verify_attestation_chain()` refuses debug guests.** The SEV-SNP
+  path never read the signed guest policy and the TDX path never parsed
+  TDATTRIBUTES, so a debug-enabled guest with an allow-listed measurement
+  returned `passed=True`. A debug guest's memory is readable and writable by
+  the host, so its REPORT_DATA and the code that chose it are the host's to
+  set. The verdict now fails when SNP guest policy DEBUG (bit 19, AMD 56860)
+  or TDX `TDATTRIBUTES.DEBUG` (bit 0, TD report body offset 120) is set, read
+  from the signed bytes after the signature verifies. SNP reports must also
+  carry VMPL 0, the level both of this package's SNP producers request at
+  (`SEVSNPProvider` through configfs-TSM, and the Azure paravisor).
+  `verify_runtime_report()` and `verify_runtime_freshness()` apply the same
+  checks with no opt-in.
+  `ChainVerificationResult` gains `debug` and `vmpl`, read from the signed
+  report (`None` without a verified signature, and for platforms with no such
+  field). `verify_attestation_chain(allow_debug=True)` accepts a debug guest
+  for development and records it in `reasons`; it does not relax VMPL.
+  `SnpReport.debug`, `TdxQuote.td_attributes` and `TdxQuote.debug` expose the
+  parsed state. **Behaviour change:** a debug guest, or an SNP report at VMPL
+  1 to 3, that previously verified now fails.
+
+### Added
+
+- **[SDK]** Experimental, opt-in `evidence-requirements-experimental-v1` profile.
+  A v0.2 manifest that declares it may carry a signed `evidence_requirements` block
+  (components, required relationships, combination policy reference), and
+  `agent_manifest.evidence_requirements.verify_evidence_manifest()` returns it only
+  after `verify_manifest()` is `VALID`. Without the profile the block is still
+  rejected as an unknown field, so existing manifests verify as before. Under the
+  profile every 0.14.0 check still applies, including the signed
+  `audit_key_sealed` rule under `enforce_attestation`. Not part of
+  the specification; see `docs/evidence-requirements-experimental.md`. Consumer:
+  agentrust-io/trace-spec#439.
+
+### Fixed
+
+- **[SDK]** `attach_receipt()` corrupted or crashed when the envelope's
+  `receipts` header (label 394) wasn't already an array - a map became its
+  keys, a string its characters, and `null`/`0`/`false`/`""` were silently
+  replaced with `[]`. `attach_approvals()` was already fixed for the same
+  issue in 0.13.0; `attach_receipt()` now works the same way: a non-array
+  existing value raises `CoseStructureError` instead of being coerced or
+  overwritten, and `receipt` itself must be `bytes` or `bytearray`. To
+  replace the array, use
+  `attach_unprotected(envelope, HDR_RECEIPTS, receipts)`.
+  **Behaviour change:** a bad receipt, or a non-array `receipts` value,
+  now raises instead of being silently coerced.
+
+## [0.14.0] - 2026-09-30
+
+### Security
+
+Three privately reported advisories in the hardware-evidence verifiers. Each
+reached a passing verdict from a value nothing signs.
+
+- **\[SDK\] `verify_attestation_chain()` reads REPORT_DATA and the measurement
+  from the signed report** (GHSA-cf88-228w-w58h). The SNP, TDX and TPM
+  signatures were checked over the quote bytes, and the manifest binding and
+  measurement allow-list were then evaluated against `report.raw`, a dict nothing
+  signs. A genuine report for one manifest and measurement verified as binding
+  any other. Once the signature verifies, both fields now come from the signed
+  bytes (SNP `REPORT_DATA`/`MEASUREMENT`, TDX `REPORTDATA`/`MRTD`, TPM
+  `extraData`/PCR digest), and a `raw` copy that disagrees with them fails the
+  check. `raw` is still read when the signature did not verify, for the
+  diagnostic fields only; `passed` cannot be true in that case.
+
+- **\[SDK\] The SEV-SNP chain is pinned to AMD's root by default**
+  (GHSA-cf88-228w-w58h). `verify_vcek_chain()` and `verify_attestation_chain()`
+  took `trusted_ark_der=None` to mean no pin, and no AMD root shipped, so a
+  VCEK/ASK/ARK chain built from fresh keys verified. The ARKs for Milan, Genoa
+  and Turin, as served by `kdsintf.amd.com/vcek/v1/<product>/cert_chain`, are now
+  embedded with the SHA-256 of each DER (`AMD_ARK_SHA256`), and the chain's ARK
+  must match one of them. `trusted_ark_der` still overrides the set.
+  **Behaviour change:** a chain under any other root, including a test chain,
+  now fails unless its root is passed as `trusted_ark_der`.
+
+- **\[SDK\] `verify_runtime_report()` reads the nonce from the verified quote**
+  (GHSA-32q9-m5rc-rp3w). It compared the provider's own `report_data_hash` with
+  the same derivation and never opened the quote, so a replayed quote, or no
+  quote, verified as fresh. It now verifies the quote (new keyword arguments
+  carry the SNP VCEK material, a TDX root override, or the TPM quote and AK
+  chain) and requires the signed `REPORT_DATA` or `extraData` to carry
+  `sha256(nonce || context_hash_bytes)`. `verify_runtime_freshness()` takes the
+  same arguments. `AzureCVMProvider.attest_runtime_state()` now includes
+  `runtime_data_hex` in `raw` so the vTPM AK can be tied to the SNP report.
+  **Behaviour change:** without verification material, or for a platform with
+  no hardware quote (`software`), the result is now `False`.
+
+- **\[SDK\] `enforce_attestation` accepts `audit_key_sealed` only when it is
+  signed** (GHSA-489r-r3g9-g24r). `attestation.audit_key_sealed` sits outside
+  the signing pre-image and the attestation-bound hash, so it could be flipped
+  to `true` after signing, undoing the GHSA-mqqg-9mpc-mpg7 enforcement. Under
+  `enforce_attestation` the signed artifact #7 copy,
+  `artifacts.decision_trace.audit_key_sealed` (spec 3.2.7), must now also be
+  `true`. The signing pre-image is unchanged, so every existing signature still
+  verifies. **Behaviour change:** under `enforce_attestation`, a manifest that
+  sets the attestation-block flag without a signed sealed `decision_trace`
+  binding returns `ATTESTATION_UNAVAILABLE`.
+
+### Fixed
+
+- **[SPEC]** Three statements corrected, raised on cosai-oasis/ws4-secure-design-agentic-systems#149.
+  The subtitle, abstract and section 1.1 called the manifest an identity standard; it is a
+  declaration of deployment content and references identity credentials rather than replacing
+  them. Section 3.2.8 required `container_image_digest` to match the TEE hardware measurement,
+  which covers firmware and the initial guest image, not a container: the digest is now
+  hardware-bound only through a measured runtime layer that extends it into an RTMR or vTPM PCR,
+  and a verifier MUST NOT report it as hardware-bound otherwise. The NVIDIA Blackwell profile
+  had the runtime write a custom SPDM measurement index; SPDM measurements are produced by the
+  responder, so the manifest is bound through the host CPU profile instead.
+
+- **[SPEC]** Section 3.2.3 requires a two-tool `catalog_hash` test vector in
+  Appendix D, and Appendix D held only the RFC 8785 vector. Appendix D now carries
+  both: D.1 is the existing canonical JSON vector, D.2 the two-tool catalog with
+  its leaf pre-images, root, reordered-input control and empty root. The values
+  are the ones `python/tests/test_merkle.py` already asserts. Reported on #340.
+
+## [0.13.1] - 2026-09-26
+
+### Fixed
+
+- **[SDK]** `verify_evidence_pack()` returned `VERIFIED` whatever the embedded
+  section 5.2 `verification_result` said. Only its enum membership was checked, so
+  a pack carrying `REVOKED`, `EXPIRED` or `MISMATCH`, or a result naming a
+  different manifest, verified the same as one carrying `VALID`, and its
+  `verification_signature` was never checked. A non-`VALID` verdict or a
+  `manifest_id` that differs from the pack's manifest now fails the pack, and a
+  result without `manifest_id` is `MALFORMED`. New keyword arguments
+  `result_key_id` and `result_algorithm` appraise `verification_signature` over
+  the new `verification_result_pre_image()`; when `result_key_id` is omitted the
+  result carries `verification_result_signature_verified=False` and a
+  `verification_result_signature_not_appraised` warning. `signature_verified`
+  still describes the outer `pack_signature` only (#463).
+  **Behaviour change:** a pack whose embedded result is `REVOKED`, `EXPIRED`,
+  `MISMATCH` or any other non-`VALID` value now returns `FAILED`. Callers that
+  accepted such packs as `VERIFIED` under 0.13.0 will see them rejected.
+
+- **[SDK]** `verify_evidence_pack()` and `verify_trace_envelope()` raised
+  `TypeError` or `ValueError` on some untrusted input instead of returning a
+  status: a non-string `verification_result.result` or `pack_signature.key_id`,
+  and any value RFC 8785 cannot represent (NaN, Infinity, a lone surrogate, an
+  integer beyond 2^53, nesting deeper than 64). All of these now return
+  `MALFORMED` (#463).
+
+### Changed
+
+- **[CI]** CodeQL now analyses every pull request and push to `main`; the
+  `python/**` path filter and the Dependabot skip are gone (#463). Workflow
+  write permissions in `codeql.yml` and `docs.yml` are scoped to the job that
+  uses them (#464). A ClusterFuzzLite target `fuzz_trace.py` covers
+  `verify_evidence_pack()` and `verify_trace_envelope()` (#463).
+
+## [0.13.0] - 2026-09-25
 
 ### Added
 
@@ -23,13 +215,72 @@
 
 ### Fixed
 
+- **[SDK]** `verify_delta` and `verify_continuity` parsed a checkpoint's
+  `memory_root` / `audit_chain_root` with `partition(":")` + `fromhex()`
+  instead of the `HashValue` schema's own validator, so a root that never
+  went through pydantic (both fields are plain `str`, populated from
+  runtime-observed checkpoints) could be malformed and still verify.
+  Uppercase hex invalid per the schema, since `bytes.fromhex` doesn't
+  care about case let a checkpoint advance verify as accepted/continuous
+  when it should have failed closed; confirmed by reproduction in both
+  functions. Also hardened: `verify_consistency` now validates its own
+  inputs (a direct caller had no shape checks at all, unlike
+  `verify_consistency_append`) and applies the same proof-length bound, and
+  `verify_continuity` now rejects malformed/wrong-typed checkpoints instead
+  of raising, matching `verify_delta`'s existing behavior.
+
+- **[SECURITY][SDK]** `canonicalize()` is now RFC 8785 conformant (#404,
+  closes #322). Checked against the `rfc8785` reference implementation on 30,000
+  randomised documents. Three divergences are gone: strings are no longer NFC
+  normalized (two distinct strings could share one signature, and two sibling keys
+  that normalized alike emitted invalid JSON that dropped a signed field); the
+  escape set is now ECMAScript QuoteJSONString (U+2028, U+2029 and U+007F to U+009F
+  are no longer escaped); integers above 2**53 - 1 are refused. **Compatibility:** a
+  document containing non-NFC text, those characters, or an integer outside the
+  safe range now canonicalizes differently or is refused, so signatures produced by
+  0.12.0 over such documents do not verify. Documents without them produce the same
+  bytes as before.
+
+- **[SDK]** `verify_hitl_approval()` raised `AttributeError`, `KeyError` or
+  `TypeError` on malformed approvals (non-object approval or scope, missing
+  fields, non-numeric duration, non-string signature). Every shape is now checked
+  first and rejected with `ValueError` (#378, fixes #360).
+
+- **[LICENSE]** `LICENSE` is the canonical Apache-2.0 text again; the altered copy
+  failed licence detection (#406). No licence terms changed.
+
+- **[SDK]** `build_catalog_tree()` built each tool's Merkle leaf from the raw
+  digest bytes of `schema_hash`/`description_hash`, dropping the
+  `sha256:`/`shake256:` algorithm prefix. Two hashes with the same digest but
+  different algorithm labels hashed to the same leaf, so `catalog_hash`
+  never actually bound which algorithm a tool's hash was computed under
+  only the raw bytes. Within a catalog tree, a tool's `schema_hash` and
+  `description_hash` algorithms must match the tree's own algorithm (spec
+  Section 3.1; profile tables in 4.1/4.2), so `build_catalog_tree()` now
+  rejects any tool where they don't. `verify_manifest()` already treats a
+  `ValueError` from this function as `<unverifiable tools>` (a catalog
+  mismatch), so no caller changes were needed.
+
+- **[SDK]** Delegation hop verification and `verify_hitl_approval()` called
+  the Ed25519 primitive directly instead of going through
+  `Ed25519Verifier.verify_bytes()`, so neither enforced the fixed 64-byte
+  signature length before the bytes reached the crypto backend (SIGN-001,
+  #122). `_cose.py` and `_revocation.py` already checked the length
+  themselves, so this gap was specific to `_delegation.py`. The backend
+  already rejects a wrong-length signature safely on its own (checked on
+  `cryptography` 42.0.0, 46.0.6, 47.0.0, and 50.0.1), so this wasn't an
+  active bypass, but both call sites now go through `verify_bytes()` like
+  the rest of the SDK. `verify_hitl_approval()` also now builds its
+  `Ed25519Verifier` before the try/except that wraps base64 errors, so a
+  bad `approver_public_key` reports as a key error instead of being
+  mislabeled as a bad signature encoding.
+
 - **[SDK]** Bind presented memory delta operations to the consistency proof
   (#446). `verify_delta` previously ignored `ops`, accepting substituted or
   missing operations under a valid root advance. Callers now pass only appended
   operations and the required `representation` keyword (`kv`, `vector`, or
   `graph`). Malformed evidence returns `drift`; nonfinite budgets and
   unrepresentable TTLs fail closed. Roots and proof formats are unchanged.
-- **[DOCS]** Correct the Art. 22 attribution in the section 9.1 EU AI Act table and the Annex III point 5 sub-points in section 9.1.1 (#456). Art. 22 of Regulation (EU) 2024/1689 concerns authorised representatives of providers of high-risk AI systems; the removed row described Art. 22 of Regulation (EU) 2016/679, which section 9.3 already documents, so the row is replaced by a reference to that section and section 9.3 is left unchanged. Annex III point 5(b) covers creditworthiness and excludes systems used for the purpose of detecting financial fraud, and point 5(c) covers risk assessment and pricing for life and health insurance. Editorial only; no field, schema, conformance level or verifier behaviour changes. Reported by @ioanavalea; scope set by @imran-siddique on #456.
 - **[DOCS]** Correct section 9.1 applicability wording to the adopted Article 113(c) dates, with Article 111 transitions and the existing duty to verify deadlines retained (#410, Problem 2). Link the official consolidated Regulation; no field, conformance or requirement-level changes. Reported by @ioanavalea; maintainer-carried follow-up to #439.
 
 - **[SDK]** `MerkleTree.verify_inclusion()` didn't check `InclusionProof.tree_size`
@@ -55,7 +306,7 @@
   `verify_inclusion()` has no production callers outside `_merkle.py`.
   `MerkleTree` itself is used internally by the tree builders in this file
   (`build_corpus_tree()`, `build_catalog_tree()`), but isn't re-exported
-  from the package root (only `models.InclusionProof` is) — direct use of
+  from the package root (only `models.InclusionProof` is); direct use of
   `_merkle` is not part of the package-root API.
 
 - **[SDK]** `verify_revocation_signature()` compared `signer_key_id` with
@@ -304,7 +555,7 @@
   mode: a malformed, unsigned, tampered, or wrong-key record used to be
   silently skipped, which meant a party able to corrupt one line of an
   authenticated CRL file could make that manifest register as *not*
-  revoked — the exact outcome `--crl-trusted-key` exists to prevent. Any
+  revoked, the exact outcome `--crl-trusted-key` exists to prevent. Any
   such record now raises `CRLIntegrityError` (surfaced by the CLI as a
   clean, non-zero-exit error) instead of silently disappearing from the
   in-memory set before `is_revoked()` runs.
@@ -312,7 +563,7 @@
 - **[DOCS]** Corrected an overclaim in the `--crl-trusted-key` help text
   and `manifest verify` docs: authenticating records that are present in
   a CRL file is not the same as proving the file is complete. Per-record
-  signatures cannot detect that a valid line — or the entire file — was
+  signatures cannot detect that a valid line (or the entire file) was
   deleted, so `--crl-trusted-key` does not by itself prevent un-revocation
   by deletion. Closing that gap needs a signed, versioned CRL
   snapshot/digest mechanism, which is not yet implemented.

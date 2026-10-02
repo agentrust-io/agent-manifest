@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import hmac
 import json
 from dataclasses import dataclass
 from typing import Any, Optional
@@ -199,7 +200,11 @@ def verify_transparency_log_entry(
     except (AttributeError, TypeError, ValueError):
         return False
 
-    return bool(actual_hash == expected_hash)
+    # SEC-TRANS-01: constant-time compare. Guard non-str/non-ASCII first,
+    # since compare_digest raises TypeError on those instead of False.
+    if not isinstance(actual_hash, str) or not actual_hash.isascii():
+        return False
+    return hmac.compare_digest(actual_hash, expected_hash)
 
 
 def _raw_ed25519_to_pem(raw_public_key: bytes) -> bytes:

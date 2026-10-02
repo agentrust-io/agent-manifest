@@ -103,3 +103,20 @@ class HashValue(str):
     @property
     def hex_digest(self) -> str:
         return self.split(":")[1]
+
+    @classmethod
+    def parse(cls, v: Any) -> tuple[str, bytes]:
+        """Validate *v* as a HashValue and return ``(algorithm, digest_bytes)``.
+
+        Use this anywhere a HashValue-shaped string needs to become raw
+        digest bytes, instead of a local ``partition(":")`` + ``fromhex()``
+        parse — that's easy to get looser than the schema (e.g. accepting
+        uppercase hex, or a digest that's the wrong length) without
+        noticing.
+
+        Raises ValueError if *v* isn't a string or doesn't exactly match
+        ``sha256:<64-lowercase-hex>`` / ``shake256:<64-lowercase-hex>``.
+        """
+        validated = cls._validate(v)
+        algorithm, _, hex_digest = str.partition(validated, ":")
+        return algorithm, bytes.fromhex(hex_digest)

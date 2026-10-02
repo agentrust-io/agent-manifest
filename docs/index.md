@@ -16,7 +16,7 @@ Agent Manifest signs an agent's prompt, policy, tools, model identity and six fu
 [What this proves, and what it does not](limitations.md){ .md-button }
 
 !!! tip "TL;DR"
-    [agent-manifest](https://pypi.org/project/agent-manifest/) 0.12.0 (Apache-2.0) signs and verifies locally with Python 3.11+ and no hardware or cloud account. Its SEV-SNP path was validated on an Azure confidential VM ([#227](https://github.com/agentrust-io/agent-manifest/pull/227)) and its TDX quote verifier on a GCP C3 guest, and a manifest still does not observe the agent after issuance: runtime activity is recorded separately in [TRACE](https://trace.agentrust-io.com/).
+    [agent-manifest](https://pypi.org/project/agent-manifest/) 0.15.0 (Apache-2.0) signs and verifies locally with Python 3.11+ and no hardware or cloud account. Its SEV-SNP path was validated on an Azure confidential VM ([#227](https://github.com/agentrust-io/agent-manifest/pull/227)) and its TDX quote verifier on a GCP C3 guest, and a manifest still does not observe the agent after issuance: runtime activity is recorded separately in [TRACE](https://trace.agentrust-io.com/).
 
 <div class="grid cards" markdown>
 
@@ -137,4 +137,4 @@ Yes. The source and license are available on [GitHub](https://github.com/agentru
 - [Specification](spec/agent-manifest-v0.2.md): normative requirements.
 - [Architecture decisions](adr/index.md): design rationale.
 
-**Status:** SDK 0.12.0 · Apache-2.0 · proposed to CoSAI WS4 ([RFC #149](https://github.com/cosai-oasis/ws4-secure-design-agentic-systems/issues/149)) · Sponsored by OPAQUE, which funds the engineering, infrastructure and confidential-computing work behind these projects.
+**Status:** SDK 0.15.0 · Apache-2.0 · proposed to CoSAI WS4 ([RFC #149](https://github.com/cosai-oasis/ws4-secure-design-agentic-systems/issues/149)) · Sponsored by OPAQUE, which funds the engineering, infrastructure and confidential-computing work behind these projects.

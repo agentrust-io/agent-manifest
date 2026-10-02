@@ -24,7 +24,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 
 from ._canonicalize import canonicalize
-from ._merkle import _HASH_FNS, _MAX_MERKLE_LEAVES, MerkleTree, verify_consistency_append
+from ._merkle import _MAX_MERKLE_LEAVES, MerkleTree, verify_consistency_append
+from ._types import HashValue
 
 # Domain-separation tags keep one representation's leaf from colliding with
 # another's even for structurally identical canonical payloads.
@@ -162,14 +163,18 @@ def _as_utc(dt: datetime) -> datetime:
 
 
 def _root_bytes(hashvalue: str) -> tuple[str, bytes]:
-    """Parse a ``'algorithm:hex'`` HashValue. Raises ValueError if malformed."""
-    algorithm, sep, hex_digest = hashvalue.partition(":")
-    if not sep or algorithm not in _HASH_FNS or not hex_digest:
-        raise ValueError(f"malformed memory_root: {hashvalue!r}")
+    """Parse a ``'algorithm:hex'`` HashValue. Raises ValueError if malformed.
+
+    Delegates to ``HashValue.parse`` instead of a local
+    ``partition(":")`` + ``fromhex()`` parse, so ``memory_root``
+    (plain ``str`` here, not the validated ``HashValue`` type) is held
+    to the same format even when it comes from a runtime-observed
+    checkpoint that never went through schema validation.
+    """
     try:
-        return algorithm, bytes.fromhex(hex_digest)
+        return HashValue.parse(hashvalue)
     except ValueError as exc:
-        raise ValueError(f"malformed memory_root hex: {hashvalue!r}") from exc
+        raise ValueError(f"malformed memory_root: {hashvalue!r}") from exc
 
 
 def verify_delta(
@@ -195,6 +200,8 @@ def verify_delta(
     if representation not in _ENCODERS:
         raise ValueError(f"unknown memory representation: {representation!r}")
     encode = _ENCODERS[representation]
+    if not isinstance(prev, MemoryCheckpoint) or not isinstance(new, MemoryCheckpoint):
+        return DeltaVerdict(False, "drift")
     for checkpoint in (prev, new):
         if (any(type(v) is not int for v in
                 (checkpoint.tree_size, checkpoint.seq, checkpoint.ttl_seconds))

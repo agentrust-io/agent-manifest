@@ -119,6 +119,39 @@ def test_software_provider_mismatch():
     report = p.get_attestation_report()
     assert not p.verify_manifest_in_report(report, {**MANIFEST, "version": "evil"})
 
+def test_software_provider_verify_uses_constant_time_compare():
+    """SEC-TRANS-01: verify_manifest_in_report must use hmac.compare_digest."""
+    import hmac as real_hmac
+    from unittest.mock import patch
+
+    p = SoftwareProvider()
+    p.extend_manifest_hash(MANIFEST)
+    report = p.get_attestation_report()
+
+    with patch(
+        "agent_manifest._auto_provider.hmac.compare_digest",
+        wraps=real_hmac.compare_digest,
+    ) as mock_compare:
+        assert p.verify_manifest_in_report(report, MANIFEST)
+
+    mock_compare.assert_called_once_with(report.manifest_hash, report.manifest_hash)
+
+def test_software_provider_non_string_hash_fails_closed():
+    """A non-string manifest_hash must return False, not raise TypeError."""
+    p = SoftwareProvider()
+    p.extend_manifest_hash(MANIFEST)
+    report = p.get_attestation_report()
+    report.manifest_hash = None  # type: ignore[assignment]
+    assert p.verify_manifest_in_report(report, MANIFEST) is False
+
+def test_software_provider_non_ascii_hash_fails_closed():
+    """A non-ASCII manifest_hash must also return False, not raise TypeError."""
+    p = SoftwareProvider()
+    p.extend_manifest_hash(MANIFEST)
+    report = p.get_attestation_report()
+    report.manifest_hash = "é" * 64  # type: ignore[assignment]
+    assert p.verify_manifest_in_report(report, MANIFEST) is False
+
 def test_attestation_unavailable_error_is_runtime():
     assert issubclass(AttestationUnavailableError, RuntimeError)
 

@@ -28,6 +28,7 @@ from agent_manifest._cose import (
     HDR_CRIT,
     HDR_KID,
     HDR_TYP,
+    HDR_RECEIPTS,
     LABEL_APPROVALS,
     LABEL_ATTESTATION,
     MEDIA_TYPE_MANIFEST_COSE,
@@ -353,6 +354,128 @@ def test_receipts_accumulate():
     assert verify_cose_manifest(signed, TRUSTED_KEYS).receipts == [b"one", b"two"]
 
 
+def test_receipts_accumulate_in_order_and_do_not_mutate_earlier_envelopes():
+    base = attach_receipt(sign_cose_sign1(base_manifest(), KP), b"one")
+    left = attach_receipt(base, b"left")
+    right = attach_receipt(attach_receipt(base, b"right"), b"right-2")
+    assert verify_cose_manifest(base, TRUSTED_KEYS).receipts == [b"one"]
+    assert verify_cose_manifest(left, TRUSTED_KEYS).receipts == [b"one", b"left"]
+    assert verify_cose_manifest(right, TRUSTED_KEYS).receipts == [
+        b"one",
+        b"right",
+        b"right-2",
+    ]
+
+
+def test_attaching_a_receipt_to_an_empty_receipts_array():
+    signed = attach_unprotected(
+        sign_cose_sign1(base_manifest(), KP), HDR_RECEIPTS, []
+    )
+    attached = attach_receipt(signed, b"one")
+    assert verify_cose_manifest(attached, TRUSTED_KEYS).receipts == [b"one"]
+
+
+def test_attach_receipt_leaves_other_unprotected_parameters_alone():
+    signed = attach_attestation(
+        sign_cose_sign1(base_manifest(), KP), {"platform": "x"}
+    )
+    signed = attach_approvals(signed, [{"approver_id": "a"}])
+    signed = attach_receipt(signed, b"one")
+    signed = attach_receipt(signed, b"two")
+    result = verify_cose_manifest(signed, TRUSTED_KEYS)
+    assert result.receipts == [b"one", b"two"]
+    assert result.attestation == {"platform": "x"}
+    assert result.approvals == [{"approver_id": "a"}]
+
+
+@pytest.mark.parametrize(
+    "malformed",
+    [
+        {"x": 1},
+        b"abc",
+        "abc",
+        None,
+        0,
+        False,
+        "",
+        b"",
+        7,
+        True,
+        {b"old"},
+    ],
+    ids=[
+        "map", "bytes", "text", "null", "zero", "false",
+        "empty-text", "empty-bytes", "int", "true", "set",
+    ],
+)
+def test_attach_receipt_refuses_to_overwrite_a_malformed_existing_value(malformed):
+    """A non-array ``receipts`` value is refused, never coerced or replaced."""
+    signed = attach_unprotected(
+        sign_cose_sign1(base_manifest(), KP), HDR_RECEIPTS, malformed
+    )
+    with pytest.raises(CoseStructureError, match="must be an array, got"):
+        attach_receipt(signed, b"new")
+    # The envelope is untouched, and attach_unprotected(), named in the
+    # error, can replace the value.
+    assert parts(signed)[1][1][HDR_RECEIPTS] == malformed
+    repaired = attach_unprotected(signed, HDR_RECEIPTS, [b"new"])
+    assert verify_cose_manifest(repaired, TRUSTED_KEYS).receipts == [b"new"]
+
+
+def test_a_missing_receipts_label_is_not_the_same_as_a_null_one():
+    """A missing label means empty; a null label is malformed and refused."""
+    signed = sign_cose_sign1(base_manifest(), KP)
+    assert HDR_RECEIPTS not in parts(signed)[1][1]
+    attached = attach_receipt(signed, b"new")
+    assert verify_cose_manifest(attached, TRUSTED_KEYS).receipts == [b"new"]
+
+    with_null = attach_unprotected(signed, HDR_RECEIPTS, None)
+    assert HDR_RECEIPTS in parts(with_null)[1][1]
+    with pytest.raises(CoseStructureError, match="must be an array, got NoneType"):
+        attach_receipt(with_null, b"new")
+
+
+def test_attach_receipt_accepts_an_existing_tuple_array():
+    """cbor2 6.x decodes arrays as tuples; that still counts as an array."""
+    signed = attach_unprotected(
+        sign_cose_sign1(base_manifest(), KP), HDR_RECEIPTS, (b"old",)
+    )
+    attached = attach_receipt(signed, b"new")
+    assert verify_cose_manifest(attached, TRUSTED_KEYS).receipts == [b"old", b"new"]
+
+
+@pytest.mark.parametrize(
+    "not_bytes",
+    ["receipt", None, 7, {"r": 1}, [b"r"], ("r",)],
+    ids=["str", "none", "int", "dict", "list", "tuple"],
+)
+def test_attach_receipt_rejects_anything_but_a_byte_string(not_bytes):
+    """RFC 9942 receipts are byte strings."""
+    signed = sign_cose_sign1(base_manifest(), KP)
+    with pytest.raises(CoseStructureError, match="receipt must be a byte string"):
+        attach_receipt(signed, not_bytes)
+
+
+def test_attach_receipt_accepts_a_bytearray_and_stores_bytes():
+    signed = attach_receipt(sign_cose_sign1(base_manifest(), KP), bytearray(b"one"))
+    receipts = verify_cose_manifest(signed, TRUSTED_KEYS).receipts
+    assert receipts == [b"one"]
+    assert type(receipts[0]) is bytes
+
+
+@require_pq
+def test_receipts_accumulate_on_a_cose_sign_envelope(pq_backend):
+    """A hybrid COSE_Sign envelope accumulates receipts too."""
+    kp = generate_hybrid()
+    signed = sign_cose_sign_hybrid(base_manifest(crypto_profile="post-quantum"), kp)
+    signed = attach_receipt(signed, b"one")
+    signed = attach_receipt(signed, b"two")
+    result = verify_cose_manifest(signed, hybrid_trusted(kp))
+    assert result.tag == COSE_SIGN_TAG
+    assert result.verified is True
+    assert result.receipts == [b"one", b"two"]
+
+
 def test_attestation_and_approvals_land_in_the_unprotected_header():
     signed = sign_cose_sign1(base_manifest(), KP)
     signed = attach_attestation(signed, {"platform": "amd-sev-snp"})
@@ -362,6 +485,40 @@ def test_attestation_and_approvals_land_in_the_unprotected_header():
     assert result.attestation == {"platform": "amd-sev-snp"}
     assert result.approvals == [{"approver_id": "a"}]
     assert set(result.unprotected) == {LABEL_ATTESTATION, LABEL_APPROVALS}
+
+
+# .attestation maps any non-dict value, including None, to None - these
+# two properties tell "absent" apart from "present but bad".
+def test_attestation_label_present_and_raw_when_absent():
+    signed = sign_cose_sign1(base_manifest(), KP)
+    result = verify_cose_manifest(signed, TRUSTED_KEYS)
+    assert result.attestation_label_present is False
+    assert result.attestation_raw is None
+    assert result.attestation is None
+
+
+def test_attestation_label_present_and_raw_when_a_dict():
+    signed = sign_cose_sign1(base_manifest(), KP)
+    signed = attach_attestation(signed, {"platform": "amd-sev-snp"})
+    result = verify_cose_manifest(signed, TRUSTED_KEYS)
+    assert result.attestation_label_present is True
+    assert result.attestation_raw == {"platform": "amd-sev-snp"}
+    assert result.attestation == {"platform": "amd-sev-snp"}
+
+
+@pytest.mark.parametrize(
+    "bad_value",
+    [None, "garbage", [], 123],
+    ids=["null", "string", "list", "int"],
+)
+def test_attestation_label_present_but_raw_non_dict(bad_value):
+    """Label present but not a dict: .attestation still hides it as None."""
+    signed = sign_cose_sign1(base_manifest(), KP)
+    signed = attach_unprotected(signed, LABEL_ATTESTATION, bad_value)
+    result = verify_cose_manifest(signed, TRUSTED_KEYS)
+    assert result.attestation_label_present is True
+    assert result.attestation_raw == bad_value
+    assert result.attestation is None
 
 
 def test_approvals_accumulate():
@@ -1126,6 +1283,18 @@ def test_engine_binds_attestation_to_the_payload_hash():
 
 def test_engine_accepts_attestation_with_an_independent_appraisal():
     manifest = base_manifest()
+    # enforce_attestation reads audit_key_sealed from the signed payload
+    # (GHSA-489r-r3g9-g24r); the unprotected-header copy alone is not enough.
+    manifest["artifacts"]["decision_trace"] = {
+        "trace_type": "hash-chained",
+        "audit_chain_root": "sha256:" + "d" * 64,
+        "audit_chain_uri": "https://audit.example/chains/kyc",
+        "signing_key_id": "tee-sealed-audit-key",
+        "audit_key_sealed": True,
+        "first_entry_at": NOW.isoformat().replace("+00:00", "Z"),
+        "last_entry_at": NOW.isoformat().replace("+00:00", "Z"),
+        "bound_at": NOW.isoformat().replace("+00:00", "Z"),
+    }
     signed = sign_cose_sign1(manifest, KP)
     bound_hash = payload_hash(cose_payload(manifest))
     signed = attach_attestation(
@@ -1140,6 +1309,7 @@ def test_engine_accepts_attestation_with_an_independent_appraisal():
         enforce_attestation=True,
         verified_attestation_manifest_hashes={bound_hash},
         attestation_evidence_manifest_id=manifest["manifest_id"],
+        audit_chain_root="sha256:" + "d" * 64,
     )
 
     result = verify_manifest(signed, ctx, store())
@@ -1157,6 +1327,47 @@ def test_engine_rejects_an_attestation_bound_to_other_bytes():
     result = verify_manifest(signed, base_context(enforce_attestation=True), store())
     assert result.attestation_verified is False
     assert result.result == OverallResult.MISMATCH
+
+
+# The same presence/value checks apply on the COSE envelope path.
+
+
+def test_engine_empty_attestation_dict_on_cose_path_is_mismatch():
+    signed = sign_cose_sign1(base_manifest(), KP)
+    signed = attach_attestation(signed, {})
+    result = verify_manifest(signed, base_context(), store())
+    assert result.result == OverallResult.MISMATCH
+    assert [d for d in result.mismatch_details if d.field == "attestation"]
+
+
+def test_engine_attestation_missing_hash_field_on_cose_path_is_mismatch():
+    signed = sign_cose_sign1(base_manifest(), KP)
+    signed = attach_attestation(signed, {"platform": "amd-sev-snp"})
+    result = verify_manifest(signed, base_context(), store())
+    assert result.result == OverallResult.MISMATCH
+    assert [d for d in result.mismatch_details if d.field == "attestation"]
+
+
+def test_engine_no_attestation_on_cose_path_is_not_a_mismatch():
+    signed = sign_cose_sign1(base_manifest(), KP)
+    result = verify_manifest(signed, base_context(), store())
+    assert result.result == OverallResult.VALID
+    assert not [d for d in result.mismatch_details if d.field == "attestation"]
+
+
+# The attestation label can hold anything in CBOR - a present-but-non-dict
+# value (null, a string, a list, an int) is invalid, not "no attestation".
+@pytest.mark.parametrize(
+    "bad_value",
+    [None, "garbage", [], 123],
+    ids=["null", "string", "list", "int"],
+)
+def test_engine_non_dict_attestation_on_cose_path_is_mismatch(bad_value):
+    signed = sign_cose_sign1(base_manifest(), KP)
+    signed = attach_unprotected(signed, LABEL_ATTESTATION, bad_value)
+    result = verify_manifest(signed, base_context(), store())
+    assert result.result == OverallResult.MISMATCH
+    assert [d for d in result.mismatch_details if d.field == "attestation"]
 
 
 def test_engine_evaluates_approvals_from_the_unprotected_header():

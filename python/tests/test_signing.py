@@ -11,6 +11,7 @@ from agent_manifest._signing import (
     Ed25519Verifier,
     _SMALL_ORDER_POINTS,
     _b64url_decode,
+    _b64url_encode,
     generate_ed25519,
     signing_pre_image,
 )
@@ -191,6 +192,29 @@ def test_ed25519_truncated_sig_raises_invalid_signature():
     verifier = Ed25519Verifier(kp.public_bytes)
     with pytest.raises(InvalidSignature):
         verifier.verify(SAMPLE_MANIFEST, "abc")  # decodes to <64 bytes
+
+
+def test_verify_bytes_rejects_wrong_length_before_calling_the_backend():
+    """SIGN-001: verify_bytes() must reject a wrong-length signature via its
+    own length check before the bytes reach the backend. Swaps in a fake
+    _pub whose verify() blows up if called, so this proves the
+    short-circuit directly instead of trusting the backend to also reject
+    malformed input safely (it does today, but that's not this SDK's
+    guarantee)."""
+
+    class ExplodingPublicKey:
+        def verify(self, *args, **kwargs):
+            raise AssertionError("the backend must not be reached")
+
+    kp = generate_ed25519()
+    verifier = Ed25519Verifier(kp.public_bytes)
+    verifier._pub = ExplodingPublicKey()
+
+    too_long = _b64url_encode(b"\x00" * 65)
+    too_short = _b64url_encode(b"\x00" * 63)
+    for bad_sig in (too_long, too_short):
+        with pytest.raises(InvalidSignature, match="must be 64 bytes"):
+            verifier.verify_bytes(b"some pre-image", bad_sig)
 
 
 def test_b64url_decode_rejects_plus():

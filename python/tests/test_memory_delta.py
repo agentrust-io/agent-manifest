@@ -178,6 +178,46 @@ def test_verify_delta_rejects_malformed_root_as_drift():
     assert v.accepted is False and v.reason == "drift"
 
 
+def test_verify_delta_rejects_short_hex_root_as_drift():
+    # "sha256:ab" is short but parses fine with a naive partition+fromhex
+    # parser this was the reported bug's exact case.
+    now = datetime(2026, 6, 15, 12, 0, tzinfo=UTC)
+    good = MemoryCheckpoint.from_ops(_kv(4), "kv", seq=1, approved_at=now, ttl_seconds=3600)
+    bad = MemoryCheckpoint("sha256:ab", 5, 2, now, 3600)
+    v = verify_delta(good, bad, [{"op": "PUT", "key": "k4", "value": 1}], [],
+                     representation="kv", now=now)
+    assert v.accepted is False and v.reason == "drift"
+    # symmetric: the *previous* checkpoint being short must also fail closed
+    v2 = verify_delta(bad, good, [], [], representation="kv", now=now)
+    assert v2.accepted is False and v2.reason == "drift"
+
+
+def test_verify_delta_rejects_uppercase_hex_root_as_drift():
+    # HashValue requires lowercase hex, but bytes.fromhex() is case
+    # insensitive before the fix, an uppercase root verified and accepted.
+    now = datetime(2026, 6, 15, 12, 0, tzinfo=UTC)
+    prev_ops = _kv(4)
+    new_ops = prev_ops + [{"op": "PUT", "key": "k4", "value": 1}]
+    prev_tree = memory_merkletree(prev_ops, "kv")
+    new_tree = memory_merkletree(new_ops, "kv")
+    good_prev_root = prev_tree.root_hex()
+    upper_prev_root = good_prev_root.split(":")[0] + ":" + good_prev_root.split(":")[1].upper()
+    prev = MemoryCheckpoint(upper_prev_root, 4, 1, now, 3600)
+    new = MemoryCheckpoint(new_tree.root_hex(), 5, 2, now, 3600)
+    proof = new_tree.consistency_proof(4)
+    v = verify_delta(prev, new, [new_ops[-1]], proof, representation="kv", now=now)
+    assert v.accepted is False and v.reason == "drift"
+
+
+def test_verify_delta_rejects_long_hex_root_as_drift():
+    now = datetime(2026, 6, 15, 12, 0, tzinfo=UTC)
+    good = MemoryCheckpoint.from_ops(_kv(4), "kv", seq=1, approved_at=now, ttl_seconds=3600)
+    bad = MemoryCheckpoint("sha256:" + "a" * 66, 5, 2, now, 3600)
+    v = verify_delta(good, bad, [{"op": "PUT", "key": "k4", "value": 1}], [],
+                     representation="kv", now=now)
+    assert v.accepted is False and v.reason == "drift"
+
+
 def test_verify_delta_rejects_algorithm_switch_as_drift():
     now = datetime(2026, 6, 15, 12, 0, tzinfo=UTC)
     prev = MemoryCheckpoint.from_ops(_kv(4), "kv", seq=1, approved_at=now, ttl_seconds=3600)

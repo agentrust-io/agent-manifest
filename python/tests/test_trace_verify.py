@@ -22,11 +22,13 @@ from agent_manifest._signing import (
 from agent_manifest._trace import (
     INADMISSIBLE_RESULTS,
     TRACE_REQUIRED_FIELDS,
+    VERIFICATION_RESULTS,
     TraceStatus,
     compute_pack_hash,
     evidence_pack_pre_image,
     trace_signing_pre_image,
     verify_evidence_pack,
+    verification_result_pre_image,
     verify_trace_envelope,
 )
 
@@ -1103,3 +1105,251 @@ def test_pack_contents_are_checked_before_the_signature(kp, trusted):
     result = verify_evidence_pack(_sign_pack(pack, kp), trusted_keys={})
     assert result.status is TraceStatus.MALFORMED
     assert result.signature_verified is False
+
+
+# ---------------------------------------------------------------------------
+# The embedded section 5.2 verification result
+# ---------------------------------------------------------------------------
+#
+# The pack signature proves who assembled the pack. It says nothing about the
+# verdict inside it or about the attestation service's own signature over that
+# verdict, so both are appraised separately.
+
+
+def _signed_result(service_kp, **overrides):
+    """A section 5.2 result signed by *service_kp* over its canonical pre-image."""
+    result = {"result": "VALID", "manifest_id": MANIFEST_ID}
+    result.update(overrides)
+    result["verification_signature"] = _b64url_encode(
+        service_kp.private_key.sign(verification_result_pre_image(result))
+    )
+    return result
+
+
+def _pack_with_result(verification_result, kp):
+    pack = _pack([_sign_envelope(_envelope(), kp)])
+    pack["verification_result"] = verification_result
+    return _sign_pack(pack, kp)
+
+
+@pytest.mark.parametrize("verdict", sorted(VERIFICATION_RESULTS - {"VALID"}))
+def test_a_non_valid_embedded_verdict_is_never_verified(kp, trusted, verdict):
+    """An authentic pack reporting REVOKED is authentic and still not VALID."""
+    pack = _pack([_sign_envelope(_envelope(), kp)])
+    pack["verification_result"] = {"result": verdict, "manifest_id": MANIFEST_ID}
+    result = verify_evidence_pack(
+        _sign_pack(pack, kp), trusted_keys=trusted, trace_key_id=kp.key_id
+    )
+    assert result.signature_verified is True
+    assert result.status is TraceStatus.FAILED
+    assert f"verification_result_not_valid:{verdict}" in result.failures
+
+
+def test_the_embedded_verdict_is_checked_like_an_envelope_verdict(kp, trusted):
+    """EXPIRED fails the pack whichever member carries it."""
+    in_envelope = _pack(
+        [_sign_envelope(_envelope(manifest_verification_result="EXPIRED"), kp)]
+    )
+    in_result = _pack([_sign_envelope(_envelope(), kp)])
+    in_result["verification_result"] = {"result": "EXPIRED", "manifest_id": MANIFEST_ID}
+    for pack in (in_envelope, in_result):
+        result = verify_evidence_pack(
+            _sign_pack(pack, kp), trusted_keys=trusted, trace_key_id=kp.key_id
+        )
+        assert result.status is TraceStatus.FAILED
+
+
+def test_an_unappraised_result_signature_is_reported_as_unappraised(kp, trusted):
+    """Without a key for the result signer, nothing claims it was checked."""
+    service = generate_ed25519()
+    signed = _signed_result(service)
+    signed["verification_signature"] = signed["verification_signature"][::-1]
+    result = verify_evidence_pack(
+        _pack_with_result(signed, kp), trusted_keys=trusted, trace_key_id=kp.key_id
+    )
+    assert result.status is TraceStatus.VERIFIED
+    assert result.verification_result_signature_verified is False
+    assert "verification_result_signature_not_appraised" in result.warnings
+
+
+def test_a_good_result_signature_is_appraised(kp, trusted):
+    service = generate_ed25519()
+    keys = dict(trusted, **{service.key_id: service.public_b64url()})
+    result = verify_evidence_pack(
+        _pack_with_result(_signed_result(service), kp),
+        trusted_keys=keys,
+        trace_key_id=kp.key_id,
+        result_key_id=service.key_id,
+    )
+    assert result.status is TraceStatus.VERIFIED
+    assert result.verification_result_signature_verified is True
+    assert result.failures == []
+    assert "verification_result_signature_not_appraised" not in result.warnings
+
+
+def test_a_corrupt_result_signature_fails_under_a_good_pack_signature(kp, trusted):
+    """Re-signing the outer pack does not launder a bad inner signature."""
+    service = generate_ed25519()
+    keys = dict(trusted, **{service.key_id: service.public_b64url()})
+    signed = _signed_result(service)
+    signed["verified_at"] = "2026-08-03T12:00:01Z"  # edited after signing
+    result = verify_evidence_pack(
+        _pack_with_result(signed, kp),
+        trusted_keys=keys,
+        trace_key_id=kp.key_id,
+        result_key_id=service.key_id,
+    )
+    assert result.signature_verified is True
+    assert result.verification_result_signature_verified is False
+    assert result.status is TraceStatus.FAILED
+    assert "verification_result_signature_invalid" in result.failures
+
+
+def test_a_result_signed_by_another_key_fails(kp, trusted):
+    service, impostor = generate_ed25519(), generate_ed25519()
+    keys = dict(trusted, **{service.key_id: service.public_b64url()})
+    result = verify_evidence_pack(
+        _pack_with_result(_signed_result(impostor), kp),
+        trusted_keys=keys,
+        trace_key_id=kp.key_id,
+        result_key_id=service.key_id,
+    )
+    assert result.status is TraceStatus.FAILED
+    assert "verification_result_signature_invalid" in result.failures
+
+
+def test_a_missing_result_signature_fails_when_one_is_expected(kp, trusted):
+    service = generate_ed25519()
+    keys = dict(trusted, **{service.key_id: service.public_b64url()})
+    result = verify_evidence_pack(
+        _pack_with_result({"result": "VALID", "manifest_id": MANIFEST_ID}, kp),
+        trusted_keys=keys,
+        trace_key_id=kp.key_id,
+        result_key_id=service.key_id,
+    )
+    assert result.status is TraceStatus.SIGNATURE_MISSING
+    assert "verification_result_signature_absent" in result.failures
+
+
+def test_an_untrusted_result_key_is_unverifiable(kp, trusted):
+    service = generate_ed25519()
+    result = verify_evidence_pack(
+        _pack_with_result(_signed_result(service), kp),
+        trusted_keys=trusted,
+        trace_key_id=kp.key_id,
+        result_key_id=service.key_id,
+    )
+    assert result.status is TraceStatus.UNVERIFIABLE
+    assert result.verification_result_signature_verified is False
+    assert (
+        f"verification_result_key_id_not_trusted:{service.key_id}" in result.failures
+    )
+
+
+def test_an_unsupported_result_algorithm_is_unverifiable(kp, trusted):
+    service = generate_ed25519()
+    keys = dict(trusted, **{service.key_id: service.public_b64url()})
+    result = verify_evidence_pack(
+        _pack_with_result(_signed_result(service), kp),
+        trusted_keys=keys,
+        trace_key_id=kp.key_id,
+        result_key_id=service.key_id,
+        result_algorithm="hybrid-Ed25519-ML-DSA-65",
+    )
+    assert result.status is TraceStatus.UNVERIFIABLE
+    assert result.verification_result_signature_verified is False
+
+
+def test_a_result_pre_image_excludes_only_its_signature():
+    body = {"result": "VALID", "manifest_id": MANIFEST_ID}
+    signed = dict(body, verification_signature="x")
+    assert verification_result_pre_image(signed) == canonicalize(body)
+
+
+def test_the_embedded_result_must_name_the_packs_manifest(kp, trusted):
+    pack = _pack([_sign_envelope(_envelope(), kp)])
+    pack["verification_result"] = {
+        "result": "VALID",
+        "manifest_id": "0192f3a0-0000-7000-8000-0000000000ff",
+    }
+    result = verify_evidence_pack(
+        _sign_pack(pack, kp), trusted_keys=trusted, trace_key_id=kp.key_id
+    )
+    assert result.status is TraceStatus.FAILED
+    assert any(
+        f.startswith("verification_result_manifest_id_mismatch")
+        for f in result.failures
+    )
+
+
+def test_an_embedded_result_without_manifest_id_is_malformed(kp, trusted):
+    pack = _pack([])
+    pack["verification_result"] = {"result": "VALID"}
+    result = verify_evidence_pack(_sign_pack(pack, kp), trusted_keys=trusted)
+    assert result.status is TraceStatus.MALFORMED
+    assert "verification_result_missing_manifest_id" in result.failures
+
+
+# ---------------------------------------------------------------------------
+# Untrusted input returns a status, never an exception
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("bad_result", [[], {}, ["VALID"], 1])
+def test_a_non_string_embedded_verdict_is_malformed_not_raised(kp, trusted, bad_result):
+    pack = _pack([])
+    pack["verification_result"] = {"result": bad_result, "manifest_id": MANIFEST_ID}
+    result = verify_evidence_pack(_sign_pack(pack, kp), trusted_keys=trusted)
+    assert result.status is TraceStatus.MALFORMED
+    assert any(f.startswith("illegal_verification_result") for f in result.failures)
+
+
+@pytest.mark.parametrize("field", ["key_id", "algorithm"])
+@pytest.mark.parametrize("bad_value", [["x"], {"a": 1}, 7])
+def test_a_non_string_pack_signature_field_is_malformed_not_raised(
+    kp, trusted, field, bad_value
+):
+    pack = _sign_pack(_pack([]), kp)
+    pack["pack_signature"][field] = bad_value
+    result = verify_evidence_pack(pack, trusted_keys=trusted)
+    assert result.status is TraceStatus.MALFORMED
+    assert f"signature_block_{field}_not_a_string" in result.failures
+
+
+@pytest.mark.parametrize(
+    "bad_value",
+    [float("nan"), float("inf"), "\ud800", 2**53],
+    ids=["nan", "inf", "lone-surrogate", "unsafe-int"],
+)
+def test_a_pack_that_cannot_be_canonicalized_is_malformed_not_raised(
+    kp, trusted, bad_value
+):
+    pack = _sign_pack(_pack([]), kp)
+    pack["manifest"]["extra"] = bad_value
+    result = verify_evidence_pack(pack, trusted_keys=trusted)
+    assert result.status is TraceStatus.MALFORMED
+    assert any(f.startswith("pack_not_canonicalizable") for f in result.failures)
+
+
+def test_a_too_deep_pack_is_malformed_not_raised(kp, trusted):
+    nested = 0
+    for _ in range(200):
+        nested = [nested]
+    pack = _sign_pack(_pack([]), kp)
+    pack["manifest"]["extra"] = nested
+    result = verify_evidence_pack(pack, trusted_keys=trusted)
+    assert result.status is TraceStatus.MALFORMED
+
+
+@pytest.mark.parametrize(
+    "bad_value", [float("nan"), "\ud800"], ids=["nan", "lone-surrogate"]
+)
+def test_an_envelope_that_cannot_be_canonicalized_is_malformed_not_raised(
+    kp, trusted, bad_value
+):
+    envelope = _sign_envelope(_envelope(), kp)
+    envelope["extension"] = bad_value
+    result = verify_trace_envelope(envelope, trusted_keys=trusted)
+    assert result.status is TraceStatus.MALFORMED
+    assert result.signature_verified is False
+    assert any(f.startswith("envelope_not_canonicalizable") for f in result.failures)

@@ -29,6 +29,7 @@ from ._cose import (
     MEDIA_TYPE_MANIFEST_COSE,
     CoseVerification,
 )
+from .evidence_requirements import EXPERIMENTAL_PROFILE as _EVIDENCE_REQUIREMENTS_PROFILE
 
 
 # ---------------------------------------------------------------------------
@@ -463,7 +464,13 @@ def _split_hybrid_public_key(
         )
 
     actual_key_id = hashlib.sha256(public_key_bytes).hexdigest()
-    if not hmac.compare_digest(actual_key_id, key_id):
+    # SEC-TRANS-01: guard non-str/non-ASCII before compare_digest, which
+    # raises on those instead of False.
+    if (
+        not isinstance(key_id, str)
+        or not key_id.isascii()
+        or not hmac.compare_digest(actual_key_id, key_id)
+    ):
         raise ValueError(
             "Hybrid public key bytes do not match signature.key_id"
         )
@@ -529,8 +536,11 @@ _FULL_BINDING_REQUIRED = ("system_prompt", "policy_bundle", "model_identity")
 
 def _full_binding_violation(manifest: dict[str, Any]) -> Optional[tuple[str, str]]:
     """Return a violation when a full-binding manifest omits a required artifact."""
-    if manifest.get("profile") is not None:
-        return None  # composition-only declares its own unbound set
+    profile = manifest.get("profile")
+    if profile is not None and profile != _EVIDENCE_REQUIREMENTS_PROFILE:
+        # composition-only declares its own unbound set. The experimental
+        # evidence-requirements profile keeps the full-binding rule.
+        return None
     artifacts = manifest.get("artifacts")
     if not isinstance(artifacts, dict):
         return None  # a missing or malformed artifacts block is its own violation
@@ -580,6 +590,9 @@ def _strict_schema_violations(manifest: dict[str, Any]) -> list[tuple[str, str]]
         manifest = {k: v for k, v in manifest.items() if k != "delegation_chain"}
 
     is_legacy_v01 = manifest.get("version") == "0.1"
+    is_evidence_requirements = (
+        manifest.get("profile") == _EVIDENCE_REQUIREMENTS_PROFILE
+    )
 
     try:
         Manifest.model_validate(manifest)
@@ -587,9 +600,15 @@ def _strict_schema_violations(manifest: dict[str, Any]) -> list[tuple[str, str]]
         violations: list[tuple[str, str]] = []
         for err in exc.errors():
             loc_parts = err.get("loc", ())
-            is_legacy_omission = err.get("type") == "missing" and (
-                len(loc_parts) > 1
-                or (loc_parts == ("issuer",) and is_legacy_v01)
+            # The experimental evidence-requirements profile is new, so it has
+            # no legacy omissions to tolerate: every missing field fails closed.
+            is_legacy_omission = (
+                not is_evidence_requirements
+                and err.get("type") == "missing"
+                and (
+                    len(loc_parts) > 1
+                    or (loc_parts == ("issuer",) and is_legacy_v01)
+                )
             )
             if loc_parts and loc_parts[-1] == "approval_duration_seconds":
                 is_legacy_omission = False
@@ -634,7 +653,7 @@ def _check_decision_trace(
         # Unbound, or bound with nothing to compare against: the inner _check
         # owns NOT_BOUND and the strict_artifact_verification bookkeeping.
         return check("decision_trace", signed_root, running_root)
-    if hmac.compare_digest(signed_root, running_root):
+    if isinstance(running_root, str) and running_root.isascii() and hmac.compare_digest(signed_root, running_root):
         return FieldResult.MATCH
 
     continuity = context.audit_chain_continuity
@@ -1070,13 +1089,21 @@ def verify_manifest(
         if runtime_val is None:
             unverified_bound.append(field_name)
             return FieldResult.NOT_BOUND
-        # Constant-time comparison to prevent timing side-channels (CRYPTO-002)
-        if hmac.compare_digest(manifest_val, runtime_val):
+        # Constant-time comparison to prevent timing side-channels (CRYPTO-002).
+        # SEC-TRANS-01: not every caller's manifest_val is HashValue-typed
+        # (model_identity's `version` fallback is a plain str, and runtime_val
+        # comes from the caller's own VerificationContext, not the schema) -
+        # guard non-str/non-ASCII first, since compare_digest raises on those.
+        if (
+            isinstance(manifest_val, str) and manifest_val.isascii()
+            and isinstance(runtime_val, str) and runtime_val.isascii()
+            and hmac.compare_digest(manifest_val, runtime_val)
+        ):
             return FieldResult.MATCH
         mismatches.append(MismatchDetail(
             field=field_name,
-            expected_hash=manifest_val,
-            actual_hash=runtime_val,
+            expected_hash=manifest_val if isinstance(manifest_val, str) else f"<non-string: type={type(manifest_val).__name__}>",
+            actual_hash=runtime_val if isinstance(runtime_val, str) else f"<non-string: type={type(runtime_val).__name__}>",
         ))
         return FieldResult.MISMATCH
 
@@ -1508,67 +1535,88 @@ def verify_manifest(
     # binds is sha256 of the payload bytes (envelope spec 5) - there is no
     # field subset to reconstruct and nothing to keep in sync.
     if _envelope is not None:
-        attestation_block = _envelope.attestation or {}
+        attestation_present = _envelope.attestation_label_present
+        attestation_block = _envelope.attestation_raw
     else:
-        attestation_block = manifest.get("attestation") or {}
-    if attestation_block:
-        reported_hash = attestation_block.get("manifest_hash_in_report", "")
-        if reported_hash:
-            from ._canonicalize import canonicalize as _canonicalize
-            import hashlib as _hashlib
-            if _envelope is not None:
-                expected_attest_hash = _envelope.manifest_hash
+        attestation_present = "attestation" in manifest
+        attestation_block = manifest.get("attestation")
+    if attestation_present:
+        from ._canonicalize import canonicalize as _canonicalize
+        import hashlib as _hashlib
+        if _envelope is not None:
+            expected_attest_hash = _envelope.manifest_hash
+        else:
+            # Spec 3.3: the pre-image excludes the attestation block AND the
+            # top-level transparency_log_entry (populated after log submission).
+            subset = {
+                k: v
+                for k, v in manifest.items()
+                if k not in ("attestation", "transparency_log_entry")
+            }
+            expected_attest_hash = "sha256:" + _hashlib.sha256(_canonicalize(subset)).hexdigest()
+        if not isinstance(attestation_block, dict):
+            # Spec 3.3: attestation MUST be omitted (not null) when there's
+            # none - a present null or other non-dict value is invalid,
+            # not "absent".
+            hash_matches = False
+            reported_hash_repr = f"<attestation present but not an object: type={type(attestation_block).__name__}>"
+        elif "manifest_hash_in_report" not in attestation_block:
+            # manifest_hash_in_report is REQUIRED (spec 3.3) - a present
+            # block omitting it is a mismatch, not "no attestation".
+            hash_matches = False
+            reported_hash_repr = "<manifest_hash_in_report missing>"
+        else:
+            reported_hash = attestation_block["manifest_hash_in_report"]
+            # SEC-TRANS-01: guard non-str/non-ASCII/falsy before
+            # compare_digest, which raises on those instead of False.
+            if isinstance(reported_hash, str) and reported_hash and reported_hash.isascii():
+                hash_matches = hmac.compare_digest(reported_hash, expected_attest_hash)
+                reported_hash_repr = reported_hash
             else:
-                # Spec 3.3: the pre-image excludes the attestation block AND the
-                # top-level transparency_log_entry (populated after log submission).
-                subset = {
-                    k: v
-                    for k, v in manifest.items()
-                    if k not in ("attestation", "transparency_log_entry")
-                }
-                expected_attest_hash = "sha256:" + _hashlib.sha256(_canonicalize(subset)).hexdigest()
-            if hmac.compare_digest(reported_hash, expected_attest_hash):
-                # The hash matching proves the report is *about this manifest*.
-                # It proves nothing about hardware: for a v0.1 manifest the
-                # attestation block is outside the signing pre-image (spec 3.3
-                # excludes it), and for a v0.2 COSE envelope it rides in the
-                # unprotected header. Either way a party holding any validly
-                # signed manifest can append a self-asserted digest it computed
-                # itself. Treating that as attestation let a software-only
-                # manifest satisfy enforce_attestation=True and reach VALID.
-                #
-                # So the binding is necessary and not sufficient. The verdict
-                # also needs an independent appraisal, supplied by the caller
-                # and bound to this manifest, exactly as transparency receipts
-                # are handled below.
-                attestation_evidence_bound = (
-                    context.attestation_evidence_manifest_id == manifest_id
+                hash_matches = False
+                reported_hash_repr = f"<malformed manifest_hash_in_report: type={type(reported_hash).__name__}>"
+        if hash_matches:
+            # The hash matching proves the report is *about this manifest*.
+            # It proves nothing about hardware: for a v0.1 manifest the
+            # attestation block is outside the signing pre-image (spec 3.3
+            # excludes it), and for a v0.2 COSE envelope it rides in the
+            # unprotected header. Either way a party holding any validly
+            # signed manifest can append a self-asserted digest it computed
+            # itself. Treating that as attestation let a software-only
+            # manifest satisfy enforce_attestation=True and reach VALID.
+            #
+            # So the binding is necessary and not sufficient. The verdict
+            # also needs an independent appraisal, supplied by the caller
+            # and bound to this manifest, exactly as transparency receipts
+            # are handled below.
+            attestation_evidence_bound = (
+                context.attestation_evidence_manifest_id == manifest_id
+            )
+            if (
+                attestation_evidence_bound
+                and expected_attest_hash in context.verified_attestation_manifest_hashes
+            ):
+                result.attestation_verified = True
+            else:
+                result.warnings.append(
+                    "attestation block binds this manifest but no independent "
+                    "hardware appraisal was supplied; attestation_verified "
+                    "reflects the binding only, not hardware provenance"
                 )
-                if (
-                    attestation_evidence_bound
-                    and expected_attest_hash in context.verified_attestation_manifest_hashes
-                ):
-                    result.attestation_verified = True
-                else:
-                    result.warnings.append(
-                        "attestation block binds this manifest but no independent "
-                        "hardware appraisal was supplied; attestation_verified "
-                        "reflects the binding only, not hardware provenance"
-                    )
-            else:
-                # A present attestation that binds a different manifest is a
-                # mismatch whether or not the caller asked for enforcement
-                # (spec 3.3, issue #265). Absent is a policy question and
-                # enforce_attestation still governs it; present-and-wrong is
-                # not: it is a report about some other document, and the case
-                # that produces it is the stale attestation left on a re-signed
-                # manifest. Gating it on enforce_attestation meant the default
-                # verifier returned VALID for exactly that.
-                mismatches.append(MismatchDetail(
-                    field="attestation",
-                    expected_hash=expected_attest_hash,
-                    actual_hash=reported_hash,
-                ))
+        else:
+            # A present attestation that binds a different manifest is a
+            # mismatch whether or not the caller asked for enforcement
+            # (spec 3.3, issue #265). Absent is a policy question and
+            # enforce_attestation still governs it; present-and-wrong is
+            # not: it is a report about some other document, and the case
+            # that produces it is the stale attestation left on a re-signed
+            # manifest. Gating it on enforce_attestation meant the default
+            # verifier returned VALID for exactly that.
+            mismatches.append(MismatchDetail(
+                field="attestation",
+                expected_hash=expected_attest_hash,
+                actual_hash=reported_hash_repr,
+            ))
 
     # --- Transparency receipt. The envelope field/header is untrusted input;
     # only an entry ID or receipt digest supplied by an independent log
@@ -1649,6 +1697,24 @@ def verify_manifest(
                 "enforce_attestation is set but attestation.audit_key_sealed is "
                 "not true (spec 5.3)"
             )
+        elif context.enforce_attestation and not _audit_key_sealed_is_signed(manifest):
+            # GHSA-489r-r3g9-g24r. The attestation block is outside the
+            # signature and outside the hash the hardware report binds (spec
+            # 3.3), and in a COSE envelope it rides in the unprotected header,
+            # so the flag checked above is one anyone can flip after signing.
+            # The same claim is made, signed, by artifact #7
+            # (artifacts.decision_trace.audit_key_sealed, spec 3.2.7), which
+            # sits inside SIGNED_FIELDS and inside the attestation-bound hash.
+            # Enforcement accepts the claim only when that signed copy makes
+            # it. The signing pre-image is unchanged, so no existing signature
+            # is invalidated.
+            result.result = OverallResult.ATTESTATION_UNAVAILABLE
+            result.warnings.append(
+                "enforce_attestation is set but the signed "
+                "artifacts.decision_trace.audit_key_sealed is not true; the "
+                "attestation block's copy is not covered by the signature "
+                "(spec 3.2.7, 5.3)"
+            )
 
     # Surface bound-but-unchecked artifacts even in non-strict mode so callers
     # never read a VALID result as proof that artifact bindings were checked.
@@ -1662,6 +1728,22 @@ def verify_manifest(
         )
 
     return result
+
+
+def _audit_key_sealed_is_signed(manifest: dict[str, Any]) -> bool:
+    """True when the signed artifact #7 binding declares a sealed audit key.
+
+    Reads ``artifacts.decision_trace.audit_key_sealed`` from the manifest the
+    signature covers (the COSE payload for version 0.2). Only a JSON ``true``
+    counts; absent, ``false`` or any other value does not.
+    """
+    artifacts = manifest.get("artifacts")
+    if not isinstance(artifacts, dict):
+        return False
+    decision_trace = artifacts.get("decision_trace")
+    if not isinstance(decision_trace, dict):
+        return False
+    return decision_trace.get("audit_key_sealed") is True
 
 
 def _cose_manifest_id(cose_bytes: bytes) -> str:
@@ -1768,17 +1850,52 @@ def verify_runtime_report(
     report: Any,
     nonce: bytes,
     context_hash: str,
+    *,
+    vcek_cert_der: Optional[bytes] = None,
+    cert_chain_pem: Optional[bytes] = None,
+    trusted_ark_der: Optional[bytes] = None,
+    trusted_tdx_root_pem: Optional[bytes] = None,
+    tpm_attest: Optional[bytes] = None,
+    tpm_signature: Optional[bytes] = None,
+    tpm_ak_chain_pem: Optional[bytes] = None,
+    tpm_trusted_roots_pem: Optional[bytes] = None,
 ) -> bool:
-    """Check the software-verifiable consistency of a RuntimeAttestationReport.
+    """Verify that a RuntimeAttestationReport's hardware quote binds this nonce.
 
-    Verifies that ``report.report_data_hash`` equals the expected derivation:
-        sha256(sha256(nonce || bytes.fromhex(context_hash_hex)))
+    With ``qualifying = sha256(nonce || bytes.fromhex(context_hash_hex))``,
+    returns ``True`` only when all of these hold:
 
-    This proves the report was produced for *this* nonce and *this* context_hash
-    — i.e., it is not a replay of an older report. It does NOT verify the
-    hardware signature on the underlying TEE quote blob; for that, use the
-    platform vendor SDK (amd sev-snp-verify, Intel TDX Attest SDK,
-    tpm2_checkquote) against ``report.quote``.
+    1. ``report.report_data_hash == "sha256:" + sha256(qualifying)``;
+    2. the hardware quote's signature and certificate chain verify; and
+    3. the caller-controlled field read out of the signed quote carries
+       ``qualifying``: ``REPORT_DATA == qualifying || 32 zero bytes`` on
+       ``amd-sev-snp`` and ``intel-tdx``, and the AK-signed TPM quote's
+       ``extraData == qualifying`` on ``tpm``, ``aws-nitro`` and
+       ``azure-cvm-sev-snp``.
+
+    Before 0.14.0 only step 1 ran. ``report_data_hash`` is computed by the
+    provider and signed by nothing, so a replayed quote carrying an old nonce,
+    or no quote at all, verified as fresh once the field was recomputed for
+    the new nonce (GHSA-32q9-m5rc-rp3w).
+
+    Verification material, by platform:
+
+    * ``amd-sev-snp``: ``report.quote`` (the raw SNP report), plus
+      ``vcek_cert_der`` and ``cert_chain_pem``. The chain is pinned to AMD's
+      published ARKs unless ``trusted_ark_der`` names another root.
+    * ``intel-tdx``: ``report.quote`` only; the PCK chain travels inside it
+      and is pinned to the Intel SGX Root CA unless ``trusted_tdx_root_pem``
+      is given.
+    * ``azure-cvm-sev-snp``: ``report.quote`` (the SNP report) with the VCEK
+      material as for ``amd-sev-snp``, and ``quote_msg``, ``quote_sig``,
+      ``ak_pub_pem`` and ``runtime_data_hex`` in ``report.raw`` (what
+      ``AzureCVMProvider.attest_runtime_state`` returns).
+    * ``tpm`` / ``aws-nitro``: ``tpm_attest`` (the ``TPMS_ATTEST`` the AK
+      signed), ``tpm_signature``, ``tpm_ak_chain_pem`` and
+      ``tpm_trusted_roots_pem``.
+
+    Missing material, an unverified signature, or a platform with no hardware
+    quote (for example ``software``) returns ``False``.
 
     Args:
         report:       RuntimeAttestationReport returned by attest_runtime_state().
@@ -1787,16 +1904,27 @@ def verify_runtime_report(
                       in "sha256:<hex>" format.
 
     Returns:
-        True if the report_data_hash is consistent with the nonce and context.
+        True if the verified quote binds the nonce and context.
     """
     from ._providers import RuntimeAttestationReport as _RRT
     if not isinstance(report, _RRT):
         raise TypeError(f"expected RuntimeAttestationReport, got {type(report).__name__}")
 
-    ctx_bytes = bytes.fromhex(context_hash.split(":", 1)[-1])
-    qualifying = hashlib.sha256(nonce + ctx_bytes).digest()
-    expected = "sha256:" + hashlib.sha256(qualifying).hexdigest()
-    return hmac.compare_digest(report.report_data_hash, expected)
+    from ._attestation import verify_runtime_quote
+
+    return verify_runtime_quote(
+        report,
+        nonce,
+        context_hash,
+        vcek_cert_der=vcek_cert_der,
+        cert_chain_pem=cert_chain_pem,
+        trusted_ark_der=trusted_ark_der,
+        trusted_tdx_root_pem=trusted_tdx_root_pem,
+        tpm_attest=tpm_attest,
+        tpm_signature=tpm_signature,
+        tpm_ak_chain_pem=tpm_ak_chain_pem,
+        tpm_trusted_roots_pem=tpm_trusted_roots_pem,
+    )
 
 
 # ---------------------------------------------------------------------------

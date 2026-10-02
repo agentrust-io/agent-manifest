@@ -94,6 +94,7 @@ pytest.importorskip("cryptography")
 from agent_manifest import (
     ArtifactBindings,
     CryptoProfile,
+    DecisionTraceBinding,
     DeploymentType,
     Ed25519Signer,
     EnforcementMode,
@@ -107,6 +108,7 @@ from agent_manifest import (
     SNP_REPORT_LEN,
     SnpVerificationError,
     SystemPromptBinding,
+    TraceType,
     appraise_platform_info,
     canonical_hash,
     generate_ed25519,
@@ -118,7 +120,7 @@ from agent_manifest._providers import AttestationReport
 from agent_manifest._types import HashValue, ManifestId
 from agent_manifest._verify import RevocationStore, VerificationContext, verify_manifest
 
-from ._snp_synthetic import build_synthetic_snp_report_with_chain
+from ._snp_synthetic import ark_der_from_chain, build_synthetic_snp_report_with_chain
 
 MEASUREMENT = "ab" * 48
 SYSTEM_PROMPT_HASH = "sha256:" + "a" * 64
@@ -170,6 +172,18 @@ def _build_signed_manifest():
                 model_attestation_type=ModelAttestationType.provider_asserted,
                 bound_at=now,
             ),
+            # enforce_attestation accepts audit_key_sealed only from this
+            # signed binding (GHSA-489r-r3g9-g24r).
+            decision_trace=DecisionTraceBinding(
+                trace_type=TraceType.hash_chained,
+                audit_chain_root=HashValue("sha256:" + "d" * 64),
+                audit_chain_uri="https://audit.acme.co/chains/platform-info-demo",
+                signing_key_id="tee-sealed-audit-key",
+                audit_key_sealed=True,
+                first_entry_at=now,
+                last_entry_at=now,
+                bound_at=now,
+            ),
         ),
     )
     keypair = generate_ed25519()
@@ -186,6 +200,7 @@ def _base_context(keypair) -> VerificationContext:
         model_version="demo-v1",
         trusted_keys={keypair.key_id: keypair.public_b64url()},
         enforce_attestation=True,
+        audit_chain_root="sha256:" + "d" * 64,
     )
 
 
@@ -233,6 +248,7 @@ def _verify_chain(
         snp_report_bytes=report.quote,
         vcek_cert_der=vcek_der,
         cert_chain_pem=chain_pem,
+        trusted_ark_der=ark_der_from_chain(chain_pem),
     )
 
 

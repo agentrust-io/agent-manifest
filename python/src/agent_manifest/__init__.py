@@ -85,6 +85,7 @@ from ._verify import (
 from ._trace import (
     verify_trace_envelope, verify_evidence_pack,
     trace_signing_pre_image, evidence_pack_pre_image, compute_pack_hash,
+    verification_result_pre_image,
     TraceStatus, TraceVerificationResult, EvidencePackVerificationResult,
     TRACE_REQUIRED_FIELDS, TRACE_VERIFICATION_RESULTS, INADMISSIBLE_RESULTS,
 )
@@ -177,6 +178,7 @@ __all__ = [
     "RevocationStore", "RevocationRecord",
     "verify_trace_envelope", "verify_evidence_pack",
     "trace_signing_pre_image", "evidence_pack_pre_image", "compute_pack_hash",
+    "verification_result_pre_image",
     "TraceStatus", "TraceVerificationResult", "EvidencePackVerificationResult",
     "TRACE_REQUIRED_FIELDS", "TRACE_VERIFICATION_RESULTS", "INADMISSIBLE_RESULTS",
     "verify_delegation_chain", "verify_hitl_approval", "delegation_depth_exceeded",

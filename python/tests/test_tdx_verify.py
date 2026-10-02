@@ -68,11 +68,13 @@ def _build_quote(
     version: int = 4,
     att_key_type: int = 2,
     tee_type: int = 0x81,
+    td_attributes: int = 0,
 ):
     """Return a self-consistent quote whose signed header is caller-controlled."""
     # Header (48): caller-selected signed profile + 40 bytes padding.
     header = struct.pack("<HHI", version, att_key_type, tee_type) + bytes(40)
     body = bytearray(_BODY)
+    body[120:128] = td_attributes.to_bytes(8, "little")  # TDATTRIBUTES
     body[136:136 + 48] = mrtd
     body[520:520 + 32] = report_data_digest  # REPORTDATA[:32]
     signed = header + bytes(body)
