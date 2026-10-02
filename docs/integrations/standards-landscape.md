@@ -55,7 +55,7 @@ bash examples/multi-artifact/verify.sh
 ### Fifteen minutes: follow declaration through enforcement to evidence
 
 The [industrial embodied-AI
-example](https://github.com/agentrust-io/examples/tree/main/industrial-embodied-ai)
+example](https://github.com/agentrust-io/integrations/tree/main/examples/industrial-embodied-ai)
 connects all three layers in one scenario:
 
 1. Agent Manifest declares the approved prompt, policy, tools, and artifact
