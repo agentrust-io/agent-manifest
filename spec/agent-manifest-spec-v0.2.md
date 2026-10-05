@@ -156,7 +156,7 @@ For v0.1 manifests, implementations MUST reject manifests where the signature do
 
 Test vector: The object `{"b":2,"a":1}` canonicalizes under RFC 8785 to the UTF-8 byte sequence `{"a":1,"b":2}` (lexicographic key order, no insignificant whitespace). Its SHA-256 is `43258cff783fe7036d8a43033f830adfc60ec037382473548ac742b888292777`. Implementations MUST reproduce this value.
 
-Null-valued optional fields MUST be omitted from the canonical form rather than included with a `null` value, unless this specification explicitly states a field is required and may be null (e.g., `model_hash` when `deployment_type` is `api`).
+Null-valued fields MUST be omitted from the canonical form rather than included with a `null` value. This includes a field this specification requires to be `null`, such as `model_hash` when `deployment_type` is `api` or `third-party-api`: in the canonical form it is absent. Every v0.1 test vector with an API model is signed over that form.
 
 SHAKE-256 output length: For all artifact hash fields in the post-quantum profile, SHAKE-256 output length MUST be 256 bits (32 bytes), producing a 64-character lowercase hexadecimal string. SHAKE-256 hash values MUST be prefixed with `shake256:` in field values to distinguish them from SHA-256 hashes. <!-- CHANGED: SCHEMA F-05 - fixed SHAKE-256 output length ambiguity -->
 
