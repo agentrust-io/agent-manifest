@@ -156,7 +156,7 @@ For v0.1 manifests, implementations MUST reject manifests where the signature do
 
 Test vector: The object `{"b":2,"a":1}` canonicalizes under RFC 8785 to the UTF-8 byte sequence `{"a":1,"b":2}` (lexicographic key order, no insignificant whitespace). Its SHA-256 is `43258cff783fe7036d8a43033f830adfc60ec037382473548ac742b888292777`. Implementations MUST reproduce this value.
 
-Null-valued fields MUST be omitted from the canonical form rather than included with a `null` value. This includes a field this specification requires to be `null`, such as `model_hash` when `deployment_type` is `api` or `third-party-api`: in the canonical form it is absent. Every v0.1 test vector with an API model is signed over that form.
+Null-valued manifest fields MUST be omitted before RFC 8785 is applied to a manifest pre-image: the v0.1 signature pre-image (section 3.6), the v0.1 `manifest_hash_in_report` pre-image (section 3.3) and the v0.2 payload a producer constructs. RFC 8785 itself serializes `null` and does not remove it; the omission is a step before it. The rule includes a field this specification requires to be `null`, such as `model_hash` when `deployment_type` is `api` or `third-party-api`: in the pre-image it is absent. Every v0.1 test vector with an API model is signed over that form. The rule does not extend to the other JSON inputs listed above, where a `null` value can carry meaning; the sections that define those inputs govern them.
 
 SHAKE-256 output length: For all artifact hash fields in the post-quantum profile, SHAKE-256 output length MUST be 256 bits (32 bytes), producing a 64-character lowercase hexadecimal string. SHAKE-256 hash values MUST be prefixed with `shake256:` in field values to distinguish them from SHA-256 hashes. <!-- CHANGED: SCHEMA F-05 - fixed SHAKE-256 output length ambiguity -->
 
@@ -1289,9 +1289,9 @@ All canonical JSON serialization in this specification uses RFC 8785 (JSON Canon
 
 Text artifacts (`system_prompt`, policy content) are hashed as raw UTF-8 NFC byte sequences, not as JSON.
 
-#### Null-valued optional fields
+#### Null-valued manifest fields
 
-Optional fields with a `null` value MUST be excluded from the canonical form. Implementations MUST NOT serialize `"field": null` into the signature pre-image.
+Null-valued manifest fields, including those this specification requires to be `null`, MUST be omitted from the manifest pre-images before RFC 8785 is applied, as section 2.3 sets out. Implementations MUST NOT serialize `"field": null` into the signature pre-image.
 
 #### JSON-LD fields
 
