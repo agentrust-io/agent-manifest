@@ -4,6 +4,15 @@
 
 ### Fixed
 
+- **[Spec]** Section 2.3 said a field the spec requires to be `null` (for
+  example `model_hash` with an `api` deployment) stays in the canonical form
+  as `null`. The SDK omits it, and every signed v0.1 vector with an API model
+  is signed over the form without it: AM-VEC-001 verifies over that pre-image
+  and fails over one that keeps `"model_hash":null`. Sections 2.3 and 4.3 now
+  say null-valued manifest fields, required-null ones included, are omitted
+  from the manifest pre-images as a step before RFC 8785. Other JSON inputs
+  are outside the rule. Reported in #482.
+
 - **[SDK]** Eleven hash/key-id checks used `==`, or `compare_digest()` with
   no type/charset guard, instead of a safe constant-time compare:
   `verify_transparency_log_entry()`,
