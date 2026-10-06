@@ -233,6 +233,10 @@ class PoisoningScan(SpecModel):
     # Level 0 manifests with result=not-scanned may omit them.
     scanner_version: Optional[str] = None
     scanned_at: Optional[datetime] = None
+    # spec 3.2.5 (issue #472): names the bytes that were scanned; MUST equal
+    # rag_corpus.merkle_root. REQUIRED for Level 1+ when result is clean or
+    # flagged; a present but different digest fails at every level.
+    subject_digest: Optional[HashValue] = None
     result: PoisoningResult
 
 

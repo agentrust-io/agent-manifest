@@ -1230,13 +1230,35 @@ def verify_manifest(
     # --- Poisoning scan rules (spec §3.2.5.1)
     poisoning_scan = rc.get("poisoning_scan") or {}
     poisoning_result = poisoning_scan.get("result")
-    if poisoning_result == "flagged":
+    # Scan subject binding (spec §3.2.5, issue #472), checked BEFORE any result is
+    # interpreted: a scan is evidence about this corpus only if it names this
+    # corpus's merkle_root. A present but different subject_digest fails at every
+    # level and its result is not read; an absent one fails at Level 1+ whenever
+    # the result claims a scan ran (clean / flagged).
+    subject_digest = poisoning_scan.get("subject_digest")
+    scan_unbound = False
+    if poisoning_scan and subject_digest is not None and subject_digest != rc.get("merkle_root"):
+        scan_unbound = True
+        mismatches.append(MismatchDetail(
+            field="rag_corpus.poisoning_scan.subject_digest",
+            expected_hash=str(rc.get("merkle_root")),
+            actual_hash=str(subject_digest),
+        ))
+    elif (subject_digest is None and poisoning_result in ("clean", "flagged")
+            and context.conformance_level >= 1):
+        scan_unbound = True
+        mismatches.append(MismatchDetail(
+            field="rag_corpus.poisoning_scan.subject_digest",
+            expected_hash=str(rc.get("merkle_root")),
+            actual_hash="<absent>",
+        ))
+    if not scan_unbound and poisoning_result == "flagged":
         mismatches.append(MismatchDetail(
             field="rag_corpus.poisoning_scan",
             expected_hash="<result: clean or not-scanned>",
             actual_hash="<result: flagged>",
         ))
-    elif poisoning_result == "not-scanned":
+    elif not scan_unbound and poisoning_result == "not-scanned":
         if context.conformance_level >= 1:
             mismatches.append(MismatchDetail(
                 field="rag_corpus.poisoning_scan",
