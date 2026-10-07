@@ -90,7 +90,7 @@ Put briefly, Agent Plugins describes what a client should install and a manifest
 
 ## Standards alignment
 
-Targeting [CoSAI](https://www.coalitionforsecureai.org/) Working Stream 4, an OASIS Open Project. 197 conformance tests against the formal specification. Integrates with [TRACE](https://github.com/agentrust-io/trace-spec) for hardware-rooted attestation.
+Targeting [CoSAI](https://www.coalitionforsecureai.org/) Working Stream 4, an OASIS Open Project. The specification defines a 197-test conformance suite. Integrates with [TRACE](https://github.com/agentrust-io/trace-spec) for hardware-rooted attestation.
 
 ## Contributing
 

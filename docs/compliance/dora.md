@@ -30,9 +30,9 @@ Every field is signed by the issuer key, so any change to the record shows up. A
 
 **Key rotation:** The [Revocation and key rotation tutorial](../tutorials/revocation-and-key-rotation.md) documents a zero-downtime rotation procedure. The procedure lets you issue new manifests under a new signing key without stopping agents, which supports DORA's requirement for continuity during ICT disruption.
 
-**Revocation:** The `FileCRL` component provides an append-only, signed revocation list (a published list of manifests that are no longer trusted). A compromised agent can be revoked in under one second by appending a signed `SignedRevocationRecord`. All verifiers checking the CRL endpoint immediately begin rejecting the revoked agent.
+**Revocation:** The `FileCRL` component provides an append-only, signed revocation list (a published list of manifests that are no longer trusted). To revoke a compromised agent, append a signed `SignedRevocationRecord`. A verifier using the same `FileCRL` object rejects the agent on its next check. Other verifiers see the revocation when they next reload the list or query its endpoint, so how fast it reaches them depends on how often they refresh; the SDK sets no refresh interval. `FileCRL` is a development store, and production needs a database-backed store (ADR-0007).
 
-**Recovery time objective (RTO):** Key rotation and agent reissuance can be completed in under five minutes using the runbook. The revocation mechanism has no single point of failure: the CRL file can be served from any static file host.
+**Recovery time objective (RTO):** Key rotation and agent reissuance follow the runbook in the tutorial. The SDK publishes no timing for this, so measure your own recovery time against the runbook. The CRL file can be served from any static file host.
 
 ---
 
@@ -60,14 +60,14 @@ This evidence helps document the "scope and nature" of an incident as DORA requi
 
 Conformance levels (how much a manifest covers and how strongly it is backed) give a ladder of things to test:
 
-| Conformance level | Test coverage | DORA relevance |
+| Conformance level (spec section 8.1) | What the level adds | Relevance |
 |-------------------|--------------|----------------|
-| 0: Software only | Manifest schema validation, signature verification | Baseline; insufficient for production financial systems |
-| 1: TPM | + TPM attestation verification | Acceptable for internal tools |
-| 2: SEV-SNP / TDX | + hardware enclave report verification | Recommended for customer-facing financial AI |
-| 3: Managed TEE | + managed attestation authority | Required for critical ICT third-party services |
+| 0: Software-only | All artifact bindings, standard crypto profile, transparency log publication | Baseline for development and non-regulated use |
+| 1: TEE-attested | + TEE attestation block, sealed audit key, container image digest verified by hardware | Enterprise production |
+| 2: Full stack | + all 10 artifacts bound, HITL approvals, delegation chain, cMCP for all MCP servers, at least 180 days of log retention, a drift policy | The level spec section 8.1 maps to DORA Art. 9 for regulated industries |
+| 3: Post-quantum | + ML-DSA-65 signatures, ML-KEM-768 key exchange, SHAKE-256 hashing | Deployments with long-horizon sensitivity |
 
-The test suite (`pytest --cov=agent_manifest --cov-fail-under=80`) runs all 197 conformance-level tests in CI, producing a verifiable coverage record. This record can be cited as evidence in DORA testing documentation.
+CI runs the full test suite with `pytest --cov=agent_manifest --cov-fail-under=80`, including the five conformance modules (AM-BIND, AM-CRYPTO, AM-ATTEST, AM-VERIFY, AM-COMPAT), and produces a verifiable coverage record that can be cited in DORA testing documentation. The specification defines a 197-test conformance suite (section 8.2); the implemented module tests do not yet map one to one onto that list.
 
 ---
 
@@ -92,7 +92,7 @@ The DORA Regulatory Technical Standards (RTS, the detailed rules under DORA) req
 | Article 8 | ICT risk identification | Signed manifest as tamper-evident ICT asset record |
 | Article 11 | Business continuity | Zero-downtime key rotation; append-only CRL revocation |
 | Article 17 | Incident classification | Exact configuration + authorisation chain at incident time |
-| Article 25 | Resilience testing | Conformance level test suite (197 tests, CI-verified) |
+| Article 25 | Resilience testing | Conformance module tests and the full test suite, run in CI with a coverage gate |
 | RTS key management | Key lifecycle controls | Generation, rotation, revocation, audit trail |
 
 ---

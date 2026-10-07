@@ -92,7 +92,7 @@ The approver's key is separate from the issuer key, ensuring that a compromised 
 
 **Detection:** A verification failure (any non-`VALID` result) is a security signal. Collect verification failures by agent identity in your SIEM (security event monitoring system) to detect unusual patterns.
 
-**Containment:** Revoke the agent's manifest via the CRL endpoint. Propagation to all verifiers checking the endpoint is immediate (next poll cycle, typically <30s).
+**Containment:** Revoke the agent's manifest via the CRL endpoint. Each verifier rejects it once it next reloads the list or queries the endpoint, so set that refresh interval to match your containment target; the SDK does not set one.
 
 **Correction:** Re-issue the manifest under a new signing key after rotating the compromised key. The key rotation procedure is documented in the [Revocation and key rotation tutorial](../tutorials/revocation-and-key-rotation.md).
 
@@ -106,7 +106,7 @@ The approver's key is separate from the issuer key, ensuring that a compromised 
 | § 164.312(b) | Audit controls | Merkle audit chain root (tamper-evident, selective disclosure) |
 | § 164.312(c)(1) | Integrity | Ed25519 + ML-DSA-65 hybrid signature over RFC 8785 canonical JSON |
 | § 164.308(a)(5) | Human oversight | HITL approval record (signed, scoped, time-bounded) |
-| § 164.308(a)(1) | Security management | Revocation (<1s), key rotation, verification failure as security signal |
+| § 164.308(a)(1) | Security management | Revocation, key rotation, verification failure as security signal |
 
 ---
 

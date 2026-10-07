@@ -1906,7 +1906,7 @@ The EU AI Act (Art. 26 via Art. 12 and recital obligations) requires a minimum o
 
 ### 8.2 Conformance Test Suite
 
-A conformant Agent Manifest implementation MUST pass all tests in the reference test suite. The suite is organized into four modules:
+A conformant Agent Manifest implementation MUST pass all tests in the reference test suite. The suite is organized into five modules:
 
 | Module | Tests | Coverage |
 |---|---|---|
