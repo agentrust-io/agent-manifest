@@ -245,8 +245,15 @@ def test_clean_without_subject_digest_is_not_valid_level1():
 
 
 def test_flagged_without_subject_digest_is_not_valid_level1():
+    """Distinct from test_flagged_result_is_not_valid_level1: flagged alone already fails
+    Level 1 under the older result rule, so `!= VALID` on its own would also pass with the
+    binding check disabled. Assert the binding mismatch specifically fires, and that the
+    binding-first guard suppresses the separate result-based mismatch (the scan is unbound,
+    so its flagged result is never read as a statement about this corpus)."""
     result = verify_manifest(base_manifest("flagged", subject_digest=None), base_context(1), store())
     assert result.result != OverallResult.VALID
+    assert _binding_mismatch(result)
+    assert not any(d.field == "rag_corpus.poisoning_scan" for d in result.mismatch_details)
 
 
 def test_clean_without_subject_digest_is_valid_level0():
@@ -259,6 +266,16 @@ def test_clean_without_subject_digest_is_valid_level0():
 def test_not_scanned_needs_no_subject_digest():
     result = verify_manifest(base_manifest("not-scanned"), base_context(0), store())
     assert not _binding_mismatch(result)
+
+
+def test_not_scanned_with_wrong_subject_digest_is_not_valid_any_level():
+    """Binding-first path: 'not-scanned' needs no subject_digest at all (the test above), but
+    a PRESENT and wrong one is still a binding failure at every conformance level -- a stray
+    or incorrect subject_digest on an unscanned corpus is not silently ignored just because
+    the result itself carries no scan evidence to protect."""
+    result = verify_manifest(base_manifest("not-scanned", subject_digest=SHA_B), base_context(0), store())
+    assert result.result != OverallResult.VALID
+    assert _binding_mismatch(result)
 
 
 # ---------------------------------------------------------------------------
