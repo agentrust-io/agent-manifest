@@ -1,6 +1,8 @@
 # Compliance
 
-Agent Manifest supplies signed configuration and provenance evidence that can support a compliance review. These pages map capabilities to topics in several regulatory frameworks. A valid manifest does not by itself establish regulatory compliance; that assessment depends on the deployed system, its controls, and the applicable obligations.
+These pages are for compliance officers, auditors and the engineers who support them. Each one takes a law or regulation and shows which of its requirements an Agent Manifest can help you produce evidence for, and which it cannot.
+
+An Agent Manifest is a signed record of how an AI agent was set up and who approved it. That record can support a compliance review. A valid manifest does not, on its own, make a system compliant: that depends on the whole deployed system, its other controls, and the rules that apply to you.
 
 | Framework                                                                    | Jurisdiction                        | Primary obligation addressed                                     |
 | ---------------------------------------------------------------------------- | ----------------------------------- | ---------------------------------------------------------------- |
@@ -11,7 +13,7 @@ Agent Manifest supplies signed configuration and provenance evidence that can su
 
 ## What agent-manifest provides
 
-The evidence available depends on which bindings and optional records the producer includes and which checks the recipient performs:
+What you can show depends on which parts the issuer put in the manifest and which checks the reviewer actually runs:
 
 | Evidence                                           | What to check                                                                            |
 | -------------------------------------------------- | ---------------------------------------------------------------------------------------- |
@@ -21,4 +23,4 @@ The evidence available depends on which bindings and optional records the produc
 | Delegation, when supplied                          | Trusted authority, signatures, continuity, and scope restrictions                        |
 | Human approval, when supplied                      | Approver authority, signature, scope, and freshness                                      |
 
-Start with [your first manifest](https://manifest.agentrust-io.com/getting-started/index.md) to see the checks in a local example. Read [limitations](https://manifest.agentrust-io.com/limitations/index.md) before treating a signed declaration as evidence of runtime behavior.
+Start with [your first manifest](https://manifest.agentrust-io.com/getting-started/index.md) to see the checks in a local example. Read [limitations](https://manifest.agentrust-io.com/limitations/index.md) before treating a signed statement about setup as evidence of what the agent did while running.

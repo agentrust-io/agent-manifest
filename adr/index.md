@@ -1,6 +1,8 @@
 # Architecture Decision Records
 
-Each major design decision in the Agent Manifest Specification is recorded here with its rationale, alternatives considered, and consequences. ADRs are immutable once accepted - superseded decisions get a new ADR that references the old one.
+This page lists the design decisions behind Agent Manifest. Each one is written up as an Architecture Decision Record (ADR): a short note on what was decided, what else was considered, and what follows from it. Read them when you want to know why the format works the way it does; you do not need them to use the SDK.
+
+An accepted ADR is never edited to reverse it. A decision that replaces an earlier one gets a new ADR that points back to the old one.
 
 | ADR                                                                                                | Title                                                                                    | Status   |
 | -------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | -------- |
@@ -11,13 +13,14 @@ Each major design decision in the Agent Manifest Specification is recorded here 
 | [0005](https://manifest.agentrust-io.com/adr/0005-ml-dsa-hybrid-signature/index.md)                | ML-DSA-65 and hybrid Ed25519+ML-DSA-65 signature support                                 | Accepted |
 | [0006](https://manifest.agentrust-io.com/adr/0006-hitl-approval-mechanism/index.md)                | Human-in-the-Loop (HITL) embedded approval record design                                 | Accepted |
 | [0007](https://manifest.agentrust-io.com/adr/0007-revocation-json-lines-crl/index.md)              | JSON-Lines append-only CRL as the SDK revocation format                                  | Accepted |
-| [0008](https://manifest.agentrust-io.com/adr/0008-conformance-level-design/index.md)               | Four conformance levels (0–3) rather than binary conformant/non-conformant               | Accepted |
+| [0008](https://manifest.agentrust-io.com/adr/0008-conformance-level-design/index.md)               | Four conformance levels (0 to 3) rather than binary conformant/non-conformant            | Accepted |
 | [0009](https://manifest.agentrust-io.com/adr/0009-spiffe-uri-agent-identity/index.md)              | SPIFFE URIs as the canonical identity format for agent_id and issuer                     | Accepted |
 | [0010](https://manifest.agentrust-io.com/adr/0010-runtime-attestation-freshness-proofs/index.md)   | Runtime attestation freshness proofs via caller-controlled REPORT_DATA                   | Accepted |
 | [0011](https://manifest.agentrust-io.com/adr/0011-signature-envelope/index.md)                     | The manifest is a signed document, not a JWT/JOSE profile; envelope moves to COSE_Sign1  | Accepted |
 | [0012](https://manifest.agentrust-io.com/adr/0012-context-uri-moved-to-controlled-domain/index.md) | `@context` URI moves to a domain we control; v0.1 URL withdrawn, consumers cut over      | Accepted |
 | [0013](https://manifest.agentrust-io.com/adr/0013-cbor-library-for-cose/index.md)                  | Take a CBOR library, not a COSE library; the COSE structures are built in-repo           | Accepted |
 | [0014](https://manifest.agentrust-io.com/adr/0014-fully-specified-ed25519-code-point/index.md)     | Sign with the fully-specified Ed25519 code point (-19); keep verifying the deprecated -8 | Accepted |
+| [0015](https://manifest.agentrust-io.com/adr/0015-agent-plugins-manifest-reference/index.md)       | Agent Plugins manifest reference                                                         | Accepted |
 
 To propose a new ADR, open a GitHub issue using the [spec change template](https://github.com/agentrust-io/agent-manifest/issues/new?template=spec_change.md) and follow the [ADR template](https://github.com/agentrust-io/agent-manifest/blob/main/docs/adr/0000-template.md).
 

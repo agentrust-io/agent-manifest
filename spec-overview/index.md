@@ -1,6 +1,8 @@
 # Specification Overview
 
-The Agent Manifest Specification v0.2 is a formal RFC 2119 document defining a verifiable declaration of an AI agent's deployment content.
+This page is a map of the specification, the formal rulebook that anyone building or checking Agent Manifests follows. Read it if you are writing your own implementation, auditing one, or want to know where a rule lives; if you only want to try the tool, start with [Getting started](https://manifest.agentrust-io.com/getting-started/index.md) instead.
+
+The Agent Manifest Specification v0.2 is a formal RFC 2119 document (its rules use the standard words MUST, SHOULD and MAY with fixed meanings) defining a verifiable declaration of an AI agent's deployment content: a signed list of what the agent was approved to run with.
 
 TL;DR
 
@@ -21,7 +23,7 @@ The spec has 10 sections covering the problem statement, data model for all 10 a
 | 5 - Verification Protocol    | HTTP endpoint, result schema, evidence pack, revocation protocol                             |
 | 6 - Integration Architecture | AGT, cMCP, and MCP integration with field cross-checks                                       |
 | 7 - Threat Model             | 10 threat classes addressed; explicit out-of-scope threats                                   |
-| 8 - Conformance              | Levels 0–3; 197 conformance tests across 5 modules                                           |
+| 8 - Conformance              | Levels 0 to 3; 197 conformance tests across 5 modules                                        |
 | 9 - Regulatory Mapping       | EU AI Act, DORA, GDPR, HIPAA, PCI-DSS, FedRAMP                                               |
 | 10 - Roadmap                 | v0.2 targets, v1.0 CoSAI WS4 contribution                                                    |
 

@@ -1,24 +1,28 @@
 # Integrations
 
-Agent-manifest is framework-agnostic - it is a signing and verification layer, not an agent runtime. These guides show how to attach it to the most common Python agent frameworks.
+An Agent Manifest is a signed record of what an agent was approved to run. These guides show where to add a manifest check to the agent software you already use. They are for developers who run agents built with LangChain, the OpenAI Agents SDK, AutoGen, CrewAI or similar tools. Each guide shows the point in that framework where you check the agent's signed record before it is allowed to do something that matters.
 
-| Integration                                                                                        | What it covers                                                                                                           |
-| -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| [LangChain](https://manifest.agentrust-io.com/integrations/langchain/index.md)                     | Manifest for a LangChain agent; tool wrapper that verifies caller manifests                                              |
-| [OpenAI Agents SDK](https://manifest.agentrust-io.com/integrations/openai-agents/index.md)         | Manifest per agent; manifest handoff verification during agent handoffs                                                  |
-| [AutoGen and CrewAI](https://manifest.agentrust-io.com/integrations/autogen-crewai/index.md)       | Per-agent manifests in AutoGen conversations and CrewAI crews                                                            |
-| [AGT (Agent Governance Toolkit)](https://manifest.agentrust-io.com/integrations/agt/index.md)      | Using agent-manifest as the identity layer feeding AGT policy and trust scores                                           |
-| [NVIDIA OpenShell](https://manifest.agentrust-io.com/integrations/openshell/index.md)              | Binding the approved OpenShell, ACS, workload, and tool configuration to runtime TRACE evidence                          |
-| [Agent Credentials](https://manifest.agentrust-io.com/integrations/agent-credentials/index.md)     | Joining a credential decision to the exact manifest and signed runtime evidence                                          |
-| [Standards landscape](https://manifest.agentrust-io.com/integrations/standards-landscape/index.md) | How Agent Manifest connects to Agent Card, registration, credentials, BOM, provenance, attestation, and runtime evidence |
+Agent Manifest works with any framework. It signs and checks records about an agent; it does not run the agent. A framework is the library your agent is built on.
+
+| Integration                                                                                        | What it covers                                                                                                                      |
+| -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| [LangChain](https://manifest.agentrust-io.com/integrations/langchain/index.md)                     | Manifest for a LangChain agent; tool wrapper that verifies caller manifests                                                         |
+| [OpenAI Agents SDK](https://manifest.agentrust-io.com/integrations/openai-agents/index.md)         | Manifest per agent; manifest handoff verification during agent handoffs                                                             |
+| [AutoGen and CrewAI](https://manifest.agentrust-io.com/integrations/autogen-crewai/index.md)       | Per-agent manifests in AutoGen conversations and CrewAI crews                                                                       |
+| [AGT (Agent Governance Toolkit)](https://manifest.agentrust-io.com/integrations/agt/index.md)      | Passing a checked manifest into AGT, which decides what an agent may do                                                             |
+| [NVIDIA OpenShell](https://manifest.agentrust-io.com/integrations/openshell/index.md)              | Linking the approved OpenShell sandbox setup to TRACE records of what ran                                                           |
+| [Agent Credentials](https://manifest.agentrust-io.com/integrations/agent-credentials/index.md)     | Tying a credential check to the exact manifest and to signed records of what ran                                                    |
+| [Standards landscape](https://manifest.agentrust-io.com/integrations/standards-landscape/index.md) | How Agent Manifest fits next to Agent Cards, credentials, software inventories, build records, hardware reports and runtime records |
 
 ## Common pattern
 
-Issue a manifest, attach its identifier or complete signed envelope, and verify it before allowing the protected operation. An identifier in a header, callback, or trace is correlation metadata; the recipient still needs the actual signed object, independently approved keys and runtime inputs, and current revocation state.
+The pattern is the same everywhere. Create a manifest, send its ID or the full signed record along with the agent, and check it before the agent is allowed to do the protected thing (call a tool, hand work to another agent, reach a service).
+
+An ID in a header, callback or log only helps you find and match records. To check anything, the receiving side still needs the full signed record, its own list of trusted keys, its own copy of the values it expects to see at runtime, and an up-to-date list of revoked (withdrawn) manifests.
 
 ## Run a local verification gate
 
-Complete the [first-manifest example](https://manifest.agentrust-io.com/getting-started/index.md), append this block to `first_manifest.py`, and run it again. It tests a framework-independent boundary with synthetic inputs; it does not call a model or install a framework adapter.
+This is a small check, called a gate, that refuses to continue unless the manifest verifies. Complete the [first-manifest example](https://manifest.agentrust-io.com/getting-started/index.md), add this block to the end of `first_manifest.py`, and run it again. It uses made-up inputs and works without any framework: it does not call a model or install anything extra.
 
 ```
 from agent_manifest import OverallResult
@@ -44,6 +48,6 @@ for rejected_context in (
 print("PASS: missing trust and changed runtime input blocked")
 ```
 
-Obtain `approved_context` and revocation state through the recipient's own configuration and evidence collection. Never let a caller submit its own expected hashes or trusted-key map as authorization. A `VALID` result applies to the declared bindings and supplied checks; the application separately authorizes the requested operation and delegation scope.
+The receiving side must load `approved_context` (the values it expects and the keys it trusts) and the revocation list from its own configuration. Never let the caller supply its own expected hashes or trusted keys: that would let it approve itself. A `VALID` result covers only the bindings in the manifest and the checks you supplied. Your application still decides separately whether the requested action and any handing-on of authority are allowed.
 
-Place this gate before tool, handoff, or service side effects. Recheck when the relevant state changes; attaching a manifest once at startup does not enforce later drift, revocation, or caller permissions. The framework pages identify where to connect this boundary and link to current framework APIs.
+Put the gate before anything with a real effect: a tool call, a handoff or a service request. Check again when something relevant changes. Attaching a manifest once at startup does not catch later changes, revocations or permission changes. The framework pages below show where to connect the gate and link to each framework's current documentation.

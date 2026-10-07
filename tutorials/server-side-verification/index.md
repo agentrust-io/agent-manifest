@@ -1,12 +1,14 @@
 # Server-side manifest verification
 
-Reject a protected request when its manifest is missing, unknown, or fails verification. This local FastAPI example uses the signed record and independently configured inputs from the [first-manifest tutorial](https://manifest.agentrust-io.com/getting-started/index.md). It tests the gate without starting a network server.
+This page is for anyone running a service that AI agents call. It shows how to turn a request away unless the calling agent's manifest (its signed record of the prompt, policy, tools and model it was approved with) checks out. You get a small working gate, built with the FastAPI web framework, that runs on your own computer without starting a real server.
+
+The example reuses the signed record and the trusted inputs from the [first-manifest tutorial](https://manifest.agentrust-io.com/getting-started/index.md). It rejects a request when the manifest is missing, unknown, or fails verification.
 
 ## Run the request gate
 
 Complete the first-manifest tutorial, install the server dependencies with `python -m pip install -e "./python[server]"`, then append this block to `first_manifest.py` and run `python first_manifest.py` again.
 
-The demo's manifest header selects a stored document. It does not authenticate a caller. Before using this in a service, bind the authenticated caller to an allowed manifest and separately authorize the operation. Anyone who knows the demo ID can select its record.
+In this demo, the request header only picks which stored manifest to check. It does not prove who is calling: anyone who knows the demo ID can pick its record. A real service first has to confirm who the caller is, link that caller to a manifest it is allowed to use, and then separately decide whether the caller may perform the operation.
 
 ```
 from fastapi import FastAPI, Request
@@ -58,9 +60,11 @@ with TestClient(app) as client:
     print("PASS: diagnostic GET without trusted keys cannot return VALID")
 ```
 
-The gate requires `VALID` using server-held keys and runtime observations. Keep the route policy explicit when adding protected operations; this demo protects only `/execute`. Production services also need caller authentication, authorization, bounded requests, and current revocation and attestation appraisal.
+The gate lets a request through only when the result is `VALID`, using keys the server holds and values the server observed for itself. It protects only the `/execute` route, so name each protected route explicitly as you add more. A production service also needs to check who the caller is and what they may do, limit request sizes, and keep its revocation list (manifests withdrawn before they expire) and its hardware evidence checks current.
 
 ## What the SDK router provides
+
+The software development kit (SDK) also ships ready-made diagnostic routes. They help with inspection, but none of them is an acceptance gate on its own.
 
 | Route                                          | Trust and result boundaries                                                                                                                                                                                        |
 | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -69,17 +73,21 @@ The gate requires `VALID` using server-held keys and runtime observations. Keep 
 | `POST /agent/verify/cose`                      | Accepts a v0.2 COSE envelope with `Content-Type: application/agent-manifest+cose`. Configure the router's `cose_context` with server-held trust and runtime inputs. No configured trust means no `VALID` result.   |
 | `GET /agent/revocation-status?manifest_id=...` | Looks up the in-memory revocation store. It does not fetch or refresh a CRL.                                                                                                                                       |
 
-An HTTP 200 response means the verification request was processed. Inspect the result body; a non-`VALID` verdict must not authorize the protected operation. The SDK router does not provide caller authentication, rate limiting, or application authorization.
+An HTTP 200 response only means the check ran. Read the result in the response body; a non-`VALID` verdict must not authorize the protected operation. The SDK router does not check who the caller is, limit how often they call, or decide what they are allowed to do.
 
 ## Configure the verifier's inputs
 
-Use `VerificationContext` to supply independently observed hashes, model version, enforcement mode, trusted issuer keys, and any required delegation or approval keys. With strict artifact verification, a declared binding without its required observation can yield `INCOMPLETE`. Do not fill expected values by copying the incoming manifest.
+The verifier (the code that checks a manifest) needs its own picture of what should be running. Give it that through `VerificationContext`: the hashes (fingerprints) of the prompt, policy and tools you observed yourself, the model version, the enforcement mode, the issuer keys you trust, and any keys needed for delegation or human approvals. Never fill these values by copying them from the incoming manifest, since a manifest always matches itself. With strict artifact verification, a manifest that declares something you supplied no observed value for can come back `INCOMPLETE`.
+
+Technical detail: issuer keys and strict mode
 
 `trusted_keys` authenticates the signature under a configured key. Where issuer identity matters, also populate `trusted_key_issuers` to restrict which issuer each key may represent. An empty issuer map does not authorize that named issuer merely because the signature verifies.
 
 Keep `strict_artifact_verification=True` for the application gate. Setting it to `False` deliberately reduces artifact checking; label such an audit as document verification and do not use it to approve the running agent.
 
 ## Read the verdict
+
+Every check ends in one result. Only `VALID` lets a request through.
 
 | Result                                | Meaning for the gate                                                                                                 |
 | ------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
@@ -96,7 +104,13 @@ Reject every non-`VALID` outcome, including future values absent from this table
 
 ## Add revocation and evidence appraisal
 
-The example uses an empty `RevocationStore`. For a running service, load authenticated revocation records and refresh the store before stale data exceeds your acceptance policy. A `FileCRL` reader caches loaded records; reusing it does not automatically notice another process's writes. Follow the tested [revocation example](https://manifest.agentrust-io.com/tutorials/revocation-and-key-rotation/index.md).
+The example starts with an empty `RevocationStore`, so nothing is withdrawn. A running service should load signed revocation records and refresh them often enough that it never relies on data older than your policy allows. Follow the tested [revocation example](https://manifest.agentrust-io.com/tutorials/revocation-and-key-rotation/index.md).
+
+If your policy requires attestation (a signed report from the processor about what is running on it), check that report yourself before telling the verifier it passed. The same goes for a transparency log receipt (proof that the manifest was published to a public log): check it first, then pass the result in.
+
+Technical detail: caching, attestation and transparency inputs
+
+A `FileCRL` reader caches loaded records; reusing it does not automatically notice another process's writes.
 
 When attestation is required, appraise the hardware evidence and its binding to this manifest using approved roots and freshness policy before supplying verified evidence to the context. `enforce_attestation=True` does not itself perform every vendor appraisal step or establish a conformance level.
 

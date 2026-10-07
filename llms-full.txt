@@ -10,19 +10,19 @@ Agent Manifest defines signed deployment artifact bindings for AI agents. Verifi
 
 # Check the agent you approved against what deployed
 
-Agent Manifest signs an agent's prompt, policy, tools, model identity and six further artifact bindings, so a verifier can authenticate the issuer and compare each binding with inputs it trusts.
+An AI agent is software that uses an AI model to take actions on its own. Agent Manifest is a signed record of how one agent was set up: its instructions (the prompt), its rules (the policy), its tools, its model and six other parts. Anyone checking the agent later can confirm who signed the record and compare each part with what is actually running. New to these terms? See [the terms, in plain English](https://agentrust-io.com/#plain-terms).
 
 [Create and check your first manifest](https://manifest.agentrust-io.com/getting-started/index.md) [What this proves, and what it does not](https://manifest.agentrust-io.com/limitations/index.md)
 
 TL;DR
 
-[agent-manifest](https://pypi.org/project/agent-manifest/) 0.15.0 (Apache-2.0) signs and verifies locally with Python 3.11+ and no hardware or cloud account. Its SEV-SNP path was validated on an Azure confidential VM ([#227](https://github.com/agentrust-io/agent-manifest/pull/227)) and its TDX quote verifier on a GCP C3 guest, and a manifest still does not observe the agent after issuance: runtime activity is recorded separately in [TRACE](https://trace.agentrust-io.com/).
+[agent-manifest](https://pypi.org/project/agent-manifest/) 0.15.0 (Apache-2.0) signs and checks records on your own computer with Python 3.11+, with no special hardware or cloud account. Its AMD SEV-SNP support was tested on an Azure confidential VM ([#227](https://github.com/agentrust-io/agent-manifest/pull/227)) and its Intel TDX report checker on a Google Cloud C3 machine. A manifest does not watch the agent after it is signed: what the agent does is recorded separately in [TRACE](https://trace.agentrust-io.com/).
 
 - **Run it**
 
   ______________________________________________________________________
 
-  Sign a demo configuration, check it, then detect an edited record and a different prompt hash.
+  Sign a sample agent setup, check it, then watch the check catch an edited record and a changed prompt.
 
   [Getting started](https://manifest.agentrust-io.com/getting-started/index.md)
 
@@ -30,7 +30,7 @@ TL;DR
 
   ______________________________________________________________________
 
-  A signature check is one part of verification. The verifier needs its own trusted inputs.
+  A valid signature shows who signed the record. To know the agent matches it, the checker also needs its own trusted view of what is running.
 
   [Limitations](https://manifest.agentrust-io.com/limitations/index.md)
 
@@ -38,7 +38,7 @@ TL;DR
 
   ______________________________________________________________________
 
-  TPM, AMD SEV-SNP and Intel TDX providers. A provider name is not an assurance verdict.
+  Optional signed reports from the chip itself (TPM, AMD SEV-SNP, Intel TDX). Supporting a chip type does not by itself prove a given machine can be trusted.
 
   [Hardware attestation](https://manifest.agentrust-io.com/tutorials/hardware-attestation/index.md)
 
@@ -46,17 +46,19 @@ TL;DR
 
   ______________________________________________________________________
 
-  Before it: [Weight Custody Manifest](https://wcm.agentrust-io.com) for the weights. After it: [cMCP](https://cmcp.agentrust-io.com) for tool calls and [cA2A](https://ca2a.agentrust-io.com) for delegation. Check a real TDX quote at [agentrust-io.com/verify](https://agentrust-io.com/verify/).
+  Before it: [Weight Custody Manifest](https://wcm.agentrust-io.com) for the model's weights. After it: [cMCP](https://cmcp.agentrust-io.com) for the agent's tool calls and [cA2A](https://ca2a.agentrust-io.com) for handing work to other agents. Check a real Intel processor report at [agentrust-io.com/verify](https://agentrust-io.com/verify/).
 
   [See the chain](https://agentrust-io.com/#chain)
 
 ## The agent attestation gap
 
-An authenticated caller can still run a changed prompt, policy, or tool configuration. A manifest gives a verifier specific artifact bindings to compare. Software signing authenticates declarations; hardware provenance requires valid attestation, approved measurements, and a binding between the evidence and this manifest.
+Knowing who is calling does not tell you what they are running. A logged-in agent can still be running a changed prompt, different rules or a new tool. A manifest lists a fingerprint (a hash) of each approved part, so a checker can compare them one by one.
+
+A software signature proves who made those statements. Proving the agent runs on particular hardware takes more: a valid signed report from the processor (called attestation), measurements you have approved, and a link between that report and this manifest.
 
 ## How it works
 
-Scroll the diagram horizontally on smaller screens.
+Someone approves the agent's parts and signs a record of them. Later, a checker brings the signer's public key, its own view of what is running and, if wanted, a hardware report, and gets a result for each part. Scroll the diagram sideways on small screens.
 
 ```
 flowchart TB
@@ -69,11 +71,11 @@ flowchart TB
     verifier --> result[Result and per-field checks]
 ```
 
-The verifier needs its own trusted inputs. A signed manifest does not continuously observe the agent, and attestation does not make every later modification impossible. Runtime activity is recorded separately in [TRACE](https://trace.agentrust-io.com/).
+The checker needs its own trusted inputs; it cannot take the agent's word for what is running. A signed manifest describes the agent at one moment and does not keep watching it, and a hardware report does not rule out every later change. What the agent does while it runs is recorded separately in [TRACE](https://trace.agentrust-io.com/).
 
 ## The 10 attested artifacts
 
-The format covers these ten categories. Their presence and verification requirements depend on the profile; a category listed here is not evidence that it was measured or checked.
+A manifest can describe up to ten parts of an agent. Which ones must be present, and how strictly each is checked, depends on the level (profile) you choose. A part appearing in this table does not mean it was measured or checked in your deployment.
 
 | Artifact              | What the binding identifies                          |
 | --------------------- | ---------------------------------------------------- |
@@ -90,25 +92,25 @@ The format covers these ten categories. Their presence and verification requirem
 
 ## Hardware providers
 
-Provider support includes TPM, AMD SEV-SNP, Intel TDX, and OPAQUE. Evidence collection, verification, and memory isolation differ by provider. Use the [hardware guide](https://manifest.agentrust-io.com/tutorials/hardware-attestation/index.md) and [limitations](https://manifest.agentrust-io.com/limitations/index.md) to choose a deployment; the provider name alone is not an assurance verdict.
+A provider is the code that collects a signed report from one kind of chip. Supported providers are TPM, AMD SEV-SNP, Intel TDX and OPAQUE. They differ in how the report is collected and checked, and in how well the agent's memory is shielded from the rest of the machine. Use the [hardware guide](https://manifest.agentrust-io.com/tutorials/hardware-attestation/index.md) and [limitations](https://manifest.agentrust-io.com/limitations/index.md) to choose; the provider name alone does not tell you how far to trust a machine.
 
 ## Conformance levels
 
-Begin with software signing. Higher profiles add hardware, approval, transparency, or cryptographic requirements. Check the [specification](https://manifest.agentrust-io.com/spec/agent-manifest-v0.2/index.md) before claiming a level; a successful signature check is only one part of verification.
+Conformance levels are tiers of strictness. Start with software signing. Higher levels add requirements for hardware reports, human approvals, public logs or stronger cryptography. Check the [specification](https://manifest.agentrust-io.com/spec/agent-manifest-v0.2/index.md) before claiming a level; a good signature is only one part of passing.
 
 ## Frequently asked questions
 
 ### What is an Agent Manifest?
 
-A signed record of deployment artifact bindings. Its usefulness depends on authenticating the issuer, comparing independent runtime inputs, and checking the evidence your trust policy requires.
+A signed record of the parts an agent was approved to run with. It is useful when you confirm who signed it, compare it with what is really running, and check whatever extra evidence your own rules require.
 
 ### How is an Agent Manifest different from a signed JWT?
 
-JWT describes an envelope for claims. Agent Manifest defines artifact bindings and their verification contract. Envelope choice alone does not establish runtime provenance.
+A JWT (JSON Web Token) is a common format for wrapping signed statements. Agent Manifest defines which parts of an agent to record and how to check each one. The wrapper format alone proves nothing about what is running.
 
 ### Why not specify it as a JWT or JOSE profile?
 
-Because of what comparable standards chose, not because JWT is incapable. The IETF already picked the JWT/CWT route for attestation *tokens*: EAT ([RFC 9711](https://www.rfc-editor.org/rfc/rfc9711.html)) even supports nested tokens and detached claim sets. That is the right shape for "who is calling, right now," and an EAT is a valid input to a manifest's attestation block.
+Because of what similar standards chose; JWT could do the job. The IETF already picked the JWT/CWT route for attestation *tokens*: EAT ([RFC 9711](https://www.rfc-editor.org/rfc/rfc9711.html)) even supports nested tokens and detached claim sets. That is the right shape for "who is calling, right now," and an EAT is a valid input to a manifest's attestation block.
 
 Every multi-artifact provenance standard with a transparency log went the other way. SCITT ([RFC 9943](https://www.rfc-editor.org/rfc/rfc9943.html)), the closest analog to Agent Manifest, mandates COSE_Sign1 signed statements. DSSE, the envelope behind in-toto and SLSA, rejected a JWS profile in writing, citing implementation hazards and canonicalization as attack surface. C2PA uses COSE_Sign1 inside a JUMBF container.
 
@@ -116,7 +118,7 @@ An Agent Manifest is that second kind of object: ten artifacts, several independ
 
 ### Does Agent Manifest require special hardware?
 
-No. The [first example](https://manifest.agentrust-io.com/getting-started/index.md) uses software signing. Hardware provenance requires additional evidence and verification.
+No. The [first example](https://manifest.agentrust-io.com/getting-started/index.md) uses only software signing. Proving where an agent runs takes extra hardware evidence and extra checks.
 
 ### Is Agent Manifest free and open source?
 
@@ -124,20 +126,22 @@ Yes. The source and license are available on [GitHub](https://github.com/agentru
 
 ## Next steps
 
-- [Getting started](https://manifest.agentrust-io.com/getting-started/index.md): sign, compare, and detect changes.
-- [Tutorials](https://manifest.agentrust-io.com/tutorials/index.md): integration and operational tasks.
-- [Specification](https://manifest.agentrust-io.com/spec/agent-manifest-v0.2/index.md): normative requirements.
+- [Getting started](https://manifest.agentrust-io.com/getting-started/index.md): sign a record, compare it, and catch changes.
+- [Tutorials](https://manifest.agentrust-io.com/tutorials/index.md): connecting it to your systems and running it day to day.
+- [Specification](https://manifest.agentrust-io.com/spec/agent-manifest-v0.2/index.md): the formal rules an implementation follows.
 - [Architecture decisions](https://manifest.agentrust-io.com/adr/index.md): design rationale.
 
 **Status:** SDK 0.15.0 · Apache-2.0 · proposed to CoSAI WS4 ([RFC #149](https://github.com/cosai-oasis/ws4-secure-design-agentic-systems/issues/149)) · Sponsored by OPAQUE, which funds the engineering, infrastructure and confidential-computing work behind these projects.
 
 # Create and check your first manifest
 
-Sign a small agent configuration, verify its declared inputs, then see two failures: an edited signed record and a different prompt hash. This software example runs locally after installation. It does not run a model or produce hardware attestation.
+This page is for anyone trying Agent Manifest for the first time. In about ten minutes you sign a record of a small sample agent, check it, and then watch the check fail twice on purpose: once when someone edits the signed record, and once when the agent's prompt changes.
+
+Everything runs on your own computer. It does not run an AI model or produce a hardware report (attestation); those come later.
 
 ## Prerequisites
 
-Use Python 3.11+, Git, and Bash on Linux, macOS, or Windows with WSL. This guide uses the current source checkout so its verification behavior matches these docs.
+You need Python 3.11 or later, Git, and a Bash terminal on Linux, macOS, or Windows with WSL. The steps install from a copy of the source code, so the checks behave exactly as these docs describe.
 
 ## Installation
 
@@ -151,7 +155,9 @@ python -m pip install -e "./python[cli]"
 
 ## Level 0 - Software-only signing
 
-Save this complete block as `first_manifest.py`, then run `python first_manifest.py` from the same directory. It uses the supported v0.1 JSON form to make the signed fields readable. The current v0.2 envelope uses COSE; see the [signature envelope decision](https://manifest.agentrust-io.com/adr/0011-signature-envelope/index.md).
+Save this complete block as `first_manifest.py`, then run `python first_manifest.py` from the same directory. The script does four things: it takes a fingerprint (a SHA-256 hash) of a sample prompt, writes a manifest that records it, signs the manifest with a new key, and checks the result three ways.
+
+It uses the older v0.1 JSON form because its signed fields are easy to read. The current v0.2 format wraps the same content in a compact binary envelope called COSE; see the [signature envelope decision](https://manifest.agentrust-io.com/adr/0011-signature-envelope/index.md).
 
 ```
 import copy
@@ -253,9 +259,9 @@ PASS: different prompt hash rejected (MISMATCH)
 Saved signed.json and public.hex; private key was not saved
 ```
 
-The prompt hash comes from the demo text. The policy hash and model identity are synthetic declarations. `VALID` here applies to the three declared bindings and the supplied verifier inputs. It is not a claim that all ten artifact categories were bound, a model executed, or the configuration is safe.
+What this shows: `VALID` means the signature checks out and the three parts recorded here match the values the checker was given. The prompt hash comes from the demo text; the policy hash and model details are made up for the demo. `VALID` does not mean all ten parts of an agent were recorded, that a model ran, or that the setup is safe.
 
-The verifier retains its trusted public key separately from the record. In production, obtain issuer keys and runtime measurements through your approved trust channels. Reading expected hashes from an untrusted manifest would only compare the document with itself.
+The checker (verifier) keeps the trusted public key apart from the record. In a real deployment, get signer keys and the values of what is actually running from sources you already trust. Taking the expected values from the manifest itself would only compare the document with itself.
 
 ## Inspect the saved record
 
@@ -263,49 +269,49 @@ The verifier retains its trusted public key separately from the record. In produ
 manifest verify signed.json --public-key public.hex
 ```
 
-This CLI invocation supplies a trusted key but no runtime hashes. Expect `INCOMPLETE`, with a verified signature and missing artifact comparisons. Without `--public-key`, expect `UNVERIFIABLE`. The Python example supplies the comparison inputs needed for its `VALID` result.
+This command line check gets a trusted key but no values to compare against. Expect `INCOMPLETE`: the signature is verified, but the parts could not be compared. Without `--public-key`, expect `UNVERIFIABLE`, because there is no key to check the signature with. The Python script got `VALID` because it supplied the values to compare.
 
 ## Level 1 - TPM attestation
 
-Hardware provenance is a separate step. Follow the [hardware attestation tutorial](https://manifest.agentrust-io.com/tutorials/hardware-attestation/index.md) and [limitations](https://manifest.agentrust-io.com/limitations/index.md) for provider-specific evidence and appraisal. A TPM supplies measured-state evidence; it does not by itself isolate process memory. A declared hardware platform or a successful signing command does not establish a conformance level.
+Proving which hardware the agent runs on is a separate step. Follow the [hardware attestation tutorial](https://manifest.agentrust-io.com/tutorials/hardware-attestation/index.md) and [limitations](https://manifest.agentrust-io.com/limitations/index.md) for how each kind of chip reports and how to judge its report. A TPM (a security chip found in most servers and laptops) reports what software the machine booted; it does not by itself keep the agent's memory private from the rest of the machine. Naming a hardware platform in the record, or a signing command succeeding, does not reach a conformance level.
 
 ## Revocation
 
-An artifact update needs a newly approved manifest. Production verification also needs current revocation information; this demo uses an empty in-memory store. See [revocation and key rotation](https://manifest.agentrust-io.com/tutorials/revocation-and-key-rotation/index.md).
+If any recorded part changes, such as a new prompt, approve and sign a new manifest. A real checker also needs an up-to-date list of withdrawn (revoked) manifests and keys; this demo uses an empty list. See [revocation and key rotation](https://manifest.agentrust-io.com/tutorials/revocation-and-key-rotation/index.md).
 
 ## Troubleshooting
 
 - **Module not found:** activate `.venv` in the terminal running the example.
 - **File not found:** run `first_manifest.py` before inspecting `signed.json`.
-- **INCOMPLETE:** inspect which runtime comparisons are missing. Supply independent inputs instead of disabling strict verification.
-- **MISMATCH:** check the signature and named artifact mismatch. Both deliberate changes in this demo should fail.
+- **INCOMPLETE:** look at which comparisons are missing and supply those values from a trusted source. Do not switch off strict checking to make it pass.
+- **MISMATCH:** check whether the signature failed or a named part did not match. Both deliberate changes in this demo should fail.
 - **Expired record:** rerun the example to create a fresh demo record.
 
 ## Next steps
 
-- [Specification](https://manifest.agentrust-io.com/spec/agent-manifest-v0.2/index.md): artifact and verification contracts.
-- [cMCP session binding](https://manifest.agentrust-io.com/tutorials/cmcp-session-binding/index.md): connect deployment identity to tool-call evidence.
-- [Verification API](https://manifest.agentrust-io.com/api-reference/index.md): caller inputs and result fields.
+- [Specification](https://manifest.agentrust-io.com/spec/agent-manifest-v0.2/index.md): the formal rules for each part and each check.
+- [cMCP session binding](https://manifest.agentrust-io.com/tutorials/cmcp-session-binding/index.md): link the approved agent to the records of its tool calls.
+- [Verification API](https://manifest.agentrust-io.com/api-reference/index.md): what you pass to the checker and what it returns.
 
 # Your First Agent Manifest
 
-Start with the [complete first-manifest example](https://manifest.agentrust-io.com/getting-started/index.md). It builds a signed software manifest, verifies independently supplied artifact inputs, and rejects both an edited record and a changed prompt hash. Use that single maintained example for installation, code, and expected output.
+This page explains what the [complete first-manifest example](https://manifest.agentrust-io.com/getting-started/index.md) is doing, so you avoid the common mistakes when you adapt it. Run that example first: it signs a manifest, checks it against values you supply, and rejects both an edited record and a changed prompt. Installation, code and expected output live there, in one maintained place.
 
 ## Understand the signed object
 
-For the supported v0.1 JSON form, `Ed25519Signer.sign(manifest_dict)` returns a signature block, not a complete manifest. Assign it to `manifest_dict["signature"]`. Passing only that block to `verify_manifest()` discards the manifest's identity, artifacts, and version.
+For the supported v0.1 JSON form, `Ed25519Signer.sign(manifest_dict)` returns only the signature block, and you attach it to the manifest yourself: assign it to `manifest_dict["signature"]`. If you pass only that block to `verify_manifest()`, the checker never sees the manifest's identity, parts or version.
 
-The v0.2 representation uses a COSE envelope. See the [signature envelope decision](https://manifest.agentrust-io.com/adr/0011-signature-envelope/index.md) before changing formats; do not treat COSE bytes as a JSON signature block.
+The v0.2 format wraps the manifest in a binary envelope called COSE. See the [signature envelope decision](https://manifest.agentrust-io.com/adr/0011-signature-envelope/index.md) before switching formats; COSE bytes are not a JSON signature block.
 
 ## Supply trust separately
 
-The recipient supplies approved issuer keys and expected runtime artifacts through `VerificationContext`. A public key or expected hash copied from an incoming manifest cannot establish its own authority. Schema validation checks structure; signature verification and artifact comparison establish different properties.
+Whoever checks the manifest brings their own trust. They pass the signer keys they have approved, and the values of what is actually running, through `VerificationContext`. A public key or expected hash copied out of the incoming manifest proves nothing, because the manifest would be vouching for itself. Three checks answer three different questions: schema validation asks whether the record is well formed, the signature check asks who signed it, and the comparison asks whether it matches what is running.
 
-A valid signature alone can leave the result `INCOMPLETE` when required runtime inputs are absent. A missing trusted key produces `UNVERIFIABLE`. Only accept the result your application's verification policy explicitly allows.
+A valid signature alone can still give `INCOMPLETE` when the values to compare are missing. A missing trusted key gives `UNVERIFIABLE`. Accept only the results your application's rules explicitly allow.
 
 ## Keep private keys out of output
 
-The demo retains its private key only in memory and saves a public key for later verification. Use your approved secret-management mechanism for persistent issuer keys. Avoid printing private key material into terminal history, CI output, or logs.
+The demo keeps its private (signing) key only in memory and saves the public key for later checks. For signing keys you keep, use your organisation's approved secret store. Never print private key material into terminal history, build output or logs.
 
 ## Next steps
 
@@ -314,7 +320,9 @@ Use the [revocation tutorial](https://manifest.agentrust-io.com/tutorials/revoca
 
 # Specification Overview
 
-The Agent Manifest Specification v0.2 is a formal RFC 2119 document defining a verifiable declaration of an AI agent's deployment content.
+This page is a map of the specification, the formal rulebook that anyone building or checking Agent Manifests follows. Read it if you are writing your own implementation, auditing one, or want to know where a rule lives; if you only want to try the tool, start with [Getting started](https://manifest.agentrust-io.com/getting-started/index.md) instead.
+
+The Agent Manifest Specification v0.2 is a formal RFC 2119 document (its rules use the standard words MUST, SHOULD and MAY with fixed meanings) defining a verifiable declaration of an AI agent's deployment content: a signed list of what the agent was approved to run with.
 
 TL;DR
 
@@ -335,7 +343,7 @@ The spec has 10 sections covering the problem statement, data model for all 10 a
 | 5 - Verification Protocol    | HTTP endpoint, result schema, evidence pack, revocation protocol                             |
 | 6 - Integration Architecture | AGT, cMCP, and MCP integration with field cross-checks                                       |
 | 7 - Threat Model             | 10 threat classes addressed; explicit out-of-scope threats                                   |
-| 8 - Conformance              | Levels 0–3; 197 conformance tests across 5 modules                                           |
+| 8 - Conformance              | Levels 0 to 3; 197 conformance tests across 5 modules                                        |
 | 9 - Regulatory Mapping       | EU AI Act, DORA, GDPR, HIPAA, PCI-DSS, FedRAMP                                               |
 | 10 - Roadmap                 | v0.2 targets, v1.0 CoSAI WS4 contribution                                                    |
 
@@ -2111,7 +2119,7 @@ The EU AI Act (Art. 26 via Art. 12 and recital obligations) requires a minimum o
 
 ### 8.2 Conformance Test Suite
 
-A conformant Agent Manifest implementation MUST pass all tests in the reference test suite. The suite is organized into four modules:
+A conformant Agent Manifest implementation MUST pass all tests in the reference test suite. The suite is organized into five modules:
 
 | Module    | Tests    | Coverage                                                                                                                                                    |
 | --------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -2629,22 +2637,26 @@ These are implementation decisions, not envelope decisions, and are listed so ph
 
 # Agent Memory Governance
 
-In the `agent-manifest` specification, the concept of a "good" versus a "bad" or "weak" memory is strictly defined by **cryptographic integrity, drift, and freshness**, rather than semantic usefulness.
+Many agents keep a memory: notes and facts they carry from one task or conversation to the next. This page explains how Agent Manifest decides whether that memory is still the one someone approved. It is for people deploying long-running agents and for reviewers who need to know what a memory check does and does not tell them.
 
-A "good" memory perfectly matches an explicitly approved baseline state and is within its allowed lifespan. A "bad" memory has drifted from its approved state (tampered with or evolved without oversight) or has expired.
+The test is simple. Memory is "good" when it is exactly the approved copy and has not passed its expiry time. It is "bad" when it has changed since approval (drifted, whether through tampering or unreviewed learning) or has expired. The check says nothing about whether the memory is useful or correct, only whether it is unchanged and current.
 
-According to **Section 3.2.6 (Memory Baseline Binding)** of the Agent Manifest spec, the following constraints govern agent memory state:
+The rules come from **Section 3.2.6 (Memory Baseline Binding)** of the Agent Manifest spec:
 
 ## 1. The Approved State (`snapshot_hash`)
 
-The ultimate arbiter of a valid memory is the `snapshot_hash`. This is the SHA-256 (or SHAKE-256) hash of the RFC 8785 canonical JSON serialization of the memory store's key-value map.
+The `snapshot_hash` is a fingerprint of the approved memory. Any change to the memory, however small, gives a different fingerprint.
+
+Technical detail: how the fingerprint is computed
+
+The `snapshot_hash` is the SHA-256 (or SHAKE-256) hash of the RFC 8785 canonical JSON serialization of the memory store's key-value map. Canonical JSON writes the same data in exactly one byte order, so two copies of the same memory always hash the same.
 
 - If the running agent's memory matches this hash, the memory is valid.
 - If it deviates, a "drift" has occurred, and the memory is considered unapproved.
 
 ## 2. The Penalty for Bad Memory (`drift_policy`)
 
-If a memory diverges from its `snapshot_hash`, the `drift_policy` dictates how the system reacts:
+If the memory no longer matches its `snapshot_hash`, the `drift_policy` setting decides what happens next:
 
 - **`deny-on-drift`**: The strictest policy (required for Level 2 compliance). If memory changes without re-approval, all tool calls are rejected, a `MEMORY_DRIFT_DETECTED` event is fired, and operator acknowledgment is required.
 - **`alert-on-drift`**: The agent continues to operate, but an alert is surfaced in every verification result.
@@ -2652,14 +2664,14 @@ If a memory diverges from its `snapshot_hash`, the `drift_policy` dictates how t
 
 ## 3. Freshness and Expiration (`ttl_seconds`)
 
-A perfectly intact memory becomes invalid if it exceeds its time-to-live. The manifest mandates a `ttl_seconds` field for persistent memory:
+Even unchanged memory stops being valid once its time-to-live runs out, so someone has to look at it and approve it again. The manifest requires a `ttl_seconds` field for persistent memory:
 
 - **Minimum**: 3,600 seconds (1 hour)
-- **Maximum**: 7,776,000 seconds (90 days) This enforces periodic re-approval of the memory state, preventing "alignment drift" where long-running agents slowly accumulate unreviewed memory changes that subtly corrupt behavior.
+- **Maximum**: 7,776,000 seconds (90 days) This forces regular re-approval, so a long-running agent cannot slowly pile up unreviewed memory changes that quietly alter how it behaves.
 
 ## 4. Memory Types (`memory_type`)
 
-Governance rules vary depending on the memory type:
+The rules differ by how long the memory lives and who shares it:
 
 - **`session`**: Memory scoped to a single conversation. Checked against the baseline at startup, but exempt from drift detection while the session is active.
 - **`persistent`**: Memory persisting across sessions. The `snapshot_hash` represents the last approved checkpoint, and drift checks are continuously enforced.
@@ -2667,11 +2679,13 @@ Governance rules vary depending on the memory type:
 
 ## Future Outlook: Stateful Checkpoints (v0.2 Roadmap)
 
-In the v0.1 spec, memory is treated as a static baseline. Defining how an agent safely learns new facts during a persistent session without invalidating its manifest is the goal of the **Memory baseline checkpoint protocol** planned for **v0.2**. This will define how incremental memory updates (deltas) are bound and checkpointed without requiring the entire memory store to be re-hashed and re-approved from scratch.
+In the v0.1 spec, memory is a fixed approved copy. An agent that learns something new therefore falls out of step with its manifest. The **Memory baseline checkpoint protocol** planned for **v0.2** aims to let an agent record small approved changes (deltas) as it goes, without re-fingerprinting and re-approving the whole memory each time.
 
 # Architecture Decision Records
 
-Each major design decision in the Agent Manifest Specification is recorded here with its rationale, alternatives considered, and consequences. ADRs are immutable once accepted - superseded decisions get a new ADR that references the old one.
+This page lists the design decisions behind Agent Manifest. Each one is written up as an Architecture Decision Record (ADR): a short note on what was decided, what else was considered, and what follows from it. Read them when you want to know why the format works the way it does; you do not need them to use the SDK.
+
+An accepted ADR is never edited to reverse it. A decision that replaces an earlier one gets a new ADR that points back to the old one.
 
 | ADR                                                                                                | Title                                                                                    | Status   |
 | -------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | -------- |
@@ -2682,13 +2696,14 @@ Each major design decision in the Agent Manifest Specification is recorded here 
 | [0005](https://manifest.agentrust-io.com/adr/0005-ml-dsa-hybrid-signature/index.md)                | ML-DSA-65 and hybrid Ed25519+ML-DSA-65 signature support                                 | Accepted |
 | [0006](https://manifest.agentrust-io.com/adr/0006-hitl-approval-mechanism/index.md)                | Human-in-the-Loop (HITL) embedded approval record design                                 | Accepted |
 | [0007](https://manifest.agentrust-io.com/adr/0007-revocation-json-lines-crl/index.md)              | JSON-Lines append-only CRL as the SDK revocation format                                  | Accepted |
-| [0008](https://manifest.agentrust-io.com/adr/0008-conformance-level-design/index.md)               | Four conformance levels (0–3) rather than binary conformant/non-conformant               | Accepted |
+| [0008](https://manifest.agentrust-io.com/adr/0008-conformance-level-design/index.md)               | Four conformance levels (0 to 3) rather than binary conformant/non-conformant            | Accepted |
 | [0009](https://manifest.agentrust-io.com/adr/0009-spiffe-uri-agent-identity/index.md)              | SPIFFE URIs as the canonical identity format for agent_id and issuer                     | Accepted |
 | [0010](https://manifest.agentrust-io.com/adr/0010-runtime-attestation-freshness-proofs/index.md)   | Runtime attestation freshness proofs via caller-controlled REPORT_DATA                   | Accepted |
 | [0011](https://manifest.agentrust-io.com/adr/0011-signature-envelope/index.md)                     | The manifest is a signed document, not a JWT/JOSE profile; envelope moves to COSE_Sign1  | Accepted |
 | [0012](https://manifest.agentrust-io.com/adr/0012-context-uri-moved-to-controlled-domain/index.md) | `@context` URI moves to a domain we control; v0.1 URL withdrawn, consumers cut over      | Accepted |
 | [0013](https://manifest.agentrust-io.com/adr/0013-cbor-library-for-cose/index.md)                  | Take a CBOR library, not a COSE library; the COSE structures are built in-repo           | Accepted |
 | [0014](https://manifest.agentrust-io.com/adr/0014-fully-specified-ed25519-code-point/index.md)     | Sign with the fully-specified Ed25519 code point (-19); keep verifying the deprecated -8 | Accepted |
+| [0015](https://manifest.agentrust-io.com/adr/0015-agent-plugins-manifest-reference/index.md)       | Agent Plugins manifest reference                                                         | Accepted |
 
 To propose a new ADR, open a GitHub issue using the [spec change template](https://github.com/agentrust-io/agent-manifest/issues/new?template=spec_change.md) and follow the [ADR template](https://github.com/agentrust-io/agent-manifest/blob/main/docs/adr/0000-template.md).
 
@@ -2699,45 +2714,47 @@ For practical implementation guidance that corresponds to these decisions, see t
 
 # Tutorials
 
-Start by signing a local demo configuration and testing what happens when it changes. Then choose the guide for the boundary you need to enforce.
+These step-by-step guides are for developers and operators putting Agent Manifest to work. Start by signing a sample agent record on your own computer and seeing what happens when it changes. Then pick the guide for the job in front of you, such as checking requests on a server or withdrawing a record.
 
-The [first-manifest example](https://manifest.agentrust-io.com/getting-started/index.md) supplies the record, keys, and approved inputs used by several follow-up guides. Those pages say where to append their code. Hardware and cMCP integration guidance identifies additional setup and verification requirements.
+The [first-manifest example](https://manifest.agentrust-io.com/getting-started/index.md) creates the signed record, keys and approved values that several later guides build on. Those pages say where to add their code. The hardware and cMCP guides list the extra setup and checks they need.
 
 ______________________________________________________________________
 
 ## Getting started
 
-| Tutorial                                                                                          | What you'll build                                                                         |
-| ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| [Your first manifest](https://manifest.agentrust-io.com/tutorials/your-first-manifest/index.md)   | A signed Agent Manifest from scratch with Ed25519 key generation and CLI verification     |
-| [CI/CD signing](https://manifest.agentrust-io.com/tutorials/ci-cd-signing/index.md)               | Signing and verification scripts, plus a workflow triggered by manifest changes on `main` |
-| [cMCP session binding](https://manifest.agentrust-io.com/tutorials/cmcp-session-binding/index.md) | Configuration guidance and the meaning of the gateway's identity evidence                 |
+| Tutorial                                                                                          | What you'll build                                                                                                         |
+| ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| [Your first manifest](https://manifest.agentrust-io.com/tutorials/your-first-manifest/index.md)   | A signed Agent Manifest from scratch, with a new signing key and a command line check                                     |
+| [CI/CD signing](https://manifest.agentrust-io.com/tutorials/ci-cd-signing/index.md)               | Scripts that sign and check manifests in your build pipeline, plus a workflow that runs when a manifest changes on `main` |
+| [cMCP session binding](https://manifest.agentrust-io.com/tutorials/cmcp-session-binding/index.md) | How to set up cMCP (a gateway that records an agent's tool calls) and what its identity evidence means                    |
 
 ## Development
 
-| Tutorial                                                                                                           | What you'll build                                                                                   |
-| ------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
-| [Server-side manifest verification](https://manifest.agentrust-io.com/tutorials/server-side-verification/index.md) | A local request gate tested with accepted, missing, unknown, and mismatched inputs                  |
-| [A2A delegation chains](https://manifest.agentrust-io.com/tutorials/delegation-chains/index.md)                    | A two-hop delegation chain with scope narrowing and chain verification                              |
-| [HITL approval workflows](https://manifest.agentrust-io.com/tutorials/hitl-approval-workflows/index.md)            | A synthetic approval signed with a software key, with missing and altered approval rejection        |
-| [Revocation and key rotation](https://manifest.agentrust-io.com/tutorials/revocation-and-key-rotation/index.md)    | A signed revocation, explicit reader refresh, untrusted-signer rejection, and rotation guidance     |
-| [Hardware attestation](https://manifest.agentrust-io.com/tutorials/hardware-attestation/index.md)                  | A runnable software binding example, hardware provider selection, and evidence appraisal boundaries |
+| Tutorial                                                                                                           | What you'll build                                                                                                                   |
+| ------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
+| [Server-side manifest verification](https://manifest.agentrust-io.com/tutorials/server-side-verification/index.md) | A check in front of your server that lets matching requests through and turns away missing, unknown or changed ones                 |
+| [A2A delegation chains](https://manifest.agentrust-io.com/tutorials/delegation-chains/index.md)                    | One agent handing work to another and then a third, with less permission at each step, and a check of the whole chain               |
+| [HITL approval workflows](https://manifest.agentrust-io.com/tutorials/hitl-approval-workflows/index.md)            | A sample human sign-off (human in the loop, HITL) signed with a software key, and rejection of missing or altered sign-offs         |
+| [Revocation and key rotation](https://manifest.agentrust-io.com/tutorials/revocation-and-key-rotation/index.md)    | Withdrawing a signed manifest, making checkers pick up the change, rejecting withdrawals from untrusted signers, and replacing keys |
+| [Hardware attestation](https://manifest.agentrust-io.com/tutorials/hardware-attestation/index.md)                  | A runnable software example, how to choose a hardware provider, and how far each hardware report can be trusted                     |
 
 ## Operations
 
-| Tutorial                                                                                                               | What you'll build                                                                                |
-| ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| [Run a verification service](https://manifest.agentrust-io.com/tutorials/deploying-the-verification-endpoint/index.md) | A local HTTP verifier with startup-loaded trust and signed revocations, plus container packaging |
+| Tutorial                                                                                                               | What you'll build                                                                                                                    |
+| ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| [Run a verification service](https://manifest.agentrust-io.com/tutorials/deploying-the-verification-endpoint/index.md) | A small web service that checks manifests, loads its trusted keys and withdrawal list at startup, and can be packaged as a container |
 
 # Server-side manifest verification
 
-Reject a protected request when its manifest is missing, unknown, or fails verification. This local FastAPI example uses the signed record and independently configured inputs from the [first-manifest tutorial](https://manifest.agentrust-io.com/getting-started/index.md). It tests the gate without starting a network server.
+This page is for anyone running a service that AI agents call. It shows how to turn a request away unless the calling agent's manifest (its signed record of the prompt, policy, tools and model it was approved with) checks out. You get a small working gate, built with the FastAPI web framework, that runs on your own computer without starting a real server.
+
+The example reuses the signed record and the trusted inputs from the [first-manifest tutorial](https://manifest.agentrust-io.com/getting-started/index.md). It rejects a request when the manifest is missing, unknown, or fails verification.
 
 ## Run the request gate
 
 Complete the first-manifest tutorial, install the server dependencies with `python -m pip install -e "./python[server]"`, then append this block to `first_manifest.py` and run `python first_manifest.py` again.
 
-The demo's manifest header selects a stored document. It does not authenticate a caller. Before using this in a service, bind the authenticated caller to an allowed manifest and separately authorize the operation. Anyone who knows the demo ID can select its record.
+In this demo, the request header only picks which stored manifest to check. It does not prove who is calling: anyone who knows the demo ID can pick its record. A real service first has to confirm who the caller is, link that caller to a manifest it is allowed to use, and then separately decide whether the caller may perform the operation.
 
 ```
 from fastapi import FastAPI, Request
@@ -2789,9 +2806,11 @@ with TestClient(app) as client:
     print("PASS: diagnostic GET without trusted keys cannot return VALID")
 ```
 
-The gate requires `VALID` using server-held keys and runtime observations. Keep the route policy explicit when adding protected operations; this demo protects only `/execute`. Production services also need caller authentication, authorization, bounded requests, and current revocation and attestation appraisal.
+The gate lets a request through only when the result is `VALID`, using keys the server holds and values the server observed for itself. It protects only the `/execute` route, so name each protected route explicitly as you add more. A production service also needs to check who the caller is and what they may do, limit request sizes, and keep its revocation list (manifests withdrawn before they expire) and its hardware evidence checks current.
 
 ## What the SDK router provides
+
+The software development kit (SDK) also ships ready-made diagnostic routes. They help with inspection, but none of them is an acceptance gate on its own.
 
 | Route                                          | Trust and result boundaries                                                                                                                                                                                        |
 | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -2800,17 +2819,21 @@ The gate requires `VALID` using server-held keys and runtime observations. Keep 
 | `POST /agent/verify/cose`                      | Accepts a v0.2 COSE envelope with `Content-Type: application/agent-manifest+cose`. Configure the router's `cose_context` with server-held trust and runtime inputs. No configured trust means no `VALID` result.   |
 | `GET /agent/revocation-status?manifest_id=...` | Looks up the in-memory revocation store. It does not fetch or refresh a CRL.                                                                                                                                       |
 
-An HTTP 200 response means the verification request was processed. Inspect the result body; a non-`VALID` verdict must not authorize the protected operation. The SDK router does not provide caller authentication, rate limiting, or application authorization.
+An HTTP 200 response only means the check ran. Read the result in the response body; a non-`VALID` verdict must not authorize the protected operation. The SDK router does not check who the caller is, limit how often they call, or decide what they are allowed to do.
 
 ## Configure the verifier's inputs
 
-Use `VerificationContext` to supply independently observed hashes, model version, enforcement mode, trusted issuer keys, and any required delegation or approval keys. With strict artifact verification, a declared binding without its required observation can yield `INCOMPLETE`. Do not fill expected values by copying the incoming manifest.
+The verifier (the code that checks a manifest) needs its own picture of what should be running. Give it that through `VerificationContext`: the hashes (fingerprints) of the prompt, policy and tools you observed yourself, the model version, the enforcement mode, the issuer keys you trust, and any keys needed for delegation or human approvals. Never fill these values by copying them from the incoming manifest, since a manifest always matches itself. With strict artifact verification, a manifest that declares something you supplied no observed value for can come back `INCOMPLETE`.
+
+Technical detail: issuer keys and strict mode
 
 `trusted_keys` authenticates the signature under a configured key. Where issuer identity matters, also populate `trusted_key_issuers` to restrict which issuer each key may represent. An empty issuer map does not authorize that named issuer merely because the signature verifies.
 
 Keep `strict_artifact_verification=True` for the application gate. Setting it to `False` deliberately reduces artifact checking; label such an audit as document verification and do not use it to approve the running agent.
 
 ## Read the verdict
+
+Every check ends in one result. Only `VALID` lets a request through.
 
 | Result                                | Meaning for the gate                                                                                                 |
 | ------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
@@ -2827,7 +2850,13 @@ Reject every non-`VALID` outcome, including future values absent from this table
 
 ## Add revocation and evidence appraisal
 
-The example uses an empty `RevocationStore`. For a running service, load authenticated revocation records and refresh the store before stale data exceeds your acceptance policy. A `FileCRL` reader caches loaded records; reusing it does not automatically notice another process's writes. Follow the tested [revocation example](https://manifest.agentrust-io.com/tutorials/revocation-and-key-rotation/index.md).
+The example starts with an empty `RevocationStore`, so nothing is withdrawn. A running service should load signed revocation records and refresh them often enough that it never relies on data older than your policy allows. Follow the tested [revocation example](https://manifest.agentrust-io.com/tutorials/revocation-and-key-rotation/index.md).
+
+If your policy requires attestation (a signed report from the processor about what is running on it), check that report yourself before telling the verifier it passed. The same goes for a transparency log receipt (proof that the manifest was published to a public log): check it first, then pass the result in.
+
+Technical detail: caching, attestation and transparency inputs
+
+A `FileCRL` reader caches loaded records; reusing it does not automatically notice another process's writes.
 
 When attestation is required, appraise the hardware evidence and its binding to this manifest using approved roots and freshness policy before supplying verified evidence to the context. `enforce_attestation=True` does not itself perform every vendor appraisal step or establish a conformance level.
 
@@ -2841,13 +2870,13 @@ Similarly, independently appraise a transparency entry or receipt before supplyi
 
 # Hardware attestation
 
-Choose a provider, bind a manifest digest to platform evidence, and appraise the result. Start with a local software example, then select the hardware path for your guest.
+Attestation is a signed report from the processor itself about what is running on it. This page is for teams running agents on confidential computing hardware (machines that keep a workload sealed off, even from the cloud operator) who want that report to name a specific manifest. You start with a local software example, then pick the hardware path that fits your machine.
 
-A matching digest alone does not authenticate hardware or establish that current inputs were measured correctly. Hardware appraisal needs approved roots, measurements, and freshness policy. The local example below does not exercise silicon.
+A matching digest (the manifest's fingerprint) in a report does not by itself prove the report came from real hardware, or that the agent's current inputs were measured correctly. Checking hardware evidence properly needs the vendor's trusted root certificates, a list of approved measurements, and a rule for how old a report may be. The local example below does not touch real hardware.
 
 ## Run the API locally
 
-Complete the [first-manifest tutorial](https://manifest.agentrust-io.com/getting-started/index.md), append this block to `first_manifest.py`, and run it again. It demonstrates a digest binding and a nonce/context binding using software only.
+Complete the [first-manifest tutorial](https://manifest.agentrust-io.com/getting-started/index.md), append this block to `first_manifest.py`, and run it again. Using software only, it ties the manifest's digest into a report, and ties a report to a nonce (a random one-time challenge from the checker, which shows the report is fresh).
 
 ```
 import hashlib
@@ -2903,9 +2932,13 @@ except SnpVerificationError:
     print("PASS: platform policy rejects an SMT-enabled report with no alias check")
 ```
 
-Expect four `PASS` lines in total from this page (two from the software-binding example above, two from the platform-policy calls just added). Copying the returned nonce or context into a response would not prove freshness or hardware authenticity; the two new platform-policy assertions test policy logic decoded from literal bits, not a captured hardware report; that end-to-end path is exercised separately (linked below).
+Expect four `PASS` lines in total from this page (two from the software-binding example above, two from the platform-policy calls just added). Copying the returned nonce or context into a response would not prove freshness or hardware authenticity. The two platform-policy checks test the policy logic on hand-written bits, not a captured hardware report; that end-to-end path is tested separately (linked below).
 
 ### Appraise platform state before trusting hardware evidence
+
+An AMD SEV-SNP report also says how the processor itself is configured, for example whether SMT (two threads sharing one core) is switched on. Whether that configuration is acceptable is your decision, and you check it in a separate step after the report's signature checks out.
+
+Technical detail: composing the signature check and the platform check
 
 `appraise_platform_info()` is not called by `verify_manifest()`, and is not called by `verify_attestation_chain()` either: see [platform limitations](https://manifest.agentrust-io.com/limitations/index.md). Neither function is invoked by the other; each is an appraisal the caller runs and hands to `verify_manifest()` as a result via `VerificationContext`. Combine the two appraisals (signature, chain and measurement; platform state) into a single pass/fail before deciding whether the manifest hash is trustworthy evidence. This is a composition sketch, not a runnable snippet: `report`, `expected_hash`, `context`, and `record` are whatever your own attestation flow already produced earlier in this tutorial:
 
@@ -2937,11 +2970,11 @@ if hw_result.passed and platform_ok:
 
 No new field is needed on `VerificationContext` for this: `verify_manifest()` already gates `attestation_verified` (and, with `enforce_attestation=True`, the overall `VALID`/`ATTESTATION_UNAVAILABLE` result) purely on membership in `verified_attestation_manifest_hashes`. Calling `appraise_platform_info()` with no `require`/`forbid` at all or not calling it asserts nothing and reproduces prior behavior exactly, so adopting a platform policy is opt in and cannot regress an existing deployment that never sets one.
 
-This composes two things the caller is already responsible for; `verify_manifest()` itself still has no idea PLATFORM_INFO exists. [`test_platform_info_verify_manifest.py`](https://github.com/agentrust-io/agent-manifest/blob/main/python/tests/test_platform_info_verify_manifest.py) is an integration-style test of this composition against a cryptographically self-consistent synthetic SEV-SNP chain (freshly generated keys and certificates shaped like the real VCEK/ASK/ARK hierarchy, not AMD-rooted hardware evidence), covering the accept case, a `require`-only failure, a `forbid`-only failure, that hardware appraisal failing correctly stops platform appraisal from being reached at all (checked with a monkeypatch, not just the final verdict, since a broken ordering can still land on the same verdict by coincidence), that a genuinely malformed report doesn't crash the corrected ordering, and confirming a `PLATFORM_INFO` byte flipped after signing invalidates the signature rather than silently changing the appraisal. The policy decision itself (only add the hash when both appraisals pass) is implemented by that test's own helper, the same way it would be in your caller code it is not new behavior added to `verify_manifest()`.
+This composes two things the caller is already responsible for; `verify_manifest()` itself still has no idea PLATFORM_INFO exists. [`test_platform_info_verify_manifest.py`](https://github.com/agentrust-io/agent-manifest/blob/main/python/tests/test_platform_info_verify_manifest.py) is an integration-style test of this composition against a cryptographically self-consistent synthetic SEV-SNP chain (freshly generated keys and certificates shaped like the real VCEK/ASK/ARK hierarchy, not AMD-rooted hardware evidence), covering the accept case, a `require`-only failure, a `forbid`-only failure, that hardware appraisal failing correctly stops platform appraisal from being reached at all (checked with a monkeypatch as well as by the final verdict, since a broken ordering can still land on the same verdict by coincidence), that a genuinely malformed report doesn't crash the corrected ordering, and confirming a `PLATFORM_INFO` byte flipped after signing invalidates the signature rather than silently changing the appraisal. The policy decision itself (only add the hash when both appraisals pass) is implemented by that test's own helper, the same way it would be in your caller code; it is not new behavior added to `verify_manifest()`.
 
 ## Select the hardware path
 
-Use the guest's attestation interface to choose a provider. A CPU model or a confidential-VM marketing label alone is insufficient.
+A provider is the SDK component that asks the hardware for a report. Pick it by the attestation interface your guest (the virtual machine your agent runs in) actually exposes. A CPU model name or a "confidential VM" product label is not enough to go on.
 
 | Provider           | Current SDK path                                                                     | Verification boundary                                                                                                                       |
 | ------------------ | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -2951,6 +2984,8 @@ Use the guest's attestation interface to choose a provider. A CPU model or a con
 | `AzureCVMProvider` | Azure SNP through the vTPM/HCL path                                                  | Follow the vTPM quote, attestation-key binding, and SNP chain. The guest does not directly control SNP `REPORT_DATA`.                       |
 | `TPMProvider`      | TPM tools and a provisioned attestation key                                          | A TPM quote supplies measured-state evidence; it does not isolate the agent's process memory.                                               |
 | `OPAQUEProvider`   | Disabled in the current SDK; construction raises `AttestationUnavailableError`       | No usable managed-service verification path is implemented.                                                                                 |
+
+Technical detail: device paths, constructor options and report flags
 
 The direct SNP and TDX providers use `/sys/kernel/config/tsm/report` and require permission to create report requests. See the [provider implementation and requirements](https://github.com/agentrust-io/agent-manifest/blob/main/python/src/agent_manifest/_hw_providers.py) for the current kernel and driver prerequisites. Azure TDX is not supported by this SDK's offline attestation path; see [platform limitations](https://manifest.agentrust-io.com/limitations/index.md).
 
@@ -2964,9 +2999,13 @@ SDK binding differs from the spec's launch-time profile
 
 [Specification section 3.3.1](https://manifest.agentrust-io.com/spec/agent-manifest-v0.2/index.md) defines the target launch-time binding instead: SNP `HOST_DATA` set by the launcher at `SNP_LAUNCH_FINISH`, a TDX `RTMR[3]` extend before workload code runs, and PCR15 on AWS Nitro. The SDK does not implement those profiles yet. An `attestation` block produced by these providers therefore does not meet the section 3.3.1 profile, and a verifier that expects `HOST_DATA` or `RTMR[3]` will not find the digest there. The runtime freshness binding in section 3.3.2 is separate and does not carry the manifest digest: the context object it hashes holds the policy bundle, system prompt, and tool catalog hashes, not the manifest.
 
-`verify_manifest_in_report()` checks the manifest binding. Treat it as one check in the appraisal, not a complete signature, certificate, freshness, and workload-policy verdict. The recipient must examine authenticated quote bytes and compare the measurements with its own allowlist.
+In short: `verify_manifest_in_report()` checks that the report names this manifest. Treat it as one check in the appraisal, not a complete signature, certificate, freshness, and workload-policy verdict. The recipient must examine authenticated quote bytes and compare the measurements with its own allowlist.
 
 ## Runtime state attestation (freshness proofs)
+
+A freshness proof answers "is this agent still in the approved state right now?" The checker sends a new nonce, and the agent's machine returns a report that includes it, so an old report cannot be replayed. The proof is only as good as whatever measured the agent's state, and it says nothing about what happens after it was taken.
+
+Technical detail: what the runtime report binds
 
 `attest_runtime_state(nonce, context_hash)` binds caller-supplied context to a challenge. For direct SNP and TDX, the qualifying bytes are `SHA-256(nonce || context_hash_bytes)` and are placed in the report-data field. The SDK's `report_data_hash` is a SHA-256 digest of those qualifying bytes; it is not the raw report-data value.
 
@@ -2978,37 +3017,41 @@ Choose challenge frequency according to the operation and stale-evidence policy.
 
 ## Auto-detection
 
-`select_provider(level=N)` is a convenience selector, not a conformance validator. The current order is an explicitly configured OPAQUE provider, Azure CVM, direct SNP, direct TDX, TPM, then software. Because OPAQUE is disabled, setting `OPAQUE_ATTESTATION_URL` currently raises instead of selecting a working managed provider.
+`select_provider(level=N)` picks a provider for you based on what the machine offers. It is a convenience, and it does not check conformance. The current order is an explicitly configured OPAQUE provider, Azure CVM, direct SNP, direct TDX, TPM, then software. Because OPAQUE is disabled, setting `OPAQUE_ATTESTATION_URL` currently raises instead of selecting a working managed provider.
 
 Without a hardware candidate, requesting `level >= 1` raises `AttestationUnavailableError`. Do not silently retry with `level=0` in a path that requires hardware. For reproducible local tests, choose `SoftwareProvider()` directly rather than depending on the host's devices or environment variables.
 
 ## Apply an acceptance policy
 
-A provider name does not establish a conformance level or regulatory compliance. Apply the [specification's conformance requirements](https://manifest.agentrust-io.com/spec/agent-manifest-v0.2/index.md), including artifact coverage, signature profile, required evidence, and recipient policy. Hardware appraisal and application authorization remain separate checks.
+Hardware evidence is one input to your decision, never the whole decision. A provider name does not establish a conformance level or regulatory compliance. Apply the [specification's conformance requirements](https://manifest.agentrust-io.com/spec/agent-manifest-v0.2/index.md), including artifact coverage, signature profile, required evidence, and recipient policy. Hardware appraisal and application authorization remain separate checks.
 
 Pass independently appraised evidence into the verifier's context, bound to the exact manifest. Then require the full manifest result to be `VALID`; a successful hardware check cannot override a bad signature, expired record, revocation, or artifact mismatch. Continue with [server-side verification](https://manifest.agentrust-io.com/tutorials/server-side-verification/index.md).
 
 # Integrations
 
-Agent-manifest is framework-agnostic - it is a signing and verification layer, not an agent runtime. These guides show how to attach it to the most common Python agent frameworks.
+An Agent Manifest is a signed record of what an agent was approved to run. These guides show where to add a manifest check to the agent software you already use. They are for developers who run agents built with LangChain, the OpenAI Agents SDK, AutoGen, CrewAI or similar tools. Each guide shows the point in that framework where you check the agent's signed record before it is allowed to do something that matters.
 
-| Integration                                                                                        | What it covers                                                                                                           |
-| -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| [LangChain](https://manifest.agentrust-io.com/integrations/langchain/index.md)                     | Manifest for a LangChain agent; tool wrapper that verifies caller manifests                                              |
-| [OpenAI Agents SDK](https://manifest.agentrust-io.com/integrations/openai-agents/index.md)         | Manifest per agent; manifest handoff verification during agent handoffs                                                  |
-| [AutoGen and CrewAI](https://manifest.agentrust-io.com/integrations/autogen-crewai/index.md)       | Per-agent manifests in AutoGen conversations and CrewAI crews                                                            |
-| [AGT (Agent Governance Toolkit)](https://manifest.agentrust-io.com/integrations/agt/index.md)      | Using agent-manifest as the identity layer feeding AGT policy and trust scores                                           |
-| [NVIDIA OpenShell](https://manifest.agentrust-io.com/integrations/openshell/index.md)              | Binding the approved OpenShell, ACS, workload, and tool configuration to runtime TRACE evidence                          |
-| [Agent Credentials](https://manifest.agentrust-io.com/integrations/agent-credentials/index.md)     | Joining a credential decision to the exact manifest and signed runtime evidence                                          |
-| [Standards landscape](https://manifest.agentrust-io.com/integrations/standards-landscape/index.md) | How Agent Manifest connects to Agent Card, registration, credentials, BOM, provenance, attestation, and runtime evidence |
+Agent Manifest works with any framework. It signs and checks records about an agent; it does not run the agent. A framework is the library your agent is built on.
+
+| Integration                                                                                        | What it covers                                                                                                                      |
+| -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| [LangChain](https://manifest.agentrust-io.com/integrations/langchain/index.md)                     | Manifest for a LangChain agent; tool wrapper that verifies caller manifests                                                         |
+| [OpenAI Agents SDK](https://manifest.agentrust-io.com/integrations/openai-agents/index.md)         | Manifest per agent; manifest handoff verification during agent handoffs                                                             |
+| [AutoGen and CrewAI](https://manifest.agentrust-io.com/integrations/autogen-crewai/index.md)       | Per-agent manifests in AutoGen conversations and CrewAI crews                                                                       |
+| [AGT (Agent Governance Toolkit)](https://manifest.agentrust-io.com/integrations/agt/index.md)      | Passing a checked manifest into AGT, which decides what an agent may do                                                             |
+| [NVIDIA OpenShell](https://manifest.agentrust-io.com/integrations/openshell/index.md)              | Linking the approved OpenShell sandbox setup to TRACE records of what ran                                                           |
+| [Agent Credentials](https://manifest.agentrust-io.com/integrations/agent-credentials/index.md)     | Tying a credential check to the exact manifest and to signed records of what ran                                                    |
+| [Standards landscape](https://manifest.agentrust-io.com/integrations/standards-landscape/index.md) | How Agent Manifest fits next to Agent Cards, credentials, software inventories, build records, hardware reports and runtime records |
 
 ## Common pattern
 
-Issue a manifest, attach its identifier or complete signed envelope, and verify it before allowing the protected operation. An identifier in a header, callback, or trace is correlation metadata; the recipient still needs the actual signed object, independently approved keys and runtime inputs, and current revocation state.
+The pattern is the same everywhere. Create a manifest, send its ID or the full signed record along with the agent, and check it before the agent is allowed to do the protected thing (call a tool, hand work to another agent, reach a service).
+
+An ID in a header, callback or log only helps you find and match records. To check anything, the receiving side still needs the full signed record, its own list of trusted keys, its own copy of the values it expects to see at runtime, and an up-to-date list of revoked (withdrawn) manifests.
 
 ## Run a local verification gate
 
-Complete the [first-manifest example](https://manifest.agentrust-io.com/getting-started/index.md), append this block to `first_manifest.py`, and run it again. It tests a framework-independent boundary with synthetic inputs; it does not call a model or install a framework adapter.
+This is a small check, called a gate, that refuses to continue unless the manifest verifies. Complete the [first-manifest example](https://manifest.agentrust-io.com/getting-started/index.md), add this block to the end of `first_manifest.py`, and run it again. It uses made-up inputs and works without any framework: it does not call a model or install anything extra.
 
 ```
 from agent_manifest import OverallResult
@@ -3034,13 +3077,15 @@ for rejected_context in (
 print("PASS: missing trust and changed runtime input blocked")
 ```
 
-Obtain `approved_context` and revocation state through the recipient's own configuration and evidence collection. Never let a caller submit its own expected hashes or trusted-key map as authorization. A `VALID` result applies to the declared bindings and supplied checks; the application separately authorizes the requested operation and delegation scope.
+The receiving side must load `approved_context` (the values it expects and the keys it trusts) and the revocation list from its own configuration. Never let the caller supply its own expected hashes or trusted keys: that would let it approve itself. A `VALID` result covers only the bindings in the manifest and the checks you supplied. Your application still decides separately whether the requested action and any handing-on of authority are allowed.
 
-Place this gate before tool, handoff, or service side effects. Recheck when the relevant state changes; attaching a manifest once at startup does not enforce later drift, revocation, or caller permissions. The framework pages identify where to connect this boundary and link to current framework APIs.
+Put the gate before anything with a real effect: a tool call, a handoff or a service request. Check again when something relevant changes. Attaching a manifest once at startup does not catch later changes, revocations or permission changes. The framework pages below show where to connect the gate and link to each framework's current documentation.
 
 # Operations
 
-Operate the issuer, evidence distribution, and recipient verification checks. Start with the [local verification service](https://manifest.agentrust-io.com/tutorials/deploying-the-verification-endpoint/index.md), then define how your deployment distributes trust, refreshes evidence, and handles rejected records.
+These guides are for the people who keep Agent Manifest running day to day: whoever holds the signing keys, whoever publishes revocations (records that withdraw a manifest early), and whoever runs the services that check manifests. They cover changing keys, keeping audit records, and watching for problems.
+
+Start with the [local verification service](https://manifest.agentrust-io.com/tutorials/deploying-the-verification-endpoint/index.md), then decide how your deployment hands out trusted keys, keeps evidence current, and deals with rejected records.
 
 | Guide                                                                                   | What it covers                                                                 |
 | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
@@ -3050,17 +3095,19 @@ Operate the issuer, evidence distribution, and recipient verification checks. St
 
 ## Operational model
 
-Assign ownership for these responsibilities; the SDK does not require three separately deployed services:
+Three jobs need a named owner. They can live in one service or several; the SDK does not require three separately deployed services:
 
 1. **Issuance and key custody.** Approve the configuration, sign the manifest, protect issuer keys, and distribute trusted public keys independently. Choose key custody according to the required assurance and deployment architecture.
 1. **Revocation and evidence distribution.** Publish authenticated updates and define refresh, maximum accepted age, and failure policy for each recipient. `RevocationStore` does not fetch updates, and `FileCRL` does not continuously poll another process's file writes.
 1. **Recipient verification and authorization.** Supply approved keys and independent runtime observations, appraise required evidence, and reject unacceptable results before side effects. Verification can run in application code or a service; a sidecar is one deployment option. Caller authentication and operation authorization remain application responsibilities.
 
-Monitor failures and stale evidence without treating every rejected manifest as a service outage. Test rotation and refresh behavior across every worker before relying on an availability or propagation target.
+Watch for failures and out-of-date evidence, but do not treat every rejected manifest as an outage: rejecting a bad record is the system working. Test rotation and refresh behavior across every worker before relying on an availability or propagation target.
 
 # Compliance
 
-Agent Manifest supplies signed configuration and provenance evidence that can support a compliance review. These pages map capabilities to topics in several regulatory frameworks. A valid manifest does not by itself establish regulatory compliance; that assessment depends on the deployed system, its controls, and the applicable obligations.
+These pages are for compliance officers, auditors and the engineers who support them. Each one takes a law or regulation and shows which of its requirements an Agent Manifest can help you produce evidence for, and which it cannot.
+
+An Agent Manifest is a signed record of how an AI agent was set up and who approved it. That record can support a compliance review. A valid manifest does not, on its own, make a system compliant: that depends on the whole deployed system, its other controls, and the rules that apply to you.
 
 | Framework                                                                    | Jurisdiction                        | Primary obligation addressed                                     |
 | ---------------------------------------------------------------------------- | ----------------------------------- | ---------------------------------------------------------------- |
@@ -3071,7 +3118,7 @@ Agent Manifest supplies signed configuration and provenance evidence that can su
 
 ## What agent-manifest provides
 
-The evidence available depends on which bindings and optional records the producer includes and which checks the recipient performs:
+What you can show depends on which parts the issuer put in the manifest and which checks the reviewer actually runs:
 
 | Evidence                                           | What to check                                                                            |
 | -------------------------------------------------- | ---------------------------------------------------------------------------------------- |
@@ -3081,11 +3128,13 @@ The evidence available depends on which bindings and optional records the produc
 | Delegation, when supplied                          | Trusted authority, signatures, continuity, and scope restrictions                        |
 | Human approval, when supplied                      | Approver authority, signature, scope, and freshness                                      |
 
-Start with [your first manifest](https://manifest.agentrust-io.com/getting-started/index.md) to see the checks in a local example. Read [limitations](https://manifest.agentrust-io.com/limitations/index.md) before treating a signed declaration as evidence of runtime behavior.
+Start with [your first manifest](https://manifest.agentrust-io.com/getting-started/index.md) to see the checks in a local example. Read [limitations](https://manifest.agentrust-io.com/limitations/index.md) before treating a signed statement about setup as evidence of what the agent did while running.
 
 # Python SDK API reference
 
-This reference is generated from the source code. The public API is organised into four modules.
+This section documents every public class and function in the `agent-manifest` Python package. Use it when you are writing code against the SDK and need exact names, arguments and return types; if you are starting out, the [getting started guide](https://manifest.agentrust-io.com/getting-started/index.md) and the [tutorials](https://manifest.agentrust-io.com/tutorials/index.md) explain the same features step by step.
+
+The pages below are generated from the docstrings in the source code, so they match the released package. The public API is organised into these areas.
 
 | Module                                                                                | What it covers                                                                          |
 | ------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
@@ -3116,47 +3165,51 @@ pip install "agent-manifest[all]"
 
 # Known Limitations
 
-This document describes what Agent Manifest does not do, and where layered defenses are needed. Honest scope boundaries prevent misplaced trust.
+This page lists what Agent Manifest does not do, so you know where you need other protections alongside it. Read it before you rely on a manifest for a security or compliance decision. The short version: a manifest proves who approved an agent's setup and lets you check that setup at one moment; it does not watch the agent afterwards or judge whether the setup is a good one.
+
+The first sections are short and plain. The later sections on Azure, AMD and Intel hardware are for engineers who need the exact technical boundary.
 
 ## What the manifest does not prevent
 
 **Prompt injection at runtime**\
-The manifest binds the system prompt hash at deployment. It cannot detect prompt injection that occurs during a session via user input, tool output, or RAG retrieval. For runtime injection defense, use a policy engine (e.g., AGT's PromptDefense Evaluator) in addition to the manifest.
+The manifest records a fingerprint of the agent's instructions (system prompt) when it is deployed. It cannot detect prompt injection, where text slipped in during a session through user input, tool output, or documents the agent looks up (RAG retrieval) tries to give the agent new instructions. For that, use a policy engine (e.g., AGT's PromptDefense Evaluator) in addition to the manifest.
 
 **Model output manipulation**\
 The manifest attests which model version was authorized. It cannot attest that the model's responses were unmanipulated. A compromised model API endpoint could return forged outputs while the manifest remains valid.
 
 **Key compromise after attestation**\
-If the manifest signing key is compromised after a manifest is issued, existing manifests remain cryptographically valid until they are explicitly revoked. Key monitoring and rapid revocation are the required controls — the manifest provides the revocation mechanism but cannot detect compromise itself.
+If the manifest signing key is compromised after a manifest is issued, existing manifests remain cryptographically valid until they are explicitly revoked. Key monitoring and rapid revocation are the required controls; the manifest provides the revocation mechanism but cannot detect compromise itself.
 
 **TEE side-channel attacks**\
-Hardware attestation proves the manifest hash was measured in silicon. It does not protect against side-channel attacks (cache timing, power analysis) targeting the TEE itself. TEE-level side-channel defense is the responsibility of the TEE platform vendor.
+Hardware attestation proves the processor itself recorded the manifest's fingerprint. It does not protect against side-channel attacks (reading secrets indirectly, for example by timing the processor's cache or measuring its power use) aimed at the TEE, the protected area of the processor the agent runs in. Defending the TEE against those is the job of the chip vendor.
 
 **Operator-controlled revocation endpoint**\
-The revocation endpoint is operated by the manifest issuer. A compromised or dishonest issuer could fail to publish revocation records. Transparency log integration (Rekor) provides a check — verifiers should require a transparency log entry for Level 1+ manifests.
+The revocation endpoint, where withdrawn manifests are listed, is run by the manifest issuer. A compromised or dishonest issuer could simply not list a withdrawal. A public append-only record (a transparency log such as Rekor) provides a check; verifiers should require a transparency log entry for Level 1+ manifests.
 
 **Policy correctness**\
-The policy bundle hash attests that a specific Cedar/Rego/YAML policy was in force. It does not attest that the policy is correct or that it achieves the intended security outcome. Policy review is a separate control.
+The policy bundle hash shows that a specific set of rules (written in Cedar, Rego or YAML) was in force. It does not show that the rules are correct or achieve what you intended. Reviewing the rules is a separate job.
 
 **Supply chain attacks before measurement**\
-The container image digest is measured at TEE startup. Attacks that compromise the build pipeline before the final image is produced (e.g., compromised build runner, malicious dependency) are covered by SLSA provenance, not by the manifest attestation itself.
+The fingerprint of the packaged software (the container image digest) is measured when the protected environment starts. Attacks on the build process before that package exists (e.g., a compromised build machine or a malicious dependency) are covered by SLSA provenance, a separate signed record of how software was built, not by the manifest attestation itself.
 
 ## What Level 0 does not provide
 
 Level 0 (software-only signing) is suitable for development and staging. It does not satisfy:
 
-- DORA Art. 9 (in force today) — requires Level 1+ with HITL records
-- EU AI Act Art. 15 (cybersecurity; applies from around December 2027) — requires Level 1+
-- Any claim of hardware-rooted trust — the signing key is held in software and can be extracted by a privileged operator
+- DORA Art. 9 (in force today): requires Level 1+ with HITL records
+- EU AI Act Art. 15 (cybersecurity; applies from around December 2027): requires Level 1+
+- Any claim of hardware-rooted trust: the signing key is held in software and can be extracted by a privileged operator
 
 ## What the SDK does not do
 
-- **Evaluate Cedar policy** — the SDK stores and hashes Cedar bundles; evaluation requires the Cedar engine (included in AGT)
-- **Store manifests** — the SDK produces and verifies manifest documents; storage, rotation, and distribution are the caller's responsibility
-- **Replace a secrets manager** — signing private keys must be stored in a secrets manager (Azure Key Vault, AWS Secrets Manager, HSM); do not store them on disk without protection
-- **Automatically rotate** — key rotation and manifest re-issuance must be triggered by the caller; the SDK provides the protocol but no scheduling
+- **Evaluate Cedar policy**: the SDK stores and hashes Cedar bundles; evaluation requires the Cedar engine (included in AGT)
+- **Store manifests**: the SDK produces and verifies manifest documents; storage, rotation, and distribution are the caller's responsibility
+- **Replace a secrets manager**: signing private keys must be stored in a secrets manager (Azure Key Vault, AWS Secrets Manager, HSM); do not store them on disk without protection
+- **Automatically rotate**: key rotation and manifest re-issuance must be triggered by the caller; the SDK provides the protocol but no scheduling
 
 ## Azure confidential VMs: attestation is vTPM-rooted, not direct-silicon
+
+In short: on Azure's AMD-based confidential machines, the processor report reaches the manifest through one extra link (a virtual security chip run by Azure's own layer), and that path is supported and tested. On Azure's Intel-based confidential machines, the offline check is not supported at all. The detail follows.
 
 Azure confidential VMs (DCasv5/ECasv5 and similar) run AMD SEV-SNP behind a Hyper-V paravisor. This changes how attestation works, and `AzureCVMProvider` (not `SEVSNPProvider`) is the correct provider there:
 
@@ -3175,6 +3228,8 @@ This provider and every link of the chain above were validated against a report 
 **Azure TDX is not supported for offline attestation** (confirmed on real Azure TDX hardware). Azure runs TDX behind the Hyper-V paravisor: there is no `/dev/tdx-guest` and the configfs-TSM `tdx_guest` provider does not register (the guest driver cannot bind), so the guest cannot obtain a signed DCAP quote. The only attestation surface is the vTPM/HCL blob, which carries a **MAC'd `TDREPORT`**, not a remotely-verifiable quote. Verifying a MAC'd `TDREPORT` as genuine silicon requires a networked attestation service (**Azure MAA**) or an on-platform Quoting Enclave, neither of which the SDK's offline verifier can use. Azure-TDX support would therefore mean a networked MAA integration (a different trust model from the offline SNP/TDX paths) and is out of scope; it is tracked as a follow-up. Use SEV-SNP (`AzureCVMProvider`) on Azure, or a non-paravisor TDX guest (e.g. GCP C3) for offline TDX attestation.
 
 ## Platform state: appraised only if you ask
+
+In short: a hardware report proves which software is running, but by default this SDK does not check the settings of the machine underneath, such as whether a memory safety check ran at boot. You can turn that check on; it is off unless you ask for it.
 
 Signature, certificate chain and measurement establish that a report is authentic and which workload it describes. **None of them say anything about the condition of the machine underneath.** A SEV-SNP report carries that separately, in `PLATFORM_INFO` at offset 0x40, and until 2026-08-20 this SDK did not read it at all: the field was absent from the offset table, so the bytes were never parsed and no policy could refer to them.
 
@@ -3197,16 +3252,18 @@ appraise_platform_info(
 
 **Two things this deliberately does not do.** It does not appraise the mitigation vectors (`LAUNCH_MIT_VECTOR`, `CURRENT_MIT_VECTOR`) added in v4 reports, because the bit meanings are platform-specific and publishing a mask without hardware to validate it against would be guessing. And it is not wired into `verify_manifest()` as a default, so an existing caller gets no new failures and also no new checks.
 
-Not wired in as a default does not mean it cannot gate a verdict today. `verify_attestation_chain()` performs the hardware appraisal; `verify_manifest()` does not itself invoke `appraise_platform_info()`, or anything else PLATFORM_INFO- specific. A caller can combine a successful hardware appraisal with a platform- policy appraisal before populating `context.verified_attestation_manifest_hashes` (the same set `verify_manifest()` already checks membership in — see the field's docstring). `appraise_platform_info()` fits that shape directly: call it next to `verify_attestation_chain()`, and only add the manifest hash when both pass. See ["Appraise platform state before trusting hardware evidence"](https://github.com/agentrust-io/agent-manifest/blob/main/docs/tutorials/hardware-attestation.md#appraise-platform-state-before-trusting-hardware-evidence) for the composition, and [`test_platform_info_verify_manifest.py`](https://github.com/agentrust-io/agent-manifest/blob/main/python/tests/test_platform_info_verify_manifest.py) for the pass/fail cases against a cryptographically self-consistent synthetic SEV-SNP chain — it demonstrates that this composition is possible and that `verify_manifest()` honors it, not that the SDK enforces it for you. No change to `VerificationContext` or `verify_manifest()` is needed for this.
+Not wired in as a default does not mean it cannot gate a verdict today. `verify_attestation_chain()` performs the hardware appraisal; `verify_manifest()` does not itself invoke `appraise_platform_info()`, or anything else PLATFORM_INFO- specific. A caller can combine a successful hardware appraisal with a platform- policy appraisal before populating `context.verified_attestation_manifest_hashes` (the same set `verify_manifest()` already checks membership in; see the field's docstring). `appraise_platform_info()` fits that shape directly: call it next to `verify_attestation_chain()`, and only add the manifest hash when both pass. See ["Appraise platform state before trusting hardware evidence"](https://github.com/agentrust-io/agent-manifest/blob/main/docs/tutorials/hardware-attestation.md#appraise-platform-state-before-trusting-hardware-evidence) for the composition, and [`test_platform_info_verify_manifest.py`](https://github.com/agentrust-io/agent-manifest/blob/main/python/tests/test_platform_info_verify_manifest.py) for the pass/fail cases against a cryptographically self-consistent synthetic SEV-SNP chain. It demonstrates that this composition is possible and that `verify_manifest()` honors it, not that the SDK enforces it for you. No change to `VerificationContext` or `verify_manifest()` is needed for this.
 
 **On the API shape.** `require` and `forbid` are separate named sets rather than one struct of booleans. The reference verifier, `google/go-sev-guest`, uses the single struct, documents it as "the maximum of acceptable PLATFORM_INFO data", and then enforces four of its seven fields as minimums, so setting `AliasCheckComplete = true` there demands the condition rather than permitting it. Filed as [google/go-sev-guest#195](https://github.com/google/go-sev-guest/issues/195). Putting the direction in the argument name makes that class of mistake unavailable here.
 
 ## Hardware attestation scope: boot-time binding only
 
+In short: the hardware check describes the agent as it started. It does not keep watching, so a change made to the running agent later is not caught unless you ask the hardware for a fresh report.
+
 Hardware attestation in this SDK proves **what was approved at agent startup**, not what the agent is doing right now. Specifically:
 
 - `extend_manifest_hash()` + `get_attestation_report()` run **once** at startup. The resulting report binds the manifest hash to the TEE's boot measurement (AMD SEV-SNP `MEASUREMENT`, Intel TDX `MRTD`, or TPM PCR values). After that call returns, the hardware is not consulted again by default.
-- The boot measurement itself is **immutable** — it reflects the firmware and kernel image that were loaded when the TEE was initialised. No re-measurement of the TEE is possible after boot; this is a hardware property, not an SDK limitation.
+- The boot measurement itself is **immutable**: it reflects the firmware and kernel image that were loaded when the TEE was initialised. No re-measurement of the TEE is possible after boot; this is a hardware property, not an SDK limitation.
 - `verify_manifest()` checks the attestation block **once** at verification time (typically at deploy or during periodic audits). It does not continuously re-verify that the agent's runtime state still matches what was attested.
 
 **What this means in practice:** an attacker who compromises the agent process after startup (modifying the system prompt in memory, swapping the policy bundle, injecting a tool) would not be detected by the boot-time attestation alone.
@@ -3215,15 +3272,15 @@ Hardware attestation in this SDK proves **what was approved at agent startup**, 
 
 For deployments that need to prove the agent has not drifted since startup, use `attest_runtime_state(nonce, context_hash)`. This method issues a new hardware quote on demand. The TEE sets its caller-controlled field (`REPORT_DATA` on SEV-SNP, `REPORTDATA` on TDX, qualifying data on TPM) to `sha256(nonce || context_hash_bytes)` and signs it together with the unchanged boot measurement. A verifier that supplies the nonce and independently computes `context_hash` can then confirm:
 
-1. **TEE identity** — the boot measurement matches the expected launch digest
-1. **Current state** — context_hash covers the live system prompt, policy, and tool catalog
-1. **Freshness** — the nonce is unique per challenge, preventing replay
+1. **TEE identity**: the boot measurement matches the expected launch digest
+1. **Current state**: context_hash covers the live system prompt, policy, and tool catalog
+1. **Freshness**: the nonce is unique per challenge, preventing replay
 
-This is not a second boot measurement — the TEE firmware measurement never changes. It is a hardware-signed freshness certificate that specific runtime state was active in the same TEE at a specific moment.
+This is not a second boot measurement; the TEE firmware measurement never changes. It is a hardware-signed freshness certificate that specific runtime state was active in the same TEE at a specific moment.
 
 Callers are responsible for deciding how often to call `attest_runtime_state()` (e.g., every N tool calls, every M minutes, or on every verifier challenge). The SDK provides the primitive; the scheduling and verification policy belong in the caller or a runtime enforcement layer (e.g., cMCP).
 
-**TPM note:** `attest_runtime_state()` on `TPMProvider` requires a pre-provisioned Attestation Key (AK). See the docstring for provisioning steps. SEV-SNP and TDX have no such requirement — the IOCTL is available to any process with access to `/dev/sev-guest` or `/dev/tdx-guest`.
+**TPM note:** `attest_runtime_state()` on `TPMProvider` requires a pre-provisioned Attestation Key (AK). See the docstring for provisioning steps. SEV-SNP and TDX have no such requirement; the IOCTL is available to any process with access to `/dev/sev-guest` or `/dev/tdx-guest`.
 
 ## Performance
 
@@ -3232,45 +3289,50 @@ Hardware attestation adds latency at agent startup (not per-request):
 | Provider           | Typical latency                                                 |
 | ------------------ | --------------------------------------------------------------- |
 | Software (Level 0) | < 1 ms                                                          |
-| TPM                | 50–200 ms                                                       |
-| SEV-SNP            | 10–50 ms                                                        |
-| TDX                | 10–50 ms                                                        |
+| TPM                | 50 to 200 ms                                                    |
+| SEV-SNP            | 10 to 50 ms                                                     |
+| TDX                | 10 to 50 ms                                                     |
 | OPAQUE             | not implemented (managed service not GA; provider fails closed) |
 
 Manifest verification (signature check + hash comparison) is < 5 ms in all cases.
 
 # Roadmap
 
-## Now — v0.1 developer preview (June 2026)
+This page shows what Agent Manifest has shipped, what is still open, and what the project will not try to do. Status as of October 2026: the SDK is at 0.15.0 (2026-09-30) and the specification is at v0.2 draft. The [changelog](https://github.com/agentrust-io/agent-manifest/blob/main/CHANGELOG.md) is the record of what has actually shipped.
 
-Launching at Confidential Computing Summit, June 23 2026.
+## Shipped: v0.1 developer preview (June 2026)
 
-- Specification: all 10 artifact bindings, conformance levels 0–3, 197 conformance tests
+Launched at Confidential Computing Summit, June 23 2026.
+
+- Specification: all 10 artifact bindings, conformance levels 0 to 3, and a 197-test conformance suite defined in section 8.2
 - Python SDK: signing, verification, hardware attestation (TPM / SEV-SNP / TDX / OPAQUE), CLI
 - Runtime attestation freshness proofs: `attest_runtime_state()` + `verify_runtime_report()` (spec §3.3.2, ADR-0010)
 - Standard crypto profile: Ed25519, SHA-256, RFC 8785
 - Post-quantum profile: ML-DSA-65 (NIST FIPS 204), SHAKE-256 (via `[pq]` extra)
 - Integration architecture documented: AGT, cMCP, MCP
 
-**Not in v0.1**: TypeScript SDK, Go SDK, .NET SDK, streaming decision trace, multi-agent delegation UI, CoSAI WS4 contribution.
+## Shipped since June
 
-## Next — v0.2 (Q3 2026)
+- **Intel TDX quote verification** (`agent_manifest._tdx_verify`), hardware-validated on a GCP C3 TDX guest, and **Azure confidential VM attestation** (`AzureCVMProvider`, vTPM-rooted SEV-SNP with the AMD certificate chain), validated on Azure DCasv5. Both in SDK 0.4.0 (2026-07-21). Azure TDX is not supported for offline attestation because Azure runs TDX behind a paravisor; see LIMITATIONS.
+- **Target standards body moved to CoSAI Working Stream 4** after the Phase 1 RFC ([cosai-oasis/ws4-secure-design-agentic-systems#149](https://github.com/cosai-oasis/ws4-secure-design-agentic-systems/issues/149)), SDK 0.8.0 (2026-08-01).
+- **Specification v0.2 draft** (August 2026): the `@context` URI moved to a controlled domain (ADR-0012) and the signature envelope moved to COSE_Sign1 ([envelope spec](https://manifest.agentrust-io.com/spec/agent-manifest-cose-envelope-v0.2/index.md)).
+- **Revocation endpoint**: `create_crl_router()` in `agent_manifest._revocation` serves a `FileCRL` over HTTP. `FileCRL` is a development store; production needs a database-backed store (ADR-0007).
+- **HITL admissibility reporting** (`VerificationResult.hitl_admissibility`, issue #348), SDK 0.13.0 (2026-09-25).
 
-Driven by community and early adopter feedback from the CC Summit period. Current candidates:
+## Open: candidates for the next specification revision
 
-- **HITL approval scheme clarification** — specify whether hybrid mode applies to approver signatures; document approver key rotation
-- **Policy bundle test vector** — add Merkle root test vector for composite bundles (Section 3.2.2)
-- **RAG corpus poisoning precedence** — explicit rule for HITL override of `poisoning_scan.result: flagged`
-- **Memory baseline TTL carve-out** — reconcile artifact-only refresh exception with the immutability rule
-- **Delegation non-Cedar fallback** — static scope narrowing for verifiers without Cedar support
-- **Azure confidential VM attestation** — `AzureCVMProvider` (vTPM-rooted SEV-SNP) with AMD VCEK chain verification, hardware-validated on Azure DCasv5. Intel TDX Quote verification (Intel QVL/PCS) remains pending
-- **TypeScript SDK** — community contribution welcome; see issue tracker for scope
-- **Verification server improvements** — evidence pack format, revocation endpoint
-- **MCP 2026 compatibility** — discovery artifact binding, versioned dynamic tool-catalog checkpoints, and separation of workload identity from delegated user authority; tracked in [#340](https://github.com/agentrust-io/agent-manifest/issues/340)
+Driven by adopter feedback. Any normative change goes through the RFC process (14-day comment period).
 
-v0.2 will go through the RFC process (14-day comment period) for any normative changes.
+- **HITL approval scheme clarification**: specify whether hybrid mode applies to approver signatures; document approver key rotation
+- **Policy bundle test vector**: add a Merkle root test vector for composite bundles (Section 3.2.2)
+- **RAG corpus poisoning precedence**: explicit rule for HITL override of `poisoning_scan.result: flagged`
+- **Memory baseline TTL carve-out**: reconcile the artifact-only refresh exception with the immutability rule
+- **Delegation non-Cedar fallback**: static scope narrowing for verifiers without Cedar support
+- **Evidence pack format** for the verification server
+- **TypeScript SDK**: community contribution welcome; see issue tracker for scope
+- **MCP 2026 compatibility**: discovery artifact binding, versioned dynamic tool-catalog checkpoints, and separation of workload identity from delegated user authority; tracked in [#340](https://github.com/agentrust-io/agent-manifest/issues/340) (open)
 
-## Later — v1.0 CoSAI standard (2027)
+## Later: v1.0 CoSAI standard (2027)
 
 - Full TSC governance under CoSAI / OASIS Open
 - All open spec ambiguities resolved
@@ -3283,14 +3345,14 @@ v0.2 will go through the RFC process (14-day comment period) for any normative c
 
 ## What we will not do
 
-- Replace SPIFFE, SLSA, CycloneDX, or MCP — we compose with these
-- Build a centralized manifest registry — the spec is designed for decentralized verification
-- Build a proprietary TEE platform — hardware support targets open standards (TPM 2.0, SEV-SNP, TDX) plus OPAQUE as the highest-assurance managed option
-- Claim regulatory compliance on your behalf — the spec provides the primitives; compliance requires your organization's legal review
+- Replace SPIFFE, SLSA, CycloneDX, or MCP: we compose with these
+- Build a centralized manifest registry: the spec is designed for decentralized verification
+- Build a proprietary TEE platform: hardware support targets open standards (TPM 2.0, SEV-SNP, TDX) plus OPAQUE as the highest-assurance managed option
+- Claim regulatory compliance on your behalf: the spec provides the primitives; compliance requires your organization's legal review
 
 ## How to influence the roadmap
 
-Open a GitHub issue with the `spec` label describing the problem you are trying to solve. Community and early adopter feedback from the CC Summit period (June–September 2026) has priority for v0.2 scope decisions.
+Open a GitHub issue with the `spec` label describing the problem you are trying to solve. Feedback from teams running Agent Manifest has priority when choosing what goes into the next revision.
 
 # Governance
 

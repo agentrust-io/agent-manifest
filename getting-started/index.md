@@ -1,10 +1,12 @@
 # Create and check your first manifest
 
-Sign a small agent configuration, verify its declared inputs, then see two failures: an edited signed record and a different prompt hash. This software example runs locally after installation. It does not run a model or produce hardware attestation.
+This page is for anyone trying Agent Manifest for the first time. In about ten minutes you sign a record of a small sample agent, check it, and then watch the check fail twice on purpose: once when someone edits the signed record, and once when the agent's prompt changes.
+
+Everything runs on your own computer. It does not run an AI model or produce a hardware report (attestation); those come later.
 
 ## Prerequisites
 
-Use Python 3.11+, Git, and Bash on Linux, macOS, or Windows with WSL. This guide uses the current source checkout so its verification behavior matches these docs.
+You need Python 3.11 or later, Git, and a Bash terminal on Linux, macOS, or Windows with WSL. The steps install from a copy of the source code, so the checks behave exactly as these docs describe.
 
 ## Installation
 
@@ -18,7 +20,9 @@ python -m pip install -e "./python[cli]"
 
 ## Level 0 - Software-only signing
 
-Save this complete block as `first_manifest.py`, then run `python first_manifest.py` from the same directory. It uses the supported v0.1 JSON form to make the signed fields readable. The current v0.2 envelope uses COSE; see the [signature envelope decision](https://manifest.agentrust-io.com/adr/0011-signature-envelope/index.md).
+Save this complete block as `first_manifest.py`, then run `python first_manifest.py` from the same directory. The script does four things: it takes a fingerprint (a SHA-256 hash) of a sample prompt, writes a manifest that records it, signs the manifest with a new key, and checks the result three ways.
+
+It uses the older v0.1 JSON form because its signed fields are easy to read. The current v0.2 format wraps the same content in a compact binary envelope called COSE; see the [signature envelope decision](https://manifest.agentrust-io.com/adr/0011-signature-envelope/index.md).
 
 ```
 import copy
@@ -120,9 +124,9 @@ PASS: different prompt hash rejected (MISMATCH)
 Saved signed.json and public.hex; private key was not saved
 ```
 
-The prompt hash comes from the demo text. The policy hash and model identity are synthetic declarations. `VALID` here applies to the three declared bindings and the supplied verifier inputs. It is not a claim that all ten artifact categories were bound, a model executed, or the configuration is safe.
+What this shows: `VALID` means the signature checks out and the three parts recorded here match the values the checker was given. The prompt hash comes from the demo text; the policy hash and model details are made up for the demo. `VALID` does not mean all ten parts of an agent were recorded, that a model ran, or that the setup is safe.
 
-The verifier retains its trusted public key separately from the record. In production, obtain issuer keys and runtime measurements through your approved trust channels. Reading expected hashes from an untrusted manifest would only compare the document with itself.
+The checker (verifier) keeps the trusted public key apart from the record. In a real deployment, get signer keys and the values of what is actually running from sources you already trust. Taking the expected values from the manifest itself would only compare the document with itself.
 
 ## Inspect the saved record
 
@@ -130,26 +134,26 @@ The verifier retains its trusted public key separately from the record. In produ
 manifest verify signed.json --public-key public.hex
 ```
 
-This CLI invocation supplies a trusted key but no runtime hashes. Expect `INCOMPLETE`, with a verified signature and missing artifact comparisons. Without `--public-key`, expect `UNVERIFIABLE`. The Python example supplies the comparison inputs needed for its `VALID` result.
+This command line check gets a trusted key but no values to compare against. Expect `INCOMPLETE`: the signature is verified, but the parts could not be compared. Without `--public-key`, expect `UNVERIFIABLE`, because there is no key to check the signature with. The Python script got `VALID` because it supplied the values to compare.
 
 ## Level 1 - TPM attestation
 
-Hardware provenance is a separate step. Follow the [hardware attestation tutorial](https://manifest.agentrust-io.com/tutorials/hardware-attestation/index.md) and [limitations](https://manifest.agentrust-io.com/limitations/index.md) for provider-specific evidence and appraisal. A TPM supplies measured-state evidence; it does not by itself isolate process memory. A declared hardware platform or a successful signing command does not establish a conformance level.
+Proving which hardware the agent runs on is a separate step. Follow the [hardware attestation tutorial](https://manifest.agentrust-io.com/tutorials/hardware-attestation/index.md) and [limitations](https://manifest.agentrust-io.com/limitations/index.md) for how each kind of chip reports and how to judge its report. A TPM (a security chip found in most servers and laptops) reports what software the machine booted; it does not by itself keep the agent's memory private from the rest of the machine. Naming a hardware platform in the record, or a signing command succeeding, does not reach a conformance level.
 
 ## Revocation
 
-An artifact update needs a newly approved manifest. Production verification also needs current revocation information; this demo uses an empty in-memory store. See [revocation and key rotation](https://manifest.agentrust-io.com/tutorials/revocation-and-key-rotation/index.md).
+If any recorded part changes, such as a new prompt, approve and sign a new manifest. A real checker also needs an up-to-date list of withdrawn (revoked) manifests and keys; this demo uses an empty list. See [revocation and key rotation](https://manifest.agentrust-io.com/tutorials/revocation-and-key-rotation/index.md).
 
 ## Troubleshooting
 
 - **Module not found:** activate `.venv` in the terminal running the example.
 - **File not found:** run `first_manifest.py` before inspecting `signed.json`.
-- **INCOMPLETE:** inspect which runtime comparisons are missing. Supply independent inputs instead of disabling strict verification.
-- **MISMATCH:** check the signature and named artifact mismatch. Both deliberate changes in this demo should fail.
+- **INCOMPLETE:** look at which comparisons are missing and supply those values from a trusted source. Do not switch off strict checking to make it pass.
+- **MISMATCH:** check whether the signature failed or a named part did not match. Both deliberate changes in this demo should fail.
 - **Expired record:** rerun the example to create a fresh demo record.
 
 ## Next steps
 
-- [Specification](https://manifest.agentrust-io.com/spec/agent-manifest-v0.2/index.md): artifact and verification contracts.
-- [cMCP session binding](https://manifest.agentrust-io.com/tutorials/cmcp-session-binding/index.md): connect deployment identity to tool-call evidence.
-- [Verification API](https://manifest.agentrust-io.com/api-reference/index.md): caller inputs and result fields.
+- [Specification](https://manifest.agentrust-io.com/spec/agent-manifest-v0.2/index.md): the formal rules for each part and each check.
+- [cMCP session binding](https://manifest.agentrust-io.com/tutorials/cmcp-session-binding/index.md): link the approved agent to the records of its tool calls.
+- [Verification API](https://manifest.agentrust-io.com/api-reference/index.md): what you pass to the checker and what it returns.
