@@ -4,6 +4,19 @@
 
 ### Fixed
 
+- **[Spec/SDK]** `poisoning_scan` carried a `result` but named nothing about
+  *which* corpus it was computed over: a `clean` or `flagged` scan verified
+  unchanged next to any `rag_corpus.merkle_root`, so a result produced over
+  one corpus could be presented against a different, unscanned one. Section
+  3.2.5 now requires `poisoning_scan.subject_digest` to equal
+  `rag_corpus.merkle_root` before the scan's `result` is interpreted at all:
+  a present-but-different `subject_digest` fails at every conformance level
+  regardless of `result` (including `not-scanned`), and an absent one fails
+  at Level 1+ whenever `result` is `clean` or `flagged`. Level 0 still
+  permits an absent `subject_digest`. The SDK verifier checks this binding
+  first and does not read `clean`/`flagged` as a statement about the corpus
+  once it fails. Closes #472.
+
 - **[Spec]** Section 2.3 said a field the spec requires to be `null` (for
   example `model_hash` with an `api` deployment) stays in the canonical form
   as `null`. The SDK omits it, and every signed v0.1 vector with an API model
