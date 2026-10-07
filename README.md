@@ -29,9 +29,11 @@ Community updates and contributor highlights: [AgenTrust on LinkedIn](https://ww
 
 > **Developer Preview.** Launched at Confidential Computing Summit, June 23 2026.
 
-A signed JWT proves who called an API. It proves nothing about the agent that made the call.
+An AI agent is software that uses an AI model to take actions on its own. A signed login token (such as a JWT) proves who called an API. It says nothing about how the agent that made the call was set up: its instructions, its rules, its tools or its model.
 
-Agent Manifest binds the ten artifacts that define an agent (system prompt, policy bundle, tool schemas, model identity, RAG corpus, memory state, the decision-log baseline, A2A delegation chain, supply chain provenance, and human-in-the-loop approvals) into one hardware-attestable, tamper-evident record. A third party can authenticate who signed a manifest and compare each binding with inputs it trusts; a manifest does not observe the agent after issuance. Runtime decisions remain separate TRACE or OCSF records; the manifest commits to the audit-chain root current at issuance so a verifier can join later evidence to the approved deployment without treating post-hoc evidence as deploy-time identity.
+Agent Manifest is a signed record of that setup. Whoever approves an agent signs the record; anyone checking the agent later can confirm who signed it and compare each part with what is actually running. It runs on your own computer with Python, and adding hardware proof is optional. Plain-English definitions of the terms are at [agentrust-io.com/#plain-terms](https://agentrust-io.com/#plain-terms).
+
+In more detail, Agent Manifest binds the ten artifacts that define an agent (system prompt, policy bundle, tool schemas, model identity, RAG corpus, memory state, the decision-log baseline, A2A delegation chain, supply chain provenance, and human-in-the-loop approvals) into one hardware-attestable, tamper-evident record. A third party can authenticate who signed a manifest and compare each binding with inputs it trusts; a manifest does not observe the agent after issuance. Runtime decisions remain separate TRACE or OCSF records; the manifest commits to the audit-chain root current at issuance so a verifier can join later evidence to the approved deployment without treating post-hoc evidence as deploy-time identity.
 
 ## Quick start
 
@@ -88,7 +90,7 @@ Put briefly, Agent Plugins describes what a client should install and a manifest
 
 ## Standards alignment
 
-Targeting [CoSAI](https://www.coalitionforsecureai.org/) Working Stream 4, an OASIS Open Project. 197 conformance tests against the formal specification. Integrates with [TRACE](https://github.com/agentrust-io/trace-spec) for hardware-rooted attestation.
+Targeting [CoSAI](https://www.coalitionforsecureai.org/) Working Stream 4, an OASIS Open Project. The specification defines a 197-test conformance suite. Integrates with [TRACE](https://github.com/agentrust-io/trace-spec) for hardware-rooted attestation.
 
 ## Contributing
 

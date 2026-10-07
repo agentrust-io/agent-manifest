@@ -8,9 +8,11 @@ description: Decision to support ML-DSA-65 (FIPS 204) and a hybrid Ed25519 plus 
 **Date**: 2026-06-07  
 **Spec section**: Section 2.4 (Cryptographic Profiles), Section 4.2 (Signature Algorithms)
 
+In plain terms: a large enough quantum computer could break the signature algorithms in common use today, so the SDK also supports ML-DSA-65, a NIST standard signature designed to resist that, plus a hybrid mode that carries a classical and a post-quantum signature together. A verifier checking a hybrid manifest has to check both signatures.
+
 ## Context
 
-NIST finalized ML-DSA (CRYSTALS-Dilithium) as FIPS 204 in August 2024, making it the primary post-quantum digital signature standard. Agents operating in regulated environments (FedRAMP High, EU AI Act high-risk systems) will face requirements to use quantum-resistant cryptography within the next 2–5 years.
+NIST finalized ML-DSA (CRYSTALS-Dilithium) as FIPS 204 in August 2024, making it the primary post-quantum digital signature standard. Agents operating in regulated environments (FedRAMP High, EU AI Act high-risk systems) will face requirements to use quantum-resistant cryptography within the next 2 to 5 years.
 
 The spec must answer: when and how does post-quantum cryptography enter the agent manifest?
 
@@ -47,7 +49,7 @@ ML-DSA-87 targets NIST Security Level 5 but produces 4627-byte signatures. The a
 
 ### Hybrid mode as the transition path
 
-Mandating ML-DSA-65 alone immediately would break every existing verifier that has not yet integrated `liboqs`. The hybrid profile lets adopters commit to PQC today while remaining interoperable with classical infrastructure during the migration window (estimated 2–5 years). A classical verifier that holds the Ed25519 public key can still verify the Ed25519 signature. Once the ecosystem completes PQC migration, deployments can move to `post_quantum` only.
+Mandating ML-DSA-65 alone immediately would break every existing verifier that has not yet integrated `liboqs`. The hybrid profile lets adopters commit to PQC today while remaining interoperable with classical infrastructure during the migration window (estimated 2 to 5 years). A classical verifier that holds the Ed25519 public key can still verify the Ed25519 signature. Once the ecosystem completes PQC migration, deployments can move to `post_quantum` only.
 
 The requirement that both signatures must verify in hybrid mode prevents downgrade attacks: a hybrid manifest cannot be verified by stripping the ML-DSA signature and presenting only the Ed25519 one to a PQC-capable verifier.
 

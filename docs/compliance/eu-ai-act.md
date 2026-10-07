@@ -1,8 +1,8 @@
 # EU AI Act compliance mapping
 
-This page maps agent-manifest capabilities to EU AI Act obligations for high-risk AI systems. It is written for compliance officers and auditors, not developers.
+This page is for compliance officers and auditors working with the EU AI Act. It goes article by article and says what evidence an Agent Manifest can provide for AI systems the Act classes as high-risk, and where it provides nothing. It is a reference map, not a statement that any system complies.
 
-**Status:** GPAI model obligations apply since **August 2025**, and **Article 50 transparency duties since 2 August 2026** (see below - the manifest does not satisfy them). Under the current provisional legislative timeline (the digital omnibus amendments), high-risk AI system obligations are expected to apply from around **December 2027**, and AI systems embedded in regulated products from around **August 2028**. These dates remain subject to the legislative process - verify against the [official AI Act timeline](https://artificialintelligenceact.eu/implementation-timeline/) before relying on them. Obligations already in force today (e.g. DORA for financial entities, HIPAA for US healthcare) are unaffected by this timeline.
+**Status:** GPAI model obligations apply since **August 2025**, and **Article 50 transparency duties since 2 August 2026** (see below: the manifest does not satisfy them). Under the current provisional legislative timeline (the digital omnibus amendments), high-risk AI system obligations are expected to apply from around **December 2027**, and AI systems embedded in regulated products from around **August 2028**. These dates are still going through the legislative process. Check them against the [official AI Act timeline](https://artificialintelligenceact.eu/implementation-timeline/) before relying on them. Obligations already in force today (e.g. DORA for financial entities, HIPAA for US healthcare) are unaffected by this timeline.
 
 Everything on this page below Article 50 maps to the **high-risk** obligations, which are the deferred ones. Article 50 is the one in force now.
 
@@ -12,7 +12,7 @@ Everything on this page below Article 50 maps to the **high-risk** obligations, 
 
 > *AI systems intended to interact directly with natural persons shall be designed so that the person is informed they are interacting with an AI system, unless obvious. Providers of systems generating synthetic content shall mark the output in a machine-readable form.*
 
-**What agent-manifest provides: nothing yet.** This is stated plainly because Article 50 is the obligation an auditor can hold a deployment to today, and a mapping page that quietly omits it reads as coverage.
+**What agent-manifest provides: nothing yet.** We say this up front because Article 50 is the duty an auditor can hold a deployment to today, and a mapping page that left it out would look as if it were covered.
 
 | Article 50 paragraph | Obligation | Status |
 |----------------------|------------|--------|
@@ -31,7 +31,9 @@ Article 50 applies regardless of whether the system is high-risk under Annex III
 
 **What agent-manifest provides**
 
-The manifest carries a structured risk assessment in `hitl_record.approvals[].approved_scope.risk_tier` (low / medium / high / critical), together with the artifacts the assessment covers and conditions attached to the approval. Each approval is signed by the approver's key, and the HITL requirement itself (`hitl_record.required`) is covered by the issuer signature, making the recorded risk assessment tamper-evident.
+The manifest can record a person's risk rating for the agent (low, medium, high or critical), which parts of the agent that rating covers, and any conditions attached to the approval. The approver signs it with their own key, so any later change to the rating shows up. HITL ("human in the loop") means a named person has to approve.
+
+The rating sits in `hitl_record.approvals[].approved_scope.risk_tier`. The requirement for human approval (`hitl_record.required`) is covered by the issuer's signature.
 
 ```json
 {
@@ -50,7 +52,7 @@ The manifest carries a structured risk assessment in `hitl_record.approvals[].ap
 }
 ```
 
-The signed manifest is the risk management record. An auditor can verify that the assessment was made before deployment (manifest `issued_at`) and has not been altered since.
+The signed manifest is one record within a risk management system. An auditor can verify that the assessment was made before deployment (manifest `issued_at`) and has not been altered since.
 
 ---
 
@@ -60,9 +62,14 @@ The signed manifest is the risk management record. An auditor can verify that th
 
 **What agent-manifest provides**
 
-Every manifest includes an `artifacts.decision_trace` section with a Merkle `audit_chain_root`. Each decision appended to the trace is a leaf in a tamper-evident Merkle tree. An auditor can present any decision and verify it was recorded before a given audit_chain_root  -  without access to any other decisions.
+The manifest records a single fingerprint (the audit chain root) that sums up the agent's decision log when the manifest was issued. Given one decision and a short proof, an auditor can check that it was in the log behind that fingerprint, without seeing any other decisions.
 
-The audit chain root is deterministic and reproducible: losing the chain does not lose the ability to verify past roots.
+??? info "Technical detail: the Merkle audit chain"
+    Every manifest includes an `artifacts.decision_trace` section with a Merkle `audit_chain_root`. Each decision appended to the trace is a leaf in a tamper-evident Merkle tree. An auditor can present any decision and verify it was recorded before a given audit_chain_root, without access to any other decisions.
+
+    The audit chain root is deterministic and reproducible: losing the chain does not lose the ability to verify past roots.
+
+The manifest does not do the logging: the agent's runtime has to write the log, and a fingerprint cannot show that every event was written.
 
 ---
 
@@ -80,7 +87,7 @@ The audit chain root is deterministic and reproducible: losing the chain does no
 | System prompt used | `artifacts.system_prompt.hash` (SHA-256, content-addressed) |
 | Tools the system can invoke | `artifacts.tool_manifest.tools[]` |
 
-All fields are signed by the issuer key. A deployer can verify the signed manifest and confirm exactly what model, prompt, and tools are in use  -  without trusting the agent's self-report.
+All fields are signed by the issuer key. A deployer can check the signed manifest and see exactly which model, prompt and tools were approved, without taking the agent's word for it. Confirming that the running agent matches still needs the deployer's own runtime values.
 
 ---
 
@@ -90,7 +97,7 @@ All fields are signed by the issuer key. A deployer can verify the signed manife
 
 **What agent-manifest provides**
 
-The `hitl_record` field records human approval events:
+The manifest can carry signed records of a person approving the agent, in the `hitl_record` field:
 
 ```json
 {
@@ -133,26 +140,26 @@ The signature is made over `{manifest_id, approved_at, approved_scope, approver_
 
 **What agent-manifest provides**
 
-Signed artifact bindings create a quality record: the model hash, prompt hash, and tool catalog hash are locked at issuance. Any deviation from the approved configuration produces a manifest verification failure (`MISMATCH` result), giving the quality management system a reliable signal that the deployed agent differs from the approved one.
+The manifest fixes the fingerprints (hashes) of the model, the prompt and the tool catalog when it is issued, which gives a quality record. Any deviation from the approved configuration produces a manifest verification failure (`MISMATCH` result), giving the quality management system a reliable signal that the deployed agent differs from the approved one.
 
-The issuer key rotation procedure (see [Tutorial: Revocation and key rotation](../tutorials/revocation-and-key-rotation.md)) documents the governance process for key management, satisfying the quality management system's documentation requirement.
+The issuer key rotation procedure (see [Tutorial: Revocation and key rotation](../tutorials/revocation-and-key-rotation.md)) documents the process for managing keys, which can feed the quality management system's documentation.
 
 ---
 
 ## Conformance level guidance for high-risk AI
 
-The levels are defined in section 8.1 of the specification. They are not a hardware ladder: the level says what is bound and attested, and the choice of TEE sits inside Level 1.
+A conformance level says how much a manifest covers and how strongly it is backed. Levels are defined in section 8.1 of the specification. A higher level does not simply mean better hardware: the level says what is bound and attested, and the choice of TEE (a hardware-isolated area that can prove what is running in it) sits inside Level 1.
 
 | Conformance level | What it requires | Recommended for |
 |-------------------|------------------|-----------------|
-| 0  -  Software-only | All artifact bindings, standard crypto, transparency log publication. No TEE. | Development, staging, non-regulated systems |
-| 1  -  TEE-attested | Level 0 plus a TEE attestation block, `audit_key_sealed: true`, and a hardware-verified `container_image_digest`. TPM 2.0, AMD SEV-SNP and Intel TDX all satisfy this; they differ in the strength of the root, not in the level. | Enterprise production |
-| 2  -  Full stack | Level 1 plus all 10 artifacts bound, HITL approvals present, delegation chain for multi-agent, Phase 2 cMCP, `minimum_retention_days >= 180`, and a declared drift policy. | High-risk AI under Article 6(2), Annex III |
-| 3  -  Post-quantum | Level 2 plus ML-DSA-65, ML-KEM-768, SHAKE-256, and a private Sigstore instance supporting ML-DSA-65. | Sovereign, classified, long-horizon financial |
+| 0: Software-only | All artifact bindings, standard crypto, transparency log publication. No TEE. | Development, staging, non-regulated systems |
+| 1: TEE-attested | Level 0 plus a TEE attestation block, `audit_key_sealed: true`, and a hardware-verified `container_image_digest`. TPM 2.0, AMD SEV-SNP and Intel TDX all satisfy this; they differ in the strength of the root, not in the level. | Enterprise production |
+| 2: Full stack | Level 1 plus all 10 artifacts bound, HITL approvals present, delegation chain for multi-agent, Phase 2 cMCP, `minimum_retention_days >= 180`, and a declared drift policy. | High-risk AI under Article 6(2), Annex III |
+| 3: Post-quantum | Level 2 plus ML-DSA-65, ML-KEM-768, SHAKE-256, and a private Sigstore instance supporting ML-DSA-65. | Sovereign, classified, long-horizon financial |
 
 For high-risk AI systems under Article 6(2), Annex III, **Level 2 or above is recommended**, because Article 12 record-keeping and Article 14 human oversight need the artifacts that Level 2 requires to be bound rather than merely present. Level 1 is a reasonable interim where the full artifact set is not yet in place, provided a compensating HITL control is documented.
 
-Within Level 1, the root of trust still matters for what a verifier can conclude: SEV-SNP and TDX attest a confidential VM directly, while a TPM 2.0 quote attests the boot chain of a VM the host can still see into. Azure confidential VMs are a third case, vTPM-rooted rather than direct-silicon, and are documented in `LIMITATIONS.md`.
+Within Level 1, the root of trust (whose signing key the hardware report finally rests on) still changes what a verifier can conclude: SEV-SNP and TDX attest a confidential VM directly, while a TPM 2.0 quote attests the boot chain of a VM the host can still see into. Azure confidential VMs are a third case, vTPM-rooted rather than direct-silicon, and are documented in `LIMITATIONS.md`.
 
 ---
 

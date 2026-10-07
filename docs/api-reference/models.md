@@ -4,7 +4,9 @@ description: Reference for the Agent Manifest model and its nested types, all Py
 
 # Core models
 
-The `Manifest` and all nested types are Pydantic v2 models. All fields are serialisable to JSON via `.model_dump(mode="json")`. See [ADR-0004](../adr/0004-pydantic-v2-schema-modeling.md) for the rationale.
+These are the data types that make up a manifest: the top-level `Manifest` record and one type for each artifact it describes (system prompt, policy bundle, tools, model, and so on). You use them to build a manifest in code or to read the fields of one you have loaded.
+
+The `Manifest` and all nested types are Pydantic v2 models, typed data classes that check their fields when created. All fields are serialisable to JSON via `.model_dump(mode="json")`. See [ADR-0004](../adr/0004-pydantic-v2-schema-modeling.md) for the rationale.
 
 ## Manifest
 

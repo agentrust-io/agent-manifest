@@ -1,12 +1,14 @@
 # Memory checkpoint assessment
 
-`MemoryCheckpointAssessment/0.1` is a non-normative reference assessment for the retrieval behavior of a candidate memory checkpoint. It is tracked in [issue #298](https://github.com/agentrust-io/agent-manifest/issues/298).
+When an agent's memory is updated, the new version (a checkpoint) can pass every integrity check and still make the agent look things up differently, for example by surfacing an old fact over its correction. This page describes an optional test that catches that kind of change before someone approves the new memory. It is for teams running agents with long-lived memory and for anyone designing the approval step for memory updates.
+
+`MemoryCheckpointAssessment/0.1` is a non-normative reference assessment (an example, not part of the formal rules) for the retrieval behavior of a candidate memory checkpoint. Retrieval is the step where the agent searches its memory for items relevant to a question; the retriever is the component that does it. The work is tracked in [issue #298](https://github.com/agentrust-io/agent-manifest/issues/298).
 
 The problem is deliberately narrow. A checkpoint can be cryptographically valid, append-only, fresh, and within its update budget while still changing what the retriever selects in a harmful way. This assessment adds evidence about that retrieval behavior without changing the meaning of Agent Manifest verification.
 
 ## What the assessment answers
 
-The assessment asks whether a candidate checkpoint preserves a declared set of retrieval invariants under a pinned retriever configuration.
+The assessment asks whether a candidate checkpoint preserves a declared set of retrieval invariants (lookups that must keep giving the same kind of answer) under a pinned retriever configuration (the exact search settings, fixed so the run can be repeated).
 
 It does **not** decide whether stored content is true, whether an application response is correct, whether a memory write was authorized, or whether a checkpoint is safe in every possible sense. It also does not approve a checkpoint. The deterministic result depends only on the declared probes and retrieval evidence, not on a probabilistic judge.
 
@@ -26,7 +28,7 @@ The reference implementation keeps five concerns distinct:
 
 ## Approval decision tree
 
-The gate is intentionally pass-only:
+Only a clear pass lets approval continue. Missing evidence, a failure or an unclear result all keep the gate shut:
 
 ```text
 Presented assessment evidence
@@ -86,7 +88,7 @@ If a valid checkpoint was approved despite an applicable failing assessment, the
 
 ## Retriever profile
 
-Retrieval behavior is only reproducible when the load-bearing retrieval path is pinned. `RetrieverProfile` therefore records, where applicable:
+A retrieval result can only be repeated if every setting that affects it is written down. `RetrieverProfile` therefore records, where applicable:
 
 - implementation identity and version;
 - adapter and harness version;
@@ -111,7 +113,7 @@ The harness snapshots the baseline and candidate state references before running
 
 ## Initial probe set
 
-The 0.1 harness covers four behavioral invariants:
+The 0.1 harness (the test runner) covers four behavioral invariants. Each probe below is one small, repeatable lookup with a known right answer:
 
 ### Correction precedence
 
@@ -155,7 +157,7 @@ Issue #298 also identified a useful higher-level distinction between `public-rep
 
 ## Canonicalization dependency
 
-Assessment digests use the repository canonicalization implementation rather than defining a second one.
+Assessment digests (fingerprints) use the repository's existing canonicalization code, which writes JSON in one fixed byte order, rather than a second copy of it.
 
 Current `main` has fixed the UTF-16 key-ordering and exponent-formatting defects previously exercised by the assessment tests. The remaining U+2028 escaping issue is still tracked by Agent Manifest #322, so the assessment tests keep one strict expected failure for that live interoperability boundary.
 

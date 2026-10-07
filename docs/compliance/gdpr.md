@@ -1,6 +1,6 @@
 # GDPR compliance mapping
 
-The General Data Protection Regulation (GDPR) applies to AI agents that process personal data of EU residents. This page maps agent-manifest capabilities to the accountability and processing control obligations most relevant to AI agent deployments.
+The General Data Protection Regulation (GDPR) applies to AI agents that process personal data of EU residents. This page is for data protection officers and privacy teams. It maps the GDPR duties most relevant to AI agents (showing what you did, building in protection, keeping records, security) to the evidence an Agent Manifest can provide. It is a reference map, not a statement that any system complies.
 
 ---
 
@@ -10,9 +10,9 @@ The General Data Protection Regulation (GDPR) applies to AI agents that process 
 
 **What agent-manifest provides**
 
-A signed manifest is a verifiable accountability record for an AI agent. It proves who issued the agent (`issuer` SPIFFE URI), what configuration it was authorised to run, and who approved deployment (HITL record). Because the manifest is signed, the controller can demonstrate these facts without relying on self-reported agent state.
+A signed manifest is a checkable record of accountability for an AI agent. It proves who issued the agent (`issuer` SPIFFE URI, a standard workload identity), what configuration it was authorised to run, and who approved deployment (the HITL, or human-in-the-loop, record). Because the manifest is signed, the controller can demonstrate these facts without relying on self-reported agent state.
 
-A manifest store (database, `.well-known` endpoint, or immutable log) provides an auditable history of every agent version that processed personal data, satisfying the controller's obligation to demonstrate compliance on request.
+A manifest store (database, `.well-known` endpoint, or immutable log) provides an auditable history of every agent version that processed personal data, which supports the controller's duty to demonstrate compliance on request.
 
 ---
 
@@ -24,7 +24,7 @@ A manifest store (database, `.well-known` endpoint, or immutable log) provides a
 
 **Attestation level as a design control:** The manifest's conformance level is a measurable design control. An organisation can define a policy that agents processing personal data must be Level 2+ (SEV-SNP or TDX). Manifests at Level 0 or 1 are rejected by the verifier in personal-data contexts.
 
-**Scope-limited delegation:** The delegation chain narrows scope at each hop. An orchestrator agent can delegate to a sub-agent with an explicit `data_classifications` scope grant, ensuring the sub-agent can only access data classes it was explicitly authorised for.
+**Scope-limited delegation:** When one agent hands work to another (delegation), each step (hop) can only narrow what is allowed, never widen it. An orchestrator agent can delegate to a sub-agent with an explicit `data_classifications` scope grant, ensuring the sub-agent can only access data classes it was explicitly authorised for.
 
 ```json
 {
@@ -48,7 +48,7 @@ The verifier rejects any manifest where the effective scope exceeds what the del
 
 **What agent-manifest provides**
 
-The manifest is a record of processing intent  -  it documents what the agent was configured to do at the time of issuance. Fields that are relevant to Article 30 records:
+The manifest is a record of processing intent: it documents what the agent was configured to do at the time of issuance. Fields that are relevant to Article 30 records:
 
 | Article 30 requirement | Manifest field |
 |------------------------|----------------|
@@ -72,8 +72,8 @@ The manifest's `issued_at` / `expires_at` pair documents the period during which
 |-------------------|-----------|
 | Pseudonymisation and encryption | Not directly provided; manifest documents the agent's encryption capabilities via `artifacts` |
 | Ability to ensure ongoing confidentiality | Attestation report (Level 2+) proves the agent runs in a hardware-isolated enclave |
-| Ability to restore availability | Key rotation runbook; revocation with <1s propagation |
-| Process for regular testing | 197-test suite, CI-enforced; conformance level test distribution documented in ADR-0008 |
+| Ability to restore availability | Key rotation runbook; revocation through a signed revocation list |
+| Process for regular testing | Conformance module tests run in CI with a coverage gate; the 197-test suite is defined in spec section 8.2 and its distribution in ADR-0008 |
 | Integrity of systems | ML-DSA-65 + Ed25519 hybrid signatures; tamper evidence on every field |
 
 ---

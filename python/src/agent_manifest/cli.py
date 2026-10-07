@@ -470,7 +470,7 @@ def verify(
 
     --crl-trusted-key does NOT prove the CRL file is complete. Per-record
     signatures authenticate the records that are present but cannot detect
-    that a line — or the entire file — was deleted. A party who can write or
+    that a line, or the entire file, was deleted. A party who can write or
     intercept the CRL file can still suppress a real revocation by removing
     its record entirely; only a signed, versioned CRL snapshot (not yet
     implemented) can close that gap. Without --crl-trusted-key at all, every
@@ -528,7 +528,7 @@ def verify(
                 "Revocation records are NOT cryptographically verified; any "
                 "party who can write or intercept this file can suppress a "
                 "real revocation or fabricate one. Pass --crl-trusted-key to "
-                "authenticate records present in the CRL — note that even "
+                "authenticate records present in the CRL. Note that even "
                 "with --crl-trusted-key, deleting a record (or the whole "
                 "file) still suppresses a revocation, since per-record "
                 "signatures cannot prove the CRL is complete.",

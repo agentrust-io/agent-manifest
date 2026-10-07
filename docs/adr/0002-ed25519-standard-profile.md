@@ -8,9 +8,11 @@ description: Decision to make Ed25519 with SHA-256 the standard signature profil
 **Date**: 2026-05-01  
 **Spec section**: Section 4.1
 
+In plain terms: this picks the default signing algorithm, Ed25519, a widely available digital signature scheme with small keys and signatures. It matters to anyone writing a signer or verifier in another language, because both sides have to sign and check the same way.
+
 ## Context
 
-The manifest signature scheme must be chosen for the standard profile (Level 0–2). The choice affects implementation complexity, key sizes, signature sizes, and library availability across Python, TypeScript, Go, and .NET.
+The manifest signature scheme must be chosen for the standard profile (Levels 0 to 2). The choice affects implementation complexity, key sizes, signature sizes, and library availability across Python, TypeScript, Go, and .NET.
 
 ## Decision
 

@@ -1,10 +1,12 @@
 # Signed evidence requirements (experimental)
 
+This page is for people building verifiers that weigh several kinds of evidence about an agent, such as reports from the processor, the code that ran and the tool list. It describes an optional, experimental addition that lets whoever signs a manifest also sign a list of the evidence a checker should insist on. Most users can skip it.
+
 Status: experimental, opt-in, not part of the v0.2 specification. The profile
 name carries `experimental` so that it can be replaced, not extended, if the
 design changes before adoption.
 
-A relying party that appraises an agent from several pieces of evidence (the
+A relying party (the service deciding whether to trust the agent) that appraises an agent from several pieces of evidence (the
 CPU platform, the code that ran, the tool catalog) keeps its own list of what
 it requires. This profile lets the manifest issuer sign a second list inside
 the manifest, so a verifier can tighten its own requirements with the

@@ -8,6 +8,8 @@ description: Decision to embed a human approval record in the manifest, signed b
 **Date**: 2026-06-07  
 **Spec section**: Section 3.5 (Human-in-the-Loop Approvals)
 
+In plain terms: when a person has to approve an agent's action first (human in the loop, or HITL), the approval is written into the manifest and signed with the approver's own key, separate from the key of whoever issued the manifest. A verifier can then check that an allowed person approved this exact action and that the approval has not expired.
+
 ## Context
 
 EU AI Act Article 14 requires that high-risk AI systems support meaningful human oversight, including the ability for humans to intervene or refuse to allow an agent's outputs before they take effect. For agentic AI, this means a human must be able to approve or block high-risk actions before execution.

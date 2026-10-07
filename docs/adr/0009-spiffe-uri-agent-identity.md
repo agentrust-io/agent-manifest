@@ -8,6 +8,8 @@ description: Decision to require SPIFFE URIs for agent_id and issuer, with every
 **Date**: 2026-05-26  
 **Spec section**: Section 2.2 (Identity Fields)
 
+In plain terms: every manifest names the agent and the organisation that issued it. This decision requires both names to be SPIFFE URIs, addresses such as `spiffe://trust-domain/path` from an open standard for naming software workloads, and the Python SDK rejects any other format.
+
 ## Context
 
 Every manifest must identify two principals:

@@ -1,15 +1,12 @@
 # NVIDIA OpenShell integration
 
-Agent Manifest binds the OpenShell and AGT deployment configuration approved
-before execution. OpenShell OCSF logs and TRACE records describe what happened
-after startup. Keep those roles separate and join them through stable identity
-and matching artifact hashes.
+This page is for teams running agents inside NVIDIA OpenShell sandboxes. It shows how to link the setup you approved before the agent started to the records of what the agent did afterwards, so a checker can tell whether the sandbox ran the approved setup.
+
+The two records have different jobs. Agent Manifest records the OpenShell and AGT configuration approved before execution. OpenShell's OCSF logs (a common security-event log format) and TRACE records describe what happened after startup. Keep those roles separate and join them through a shared identity and matching artifact hashes (fingerprints of exact file contents).
 
 ## What to bind
 
-Create the exact canonical composite policy bundle used by the OpenShell TRACE
-adapter. It contains the effective OpenShell policy bytes and revision plus the
-AGT Agent Control Specification manifest bytes. Bind its digest as
+Build the exact combined policy bundle that the OpenShell TRACE adapter uses. It contains the OpenShell policy bytes actually in force and their revision, plus the bytes of the AGT Agent Control Specification (ACS) manifest. Put the hash of that bundle in
 `artifacts.policy_bundle.hash`.
 
 | Manifest artifact | OpenShell deployment input |
@@ -21,13 +18,12 @@ AGT Agent Control Specification manifest bytes. Bind its digest as
 | `supply_chain` | Immutable sandbox image and agent package provenance |
 | `decision_trace` | Audit-chain root at manifest issuance, when available |
 
-Do not put runtime OCSF events into the manifest. The manifest commits to the
-approved deployment; TRACE commits to the execution transcript.
+Do not put runtime OCSF events into the manifest. The manifest records the approved deployment; TRACE records what ran.
 
 ## Required joins
 
-Use the same SPIFFE URI or DID as Agent Manifest `agent_id` and TRACE `subject`.
-The runtime collector should also retain:
+Use the same SPIFFE URI or DID (standard forms of workload or agent identity) as the Agent Manifest `agent_id` and the TRACE `subject`.
+The runtime collector should also keep:
 
 - manifest identifier;
 - OpenShell sandbox identifier;
@@ -35,15 +31,15 @@ The runtime collector should also retain:
 - immutable workload image digest;
 - composite policy bundle hash.
 
-A verifier compares the manifest's approved policy and workload hashes with the
+A verifier compares the approved policy and workload hashes in the manifest with the
 TRACE record built from OpenShell evidence. A mismatch means the runtime did not
-execute the approved deployment and must fail verification.
+run the approved deployment, and verification must fail.
 
 ## Assurance boundary
 
-An OpenShell compute driver is not an Agent Manifest hardware attestation
-provider. Use Level 0 unless the deployment supplies a supported quote and the
-manifest signing key is demonstrably bound to its measured workload.
+An OpenShell compute driver does not count as an Agent Manifest hardware attestation
+provider (a source of signed hardware reports). Use Level 0 unless the deployment supplies a supported hardware report (quote) and the
+manifest signing key is shown to be tied to the measured workload.
 
-For runtime evidence construction, see the
+For how to build the runtime records, see the
 [`agentrust-io/integrations` OpenShell adapter](https://github.com/agentrust-io/integrations/tree/main/integrations/openshell).

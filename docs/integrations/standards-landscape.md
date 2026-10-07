@@ -1,11 +1,18 @@
 # Standards integration landscape
 
-Agent Manifest is an integration point, not a replacement for an Agent Card,
-credential, registration record, bill of materials, provenance statement,
-attestation format, or runtime evidence. Each record keeps its existing owner and
-lifecycle. Small, signed references connect them.
+This page is for architects and standards readers who want to see where Agent
+Manifest sits next to the other records about an AI agent. You get a map of
+which record answers which question, and how they point to each other.
 
-This page is informative. It describes the intended integration boundary and
+Agent Manifest links to these other records and does not replace any of them:
+an Agent Card (the agent's public description of itself), a credential, a
+registration record, a bill of materials (BOM, a list of the software parts),
+a provenance statement (how something was built), a hardware attestation (a
+signed report from the processor about what is running), or runtime evidence
+(records of what the agent did). Each record keeps its existing owner and
+lifecycle. Small signed references connect them.
+
+This page is informative (guidance only). It describes the intended integration boundary and
 does not add fields or conformance requirements to the Agent Manifest
 specification.
 
@@ -30,9 +37,10 @@ In simple terms:
 **[Open the diagram full size](../assets/standards-integration-landscape.svg)**
 for readable labels. Select the image to open it in a new tab.
 
-The arrows are references, not schema ownership transfers. Agent Manifest binds
-the digests and identifiers needed to verify a deployment. It does not copy the
-source records into a new umbrella schema.
+The arrows are references. No record takes ownership of another's format. Agent
+Manifest holds the digests (fingerprints of exact bytes) and identifiers needed to
+check a deployment. It does not copy the other records into one new combined
+format.
 
 ## See it working
 
@@ -60,8 +68,9 @@ connects all three layers in one scenario:
 
 1. Agent Manifest declares the approved prompt, policy, tools, and artifact
    hashes.
-2. cMCP evaluates each requested action against the active Cedar policy and
-   tool catalog.
+2. cMCP, the gateway that sits in front of the agent's tools, checks each
+   requested action against the active Cedar policy (a rules file) and tool
+   catalog.
 3. TRACE and the signed audit bundle preserve the session and decisions for
    offline verification after the processes stop.
 
@@ -81,8 +90,8 @@ does not prove.
   policy, attestation, TRACE, and model-custody demonstrations that need no
   confidential-computing hardware.
 - [AgenTrust Marketplace](https://agentrust-io.com/marketplace/) lists open
-  adapters, plugins, platforms, and evidence exporters. Marketplace presence is
-  discovery, not an endorsement; verify each listing and its evidence for your
+  adapters, plugins, platforms, and evidence exporters. A listing helps you find
+  a tool; it is not an endorsement. Check each listing and its evidence for your
   own deployment.
 - [Your first manifest](../tutorials/your-first-manifest.md) walks through
   creation and signing, and [server-side
@@ -90,6 +99,9 @@ does not prove.
   side of the diagram.
 
 ## Record boundaries
+
+Each row is one kind of record: the question it answers, what it holds or
+points to, and what it should not contain.
 
 | Record | Answers | Carries or references | Must remain outside it |
 |---|---|---|---|
@@ -118,14 +130,16 @@ rules; the manifest retains its own signature and attestation binding.
 }
 ```
 
-The exact carrier fields remain work for the owning standards. The integration
-invariant is that the URI is resolvable, the digest identifies the exact signed
-bytes, and the media type selects the correct verifier. A mutable agent-level
-URL without a digest is not enough for an audit or authorization decision.
+The exact field names are for each owning standard to decide. What must always
+hold: the URI can be fetched, the digest identifies the exact signed bytes, and
+the media type tells the checker which verifier to use. A URL for the agent that
+can change, with no digest, is not enough for an audit or an access decision.
 
 ## Verification sequence
 
-At a relying party such as an admission controller, MCP gateway, or A2A peer:
+A relying party is the service that decides whether to let the agent in or let
+an action go ahead, such as an admission controller, an MCP gateway (in front of
+tools) or an A2A peer (another agent). It checks in this order:
 
 1. Authenticate the registration record, Agent Card, or credential according
    to the carrier's rules.
@@ -145,6 +159,9 @@ At a relying party such as an admission controller, MCP gateway, or A2A peer:
    independently and join it to the exact manifest used at admission.
 
 ## Lifecycle and change rules
+
+When something about the agent changes, this table shows which record has to be
+reissued.
 
 | Change | Record that changes | Required consequence |
 |---|---|---|

@@ -1,17 +1,17 @@
 # LangChain Integration
 
-Verify a caller's manifest before a protected tool executes. Begin with the [runnable verification gate](index.md#run-a-local-verification-gate); it demonstrates both acceptance and rejection without model credentials.
+This page shows LangChain users where to check a calling agent's manifest before a protected tool runs. You get a tool call that only goes ahead when the caller's signed record matches what you approved. Start with the [runnable verification gate](index.md#run-a-local-verification-gate); it shows both an accepted and a rejected case and needs no model account.
 
 ## Connect the gate
 
-Build the manifest from the approved agent configuration using the [first-manifest example](../getting-started.md). Keep the complete signed object in an authenticated manifest store and its public key in the recipient's trust configuration. A manifest ID attached to callback metadata does not itself authenticate the caller or automatically become an HTTP header.
+Build the manifest from the approved agent setup, as in the [first-manifest example](../getting-started.md). Store the full signed record somewhere the receiving side can trust, and give the receiving side the matching public key in its own settings. Putting a manifest ID into LangChain callback data does not prove who the caller is, and it does not become an HTTP header by itself.
 
-For current LangChain agents, use the documented [middleware extension points](https://docs.langchain.com/oss/python/langchain/middleware/overview) to intercept tool execution, or call the gate inside the service that owns the protected operation. Verify before invoking the tool handler, and propagate rejection so no side effect occurs.
+In current LangChain agents, use the documented [middleware extension points](https://docs.langchain.com/oss/python/langchain/middleware/overview) (hooks that run around each step) to catch a tool call before it runs. Or call the gate inside the service that owns the protected action. Check before the tool code runs, and pass any rejection back up so nothing happens.
 
-Dynamic prompts, selected tools, and model settings can differ from startup configuration. Supply the actual approved runtime observations for the operation. Capture framework metadata separately for tracing; it must not substitute for signature and artifact checks.
+Prompts, chosen tools and model settings can change while the agent runs, so they may not match what you saw at startup. Give the gate the values actually in use for this call. Keep LangChain's own tracing data for debugging; it must not stand in for the signature and artifact checks.
 
 ## Verify your wiring
 
-Exercise an accepted manifest, an unknown issuer, changed runtime inputs, a revoked ID, and an unavailable artifact. Confirm rejected cases never reach the protected tool, including retries and alternate execution paths. Repeat with your pinned LangChain version before deploying.
+Try five cases: an accepted manifest, an unknown signer, changed runtime inputs, a revoked ID, and an artifact the gate cannot fetch. Confirm that every rejected case stops before the protected tool, including on retries and other code paths that reach the same tool. Repeat with the exact LangChain version you plan to deploy.
 
-This page describes application integration points. Agent Manifest does not automatically install middleware or gate every LangChain call.
+This page shows where to connect the check. Agent Manifest does not install middleware for you or check every LangChain call automatically.

@@ -1,6 +1,8 @@
 # Verify a Human Approval Record
 
-Require an approval, authenticate it against an independently trusted approver key, and reject a changed approval method. The example uses a synthetic human identity and a software key; it demonstrates verification mechanics, not an actual human decision or hardware key custody.
+Some agents may only run after a person signs off. This is called human-in-the-loop (HITL) approval. This page is for developers who need to require that sign-off: you mark an approval as required, check it against an approver key you trust, and see a tampered approval rejected.
+
+The example uses a made-up approver and a software key. It shows how the checks work; it is not a real human decision, and it does not show a key held in hardware.
 
 ## Run the example
 
@@ -59,16 +61,20 @@ assert rejected.signature_verified  # The issuer signature still verifies.
 print("PASS: relabeled approval rejected independently of issuer signature")
 ```
 
-Expect three additional `PASS` lines. The recipient retains the approver key separately; receiving a key alongside an approval does not authorize that key.
+Expect three additional `PASS` lines. The recipient keeps its own copy of the approver key. A key that simply arrives alongside an approval is not trusted because of that.
 
 ## Understand the two signatures
 
-The issuer signs the HITL requirement. The signing preimage normalizes `approvals` to an empty list, allowing approvals to attach after issuance. Adding or removing an approval therefore does not by itself break the issuer signature. Each approval needs its own signature and the receiving policy must enforce its presence.
+Two different parties sign here. The issuer signs the manifest, including the rule that an approval is required. The approver signs the approval itself. Each signature is checked on its own.
 
-The approval signature binds the manifest ID, approver ID, approval timestamp, scope, and supplied approval method. Role labels and evidence links are not substitutes for independently authenticated authority. A `hardware-key` string alone does not prove hardware custody; use a trusted approval service and the required evidence for that claim.
+??? info "Technical detail: what each signature covers"
+
+    The issuer signs the HITL requirement. The signing preimage normalizes `approvals` to an empty list, allowing approvals to attach after issuance. Adding or removing an approval therefore does not by itself break the issuer signature. Each approval needs its own signature and the receiving policy must enforce its presence.
+
+    The approval signature binds the manifest ID, approver ID, approval timestamp, scope, and supplied approval method. Role labels and evidence links are not substitutes for independently authenticated authority. A `hardware-key` string alone does not prove hardware custody; use a trusted approval service and the required evidence for that claim.
 
 ## Apply it to a real workflow
 
-Authenticate the human and establish their authority over the requested action before issuing the approval. Configure trusted approver keys, expiry handling, required scope, and `enforce_hitl` on the recipient. Check operation-specific authorization before allowing side effects, including retries.
+In a real workflow the hard part happens before anything is signed: confirming who the person is and that they have the authority to approve. Authenticate the human and establish their authority over the requested action before issuing the approval. Configure trusted approver keys, expiry handling, required scope, and `enforce_hitl` on the recipient. Check operation-specific authorization before allowing side effects, including retries.
 
-A signed approval is one evidence artifact. It does not, by itself, establish regulatory compliance, appropriate human oversight, or that an approved action completed. See [revocation](revocation-and-key-rotation.md) for withdrawing manifests and [the integration gate](../integrations/index.md#run-a-local-verification-gate) for rejection handling.
+A signed approval is one piece of evidence. It does not, by itself, establish regulatory compliance, appropriate human oversight, or that an approved action completed. See [revocation](revocation-and-key-rotation.md) for withdrawing manifests and [the integration gate](../integrations/index.md#run-a-local-verification-gate) for rejection handling.

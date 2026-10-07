@@ -10,6 +10,8 @@ description: Decision to reference a signed Agent Manifest from an Agent Plugins
 
 **Deciders:** Agent Manifest maintainers
 
+In plain terms: an Agent Plugins bundle needs a way to point to the signed Agent Manifest that describes it. This decision sets that pointer (an HTTPS address plus a SHA-256 fingerprint of the manifest file) and how the manifest fingerprints the bundle in return, so adding the pointer does not change the fingerprint it is part of. A key named in the bundle never creates trust on its own.
+
 ## Context
 
 Agent Plugins 1.0.0 has no provenance field, but permits client-specific objects under

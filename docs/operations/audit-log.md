@@ -1,12 +1,14 @@
 # Audit log management
 
-A manifest can commit to an audit-chain state; the actual entries are stored separately. The producer must define the chain format, and recipients must authenticate the root and verify the corresponding evidence. This guide covers storing, retaining, querying, and submitting audit entries to a public transparency log.
+An audit log is the running record of what an agent decided and did. This guide is for teams who keep that record: where to store it, how long to keep it, how to search it, and how to publish proof of it to a public transparency log (a public, append-only log that anyone can check).
+
+A manifest can capture a fingerprint of the audit log as it stood when the manifest was signed; the log entries themselves are stored elsewhere. Whoever produces the log defines its format, and whoever relies on it has to check that fingerprint and the evidence behind it.
 
 ---
 
 ## What the audit chain contains
 
-Each entry appended to the audit chain is a leaf in a Merkle tree. The `audit_chain_root` in `artifacts.decision_trace` commits the agent to the state of the chain at manifest issuance.
+The entries are linked so that changing an old one changes the fingerprint of the whole log. Each entry appended to the audit chain is a leaf in a Merkle tree (a structure that combines many hashes into a single root hash). The `audit_chain_root` in `artifacts.decision_trace` commits the agent to the state of the chain at manifest issuance.
 
 The following is an illustrative, application-defined entry, not an SDK schema. Its identifiers and hashes are abbreviated, and the attestation level is only a declaration:
 
@@ -29,6 +31,8 @@ The chain root advances after each append. An inclusion proof can establish that
 
 ## Storage options
 
+Where you keep the log depends on volume, how long you must keep it, and how you need to search it.
+
 | Option | Best for | Retention | Query capability |
 |--------|---------|-----------|-----------------|
 | Append-only file (`audit.jsonl`) | Development | Short-term | `grep`, `jq` |
@@ -43,7 +47,7 @@ Choose storage controls for the applicable retention and access requirements. Ob
 
 ## Retention policy
 
-Define retention by record category, jurisdiction, contract, and the purpose for which the data was collected. Agent Manifest does not prescribe a universal retention period or certify that an audit store meets those obligations.
+How long to keep records is a legal and privacy decision for your organization, not something this project sets. Define retention by record category, jurisdiction, contract, and the purpose for which the data was collected. Agent Manifest does not prescribe a universal retention period or certify that an audit store meets those obligations.
 
 Document the applicable retention and deletion rules with the responsible legal and privacy owners. Separate private payloads from shareable commitments; publishing a hash or record to a public log can make later deletion impractical. Configure access controls, backups, holds, and deletion verification for each storage system, then test those procedures.
 
@@ -105,17 +109,21 @@ ORDER BY 1 DESC, 3 DESC;
 
 ## Transparency evidence
 
-Keep the private audit store and public transparency evidence separate. An audit entry, a signed tree root, a manifest signature, and a log receipt are distinct objects with different verification steps.
+Publishing to a transparency log lets outsiders confirm a record existed without seeing your private log. Keep the private audit store and public transparency evidence separate. An audit entry, a signed tree root, a manifest signature, and a log receipt are distinct objects with different verification steps.
 
-To publish a commitment, define the exact bytes and their digest, sign those bytes with the intended key, and use the log's supported entry format. Supply a real signature and the corresponding public key or certificate; base64-encoding a payload does not create a signature. A signature on the manifest's signing preimage is not automatically a signature on a separately serialized audit-root object.
+??? info "Technical detail: publishing to Rekor and verifying inclusion"
 
-Use maintained Sigstore tooling and its [Rekor documentation](https://docs.sigstore.dev/logging/overview/) for publication and verification. Review the data disclosed before publishing. This guide does not submit anything to a public log.
+    To publish a commitment, define the exact bytes and their digest, sign those bytes with the intended key, and use the log's supported entry format. Supply a real signature and the corresponding public key or certificate; base64-encoding a payload does not create a signature. A signature on the manifest's signing preimage is not automatically a signature on a separately serialized audit-root object.
 
-Retrieving an entry and comparing its digest is a content lookup, not inclusion-proof verification. The recipient must authenticate the relevant signed log evidence, verify the proof against an accepted checkpoint/root, and confirm that the verified entry commits to the expected signed object. Apply the log's trust, freshness, and consistency policy; an entry identifier alone establishes none of these properties.
+    Use maintained Sigstore tooling and its [Rekor documentation](https://docs.sigstore.dev/logging/overview/) for publication and verification. Review the data disclosed before publishing. This guide does not submit anything to a public log.
+
+    Retrieving an entry and comparing its digest is a content lookup, not inclusion-proof verification. The recipient must authenticate the relevant signed log evidence, verify the proof against an accepted checkpoint/root, and confirm that the verified entry commits to the expected signed object. Apply the log's trust, freshness, and consistency policy; an entry identifier alone establishes none of these properties.
 
 Only after independently appraising transparency evidence should the application supply verified entry IDs or receipt hashes to `VerificationContext`, bound to the exact manifest ID. See [server-side verification](../tutorials/server-side-verification.md#add-revocation-and-evidence-appraisal).
 
 ## Interpret audit signals
+
+Some patterns in the log are worth a closer look. None of them proves tampering on its own.
 
 | Signal | What to investigate |
 |--------|---------------------|

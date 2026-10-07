@@ -10,6 +10,8 @@ description: Decision that producers sign with the fully specified Ed25519 COSE 
 **Amends**: [ADR-0011](0011-signature-envelope.md), which named `-8`
 **Tracking**: Issue #243, phase 2
 
+In plain terms: COSE identifies the Ed25519 algorithm by a number, and there are now two numbers for it, the newer `-19` and the older, deprecated `-8`. New manifests are signed with `-19`, and verifiers keep accepting both indefinitely so older audit records stay checkable.
+
 ## Context
 
 ADR-0011 recorded the COSE code points as settled: `EdDSA` `-8`, `ML-DSA-65` `-49`, AKP key type `7`. The ML-DSA half is correct and was confirmed against the IANA COSE Algorithms registry (`-48`/`-49`/`-50` for ML-DSA-44/65/87). The Ed25519 half was already out of date when it was written.

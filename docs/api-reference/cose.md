@@ -1,5 +1,7 @@
 # COSE envelope (manifest version 0.2)
 
+From manifest version 0.2, the signature is carried in a COSE envelope, a standard binary container (RFC 9052) that holds the signed bytes, the algorithm used and the signature together. This page covers the functions that sign and check manifests in that format, and how they differ from version 0.1.
+
 The signature envelope for manifest version `0.2`. Version `0.1` manifests keep verifying through the [signing](signing.md) API exactly as before: the envelope follows the manifest `version` field, never a flag.
 
 Normative reference: [`spec/agent-manifest-cose-envelope-v0.2.md`](https://github.com/agentrust-io/agent-manifest/blob/main/spec/agent-manifest-cose-envelope-v0.2.md). Decisions: [ADR-0011](../adr/0011-signature-envelope.md) (why COSE), [ADR-0013](../adr/0013-cbor-library-for-cose.md) (why no COSE library), [ADR-0014](../adr/0014-fully-specified-ed25519-code-point.md) (why `-19`).

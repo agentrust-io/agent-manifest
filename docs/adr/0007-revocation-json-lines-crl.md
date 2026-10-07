@@ -8,6 +8,8 @@ description: Decision to publish revocations as an append-only JSON-Lines list o
 **Date**: 2026-06-07  
 **Spec section**: Section 3.7 (Revocation)
 
+In plain terms: if an agent's key leaks or the agent has to be shut off, its manifest must be withdrawn before it expires on its own. This decision sets the format of that withdrawal list (a certificate revocation list, or CRL): a file of signed records, one per line, that only ever grows, served from a standard web address.
+
 ## Context
 
 A compromised agent  -  one whose signing key has leaked, whose behavior has been found malicious, or that has been decommissioned  -  must be stoppable without waiting for its manifest to expire naturally. The spec needs a revocation mechanism that:

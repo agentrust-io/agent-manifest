@@ -1,12 +1,14 @@
 # Revocation and Key Rotation
 
-Publish a signed revocation, load it using a separately trusted authority key, and reject the affected manifest. Revocation takes effect when each relying party receives and enforces the update; the SDK does not guarantee a propagation time or stop an already running agent.
+Revoking a manifest means withdrawing it before it expires, for example because a signing key leaked. This page is for whoever operates the signing side or a service that checks manifests. You publish a signed revocation, load it with a key you trust separately, and see the affected manifest rejected. It also covers rotation: switching to new signing keys.
+
+A revocation only takes effect once each service that checks manifests receives and applies the update. The SDK does not guarantee how fast that happens, and it does not stop an agent that is already running.
 
 ## Run a local revocation example
 
 First complete [your first manifest](../getting-started.md). Append the following block to `first_manifest.py` and run `python first_manifest.py` again. It uses that example's signed `record` and independently configured verification `context`.
 
-The temporary directory makes this example repeatable and is removed when the block finishes. In a deployment, store the CRL durably and retain the revocation authority key through your approved key-management system.
+The temporary directory makes this example repeatable and is removed when the block finishes. In a deployment, store the CRL (certificate revocation list, here a file listing withdrawn manifests) somewhere durable, and keep the revocation authority key in your approved key-management system.
 
 ```python
 from tempfile import TemporaryDirectory
@@ -66,17 +68,23 @@ Expect two additional `PASS` lines. The first proves the refreshed store rejects
 
 ## Serve and refresh the CRL
 
-`create_crl_router(crl)` in `agent_manifest._revocation` exposes the supplied `FileCRL` through FastAPI. It serves the object's in-memory cache; appending to the file from another process does not refresh that object. Updates made through that same object's `revoke()` method are visible to its router.
+Every service that checks manifests needs a current copy of the revocation list, and it needs to know the list really came from your revocation authority. The SDK can serve the list, but refreshing it on each service is your job.
 
-Configure `trusted_signer_key` on every reader and writer. Omitting it disables signature checks. The current file loader skips malformed or invalidly signed entries; it does not establish the completeness or freshness of the list. Your application must detect stale, truncated, unavailable, or unauthenticated revocation data according to its acceptance policy.
+??? info "Technical detail: router caching, signer keys and the in-memory store"
 
-Build and replace each verifier's `RevocationStore` from authenticated updates. It is an in-memory store and does not fetch a CRL automatically. Define a refresh interval, maximum accepted age, failure policy, and monitoring for every replica. A response cache header alone does not make a verifier refresh.
+    `create_crl_router(crl)` in `agent_manifest._revocation` exposes the supplied `FileCRL` through FastAPI. It serves the object's in-memory cache; appending to the file from another process does not refresh that object. Updates made through that same object's `revoke()` method are visible to its router.
+
+    Configure `trusted_signer_key` on every reader and writer. Omitting it disables signature checks. The current file loader skips malformed or invalidly signed entries; it does not establish the completeness or freshness of the list. Your application must detect stale, truncated, unavailable, or unauthenticated revocation data according to its acceptance policy.
+
+    Build and replace each verifier's `RevocationStore` from authenticated updates. It is an in-memory store and does not fetch a CRL automatically. Define a refresh interval, maximum accepted age, failure policy, and monitoring for every replica. A response cache header alone does not make a verifier refresh.
 
 When calling `verify_manifest`, supply independently trusted signing keys and required runtime observations through `VerificationContext`. Grant access only for the result your policy accepts; `UNVERIFIABLE`, `INCOMPLETE`, and failures must not fall through to success.
 
 The CLI `manifest revoke` produces an unsigned record. It does not replace the signed-authority workflow above.
 
 ## Rotate keys without revoking the replacements
+
+Revocation follows the manifest's ID, not the key that signed it. So when you move to a new key, issue replacement manifests with new IDs, or the old revocation will still apply to them.
 
 Revocation is indexed by `manifest_id`, not by signature bytes. Re-signing a manifest under a new key with the same ID leaves it subject to that ID's revocation. Reissue replacement manifests with new IDs, current validity windows, approved artifact bindings, and newly bound approvals or evidence where required.
 

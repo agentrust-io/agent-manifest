@@ -1,5 +1,7 @@
 # Verification
 
+Verification is the step where a relying party (the service deciding whether to trust an agent) checks a manifest: is the signature from an issuer it trusts, has the manifest expired or been revoked, and do the recorded artifacts match what it observes. This page documents the function that runs those checks and the optional web endpoint that exposes them.
+
 The core verification engine and FastAPI router. See [Tutorial: Server-side verification](../tutorials/server-side-verification.md) for usage examples.
 
 ## Public API
@@ -74,7 +76,7 @@ in the form of §3.6, so hybrid signatures work there but not on envelopes.
 
 Read `admissible`, not just `status`. A TRACE reporting
 `manifest_verification_result: MISMATCH` or `EXPIRED` can have a perfectly valid
-signature — the runtime honestly recorded a bad state — but spec §6.3.2 says it
+signature (the runtime honestly recorded a bad state), but spec §6.3.2 says it
 "MUST NOT be accepted as evidence of a valid tool call for regulatory reporting
 purposes". `verify_trace_envelope()` returns `status=VERIFIED` with
 `admissible=False` in that case.
@@ -107,7 +109,7 @@ warning. `signature_verified` refers to the outer `pack_signature` only.
 
 ::: agent_manifest._trace.TraceStatus
 
-`compute_pack_hash()` returns the spec §5.2.1 `pack_hash` — the SHA-256 of the
+`compute_pack_hash()` returns the spec §5.2.1 `pack_hash`: the SHA-256 of the
 pack's canonical bytes excluding `pack_signature`. `trace_signing_pre_image()`
 and `evidence_pack_pre_image()` are the shared pre-image functions; producers
 and verifiers MUST both use them so the byte sequences match.
