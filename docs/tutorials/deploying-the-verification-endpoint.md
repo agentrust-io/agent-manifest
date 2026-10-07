@@ -1,6 +1,8 @@
 # Run a verification service
 
-Load a signed manifest, verify it against server-held inputs, and expose the verdict over HTTP. This walkthrough starts locally, then packages the same service in a container. It loads signed revocations into the store used by verification.
+This page is for teams who want one small service that other systems can ask "does this agent's manifest check out?" You load a signed manifest, check it against values the service holds itself, and return the verdict over HTTP. You run it locally first, then package the same service in a container.
+
+The service also loads signed revocations (records that withdraw a manifest early) and uses them when it checks.
 
 ## Prepare the demo inputs
 
@@ -24,11 +26,11 @@ entry = sign_revocation(
 print("Saved demo service inputs in data/")
 ```
 
-For a real service, provision `context.json` and `revoker.hex` through the recipient's own trust configuration. Never derive trusted keys or expected runtime hashes from an incoming manifest. This demo context covers one known configuration, not a fleet of arbitrary agents.
+For a real service, `context.json` (what the service expects to be running) and `revoker.hex` (the key allowed to sign revocations) come from your own trust configuration. Never take trusted keys or expected values from an incoming manifest, since a manifest always agrees with itself. This demo context covers one known configuration, not a fleet of different agents.
 
 ## Create `verifier.py`
 
-Save this complete block beside `data/`. The app factory reads all inputs before returning a ready application. Missing files, malformed revocation entries, and bad revocation signatures fail startup.
+Save this complete block beside `data/`. It reads every input before it starts serving, so a missing file, a malformed revocation entry or a bad revocation signature stops it from starting at all.
 
 ```python
 import json
@@ -82,7 +84,7 @@ def create_app():
     return app
 ```
 
-This small service exposes only `/verify`, `/health`, and `/ready`. Readiness means the configured inputs loaded; it does not mean the manifest is acceptable. An expired or revoked manifest can produce a rejection verdict from a healthy service.
+This small service exposes only `/verify`, `/health`, and `/ready`. "Ready" means its inputs loaded; it says nothing about whether a manifest is acceptable. A healthy service can still return a rejection for an expired or revoked manifest.
 
 ## Run and query it
 
@@ -100,11 +102,11 @@ curl "http://127.0.0.1:8080/verify?manifest_id=019236ab-cdef-7000-8000-000000000
 curl http://127.0.0.1:8080/ready
 ```
 
-The fresh demo returns a JSON verdict with `result: "VALID"` and `signature_verified: true`. An unknown ID returns HTTP 404. A processed verification can return HTTP 200 with a rejected verdict: the caller must inspect `result` and reject every non-`VALID` outcome.
+The fresh demo returns a JSON verdict with `result: "VALID"` and `signature_verified: true`. An unknown ID returns HTTP 404. HTTP 200 only means the check ran, and the verdict inside can still be a rejection: the caller must inspect `result` and reject every non-`VALID` outcome.
 
 ## Package the same service
 
-Save this as `Dockerfile` at the checkout root. Building from the same `python/` source keeps the service aligned with the code used locally.
+To run the same service in a container, save this as `Dockerfile` at the checkout root. Building from the same `python/` source keeps the container in step with the code you just ran.
 
 ```dockerfile
 FROM python:3.12-slim
@@ -144,10 +146,18 @@ The health check uses Python from the image. The service is published on localho
 
 ## Refresh and operate it
 
-This example snapshots files at startup. File changes do not update the running worker. Validate and publish an entire new configuration snapshot, then restart every worker; `docker compose restart verifier` reloads the mounted files in this local example. There is no unauthenticated reload endpoint.
+The service reads its files once, at startup. To change what it trusts or which manifests are revoked, publish a complete new set of files and restart it.
 
-Signed entries establish who issued each revocation, not that the list is complete or current. An empty, truncated, or stale file needs separate detection through your authenticated distribution and freshness policy. The explicit loader above raises on invalid entries instead of using `FileCRL`'s skip-invalid-entry behavior. See [revocation and key rotation](revocation-and-key-rotation.md).
+??? info "Technical detail: reloading, revocation freshness and deployment shape"
 
-Before exposing a service beyond localhost, add authenticated callers, operation authorization, request limits, transport protection, and evidence-refresh policy. A manifest ID identifies a document, not the requesting agent. A central service requires a network request; an embedded verifier avoids that request, while a sidecar usually uses local IPC or loopback. Choose based on trust ownership and deployment requirements rather than an assumed latency ranking.
+    This example snapshots files at startup. File changes do not update the running worker. Validate and publish an entire new configuration snapshot, then restart every worker; `docker compose restart verifier` reloads the mounted files in this local example. There is no unauthenticated reload endpoint.
+
+    Signed entries establish who issued each revocation, not that the list is complete or current. An empty, truncated, or stale file needs separate detection through your authenticated distribution and freshness policy. The explicit loader above raises on invalid entries instead of using `FileCRL`'s skip-invalid-entry behavior. See [revocation and key rotation](revocation-and-key-rotation.md).
+
+Before exposing a service beyond your own machine, add authenticated callers, operation authorization, request limits, transport protection, and evidence-refresh policy. A manifest ID identifies a document, not the requesting agent.
+
+??? info "Technical detail: central service, embedded verifier or sidecar"
+
+    A central service requires a network request; an embedded verifier avoids that request, while a sidecar usually uses local IPC or loopback. Choose based on trust ownership and deployment requirements rather than an assumed latency ranking.
 
 For a protected operation in the application itself, follow [server-side verification](server-side-verification.md). The container configuration here does not provision a production cluster or hardware attestation.

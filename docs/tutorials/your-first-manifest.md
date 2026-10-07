@@ -1,22 +1,22 @@
 # Your First Agent Manifest
 
-Start with the [complete first-manifest example](../getting-started.md). It builds a signed software manifest, verifies independently supplied artifact inputs, and rejects both an edited record and a changed prompt hash. Use that single maintained example for installation, code, and expected output.
+This page explains what the [complete first-manifest example](../getting-started.md) is doing, so you avoid the common mistakes when you adapt it. Run that example first: it signs a manifest, checks it against values you supply, and rejects both an edited record and a changed prompt. Installation, code and expected output live there, in one maintained place.
 
 ## Understand the signed object
 
-For the supported v0.1 JSON form, `Ed25519Signer.sign(manifest_dict)` returns a signature block, not a complete manifest. Assign it to `manifest_dict["signature"]`. Passing only that block to `verify_manifest()` discards the manifest's identity, artifacts, and version.
+For the supported v0.1 JSON form, `Ed25519Signer.sign(manifest_dict)` returns only the signature block, and you attach it to the manifest yourself: assign it to `manifest_dict["signature"]`. If you pass only that block to `verify_manifest()`, the checker never sees the manifest's identity, parts or version.
 
-The v0.2 representation uses a COSE envelope. See the [signature envelope decision](../adr/0011-signature-envelope.md) before changing formats; do not treat COSE bytes as a JSON signature block.
+The v0.2 format wraps the manifest in a binary envelope called COSE. See the [signature envelope decision](../adr/0011-signature-envelope.md) before switching formats; COSE bytes are not a JSON signature block.
 
 ## Supply trust separately
 
-The recipient supplies approved issuer keys and expected runtime artifacts through `VerificationContext`. A public key or expected hash copied from an incoming manifest cannot establish its own authority. Schema validation checks structure; signature verification and artifact comparison establish different properties.
+Whoever checks the manifest brings their own trust. They pass the signer keys they have approved, and the values of what is actually running, through `VerificationContext`. A public key or expected hash copied out of the incoming manifest proves nothing, because the manifest would be vouching for itself. Three checks answer three different questions: schema validation asks whether the record is well formed, the signature check asks who signed it, and the comparison asks whether it matches what is running.
 
-A valid signature alone can leave the result `INCOMPLETE` when required runtime inputs are absent. A missing trusted key produces `UNVERIFIABLE`. Only accept the result your application's verification policy explicitly allows.
+A valid signature alone can still give `INCOMPLETE` when the values to compare are missing. A missing trusted key gives `UNVERIFIABLE`. Accept only the results your application's rules explicitly allow.
 
 ## Keep private keys out of output
 
-The demo retains its private key only in memory and saves a public key for later verification. Use your approved secret-management mechanism for persistent issuer keys. Avoid printing private key material into terminal history, CI output, or logs.
+The demo keeps its private (signing) key only in memory and saves the public key for later checks. For signing keys you keep, use your organisation's approved secret store. Never print private key material into terminal history, build output or logs.
 
 ## Next steps
 

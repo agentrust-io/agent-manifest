@@ -8,6 +8,8 @@ description: Decision to use Pydantic v2 as the only schema and validation layer
 **Date**: 2026-05-15  
 **Spec section**: Section 2.1 (Manifest Schema), Section 5.2 (SDK conformance)
 
+In plain terms: the Python SDK describes every part of a manifest as a typed data model using the Pydantic v2 library, which checks field types and values whenever a manifest is built or loaded. This matters if you contribute to the SDK or build on its model classes.
+
 ## Context
 
 The Python SDK needs a schema modeling layer that:

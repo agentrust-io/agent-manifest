@@ -8,6 +8,8 @@ description: Decision to use RFC 8785 JSON Canonicalization Scheme for every sig
 **Date**: 2026-05-01  
 **Spec section**: Section 2.3, Section 4.3
 
+In plain terms: before a manifest is signed or hashed, its JSON has to be written out the same way, byte for byte, by every implementation, or one record would produce different signatures in different languages. This decision adopts the published IETF rule for that, RFC 8785 (the JSON Canonicalization Scheme, or JCS), over the alternatives.
+
 ## Context
 
 The manifest signature pre-image, all artifact hash inputs, and Merkle tree leaf nodes require a deterministic byte representation of JSON objects. Multiple options exist: JSON-LD normalization (RDNA), canonical JSON (various informal specs), JCS (RFC 8785), and CBOR.

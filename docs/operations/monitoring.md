@@ -1,6 +1,8 @@
 # Monitor verification outcomes
 
-Measure completed verdicts, unexpected errors, and verification latency separately. A healthy verifier can reject an invalid manifest; increasing the proportion of `VALID` results is not a reliability objective.
+This guide is for whoever runs a service that checks manifests and needs to know it is working. You count the verdicts it returns, the errors it hits, and how long each check takes, using the Prometheus monitoring system, and you learn which of those numbers deserve an alert.
+
+Keep three things apart: verdicts, unexpected errors, and time taken. A healthy verifier rejects bad manifests, so a rising share of `VALID` results is not a goal in itself.
 
 ## Run a metrics example
 
@@ -57,21 +59,25 @@ print("PASS: unexpected error counted and propagated")
 print(generate_latest(registry).decode("utf-8"))
 ```
 
-The histogram covers the wrapped verifier call, including exceptions. It excludes HTTP transport, queueing, and any evidence fetching performed before the call. `ERROR` is this wrapper's exception label, not an SDK verdict. The counter resets when its process restarts.
+The timing histogram covers the wrapped verifier call, including exceptions. It excludes HTTP transport, queueing, and any evidence fetching performed before the call. `ERROR` is this wrapper's exception label, not an SDK verdict. The counter resets when its process restarts.
 
 ## Connect it to the service
 
-Move `make_verifier_metrics` and its imports into your service module. Inside the [deployment guide's `create_app()`](../tutorials/deploying-the-verification-endpoint.md#create-verifierpy), create `registry, measured_verify = make_verifier_metrics()` once. In the `/verify` handler, replace the `verify_manifest(...)` call with `measured_verify(...)`.
+To collect the same numbers from the [verification service](../tutorials/deploying-the-verification-endpoint.md), wrap its verify call and add a `/metrics` route.
 
-Expose a `/metrics` route returning `Response(generate_latest(registry), media_type=CONTENT_TYPE_LATEST)`, importing `Response` from FastAPI and `CONTENT_TYPE_LATEST` from `prometheus_client`. Keep the registry shared by that app's requests; creating one per request loses the history. Unknown IDs rejected before the verifier call need a separate HTTP request counter if you want to measure them.
+??? info "Technical detail: wiring the metrics into the service"
 
-This registry is for one worker. Multiple worker processes need the client's [multiprocess configuration](https://prometheus.github.io/client_python/multiprocess/) or a separate scrape target per process. Protect the metrics endpoint according to your deployment policy. Keep manifest IDs, agent IDs, hashes, URLs, and raw error messages out of metric labels.
+    Move `make_verifier_metrics` and its imports into your service module. Inside the [deployment guide's `create_app()`](../tutorials/deploying-the-verification-endpoint.md#create-verifierpy), create `registry, measured_verify = make_verifier_metrics()` once. In the `/verify` handler, replace the `verify_manifest(...)` call with `measured_verify(...)`.
 
-See the [Python counter documentation](https://prometheus.github.io/client_python/instrumenting/counter/) for reset and label behavior. The SDK does not automatically install this instrumentation.
+    Expose a `/metrics` route returning `Response(generate_latest(registry), media_type=CONTENT_TYPE_LATEST)`, importing `Response` from FastAPI and `CONTENT_TYPE_LATEST` from `prometheus_client`. Keep the registry shared by that app's requests; creating one per request loses the history. Unknown IDs rejected before the verifier call need a separate HTTP request counter if you want to measure them.
+
+    This registry is for one worker. Multiple worker processes need the client's [multiprocess configuration](https://prometheus.github.io/client_python/multiprocess/) or a separate scrape target per process. Protect the metrics endpoint according to your deployment policy. Keep manifest IDs, agent IDs, hashes, URLs, and raw error messages out of metric labels.
+
+    See the [Python counter documentation](https://prometheus.github.io/client_python/instrumenting/counter/) for reset and label behavior. The SDK does not automatically install this instrumentation.
 
 ## Query what was measured
 
-Configure Prometheus to scrape the service under a job named `manifest-verifier`, or replace that job selector in these queries.
+These queries, written in PromQL (the Prometheus query language), turn the raw counts into rates and timings. Configure Prometheus to scrape the service under a job named `manifest-verifier`, or replace that job selector in these queries.
 
 | Signal | PromQL | Interpretation |
 |--------|--------|----------------|
@@ -80,13 +86,15 @@ Configure Prometheus to scrape the service under a job named `manifest-verifier`
 | Fleet p99 verifier latency | `histogram_quantile(0.99, sum by (le) (rate(agent_manifest_verification_duration_seconds_bucket{job="manifest-verifier"}[5m])))` | Estimated latency for the measured operation across workers. |
 | Failed scrape | `up{job="manifest-verifier"} == 0` | Prometheus could not scrape a configured target; investigate service, network, and scrape configuration. |
 
-Use separate queries for p50, p95, and p99. `0.50|0.95|0.99` is not a valid quantile argument. The [Prometheus function reference](https://prometheus.io/docs/prometheus/latest/querying/functions/) describes histogram aggregation and missing-series behavior.
+??? info "Technical detail: quantiles and missing series"
 
-`absent(agent_manifest_verifications_total)` only establishes that the selected series is absent. It does not prove the service is down: a labeled counter may not exist before the first call. A removed scrape target also needs monitoring of service discovery or expected target inventory; `up == 0` alone cannot detect every missing target.
+    Use separate queries for p50, p95, and p99. `0.50|0.95|0.99` is not a valid quantile argument. The [Prometheus function reference](https://prometheus.io/docs/prometheus/latest/querying/functions/) describes histogram aggregation and missing-series behavior.
+
+    `absent(agent_manifest_verifications_total)` only establishes that the selected series is absent. It does not prove the service is down: a labeled counter may not exist before the first call. A removed scrape target also needs monitoring of service discovery or expected target inventory; `up == 0` alone cannot detect every missing target.
 
 ## Choose alerts from service policy
 
-Select thresholds and evaluation windows from measured traffic and the service's objectives. This guide supplies no measured latency, uptime, or revocation-propagation guarantee.
+Set alert levels from your own traffic, and read each spike for what it actually counts. Select thresholds and evaluation windows from measured traffic and the service's objectives. This guide supplies no measured latency, uptime, or revocation-propagation guarantee.
 
 - A `MISMATCH` spike means more failed comparisons or signatures. Examine details before concluding tampering or replay.
 - A `REVOKED` spike counts verification attempts against revoked IDs. Repeated requests for one ID can cause it; it does not count new revocations.
@@ -98,4 +106,4 @@ Separate availability and processing-error objectives from authorization outcome
 
 ## Other telemetry backends
 
-With OpenTelemetry, instrument the same call boundary and preserve verdict/exception distinctions. Configure a metric reader and exporter in the hosting application; creating a meter and instruments alone does not deliver metrics to a backend. Use your deployment's existing telemetry configuration and test delivery with an intentional request and failure before relying on alerts.
+The same approach works with other monitoring tools. With OpenTelemetry, instrument the same call boundary and preserve verdict/exception distinctions. Configure a metric reader and exporter in the hosting application; creating a meter and instruments alone does not deliver metrics to a backend. Use your deployment's existing telemetry configuration and test delivery with an intentional request and failure before relying on alerts.

@@ -8,6 +8,8 @@ description: Decision to build tool catalog and RAG corpus hashes as RFC 9162 Me
 **Date**: 2026-05-10  
 **Spec section**: Section 4.1.1, Section 3.2.2 (composite policy bundle), Section 3.2.3 (tool catalog hash), Section 3.2.5 (RAG corpus)
 
+In plain terms: a list of tools or corpus documents is reduced to one fingerprint with a Merkle tree, which hashes items in pairs, then pairs of pairs, up to a single root value. This decision fixes exactly how that tree is built, following the Certificate Transparency standard (RFC 9162), so every implementation gets the same root and an attacker cannot pass off one tree as a different one.
+
 ## Context
 
 The tool manifest catalog hash and the RAG corpus hash both require a Merkle tree over a set of items (tool schemas and corpus documents respectively). The Merkle construction must be specified precisely to ensure cross-implementation reproducibility and to prevent second-preimage attacks.

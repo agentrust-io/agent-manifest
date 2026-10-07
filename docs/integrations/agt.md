@@ -1,19 +1,19 @@
 # Agent Governance Toolkit Integration
 
-Use Agent Manifest as evidence input to the application's governance decision. It binds declared composition and configured verification inputs; a governance runtime separately decides whether to permit the requested operation.
+This page is for teams using the Microsoft Agent Governance Toolkit (AGT), which checks agent actions against rules while they run. It shows how to feed a checked manifest into AGT's decision. The manifest tells AGT what the agent was approved to run; AGT still decides whether to allow each requested action.
 
 ## Establish the evidence boundary
 
-Start with the [runnable manifest gate](index.md#run-a-local-verification-gate). Supply approved issuer keys, actual runtime artifact observations, and current revocation state. Reject missing or mismatched evidence before invoking the protected operation.
+Start with the [runnable manifest gate](index.md#run-a-local-verification-gate). Give it the issuer keys you approved, the values actually in use at runtime, and the current revocation list. Reject missing or mismatched evidence before the protected action runs.
 
-Record the verification result and evidence scope alongside the policy decision. Do not convert a self-reported attestation level into a trusted score or assume `VALID` means hardware was appraised. Hardware evidence needs the SDK's independently supplied appraisal inputs and the application's acceptance policy.
+Record the check result, and what it covered, next to the policy decision. Do not turn a level the agent reports about itself into a trusted score, and do not assume `VALID` means hardware evidence was checked. Hardware evidence needs the SDK's appraisal inputs, supplied separately, and your application's own rules for accepting it.
 
 ## Connect the runtime
 
-Choose the integration point in your deployed [Microsoft Agent Governance Toolkit](https://github.com/microsoft/agent-governance-toolkit) version: the service boundary that authorizes a tool call, delegation, or session. Pass the verified result into that decision and preserve the resulting policy evidence. This page does not define a universal `agt.trust` API or score formula.
+Pick the connection point in your deployed [Microsoft Agent Governance Toolkit](https://github.com/microsoft/agent-governance-toolkit) version: the service boundary that approves a tool call, a delegation or a session. Pass the checked result into that decision and keep the policy evidence that comes out. This page does not define a universal `agt.trust` API or a score formula.
 
-Bind decision evidence to the same manifest ID and operation being authorized. A valid signature or an audit-chain commitment does not prove complete logging, correct outputs, or completed execution. For gateway-enforced tool access, see [cMCP session binding](../tutorials/cmcp-session-binding.md).
+Tie the decision evidence to the same manifest ID and the same action being approved. A valid signature or a signed audit-log root does not prove that logging was complete, that outputs were correct, or that the action finished. For tool access enforced at a gateway, see [cMCP session binding](../tutorials/cmcp-session-binding.md).
 
 ## Validate your integration
 
-Use an accepted manifest as the positive control. Then verify that unknown keys, revoked IDs, changed artifacts, and missing required appraisal prevent the protected operation. Confirm the application does not turn a failed or incomplete verification into a permissive trust score.
+Use an accepted manifest as the case that should pass. Then confirm that unknown keys, revoked IDs, changed artifacts and missing required hardware checks each stop the protected action. Confirm the application never turns a failed or incomplete check into a permissive trust score.

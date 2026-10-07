@@ -8,6 +8,8 @@ description: Decision to move the Agent Manifest JSON-LD @context URI to manifes
 - Date: 2026-08-01
 - Supersedes the provisional `@context` URL introduced with the v0.1 draft
 
+In plain terms: every manifest carries a web address, its JSON-LD `@context`, that names the vocabulary it uses. This decision moves that address to manifest.agentrust-io.com, a domain the project controls, and withdraws the v0.1 address so no manifest stays named under a domain the project does not own.
+
 ## Context
 
 Every Agent Manifest carries a JSON-LD `@context`. Through v0.1 that value was:

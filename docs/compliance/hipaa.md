@@ -1,6 +1,6 @@
 # HIPAA compliance mapping
 
-HIPAA's Security Rule (45 CFR Part 164) applies to AI agents that access, process, or transmit electronic protected health information (ePHI). This page maps agent-manifest capabilities to the Security Rule safeguards most relevant to AI agent deployments.
+HIPAA's Security Rule (45 CFR Part 164) applies to AI agents that access, process, or transmit electronic protected health information (ePHI). This page is for privacy and security officers at US healthcare organisations and their vendors. It maps the HIPAA Security Rule safeguards most relevant to AI agents to the evidence an Agent Manifest can provide. It is a reference map, not a statement that any system complies.
 
 ---
 
@@ -10,7 +10,7 @@ HIPAA's Security Rule (45 CFR Part 164) applies to AI agents that access, proces
 
 **What agent-manifest provides**
 
-The manifest's delegation chain is a cryptographically signed access control record. Each hop documents:
+When one agent hands work to another, the manifest's delegation chain records each handover and what it allowed, and each step is signed. Each hop documents:
 
 - Who delegated (principal SPIFFE URI)
 - What scope was granted (`tools`, `data_classifications`)
@@ -45,7 +45,7 @@ Map ePHI to the `restricted` data classification. The `max_delegation_depth: 0` 
 
 **What agent-manifest provides**
 
-The `artifacts.decision_trace.audit_chain_root` field is the root of a Merkle tree of agent decisions. Properties relevant to HIPAA audit controls:
+The manifest holds one fingerprint that sums up the agent's decision log, so later changes to the log can be detected. The field is `artifacts.decision_trace.audit_chain_root`, the root of a Merkle tree (a structure of nested hashes) of agent decisions. Properties relevant to HIPAA audit controls:
 
 - **Tamper-evident**: each appended decision extends the chain root; removing or altering a decision invalidates all subsequent roots
 - **Selective disclosure**: a specific decision can be proven present in the chain without disclosing other decisions (Merkle inclusion proof)
@@ -62,9 +62,9 @@ For HIPAA audit log retention (minimum six years), the chain root provides a com
 
 **What agent-manifest provides**
 
-Every manifest field is protected by an Ed25519 + ML-DSA-65 hybrid signature (see [ADR-0005](../adr/0005-ml-dsa-hybrid-signature.md)). The signature covers the canonicalised JSON of the entire manifest (RFC 8785). Any alteration to any field  -  model version, prompt hash, tool catalog, delegation chain, HITL approval  -  produces a signature verification failure.
+Every manifest field is protected by an Ed25519 + ML-DSA-65 hybrid signature (see [ADR-0005](../adr/0005-ml-dsa-hybrid-signature.md)). The signature covers the canonicalised JSON of the entire manifest (RFC 8785). Any change to any field (model version, prompt hash, tool catalog, delegation chain, HITL approval) makes the signature check fail.
 
-ML-DSA-65 (NIST FIPS 204) provides post-quantum signature security, satisfying HIPAA's requirement that integrity mechanisms remain effective over the six-year retention period.
+ML-DSA-65 (NIST FIPS 204) is a signature designed to resist future quantum computers, which supports HIPAA's requirement that integrity mechanisms remain effective over the six-year retention period.
 
 ---
 
@@ -74,7 +74,7 @@ ML-DSA-65 (NIST FIPS 204) provides post-quantum signature security, satisfying H
 
 **What agent-manifest provides**
 
-The HITL approval mechanism provides documented human oversight for AI agent deployment. A signed approval record proves:
+The HITL (human-in-the-loop) approval mechanism provides documented human oversight for AI agent deployment. A signed approval record proves:
 
 - A named approver reviewed the agent before it accessed ePHI
 - The approval was time-bounded (typically to a single session or shift)
@@ -90,7 +90,7 @@ The approver's key is separate from the issuer key, ensuring that a compromised 
 
 **What agent-manifest provides**
 
-**Detection:** A verification failure (any non-`VALID` result) is a security signal. Aggregate verification failures by agent identity in your SIEM to detect unusual patterns.
+**Detection:** A verification failure (any non-`VALID` result) is a security signal. Collect verification failures by agent identity in your SIEM (security event monitoring system) to detect unusual patterns.
 
 **Containment:** Revoke the agent's manifest via the CRL endpoint. Propagation to all verifiers checking the endpoint is immediate (next poll cycle, typically <30s).
 

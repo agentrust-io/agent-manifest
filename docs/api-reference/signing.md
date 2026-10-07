@@ -1,5 +1,7 @@
 # Signing
 
+These functions create signing keys, sign a manifest, and check a signature. Use them to issue manifests or to check one with a public key you already trust. Ed25519 is the default signature algorithm; ML-DSA-65 is a post-quantum algorithm, designed to resist future quantum computers, and is available as an optional extra.
+
 Ed25519 and ML-DSA-65 (post-quantum) signing for agent manifests. See [ADR-0005](../adr/0005-ml-dsa-hybrid-signature.md) for the signature design.
 
 ## Key generation

@@ -8,6 +8,8 @@ description: Decision that Agent Manifest is a signed document that composes wit
 **Date**: 2026-07-26 (part 2 decided 2026-07-27)
 **Spec section**: Section 2.3 (Canonical Serialization), Section 3.6 (Manifest Signature)
 
+In plain terms: people often ask why a manifest is not a JWT, the signed token format widely used on the web. This record explains that a manifest is a long-lived signed document with several signers, so it follows the standards built for that kind of record (SCITT, DSSE, C2PA), and it records the move to the COSE_Sign1 signature format in spec v0.2.
+
 ## Context
 
 A recurring question in standards conversations is: *why is this not just a JWT extension?* The question deserves a structural answer, and answering it exposed a decision this project has never actually made.

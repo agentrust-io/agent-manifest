@@ -2,11 +2,13 @@
 description: Decision to define four conformance levels, 0 to 3, each a strict superset of the one below, instead of a single conformant or non-conformant verdict.
 ---
 
-# ADR-0008: Four conformance levels (0–3) rather than binary conformant/non-conformant
+# ADR-0008: Four conformance levels (0 to 3) rather than binary conformant/non-conformant
 
 **Status**: Accepted  
 **Date**: 2026-06-07  
 **Spec section**: Section 6 (Conformance)
+
+In plain terms: a manifest checked on a laptop and one backed by confidential-computing hardware do not carry the same assurance, so conformance is stated as a level, from 0 (software signing only) to 3 (managed secure hardware plus an audit chain). A claim of conformance without its level says little.
 
 ## Context
 

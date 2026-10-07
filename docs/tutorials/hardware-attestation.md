@@ -1,12 +1,12 @@
 # Hardware attestation
 
-Choose a provider, bind a manifest digest to platform evidence, and appraise the result. Start with a local software example, then select the hardware path for your guest.
+Attestation is a signed report from the processor itself about what is running on it. This page is for teams running agents on confidential computing hardware (machines that keep a workload sealed off, even from the cloud operator) who want that report to name a specific manifest. You start with a local software example, then pick the hardware path that fits your machine.
 
-A matching digest alone does not authenticate hardware or establish that current inputs were measured correctly. Hardware appraisal needs approved roots, measurements, and freshness policy. The local example below does not exercise silicon.
+A matching digest (the manifest's fingerprint) in a report does not by itself prove the report came from real hardware, or that the agent's current inputs were measured correctly. Checking hardware evidence properly needs the vendor's trusted root certificates, a list of approved measurements, and a rule for how old a report may be. The local example below does not touch real hardware.
 
 ## Run the API locally
 
-Complete the [first-manifest tutorial](../getting-started.md), append this block to `first_manifest.py`, and run it again. It demonstrates a digest binding and a nonce/context binding using software only.
+Complete the [first-manifest tutorial](../getting-started.md), append this block to `first_manifest.py`, and run it again. Using software only, it ties the manifest's digest into a report, and ties a report to a nonce (a random one-time challenge from the checker, which shows the report is fresh).
 
 ```python
 import hashlib
@@ -62,46 +62,50 @@ except SnpVerificationError:
     print("PASS: platform policy rejects an SMT-enabled report with no alias check")
 ```
 
-Expect four `PASS` lines in total from this page (two from the software-binding example above, two from the platform-policy calls just added). Copying the returned nonce or context into a response would not prove freshness or hardware authenticity; the two new platform-policy assertions test policy logic decoded from literal bits, not a captured hardware report; that end-to-end path is exercised separately (linked below).
+Expect four `PASS` lines in total from this page (two from the software-binding example above, two from the platform-policy calls just added). Copying the returned nonce or context into a response would not prove freshness or hardware authenticity. The two platform-policy checks test the policy logic on hand-written bits, not a captured hardware report; that end-to-end path is tested separately (linked below).
 
 ### Appraise platform state before trusting hardware evidence
 
-`appraise_platform_info()` is not called by `verify_manifest()`, and is not called by `verify_attestation_chain()` either: see [platform limitations](../limitations.md). Neither function is invoked by the other; each is an appraisal the caller runs and hands to `verify_manifest()` as a result via `VerificationContext`. Combine the two appraisals (signature, chain and measurement; platform state) into a single pass/fail before deciding whether the manifest hash is trustworthy evidence. This is a composition sketch, not a runnable snippet: `report`, `expected_hash`, `context`, and `record` are whatever your own attestation flow already produced earlier in this tutorial:
+An AMD SEV-SNP report also says how the processor itself is configured, for example whether SMT (two threads sharing one core) is switched on. Whether that configuration is acceptable is your decision, and you check it in a separate step after the report's signature checks out.
 
-```
-hw_result = verify_attestation_chain(
-    report, expected_manifest_hash=expected_hash, snp_report_bytes=report.quote,
-    vcek_cert_der=vcek_der, cert_chain_pem=cert_chain_pem,
-)
+??? info "Technical detail: composing the signature check and the platform check"
 
-# Only attempt platform appraisal once hardware appraisal has already passed.
-# A tampered or malformed report can fail hw_result.passed on its own; there
-# is no reason to also risk parse_snp_report() raising on the same bad bytes
-# before the caller ever reaches its decision, and no reason to trust
-# PLATFORM_INFO from a report whose signature has not verified in the first
-# place.
-platform_ok = False
-if hw_result.passed:
-    platform_info = parse_platform_info(parse_snp_report(report.quote).platform_info)
-    try:
-        appraise_platform_info(platform_info, require={"alias_check_complete"}, forbid={"smt_enabled"})
-        platform_ok = True
-    except SnpVerificationError:
-        platform_ok = False
+    `appraise_platform_info()` is not called by `verify_manifest()`, and is not called by `verify_attestation_chain()` either: see [platform limitations](../limitations.md). Neither function is invoked by the other; each is an appraisal the caller runs and hands to `verify_manifest()` as a result via `VerificationContext`. Combine the two appraisals (signature, chain and measurement; platform state) into a single pass/fail before deciding whether the manifest hash is trustworthy evidence. This is a composition sketch, not a runnable snippet: `report`, `expected_hash`, `context`, and `record` are whatever your own attestation flow already produced earlier in this tutorial:
 
-if hw_result.passed and platform_ok:
-    context.verified_attestation_manifest_hashes.add(expected_hash)
-    context.attestation_evidence_manifest_id = record["manifest_id"]
-```
+    ```
+    hw_result = verify_attestation_chain(
+        report, expected_manifest_hash=expected_hash, snp_report_bytes=report.quote,
+        vcek_cert_der=vcek_der, cert_chain_pem=cert_chain_pem,
+    )
 
-No new field is needed on `VerificationContext` for this: `verify_manifest()` already gates `attestation_verified` (and, with `enforce_attestation=True`, the overall `VALID`/`ATTESTATION_UNAVAILABLE` result) purely on membership in `verified_attestation_manifest_hashes`. Calling `appraise_platform_info()` with no `require`/`forbid` at all or not calling it asserts nothing and reproduces prior behavior exactly, so adopting a platform policy is opt in and cannot regress an existing deployment that never sets one.
+    # Only attempt platform appraisal once hardware appraisal has already passed.
+    # A tampered or malformed report can fail hw_result.passed on its own; there
+    # is no reason to also risk parse_snp_report() raising on the same bad bytes
+    # before the caller ever reaches its decision, and no reason to trust
+    # PLATFORM_INFO from a report whose signature has not verified in the first
+    # place.
+    platform_ok = False
+    if hw_result.passed:
+        platform_info = parse_platform_info(parse_snp_report(report.quote).platform_info)
+        try:
+            appraise_platform_info(platform_info, require={"alias_check_complete"}, forbid={"smt_enabled"})
+            platform_ok = True
+        except SnpVerificationError:
+            platform_ok = False
+
+    if hw_result.passed and platform_ok:
+        context.verified_attestation_manifest_hashes.add(expected_hash)
+        context.attestation_evidence_manifest_id = record["manifest_id"]
+    ```
+
+    No new field is needed on `VerificationContext` for this: `verify_manifest()` already gates `attestation_verified` (and, with `enforce_attestation=True`, the overall `VALID`/`ATTESTATION_UNAVAILABLE` result) purely on membership in `verified_attestation_manifest_hashes`. Calling `appraise_platform_info()` with no `require`/`forbid` at all or not calling it asserts nothing and reproduces prior behavior exactly, so adopting a platform policy is opt in and cannot regress an existing deployment that never sets one.
 
 
-This composes two things the caller is already responsible for; `verify_manifest()` itself still has no idea PLATFORM_INFO exists. [`test_platform_info_verify_manifest.py`](https://github.com/agentrust-io/agent-manifest/blob/main/python/tests/test_platform_info_verify_manifest.py) is an integration-style test of this composition against a cryptographically self-consistent synthetic SEV-SNP chain (freshly generated keys and certificates shaped like the real VCEK/ASK/ARK hierarchy, not AMD-rooted hardware evidence), covering the accept case, a `require`-only failure, a `forbid`-only failure, that hardware appraisal failing correctly stops platform appraisal from being reached at all (checked with a monkeypatch, not just the final verdict, since a broken ordering can still land on the same verdict by coincidence), that a genuinely malformed report doesn't crash the corrected ordering, and confirming a `PLATFORM_INFO` byte flipped after signing invalidates the signature rather than silently changing the appraisal. The policy decision itself (only add the hash when both appraisals pass) is implemented by that test's own helper, the same way it would be in your caller code it is not new behavior added to `verify_manifest()`.
+    This composes two things the caller is already responsible for; `verify_manifest()` itself still has no idea PLATFORM_INFO exists. [`test_platform_info_verify_manifest.py`](https://github.com/agentrust-io/agent-manifest/blob/main/python/tests/test_platform_info_verify_manifest.py) is an integration-style test of this composition against a cryptographically self-consistent synthetic SEV-SNP chain (freshly generated keys and certificates shaped like the real VCEK/ASK/ARK hierarchy, not AMD-rooted hardware evidence), covering the accept case, a `require`-only failure, a `forbid`-only failure, that hardware appraisal failing correctly stops platform appraisal from being reached at all (checked with a monkeypatch as well as by the final verdict, since a broken ordering can still land on the same verdict by coincidence), that a genuinely malformed report doesn't crash the corrected ordering, and confirming a `PLATFORM_INFO` byte flipped after signing invalidates the signature rather than silently changing the appraisal. The policy decision itself (only add the hash when both appraisals pass) is implemented by that test's own helper, the same way it would be in your caller code; it is not new behavior added to `verify_manifest()`.
 
 ## Select the hardware path
 
-Use the guest's attestation interface to choose a provider. A CPU model or a confidential-VM marketing label alone is insufficient.
+A provider is the SDK component that asks the hardware for a report. Pick it by the attestation interface your guest (the virtual machine your agent runs in) actually exposes. A CPU model name or a "confidential VM" product label is not enough to go on.
 
 | Provider | Current SDK path | Verification boundary |
 |----------|------------------|-----------------------|
@@ -112,37 +116,43 @@ Use the guest's attestation interface to choose a provider. A CPU model or a con
 | `TPMProvider` | TPM tools and a provisioned attestation key | A TPM quote supplies measured-state evidence; it does not isolate the agent's process memory. |
 | `OPAQUEProvider` | Disabled in the current SDK; construction raises `AttestationUnavailableError` | No usable managed-service verification path is implemented. |
 
-The direct SNP and TDX providers use `/sys/kernel/config/tsm/report` and require permission to create report requests. See the [provider implementation and requirements](https://github.com/agentrust-io/agent-manifest/blob/main/python/src/agent_manifest/_hw_providers.py) for the current kernel and driver prerequisites. Azure TDX is not supported by this SDK's offline attestation path; see [platform limitations](../limitations.md).
+??? info "Technical detail: device paths, constructor options and report flags"
 
-For SNP, construct `SEVSNPProvider(require_vcek_verification=True, product="Milan")`, choosing the product for your actual platform. This fetches AMD verification material and needs network access and `httpx`. For TDX, use `TDXProvider(require_quote_verification=True)`. Import both from `agent_manifest._hw_providers`.
+    The direct SNP and TDX providers use `/sys/kernel/config/tsm/report` and require permission to create report requests. See the [provider implementation and requirements](https://github.com/agentrust-io/agent-manifest/blob/main/python/src/agent_manifest/_hw_providers.py) for the current kernel and driver prerequisites. Azure TDX is not supported by this SDK's offline attestation path; see [platform limitations](../limitations.md).
 
-Then call `extend_manifest_hash(record)` and `get_attestation_report()`. The SNP result includes `raw["vcek_cert_chain_verified"]`; TDX includes `raw["quote_verified"]`. Both verification flags default to false when their constructor options are omitted. `TDXProvider` has no `rtmr_index` constructor argument; this binding uses `REPORTDATA` rather than extending an RTMR.
+    For SNP, construct `SEVSNPProvider(require_vcek_verification=True, product="Milan")`, choosing the product for your actual platform. This fetches AMD verification material and needs network access and `httpx`. For TDX, use `TDXProvider(require_quote_verification=True)`. Import both from `agent_manifest._hw_providers`.
+
+    Then call `extend_manifest_hash(record)` and `get_attestation_report()`. The SNP result includes `raw["vcek_cert_chain_verified"]`; TDX includes `raw["quote_verified"]`. Both verification flags default to false when their constructor options are omitted. `TDXProvider` has no `rtmr_index` constructor argument; this binding uses `REPORTDATA` rather than extending an RTMR.
 
 !!! note "SDK binding differs from the spec's launch-time profile"
     `SEVSNPProvider` and `TDXProvider` bind the manifest digest at runtime, from inside the guest, in the guest-controlled field: the first 32 bytes of `REPORT_DATA` (SNP) or `REPORTDATA` (TDX) carry `SHA-256(manifest pre-image)` and the remaining 32 bytes are zero. The GCP TDX captures in `python/tests/fixtures/hardware/gcp-tdx-2026-07-21/` show this: the digest is in `REPORTDATA` and `RTMR[3]` is all zeros.
 
     [Specification section 3.3.1](../spec/agent-manifest-v0.2.md) defines the target launch-time binding instead: SNP `HOST_DATA` set by the launcher at `SNP_LAUNCH_FINISH`, a TDX `RTMR[3]` extend before workload code runs, and PCR15 on AWS Nitro. The SDK does not implement those profiles yet. An `attestation` block produced by these providers therefore does not meet the section 3.3.1 profile, and a verifier that expects `HOST_DATA` or `RTMR[3]` will not find the digest there. The runtime freshness binding in section 3.3.2 is separate and does not carry the manifest digest: the context object it hashes holds the policy bundle, system prompt, and tool catalog hashes, not the manifest.
 
-`verify_manifest_in_report()` checks the manifest binding. Treat it as one check in the appraisal, not a complete signature, certificate, freshness, and workload-policy verdict. The recipient must examine authenticated quote bytes and compare the measurements with its own allowlist.
+In short: `verify_manifest_in_report()` checks that the report names this manifest. Treat it as one check in the appraisal, not a complete signature, certificate, freshness, and workload-policy verdict. The recipient must examine authenticated quote bytes and compare the measurements with its own allowlist.
 
 ## Runtime state attestation (freshness proofs)
 
-`attest_runtime_state(nonce, context_hash)` binds caller-supplied context to a challenge. For direct SNP and TDX, the qualifying bytes are `SHA-256(nonce || context_hash_bytes)` and are placed in the report-data field. The SDK's `report_data_hash` is a SHA-256 digest of those qualifying bytes; it is not the raw report-data value.
+A freshness proof answers "is this agent still in the approved state right now?" The checker sends a new nonce, and the agent's machine returns a report that includes it, so an old report cannot be replayed. The proof is only as good as whatever measured the agent's state, and it says nothing about what happens after it was taken.
 
-A signed challenge binding establishes freshness only after the recipient verifies the quote, checks its outstanding nonce, and applies an expiry/replay policy. The provider does not read the agent's prompt, policy, tool catalog, or model for you. A trusted collector must measure the actual state and define the context-hash preimage with the verifier. Otherwise a fresh quote can bind a false self-report.
+??? info "Technical detail: what the runtime report binds"
 
-The runtime quote needs its own appraisal. Enabling VCEK or quote verification for `get_attestation_report()` does not automatically appraise every `attest_runtime_state()` result. Check returned evidence rather than inheriting a prior report's flags.
+    `attest_runtime_state(nonce, context_hash)` binds caller-supplied context to a challenge. For direct SNP and TDX, the qualifying bytes are `SHA-256(nonce || context_hash_bytes)` and are placed in the report-data field. The SDK's `report_data_hash` is a SHA-256 digest of those qualifying bytes; it is not the raw report-data value.
+
+    A signed challenge binding establishes freshness only after the recipient verifies the quote, checks its outstanding nonce, and applies an expiry/replay policy. The provider does not read the agent's prompt, policy, tool catalog, or model for you. A trusted collector must measure the actual state and define the context-hash preimage with the verifier. Otherwise a fresh quote can bind a false self-report.
+
+    The runtime quote needs its own appraisal. Enabling VCEK or quote verification for `get_attestation_report()` does not automatically appraise every `attest_runtime_state()` result. Check returned evidence rather than inheriting a prior report's flags.
 
 Choose challenge frequency according to the operation and stale-evidence policy. Periodic calls alone do not bound drift detection unless measurement collection, verification, and rejection are all enforced. A report also does not prove what happens after it was collected.
 
 ## Auto-detection
 
-`select_provider(level=N)` is a convenience selector, not a conformance validator. The current order is an explicitly configured OPAQUE provider, Azure CVM, direct SNP, direct TDX, TPM, then software. Because OPAQUE is disabled, setting `OPAQUE_ATTESTATION_URL` currently raises instead of selecting a working managed provider.
+`select_provider(level=N)` picks a provider for you based on what the machine offers. It is a convenience, and it does not check conformance. The current order is an explicitly configured OPAQUE provider, Azure CVM, direct SNP, direct TDX, TPM, then software. Because OPAQUE is disabled, setting `OPAQUE_ATTESTATION_URL` currently raises instead of selecting a working managed provider.
 
 Without a hardware candidate, requesting `level >= 1` raises `AttestationUnavailableError`. Do not silently retry with `level=0` in a path that requires hardware. For reproducible local tests, choose `SoftwareProvider()` directly rather than depending on the host's devices or environment variables.
 
 ## Apply an acceptance policy
 
-A provider name does not establish a conformance level or regulatory compliance. Apply the [specification's conformance requirements](../spec/agent-manifest-v0.2.md), including artifact coverage, signature profile, required evidence, and recipient policy. Hardware appraisal and application authorization remain separate checks.
+Hardware evidence is one input to your decision, never the whole decision. A provider name does not establish a conformance level or regulatory compliance. Apply the [specification's conformance requirements](../spec/agent-manifest-v0.2.md), including artifact coverage, signature profile, required evidence, and recipient policy. Hardware appraisal and application authorization remain separate checks.
 
 Pass independently appraised evidence into the verifier's context, bound to the exact manifest. Then require the full manifest result to be `VALID`; a successful hardware check cannot override a bad signature, expired record, revocation, or artifact mismatch. Continue with [server-side verification](server-side-verification.md).

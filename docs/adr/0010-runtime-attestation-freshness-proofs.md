@@ -8,6 +8,8 @@ description: Decision to add a nonce-bound runtime attestation report every atte
 **Date**: 2026-06-24  
 **Spec section**: Section 3.3.2 (new)
 
+In plain terms: a hardware attestation report (a statement signed by the processor about the software it started) taken at boot says nothing about the agent an hour later. This decision adds an on-demand report that includes a fresh random value chosen by the verifier, so a verifier can ask what is running now and know the answer is not a replay of an old report.
+
 ## Context
 
 A Microsoft contributor reported that hardware attestation in the SDK is
@@ -32,17 +34,17 @@ TEE attestation hardware has two distinct fields:
 
 | Field | Set by | Mutable after boot? |
 |-------|--------|-------------------|
-| `MEASUREMENT` / `MRTD` / PCR values | Hardware/firmware at launch | No — silicon-sealed |
-| `REPORT_DATA` (SNP) / `REPORTDATA` (TDX) or qualifying data (TPM) | Caller (guest) software via IOCTL | Yes — guest-controlled, hardware-signed |
+| `MEASUREMENT` / `MRTD` / PCR values | Hardware/firmware at launch | No, silicon-sealed |
+| `REPORT_DATA` (SNP) / `REPORTDATA` (TDX) or qualifying data (TPM) | Caller (guest) software via IOCTL | Yes, guest-controlled, hardware-signed |
 
 The boot measurement is immutable. However, the caller-controlled field can be
 set to arbitrary bytes at any time by issuing a new IOCTL, and the hardware
 signs both fields together. This means a fresh report with a new nonce in
 `REPORT_DATA` proves:
 
-1. **TEE identity** — the same boot measurement as at launch (hardware unchanged)
-2. **Current state** — the nonce binds a specific context hash (state at this moment)
-3. **Freshness** — a verifier-supplied nonce prevents replay of an old report
+1. **TEE identity**: the same boot measurement as at launch (hardware unchanged)
+2. **Current state**: the nonce binds a specific context hash (state at this moment)
+3. **Freshness**: a verifier-supplied nonce prevents replay of an old report
 
 This is how PCC's stateless compute model and Azure Confidential Computing
 implement periodic quote refresh.
@@ -65,7 +67,7 @@ matches the expected derivation). Full hardware signature verification requires
 platform vendor SDKs and is out of scope for the Agent Manifest SDK itself.
 
 The boot-time `attestation` block in the manifest is unchanged. Runtime reports
-are separate evidence artifacts — they are not appended to the manifest.
+are separate evidence artifacts; they are not appended to the manifest.
 
 ## Rationale
 
@@ -73,7 +75,7 @@ are separate evidence artifacts — they are not appended to the manifest.
 
 Re-measuring the TEE is not possible after boot. The only way to get fresh
 hardware-signed evidence is via the caller-controlled field. This is not a
-workaround — it is the intended mechanism. SNP's `REPORT_DATA` (the guest-controlled
+workaround. It is the intended mechanism. SNP's `REPORT_DATA` (the guest-controlled
 field, distinct from the host-set `HOST_DATA`) and TDX's `REPORTDATA` exist
 specifically for this purpose.
 
@@ -86,8 +88,8 @@ together means the verifier can confirm both "this report is not a replay" and
 **Why a separate `RuntimeAttestationReport` type rather than reusing `AttestationReport`?**
 
 The two have different semantics:
-- `AttestationReport` — boot-time, bound to manifest hash, one per agent lifetime
-- `RuntimeAttestationReport` — on-demand, bound to runtime context + nonce, many per lifetime
+- `AttestationReport`: boot-time, bound to manifest hash, one per agent lifetime
+- `RuntimeAttestationReport`: on-demand, bound to runtime context + nonce, many per lifetime
 
 Mixing them into one type would obscure which guarantee a caller is relying on.
 
@@ -96,24 +98,24 @@ Mixing them into one type would obscure which guarantee a caller is relying on.
 TPM PCR values accumulate and cannot be reset without a reboot. TPM runtime
 re-attestation therefore uses `tpm2_quote` with qualifying data (the nonce +
 context hash), which requires a pre-provisioned Attestation Key (AK).
-SEV-SNP and TDX do not have this requirement — the IOCTL is available without
+SEV-SNP and TDX do not have this requirement: the IOCTL is available without
 pre-provisioning any key material.
 
 ## Alternatives considered
 
-**Option A — periodic re-launch of extend_manifest_hash()**  
+**Option A: periodic re-launch of extend_manifest_hash()**  
 Rejected. `extend_manifest_hash()` is designed for the boot-time path. Calling
 it repeatedly would modify `self._report_bytes` and break the semantics of
 `get_attestation_report()`, which should always return the boot-time report.
 Keeping the two paths separate is cleaner.
 
-**Option B — a `ContinuousVerificationConfig` attached to VerificationContext**  
+**Option B: a `ContinuousVerificationConfig` attached to VerificationContext**  
 Rejected for v0.1. Adding scheduling logic to the verification engine conflates
 the protocol (what to check) with the policy (how often). The scheduling
 decision belongs to the caller or a runtime enforcement layer (cMCP). The SDK
 provides the primitive.
 
-**Option C — no SDK support; defer entirely to cMCP**  
+**Option C: no SDK support; defer entirely to cMCP**  
 Rejected. The spec references `attest_runtime_state()` semantics in the
 decision trace binding (section 3.2.7). Having the SDK implement the primitive
 makes it testable, mockable, and usable without cMCP for callers who implement
@@ -124,7 +126,7 @@ their own enforcement loop.
 - All existing `AttestationProvider` subclasses must implement
   `attest_runtime_state()`. The four built-in providers do so; third-party
   subclasses will get a `TypeError` at instantiation time until they add the
-  method (expected — this is a protocol extension).
+  method (expected: this is a protocol extension).
 - `RuntimeAttestationReport` is exported from `agent_manifest` public API.
 - `verify_runtime_report()` is exported from `agent_manifest` public API.
 - The spec gains a new normative section 3.3.2 defining the runtime attestation
@@ -134,8 +136,8 @@ their own enforcement loop.
 
 ## References
 
-- AMD SEV-SNP: `REPORT_DATA` field, populated via the `user_data` member of `struct snp_report_req` — Linux kernel `sev-guest.h`
-- Intel TDX: `REPORTDATA` field — Intel TDX Module Architecture Spec §3.3
-- TPM 2.0: qualifying data in `TPM2_Quote` — TCG PC Client Platform Firmware Profile §4.2
+- AMD SEV-SNP: `REPORT_DATA` field, populated via the `user_data` member of `struct snp_report_req`, Linux kernel `sev-guest.h`
+- Intel TDX: `REPORTDATA` field, Intel TDX Module Architecture Spec §3.3
+- TPM 2.0: qualifying data in `TPM2_Quote`, TCG PC Client Platform Firmware Profile §4.2
 - RFC 9334: RATS architecture (Attester / Verifier / Relying Party roles)
-- ADR-0009: SPIFFE URI agent identity (related — establishes the attestation subject)
+- ADR-0009: SPIFFE URI agent identity (related: establishes the attestation subject)

@@ -2,6 +2,10 @@
 
 # CLI reference
 
+This page lists every `manifest` terminal command and its options, for when you
+want to create, sign, check or withdraw a manifest without writing Python. Each
+entry is the command's own help text, generated from the code so it stays exact.
+
 The `manifest` command is installed with the `cli` extra.
 
 ```bash

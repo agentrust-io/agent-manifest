@@ -1,6 +1,8 @@
 # CI/CD Signing
 
-Sign an Agent Manifest when its source file changes on `main`, then reject it if it does not match the verifier's approved runtime inputs. This guide provides both Python scripts, a GitHub Actions workflow, and the key rotation sequence.
+This page is for teams who want their build pipeline (CI/CD, the automated build and release system) to sign an agent's manifest every time its configuration changes, and to fail the build if the result does not match what was approved. You get two Python scripts, a GitHub Actions workflow that runs them, and the steps for changing the signing key later.
+
+The workflow signs the manifest when its source file changes on `main`, then rejects it if it does not match the verifier's approved runtime inputs.
 
 ## What you'll learn
 
@@ -19,11 +21,11 @@ pip install agent-manifest
 
 ## Generate the keypair once
 
-Generate the issuer key through your approved key-management system. For a local development key, `manifest keygen -d keys/` writes key files rather than printing the private key. Keep private files out of source control and logs.
+The signing key is the secret that makes a manifest trustworthy, so create it once, carefully, and keep it out of the repository. Generate the issuer key through your approved key-management system. For a local development key, `manifest keygen -d keys/` writes key files rather than printing the private key. Keep private files out of source control and logs.
 
-Provision `MANIFEST_SIGNING_KEY` as base64url-encoded raw Ed25519 private bytes using your secret-management process. Configure `MANIFEST_PUBLIC_KEY` (base64url public bytes) and `MANIFEST_KEY_ID` independently on the verifier. The public key is not secret, but its integrity matters. The example workflow below references all three as Actions secrets.
+Provision `MANIFEST_SIGNING_KEY` as base64url-encoded raw Ed25519 private bytes using your secret-management process. Configure `MANIFEST_PUBLIC_KEY` (base64url public bytes) and `MANIFEST_KEY_ID` independently on the verifier. The public key can be shared openly; what matters is that nobody can swap it. The example workflow below references all three as Actions secrets.
 
-Provide `approved-context.json` containing the recipient's approved runtime observations using the fields of `VerificationContext`, such as prompt and policy hashes, enforcement mode, and model version. Maintain it under the verifier's change controls; do not generate expected values by copying them from the incoming manifest. Missing required observations can produce `INCOMPLETE` even when the signature is valid.
+The verifier also needs its own record of what was approved. Provide `approved-context.json` containing the recipient's approved runtime observations using the fields of `VerificationContext`, such as prompt and policy hashes, enforcement mode, and model version. Maintain it under the verifier's change controls; do not generate expected values by copying them from the incoming manifest. Missing required observations can produce `INCOMPLETE` even when the signature is valid.
 
 ---
 
@@ -77,7 +79,7 @@ if __name__ == "__main__":
 
 ## Write the verification script
 
-Create `scripts/verify_manifest.py`. This script exits with code 1 if verification fails - GitHub Actions treats a non-zero exit code as a build failure.
+Create `scripts/verify_manifest.py`. This script exits with code 1 if verification fails, and GitHub Actions treats a non-zero exit code as a build failure.
 
 ```python
 # scripts/verify_manifest.py
@@ -170,13 +172,13 @@ jobs:
           git push
 ```
 
-The `verify` step accepts only `VALID` with the configured runtime inputs. The empty `RevocationStore` in this build-only example performs no live revocation refresh; configure authenticated revocation state for a deployment acceptance gate. This example targets the v0.1 JSON format, not v0.2 COSE bytes. Protect the workflow, signing secrets, and approved-context file from untrusted changes before using it for release signing.
+The `verify` step accepts only `VALID` with the configured runtime inputs. This is a build check, so a few things a live deployment needs are left out. The empty `RevocationStore` in this build-only example performs no live revocation refresh; configure authenticated revocation state for a deployment acceptance gate. This example targets the v0.1 JSON format, not v0.2 COSE bytes. Protect the workflow, signing secrets, and approved-context file from untrusted changes before using it for release signing.
 
 ---
 
 ## Key rotation
 
-Distribute and verify new public-key trust before switching a planned issuer key. Issue replacement manifests with new IDs when old IDs will be revoked, and refresh relying parties' revocation stores explicitly. A compromised key is not a safe overlap or rollback option. Follow the [key rotation runbook](../operations/key-rotation.md); availability depends on the rollout and has no fixed guarantee.
+Rotation means replacing the signing key. Every service that checks your manifests must learn the new public key before you start signing with it. Distribute and verify new public-key trust before switching a planned issuer key. Issue replacement manifests with new IDs when old IDs will be revoked, and refresh relying parties' revocation stores explicitly. A compromised key is not a safe overlap or rollback option. Follow the [key rotation runbook](../operations/key-rotation.md); availability depends on the rollout and has no fixed guarantee.
 
 ---
 

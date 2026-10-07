@@ -1,6 +1,6 @@
 # DORA compliance mapping
 
-DORA (Digital Operational Resilience Act, Regulation (EU) 2022/2554) applied to EU financial entities from **January 17, 2025**. This page maps agent-manifest capabilities to DORA ICT risk requirements for financial services firms deploying AI agents.
+DORA (Digital Operational Resilience Act, Regulation (EU) 2022/2554) applied to EU financial entities from **January 17, 2025**. This page is for compliance and risk teams at EU financial firms that deploy AI agents. It maps DORA's requirements on ICT (information and communication technology) risk to the evidence an Agent Manifest can provide. It is a reference map, not a statement that any system complies.
 
 ---
 
@@ -10,7 +10,7 @@ DORA (Digital Operational Resilience Act, Regulation (EU) 2022/2554) applied to 
 
 **What agent-manifest provides**
 
-A signed manifest is a machine-readable ICT asset record. It documents:
+A signed manifest is an asset record that software can read. It documents:
 
 - The AI agent's identity (`agent_id`, SPIFFE URI)
 - The model version in use (`artifacts.model_identity`)
@@ -18,7 +18,7 @@ A signed manifest is a machine-readable ICT asset record. It documents:
 - The tools the agent can invoke (`artifacts.tool_manifest.tools[]`)
 - The cryptographic profile (`crypto_profile`: Ed25519, ML-DSA-65 hybrid)
 
-Every field is signed by the issuer key, making the record tamper-evident. An inventory sweep can verify that all deployed agents have valid, unexpired manifests and produce a signed asset register.
+Every field is signed by the issuer key, so any change to the record shows up. An inventory sweep can verify that all deployed agents have valid, unexpired manifests and produce a signed asset register.
 
 ---
 
@@ -28,11 +28,11 @@ Every field is signed by the issuer key, making the record tamper-evident. An in
 
 **What agent-manifest provides**
 
-**Key rotation:** The [Revocation and key rotation tutorial](../tutorials/revocation-and-key-rotation.md) documents a zero-downtime rotation procedure. The procedure allows issuing new manifests under a new signing key without interrupting agent operations, satisfying DORA's requirement for continuity under ICT disruption.
+**Key rotation:** The [Revocation and key rotation tutorial](../tutorials/revocation-and-key-rotation.md) documents a zero-downtime rotation procedure. The procedure lets you issue new manifests under a new signing key without stopping agents, which supports DORA's requirement for continuity during ICT disruption.
 
-**Revocation:** The `FileCRL` component provides an append-only, signed certificate revocation list. A compromised agent can be revoked in under one second by appending a signed `SignedRevocationRecord`. All verifiers checking the CRL endpoint immediately begin rejecting the revoked agent.
+**Revocation:** The `FileCRL` component provides an append-only, signed revocation list (a published list of manifests that are no longer trusted). A compromised agent can be revoked in under one second by appending a signed `SignedRevocationRecord`. All verifiers checking the CRL endpoint immediately begin rejecting the revoked agent.
 
-**Recovery time objective (RTO):** Key rotation and agent reissuance can be completed in under five minutes using the runbook. The revocation mechanism has no single point of failure  -  the CRL file can be served from any static file host.
+**Recovery time objective (RTO):** Key rotation and agent reissuance can be completed in under five minutes using the runbook. The revocation mechanism has no single point of failure: the CRL file can be served from any static file host.
 
 ---
 
@@ -44,11 +44,11 @@ Every field is signed by the issuer key, making the record tamper-evident. An in
 
 When an ICT incident involves an AI agent (e.g., an agent behaves unexpectedly, is compromised, or is suspected of data exfiltration), the manifest provides:
 
-- **Exact configuration at time of incident**  -  model version, prompt hash, tool catalog hash, all signed and timestamped
-- **Authorisation chain**  -  who issued the manifest, who approved deployment (HITL record)
-- **Merkle audit root**  -  allows verifying that specific decisions were recorded before the incident, without replaying the full audit log
+- **Exact configuration at time of incident**: model version, prompt hash, tool catalog hash, all signed and timestamped
+- **Authorisation chain**: who issued the manifest, who approved deployment (HITL record)
+- **Merkle audit root** (one fingerprint summing up the decision log): allows verifying that specific decisions were recorded before the incident, without replaying the full audit log
 
-This evidence satisfies DORA's requirement to document the "scope and nature" of an incident and supports the incident timeline required under Article 19 reporting.
+This evidence helps document the "scope and nature" of an incident as DORA requires, and supports the incident timeline required under Article 19 reporting.
 
 ---
 
@@ -58,14 +58,14 @@ This evidence satisfies DORA's requirement to document the "scope and nature" of
 
 **What agent-manifest provides**
 
-Conformance levels provide a testability hierarchy:
+Conformance levels (how much a manifest covers and how strongly it is backed) give a ladder of things to test:
 
 | Conformance level | Test coverage | DORA relevance |
 |-------------------|--------------|----------------|
-| 0  -  Software only | Manifest schema validation, signature verification | Baseline; insufficient for production financial systems |
-| 1  -  TPM | + TPM attestation verification | Acceptable for internal tools |
-| 2  -  SEV-SNP / TDX | + hardware enclave report verification | Recommended for customer-facing financial AI |
-| 3  -  Managed TEE | + managed attestation authority | Required for critical ICT third-party services |
+| 0: Software only | Manifest schema validation, signature verification | Baseline; insufficient for production financial systems |
+| 1: TPM | + TPM attestation verification | Acceptable for internal tools |
+| 2: SEV-SNP / TDX | + hardware enclave report verification | Recommended for customer-facing financial AI |
+| 3: Managed TEE | + managed attestation authority | Required for critical ICT third-party services |
 
 The test suite (`pytest --cov=agent_manifest --cov-fail-under=80`) runs all 197 conformance-level tests in CI, producing a verifiable coverage record. This record can be cited as evidence in DORA testing documentation.
 
@@ -73,7 +73,7 @@ The test suite (`pytest --cov=agent_manifest --cov-fail-under=80`) runs all 197 
 
 ## RTS requirements  -  key management controls
 
-The DORA Regulatory Technical Standards (RTS) require documented key management controls for ICT systems. Agent-manifest satisfies the following RTS controls:
+The DORA Regulatory Technical Standards (RTS, the detailed rules under DORA) require documented controls over signing keys for ICT systems. Agent-manifest provides mechanisms for the following RTS controls:
 
 | RTS control | Mechanism |
 |-------------|-----------|
