@@ -69,6 +69,21 @@ Run security scan:
 bandit -r src/agent_manifest
 ```
 
+### Release validation and manual runs
+
+The publisher first runs the existing CI workflow against the same revision,
+including its Python test matrix and other CI jobs. Successful validation is a
+prerequisite for building and publishing. Failed, cancelled or skipped validation
+or artifact building prevents publication.
+
+Manual dispatch defaults to `build-only`; publishing requires an explicit
+`publish` choice and the exact `python-v<package-version>` tag. The publication
+source guard runs before the artifact build, including on manual events. A
+build-only branch run may produce checked artifacts but does not enter the PyPI
+job or create a GitHub release. The PyPI job alone holds the `pypi` environment
+and OIDC grant. Environment reviewers and registry trusted-publisher bindings
+remain separate maintainer settings to verify before using that path.
+
 ### Release artifact verification
 
 The PyPI workflow builds one wheel and one source distribution, installs each
