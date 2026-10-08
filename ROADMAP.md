@@ -40,7 +40,7 @@ Driven by adopter feedback. Any normative change goes through the RFC process (1
 - All open spec ambiguities resolved
 - Complete conformance certification program
 - Multi-language SDK parity (Python, TypeScript, Go, .NET, Rust)
-- CoSAI-assigned canonical `@context` URL replacing the provisional v0.1 URL
+- A CoSAI-assigned canonical `@context` URL, if CoSAI assigns one (v0.2 already moved to a project-controlled domain and withdrew the v0.1 URL, ADR-0012)
 - Post-quantum profile as first-class (not optional extra)
 - Streaming decision trace binding
 - Internationalization: docs in Japanese, Simplified Chinese, Korean
