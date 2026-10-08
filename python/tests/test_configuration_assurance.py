@@ -67,8 +67,8 @@ def _manifest(assurance_test=None):
                 "bound_at": now.isoformat().replace("+00:00", "Z"),
             },
             "model_identity": {
-                "provider": "anthropic",
-                "model_id": "claude",
+                "provider": "example-provider",
+                "model_id": "example-model",
                 "version": "3",
                 "deployment_type": "api",
                 "model_attestation_type": "provider-asserted",

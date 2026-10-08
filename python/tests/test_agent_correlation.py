@@ -64,7 +64,7 @@ def _model_manifest(**overrides):
                                classification="internal", bound_at=now),
             policy_bundle=dict(hash=sha, policy_language="cedar", version="1.0",
                                enforcement_mode="enforce", bound_at=now),
-            model_identity=dict(provider="anthropic", model_id="claude",
+            model_identity=dict(provider="example-provider", model_id="example-model",
                                 version="3", deployment_type="api",
                                 model_attestation_type="provider-asserted",
                                 bound_at=now),

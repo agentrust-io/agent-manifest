@@ -1,4 +1,4 @@
-"""Tests for hardware attestation providers: SEVSNPProvider, TDXProvider, OPAQUEProvider.
+"""Tests for hardware attestation providers: SEVSNPProvider, TDXProvider.
 
 Strategy:
   Initialization failures (no device / no env var): tested on all platforms by
@@ -8,9 +8,7 @@ Strategy:
   extend_manifest_hash for SEVSNPProvider/TDXProvider: mock fcntl.ioctl + open
     so struct packing and report-parsing code paths run without hardware.
     Gated by sys.platform == "linux" because fcntl is Linux-only.
-  extend_manifest_hash for OPAQUEProvider: mock httpx.post, runs on all platforms.
-    Tests auth header, pre-image encoding, HTTP error handling.
-  Integration markers: NEEDS_SEV_SNP, NEEDS_TDX, NEEDS_OPAQUE for real hardware.
+  Integration markers: NEEDS_SEV_SNP, NEEDS_TDX for real hardware.
 """
 import os
 import struct
@@ -19,7 +17,6 @@ import sys
 import pytest
 
 from agent_manifest._hw_providers import (
-    OPAQUEProvider,
     SEVSNPProvider,
     TDXProvider,
 )
@@ -38,11 +35,6 @@ NEEDS_TDX = pytest.mark.skipif(
     ),
     reason="requires an Intel TDX guest with the tdx-guest driver + configfs-TSM",
 )
-NEEDS_OPAQUE = pytest.mark.skipif(
-    not os.environ.get("OPAQUE_ATTESTATION_URL"),
-    reason="set OPAQUE_ATTESTATION_URL to run OPAQUE integration tests",
-)
-
 SAMPLE_MANIFEST = {
     "manifest_id": "018f4a3b-2c1d-7e5f-a8b9-0d1e2f3a4b5c",
     "agent_id": "spiffe://trust.example/agent/kyc/prod",
@@ -1094,19 +1086,6 @@ def test_tdx_wrong_tsm_provider_raises(monkeypatch):
     )
     with pytest.raises(AttestationUnavailableError, match="not 'tdx_guest'"):
         provider.extend_manifest_hash(SAMPLE_MANIFEST)
-
-
-# ---------------------------------------------------------------------------
-# OPAQUEProvider — not implemented (managed service not GA; see issue #201 §5)
-# ---------------------------------------------------------------------------
-
-
-def test_opaque_provider_is_not_implemented():
-    """OPAQUE managed attestation is disabled: the managed service is not
-    generally available and the SDK does not verify its TRACE claim, so the
-    provider fails closed at construction rather than looking verified."""
-    with pytest.raises(AttestationUnavailableError, match="not implemented"):
-        OPAQUEProvider()
 
 
 # ---------------------------------------------------------------------------

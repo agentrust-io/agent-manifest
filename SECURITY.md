@@ -9,7 +9,7 @@ This policy covers:
 - Weaknesses in the hardware attestation integration layer
 - Issues with the conformance test suite that would cause non-conformant implementations to pass
 
-Out of scope: general Python dependency vulnerabilities (use `pip-audit` for that), GitHub Actions supply chain issues, and issues with third-party TEE platforms (TPM, SEV-SNP, TDX, OPAQUE).
+Out of scope: general Python dependency vulnerabilities (use `pip-audit` for that), GitHub Actions supply chain issues, and issues with third-party TEE platforms (TPM, SEV-SNP, TDX).
 
 ## Reporting a vulnerability
 

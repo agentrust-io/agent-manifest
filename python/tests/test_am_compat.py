@@ -322,7 +322,7 @@ def _minimal_manifest():
                 version="1.0", enforcement_mode=EnforcementMode.enforce, bound_at=NOW,
             ),
             model_identity=ModelIdentityBinding(
-                provider="anthropic", model_id="claude", version="3",
+                provider="example-provider", model_id="example-model", version="3",
                 deployment_type=DeploymentType.api,
                 model_attestation_type="provider-asserted",
                 bound_at=NOW,
@@ -343,7 +343,7 @@ def _manifest_dict(policy_hash="sha256:" + "b" * 64):
         "artifacts": {
             "system_prompt": {"hash": "sha256:" + "a" * 64},
             "policy_bundle": {"hash": policy_hash, "enforcement_mode": "enforce"},
-            "model_identity": {"version": "claude-3", "deployment_type": "api"},
+            "model_identity": {"version": "example-model-3", "deployment_type": "api"},
         },
         "delegation_chain": [],
         "hitl_record": None,

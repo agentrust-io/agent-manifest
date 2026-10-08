@@ -358,8 +358,8 @@ def test_software_provider_raw_labels_not_hw_attested():
 
 
 def test_all_hw_providers_expose_attest_runtime_state():
-    from agent_manifest._hw_providers import SEVSNPProvider, TDXProvider, OPAQUEProvider
-    for cls in (SEVSNPProvider, TDXProvider, OPAQUEProvider):
+    from agent_manifest._hw_providers import AzureCVMProvider, SEVSNPProvider, TDXProvider
+    for cls in (AzureCVMProvider, SEVSNPProvider, TDXProvider):
         assert callable(getattr(cls, "attest_runtime_state", None)), (
             f"{cls.__name__} missing attest_runtime_state"
         )

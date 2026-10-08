@@ -57,7 +57,7 @@ def base_manifest(**overrides):
         "artifacts": {
             "system_prompt": {"hash": SHA},
             "policy_bundle": {"hash": "sha256:" + "b" * 64},
-            "model_identity": {"model_hash": None, "version": "claude-3", "deployment_type": "api"},
+            "model_identity": {"model_hash": None, "version": "example-model-3", "deployment_type": "api"},
         },
         "delegation_chain": [],
         "hitl_record": None,
@@ -70,7 +70,7 @@ def base_context(**overrides):
     ctx = VerificationContext(
         system_prompt_hash=SHA,
         policy_bundle_hash="sha256:" + "b" * 64,
-        model_version="claude-3",
+        model_version="example-model-3",
         trusted_keys=dict(TRUSTED_KEYS),
         approver_public_keys={APPROVER_ID: APPROVER_KP.public_b64url()},
     )
@@ -254,7 +254,7 @@ def test_enforcement_mode_match_is_unaffected():
     manifest = base_manifest(artifacts={
         "system_prompt": {"hash": SHA},
         "policy_bundle": {"hash": "sha256:" + "b" * 64, "enforcement_mode": "enforce"},
-        "model_identity": {"model_hash": None, "version": "claude-3", "deployment_type": "api"},
+        "model_identity": {"model_hash": None, "version": "example-model-3", "deployment_type": "api"},
     })
     ctx = base_context(enforcement_mode="enforce")
     result = verify_manifest(manifest, ctx, store())
@@ -269,7 +269,7 @@ def test_enforcement_mode_mismatch_fails_policy_bundle():
     manifest = base_manifest(artifacts={
         "system_prompt": {"hash": SHA},
         "policy_bundle": {"hash": "sha256:" + "b" * 64, "enforcement_mode": "enforce"},
-        "model_identity": {"model_hash": None, "version": "claude-3", "deployment_type": "api"},
+        "model_identity": {"model_hash": None, "version": "example-model-3", "deployment_type": "api"},
     })
     ctx = base_context(enforcement_mode="advisory")
     result = verify_manifest(manifest, ctx, store())
@@ -287,7 +287,7 @@ def test_enforcement_mode_declared_but_not_provided_fails_closed():
     manifest = base_manifest(artifacts={
         "system_prompt": {"hash": SHA},
         "policy_bundle": {"hash": "sha256:" + "b" * 64, "enforcement_mode": "enforce"},
-        "model_identity": {"model_hash": None, "version": "claude-3", "deployment_type": "api"},
+        "model_identity": {"model_hash": None, "version": "example-model-3", "deployment_type": "api"},
     })
     ctx = base_context()  # enforcement_mode left unset
     result = verify_manifest(manifest, ctx, store())
@@ -1122,7 +1122,7 @@ def test_verify_runtime_report_malformed_hash_fails_closed_not_crash(bad_value):
 def test_model_identity_non_ascii_manifest_version_is_mismatch_not_crash():
     m = base_manifest()
     m["artifacts"]["model_identity"]["version"] = "é" * 20
-    result = verify_manifest(m, base_context(model_version="claude-3"), store())
+    result = verify_manifest(m, base_context(model_version="example-model-3"), store())
     assert result.result == OverallResult.MISMATCH
     assert result.fields_verified.model_identity == FieldResult.MISMATCH
 
@@ -1136,7 +1136,7 @@ def test_model_identity_non_ascii_runtime_version_is_mismatch_not_crash():
 
 def test_model_identity_matching_version_is_still_a_match():
     m = base_manifest()
-    result = verify_manifest(m, base_context(model_version="claude-3"), store())
+    result = verify_manifest(m, base_context(model_version="example-model-3"), store())
     assert result.fields_verified.model_identity == FieldResult.MATCH
 
 

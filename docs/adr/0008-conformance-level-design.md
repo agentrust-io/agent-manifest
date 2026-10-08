@@ -8,6 +8,8 @@ description: Decision to define four conformance levels, 0 to 3, each a strict s
 **Date**: 2026-06-07  
 **Spec section**: Section 6 (Conformance)
 
+> **Amendment, 2026-10-08.** The level table in spec section 8.1 is authoritative and supersedes the table and the plain-terms summary below. Level 1 is TEE-attested, Level 2 is full stack, and Level 3 is the post-quantum profile (ML-DSA-65, ML-KEM-768, SHAKE-256). No conformance level names or requires a particular vendor's runtime. The original text is kept unchanged as the record of the decision.
+
 In plain terms: a manifest checked on a laptop and one backed by confidential-computing hardware do not carry the same assurance, so conformance is stated as a level, from 0 (software signing only) to 3 (managed secure hardware plus an audit chain). A claim of conformance without its level says little.
 
 ## Context

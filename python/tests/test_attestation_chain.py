@@ -859,7 +859,7 @@ def test_verify_attestation_chain_no_longer_accepts_a_binding_boolean():
     assert "azure_manifest_binding_verified" not in sig.parameters
 
 
-@pytest.mark.parametrize("unsupported_platform", ["opaque", "", "quantum-tee-v9"])
+@pytest.mark.parametrize("unsupported_platform", ["example-managed-runtime", "", "quantum-tee-v9"])
 def test_unsupported_platform_label_does_not_borrow_the_snp_verifier(unsupported_platform):
     # #363 regression matrix: same exact SNP evidence, only the platform
     # label changes to an unrecognized/empty/future value. Dispatch must not

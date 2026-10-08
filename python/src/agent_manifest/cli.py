@@ -350,7 +350,7 @@ def keygen(output_dir: str) -> None:
 @cli.command("attest")
 @click.argument("manifest_file", type=click.Path(exists=True))
 @click.option("--provider", "-p", default="auto",
-              type=click.Choice(["auto", "azure-cvm", "tpm", "sev-snp", "tdx", "opaque", "software"]),
+              type=click.Choice(["auto", "azure-cvm", "tpm", "sev-snp", "tdx", "software"]),
               help="Attestation provider (default: auto)")
 @click.option("--level", default=0, type=int, help="Minimum conformance level (0-3)")
 @click.option("--output", "-o", default=None, help="Write output to file (default: stdout)")
@@ -377,9 +377,6 @@ def attest(manifest_file: str, provider: str, level: int, output: Optional[str])
         elif provider == "tdx":
             from ._hw_providers import TDXProvider
             prov = TDXProvider()
-        elif provider == "opaque":
-            from ._hw_providers import OPAQUEProvider
-            prov = OPAQUEProvider()
         elif provider == "tpm":
             from ._providers import TPMProvider
             prov = TPMProvider()

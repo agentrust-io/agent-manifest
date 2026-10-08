@@ -44,7 +44,7 @@
           "schema_hash": "sha256:13b2c3d4e5f6789013b2c3d4e5f6789013b2c3d4e5f6789013b2c3d4e5f67890",
           "description_hash": "sha256:14b2c3d4e5f6789014b2c3d4e5f6789014b2c3d4e5f6789014b2c3d4e5f67890",
           "version": "1.0.0",
-          "egress_destinations": ["api.anthropic.com"]
+          "egress_destinations": ["api.model-provider.example"]
         }
       ],
       "allow_dynamic_registration": false,
@@ -52,8 +52,8 @@
       "bound_at": "2026-06-04T00:00:00Z"
     },
     "model_identity": {
-      "provider": "anthropic",
-      "model_id": "claude-haiku-4-5-20251001",
+      "provider": "example-provider",
+      "model_id": "example-model-small",
       "version": "20251001",
       "deployment_type": "api",
       "model_attestation_type": "provider-asserted",

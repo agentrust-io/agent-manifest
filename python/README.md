@@ -152,11 +152,11 @@ The field adds no manifest approval fields or normative specification requiremen
 ```python
 from agent_manifest._auto_provider import select_provider
 
-# auto-selects: SEV-SNP → TDX → TPM → software  (OPAQUE is explicit opt-in via OPAQUE_ATTESTATION_URL)
+# auto-selects: Azure CVM → SEV-SNP → TDX → TPM → software
 provider = select_provider(level=1)   # Level 1+ requires hardware
 provider.extend_manifest_hash(manifest_dict)
 report = provider.get_attestation_report()
-# report.platform: "amd-sev-snp" | "intel-tdx" | "tpm" | "opaque" | "software"
+# report.platform: "amd-sev-snp" | "intel-tdx" | "tpm" | "software"
 ```
 
 | Provider | Hardware | Level | Install |
@@ -164,7 +164,6 @@ report = provider.get_attestation_report()
 | `TPMProvider` | TPM 2.0 / AWS Nitro | 1 | `apt install tpm2-tools` |
 | `SEVSNPProvider` | AMD SEV-SNP | 2 | Needs `/dev/sev-guest` |
 | `TDXProvider` | Intel TDX | 2 | Needs `/dev/tdx-guest` |
-| `OPAQUEProvider` | OPAQUE Runtime | 3 | Set `OPAQUE_ATTESTATION_URL` |
 
 ## Verification
 

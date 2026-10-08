@@ -52,9 +52,9 @@
       "bound_at": "2026-06-12T09:00:00Z"
     },
     "model_identity": {
-      "provider": "openai",
-      "model_id": "gpt-4o",
-      "version": "gpt-4o-2024-08-06",
+      "provider": "example-provider",
+      "model_id": "example-model",
+      "version": "2024-08-06",
       "deployment_type": "api",
       "model_attestation_type": "provider-asserted",
       "bound_at": "2026-06-12T09:00:00Z"

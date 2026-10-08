@@ -501,7 +501,7 @@ def _manifest_with_trace(root, entry_count, trace_type="hash-chained"):
             # decision_trace continuity below.
             "system_prompt": {"hash": "sha256:" + "a" * 64},
             "policy_bundle": {"hash": "sha256:" + "b" * 64},
-            "model_identity": {"version": "claude-3", "deployment_type": "api"},
+            "model_identity": {"version": "example-model-3", "deployment_type": "api"},
             "decision_trace": {
                 "trace_type": trace_type,
                 "audit_chain_root": root,

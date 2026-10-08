@@ -8,7 +8,6 @@ Implemented providers:
   TPMProvider       — Generic TPM 2.0 + AWS Nitro via tpm2-tools
   SEVSNPProvider    — AMD SEV-SNP (via /dev/sev-guest)        [issue #6]
   TDXProvider       — Intel TDX (via /dev/tdx-guest)          [issue #7]
-  OPAQUEProvider    — OPAQUE Managed Runtime stub             [issue #8]
 """
 from __future__ import annotations
 
@@ -41,7 +40,7 @@ class AttestationUnavailableError(RuntimeError):
 class AttestationReport:
     """Portable attestation report returned by all providers."""
 
-    platform: str  # "amd-sev-snp" | "azure-cvm-sev-snp" | "intel-tdx" | "tpm" | "aws-nitro" | "opaque"
+    platform: str  # "amd-sev-snp" | "azure-cvm-sev-snp" | "intel-tdx" | "tpm" | "aws-nitro"
     manifest_hash: str  # "sha256:<64-hex>" — hash of the signed manifest
     pcr_values: dict[str, str] = field(default_factory=dict)  # {"PCR15": "sha256:..."}
     quote: Optional[bytes] = None  # raw platform quote/report blob

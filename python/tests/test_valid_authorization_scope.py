@@ -64,7 +64,7 @@ def manifest_with_tool_catalog(**overrides):
         "artifacts": {
             "system_prompt": {"hash": SHA_A},
             "policy_bundle": {"hash": SHA_B, "enforcement_mode": "enforce"},
-            "model_identity": {"version": "claude-3", "deployment_type": "api"},
+            "model_identity": {"version": "example-model-3", "deployment_type": "api"},
             "decision_trace": {"audit_chain_root": SHA_C},
             "tool_manifest": {"catalog_hash": TOOL_CATALOG},
         },
@@ -81,7 +81,7 @@ def ctx_matching_catalog():
         system_prompt_hash=SHA_A,
         policy_bundle_hash=SHA_B,
         enforcement_mode="enforce",
-        model_version="claude-3",
+        model_version="example-model-3",
         audit_chain_root=SHA_C,
         trusted_keys=dict(TRUSTED_KEYS),
     )

@@ -26,10 +26,6 @@ Pick a provider by deployment environment (``select_provider`` in
   ``_tdx_verify.py``. Azure TDX (paravisor/vTPM-rooted, like Azure SNP) is a
   separate follow-up.
 
-* :class:`OPAQUEProvider` — OPAQUE managed runtime attestation (#8). NOT
-  IMPLEMENTED: the managed service is not generally available and the SDK does
-  not verify its TRACE claim, so the provider fails closed at construction.
-
 Report parsing and the SNP signature/VCEK-chain verification live in
 ``_snp_verify.py`` and were validated against a report captured from real
 SEV-SNP hardware.
@@ -666,53 +662,3 @@ class TDXProvider(AttestationProvider):
                 "measurement": parsed.mrtd.hex(),
             },
         )
-
-
-
-# ---------------------------------------------------------------------------
-# OPAQUE Provider
-# ---------------------------------------------------------------------------
-
-
-class OPAQUEProvider(AttestationProvider):
-    """OPAQUE managed runtime attestation — NOT IMPLEMENTED.
-
-    The OPAQUE managed attestation service is not generally available, and the
-    SDK does not verify the TRACE claim such a service would return (no claim
-    signature check and no verification of the service's own enclave
-    measurement). Rather than ship a path that looks like verification but is
-    not (see issue #201 §5), this provider is explicitly disabled: constructing
-    it raises AttestationUnavailableError.
-
-    It will be implemented when the managed service is available and a real
-    claim-verification path exists (signature verified against a pinned OPAQUE
-    key, plus a service_measurement check per spec §3.3). Until then, use a
-    locally-verifiable provider (SEV-SNP / TDX / Azure CVM) for Level 1+.
-    """
-
-    _NOT_IMPLEMENTED = (
-        "OPAQUE managed runtime attestation is not implemented. The managed "
-        "service is not generally available, and the SDK does not verify the "
-        "returned TRACE claim's signature or the service's enclave measurement, "
-        "so it must not be relied upon. Use a locally-verifiable provider "
-        "(SEV-SNP / TDX / Azure CVM) for Level 1+ attestation."
-    )
-
-    def __init__(self) -> None:
-        raise AttestationUnavailableError(self._NOT_IMPLEMENTED)
-
-    def extend_manifest_hash(self, manifest_json: dict[str, Any]) -> None:
-        raise NotImplementedError(self._NOT_IMPLEMENTED)
-
-    def get_attestation_report(self) -> AttestationReport:
-        raise NotImplementedError(self._NOT_IMPLEMENTED)
-
-    def verify_manifest_in_report(
-        self, report: AttestationReport, manifest_json: dict[str, Any]
-    ) -> bool:
-        raise NotImplementedError(self._NOT_IMPLEMENTED)
-
-    def attest_runtime_state(
-        self, nonce: bytes, context_hash: str
-    ) -> RuntimeAttestationReport:
-        raise NotImplementedError(self._NOT_IMPLEMENTED)
