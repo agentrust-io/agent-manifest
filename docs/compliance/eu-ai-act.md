@@ -125,12 +125,12 @@ The manifest can carry signed records of a person approving the agent, in the `h
 
 The signature is made over `{manifest_id, approved_at, approved_scope, approver_id}` by the approver's key. This proves:
 
-- A named human reviewed and approved this specific agent
+- The holder of a trusted approver key approved this specific agent (whether a person reviewed it first is an organizational control the signature cannot show)
 - The approval covers only the declared scope
 - The approval has a bounded validity window
 - The approval cannot be forged without the approver's key
 
-**Conformance level requirement:** Article 14 HITL requires Level 1+ for high-risk AI systems. Level 0 (software-only) manifests without hardware attestation must not be deployed in high-risk contexts without an accompanying HITL record.
+**Conformance levels and Article 14:** Article 14 requires effective human oversight of high-risk systems; it says nothing about Agent Manifest levels. A HITL record with verified approvals is evidence of how oversight was designed and exercised, and hardware attestation (Level 1 and above) adds evidence that the approved configuration is what ran. Neither shows on its own that oversight was effective.
 
 ---
 

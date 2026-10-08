@@ -16,7 +16,7 @@ The manifest attests which model version was authorized. It cannot attest that t
 If the manifest signing key is compromised after a manifest is issued, existing manifests remain cryptographically valid until they are explicitly revoked. Key monitoring and rapid revocation are the required controls; the manifest provides the revocation mechanism but cannot detect compromise itself.
 
 **TEE side-channel attacks**  
-Hardware attestation proves the processor itself recorded the manifest's fingerprint. It does not protect against side-channel attacks (reading secrets indirectly, for example by timing the processor's cache or measuring its power use) aimed at the TEE, the protected area of the processor the agent runs in. Defending the TEE against those is the job of the chip vendor.
+Hardware attestation proves that a hardware-rooted report carries the manifest's fingerprint: the processor signs it on SEV-SNP and TDX, and on Azure confidential VMs it is read through the vTPM, rooted in the AMD certificate chain. It does not protect against side-channel attacks (reading secrets indirectly, for example by timing the processor's cache or measuring its power use) aimed at the TEE, the protected area of the processor the agent runs in. Defending the TEE against those is the job of the chip vendor.
 
 **Operator-controlled revocation endpoint**  
 The revocation endpoint, where withdrawn manifests are listed, is run by the manifest issuer. A compromised or dishonest issuer could simply not list a withdrawal. A public append-only record (a transparency log such as Rekor) provides a check; verifiers should require a transparency log entry for Level 1+ manifests.
