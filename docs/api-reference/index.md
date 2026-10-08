@@ -11,7 +11,7 @@ The pages below are generated from the docstrings in the source code, so they ma
 | [Verification](verification.md) | `verify_manifest()`, `VerificationContext`, `VerificationResult`, `create_router()` |
 | [Revocation](revocation.md) | `sign_revocation()`, `FileCRL`, `create_crl_router()` |
 | [Delegation](delegation.md) | `DelegationHopSigner`, `verify_delegation_chain()`, `HitlApprovalSigner` |
-| [Attestation](attestation.md) | `SEVSNPProvider`, `TDXProvider`, `OPAQUEProvider`, `TPMProvider`, `AttestationProvider` |
+| [Attestation](attestation.md) | `SEVSNPProvider`, `TDXProvider`, `TPMProvider`, `AttestationProvider` |
 | [CLI](cli.md) | `manifest create`, `sign`, `verify`, `revoke`, `keygen`, `attest` commands |
 
 ## Installation

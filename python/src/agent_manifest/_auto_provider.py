@@ -11,9 +11,6 @@ Auto-selection order (first locally-verifiable silicon wins):
   4. TPMProvider     — if tpm2_extend is in PATH
   5. SoftwareProvider — fallback, Level 0 only (no hardware attestation)
 
-OPAQUEProvider is explicit opt-in: selected only when OPAQUE_ATTESTATION_URL
-is set. It is never auto-detected.
-
 The SoftwareProvider is never selected automatically for Level 1+ contexts.
 Callers that require Level 1+ MUST explicitly check provider.level >= 1.
 """
@@ -111,11 +108,6 @@ def select_provider(level: int = 0) -> AttestationProvider:
         AttestationUnavailableError: If *level* > 0 and no hardware provider
             is available.
     """
-    # OPAQUE managed runtime — explicit opt-in only, not auto-detected
-    if os.environ.get("OPAQUE_ATTESTATION_URL"):
-        from ._hw_providers import OPAQUEProvider
-        return cast(AttestationProvider, OPAQUEProvider())
-
     # Azure confidential VM (paravisor SNP, vTPM-rooted). Checked before the
     # bare-metal SNP probe because Azure also exposes the configfs-TSM dir but
     # registers no provider there.
@@ -148,7 +140,6 @@ def select_provider(level: int = 0) -> AttestationProvider:
         raise AttestationUnavailableError(
             "No hardware attestation provider available. "
             "Level 1+ conformance requires TPM 2.0, AMD SEV-SNP, or Intel TDX. "
-            "To use the OPAQUE managed runtime, set OPAQUE_ATTESTATION_URL. "
             "For development use, set level=0 explicitly."
         )
     return SoftwareProvider()

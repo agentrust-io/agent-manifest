@@ -46,7 +46,7 @@ from ._providers import (
     TPMProvider,
 )
 from ._hw_providers import (
-    AzureCVMProvider, SEVSNPProvider, TDXProvider, OPAQUEProvider,
+    AzureCVMProvider, SEVSNPProvider, TDXProvider,
 )
 from ._attestation import (
     verify_attestation_chain, ChainVerificationResult, SignatureStatus,
@@ -153,7 +153,7 @@ __all__ = [
     "CoseError", "CoseStructureError", "CoseVersionError", "CoseDowngradeError",
     "CoseKeyError",
     "AttestationReport", "AttestationUnavailableError", "RuntimeAttestationReport",
-    "TPMProvider", "AzureCVMProvider", "SEVSNPProvider", "TDXProvider", "OPAQUEProvider",
+    "TPMProvider", "AzureCVMProvider", "SEVSNPProvider", "TDXProvider",
     "verify_attestation_chain", "ChainVerificationResult", "SignatureStatus",
     "SIG_ALGO_ECDSA_P384_SHA384", "SNP_OFFSETS", "SNP_REPORT_LEN",
     "PLATFORM_INFO_BITS",

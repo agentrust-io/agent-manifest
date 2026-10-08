@@ -228,7 +228,7 @@ def test_azure_fresh_quote_verifies_and_replay_is_rejected():
 # --- No hardware quote -----------------------------------------------------
 
 
-@pytest.mark.parametrize("platform", ["software", "opaque", ""])
+@pytest.mark.parametrize("platform", ["software", "example-managed-runtime", ""])
 def test_platforms_without_a_hardware_quote_do_not_verify(platform):
     nonce = os.urandom(32)
     report = _report(platform, nonce, None)

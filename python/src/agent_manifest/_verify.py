@@ -4,8 +4,8 @@ Two hosting modes (spec Section 5.1 / SPEC-07):
   SDK-hosted:    FastAPI server embedded in the agent process, served over
                  mTLS using the agent's SPIFFE SVID.  Runtime artifact hashes
                  are computed by the trusted component that holds the manifest.
-  OPAQUE-hosted: Results are served from hashes pushed by the agent SDK at
-                 startup to OPAQUE's attestation service.
+  Service-hosted: Results are served from hashes pushed by the agent SDK at
+                 startup to an attestation service outside the agent process.
 
 The verification engine itself is hosting-agnostic - it takes a Manifest
 dict and a set of running artifact hashes and produces a VerificationResult.

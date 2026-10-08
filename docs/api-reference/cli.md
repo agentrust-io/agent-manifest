@@ -98,7 +98,7 @@ Usage: manifest attest [OPTIONS] MANIFEST_FILE
     manifest attest signed.json --provider tpm --level 1 -o attested.json
 
 Options:
-  -p, --provider [auto|azure-cvm|tpm|sev-snp|tdx|opaque|software]
+  -p, --provider [auto|azure-cvm|tpm|sev-snp|tdx|software]
                                   Attestation provider (default: auto)
   --level INTEGER                 Minimum conformance level (0-3)
   -o, --output TEXT               Write output to file (default: stdout)
