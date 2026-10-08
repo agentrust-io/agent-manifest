@@ -57,7 +57,7 @@ def base_manifest(delegation_chain=None, **overrides) -> dict:
         "artifacts": {
             "system_prompt": {"hash": SHA},
             "policy_bundle": {"hash": "sha256:" + "b" * 64},
-            "model_identity": {"model_hash": None, "version": "claude-3", "deployment_type": "api"},
+            "model_identity": {"model_hash": None, "version": "example-model-3", "deployment_type": "api"},
         },
         "delegation_chain": delegation_chain if delegation_chain is not None else [],
         "hitl_record": None,
@@ -70,7 +70,7 @@ def base_context(**overrides) -> VerificationContext:
     ctx = VerificationContext(
         system_prompt_hash=SHA,
         policy_bundle_hash="sha256:" + "b" * 64,
-        model_version="claude-3",
+        model_version="example-model-3",
         trusted_keys=dict(TRUSTED_KEYS),
     )
     for k, v in overrides.items():

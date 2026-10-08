@@ -60,7 +60,7 @@ def manifest(**overrides):
         "artifacts": {
             "system_prompt": {"hash": SHA_A},
             "policy_bundle": {"hash": SHA_B, "enforcement_mode": "enforce"},
-            "model_identity": {"version": "claude-3", "deployment_type": "api"},
+            "model_identity": {"version": "example-model-3", "deployment_type": "api"},
             "decision_trace": {"audit_chain_root": SHA_C},
         },
         "delegation_chain": [],
@@ -75,7 +75,7 @@ def ctx(**overrides):
         system_prompt_hash=SHA_A,
         policy_bundle_hash=SHA_B,
         enforcement_mode="enforce",
-        model_version="claude-3",
+        model_version="example-model-3",
         audit_chain_root=SHA_C,
         trusted_keys=dict(TRUSTED_KEYS),
         approver_public_keys={APPROVER_ID: APPROVER_KP.public_b64url()},
@@ -811,7 +811,7 @@ def _artifacts_with_memory(snap):
     return {
         "system_prompt": {"hash": SHA_A},
         "policy_bundle": {"hash": SHA_B, "enforcement_mode": "enforce"},
-        "model_identity": {"version": "claude-3", "deployment_type": "api"},
+        "model_identity": {"version": "example-model-3", "deployment_type": "api"},
         "decision_trace": {"audit_chain_root": SHA_C},
         "memory_baseline": {
             "snapshot_hash": snap, "ttl_seconds": 86400,

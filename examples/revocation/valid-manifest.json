@@ -43,8 +43,8 @@
       "bound_at": "2026-06-12T08:00:00Z"
     },
     "model_identity": {
-      "provider": "anthropic",
-      "model_id": "claude-haiku-4-5-20251001",
+      "provider": "example-provider",
+      "model_id": "example-model-small",
       "version": "20251001",
       "deployment_type": "api",
       "model_attestation_type": "provider-asserted",

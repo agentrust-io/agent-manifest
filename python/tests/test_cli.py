@@ -51,9 +51,9 @@ def _signed_manifest(keypair):
                 "bound_at": now.isoformat().replace("+00:00", "Z"),
             },
             "model_identity": {
-                "provider": "openai",
-                "model_id": "gpt-4o",
-                "version": "gpt-4o-2024-08-06",
+                "provider": "example-provider",
+                "model_id": "example-model",
+                "version": "2024-08-06",
                 "deployment_type": "api",
                 "model_attestation_type": "provider-asserted",
                 "bound_at": now.isoformat().replace("+00:00", "Z"),

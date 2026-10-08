@@ -43,7 +43,7 @@ def _signed_manifest(keypair):
         "artifacts": {
             "system_prompt": {"hash": sha_a},
             "policy_bundle": {"hash": sha_b, "enforcement_mode": "enforce"},
-            "model_identity": {"version": "claude-3", "deployment_type": "api"},
+            "model_identity": {"version": "example-model-3", "deployment_type": "api"},
         },
     }
     manifest["signature"] = agent_manifest.Ed25519Signer(keypair).sign(manifest)
@@ -65,7 +65,7 @@ def test_public_verify_roundtrip_valid_then_mismatch():
         system_prompt_hash=sha_a,
         policy_bundle_hash=sha_b,
         enforcement_mode="enforce",
-        model_version="claude-3",
+        model_version="example-model-3",
         trusted_keys=trusted,
     )
     valid = agent_manifest.verify_manifest(
@@ -76,7 +76,7 @@ def test_public_verify_roundtrip_valid_then_mismatch():
     drifted = agent_manifest.VerificationContext(
         system_prompt_hash="sha256:" + "f" * 64,  # running prompt differs from manifest
         policy_bundle_hash=sha_b,
-        model_version="claude-3",
+        model_version="example-model-3",
         trusted_keys=trusted,
     )
     mismatch = agent_manifest.verify_manifest(

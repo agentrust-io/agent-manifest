@@ -181,7 +181,7 @@ def test_tool_manifest_rug_pull_enum():
 
 def test_model_api_no_hash():
     b = ModelIdentityBinding(
-        provider="anthropic", model_id="claude", version="3",
+        provider="example-provider", model_id="example-model", version="3",
         deployment_type=DeploymentType.api, model_hash=None,
         model_attestation_type=ModelAttestationType.provider_asserted,
         bound_at=NOW,
@@ -191,7 +191,7 @@ def test_model_api_no_hash():
 def test_model_api_with_hash_rejected():
     with pytest.raises(ValidationError, match="MUST be null"):
         ModelIdentityBinding(
-            provider="anthropic", model_id="claude", version="3",
+            provider="example-provider", model_id="example-model", version="3",
             deployment_type=DeploymentType.api, model_hash=SHA,
             model_attestation_type=ModelAttestationType.hash_bound,
             bound_at=NOW,
@@ -208,7 +208,7 @@ def test_model_local_requires_hash():
 
 def test_model_confidential_inference_requires_hash():
     b = ModelIdentityBinding(
-        provider="opaque", model_id="llm", version="1",
+        provider="example-provider", model_id="llm", version="1",
         deployment_type=DeploymentType.confidential_inference,
         model_hash=SHA,
         model_attestation_type=ModelAttestationType.hash_bound,
@@ -219,7 +219,7 @@ def test_model_confidential_inference_requires_hash():
 def test_model_third_party_api_hash_must_be_null():
     # Spec 3.2.4: model_hash MUST be null for api and third-party-api
     b = ModelIdentityBinding(
-        provider="azure_oai", model_id="gpt4", version="0613",
+        provider="example-gateway", model_id="example-model-4", version="0613",
         deployment_type=DeploymentType.third_party_api,
         model_attestation_type=ModelAttestationType.provider_asserted,
         bound_at=NOW,
@@ -227,7 +227,7 @@ def test_model_third_party_api_hash_must_be_null():
     assert b.model_hash is None
     with pytest.raises(ValidationError, match="MUST be null"):
         ModelIdentityBinding(
-            provider="azure_oai", model_id="gpt4", version="0613",
+            provider="example-gateway", model_id="example-model-4", version="0613",
             deployment_type=DeploymentType.third_party_api, model_hash=SHA,
             model_attestation_type=ModelAttestationType.hash_bound,
             bound_at=NOW,
@@ -237,14 +237,14 @@ def test_model_attestation_type_required():
     # Spec 3.2.4: model_attestation_type is REQUIRED
     with pytest.raises(ValidationError):
         ModelIdentityBinding(
-            provider="anthropic", model_id="claude", version="3",
+            provider="example-provider", model_id="example-model", version="3",
             deployment_type=DeploymentType.api, bound_at=NOW,
         )
 
 def test_model_attestation_type_must_match_hash_presence():
     with pytest.raises(ValidationError, match="provider-asserted"):
         ModelIdentityBinding(
-            provider="anthropic", model_id="claude", version="3",
+            provider="example-provider", model_id="example-model", version="3",
             deployment_type=DeploymentType.api,
             model_attestation_type=ModelAttestationType.hash_bound,
             bound_at=NOW,
@@ -414,7 +414,7 @@ def _minimal_manifest(**overrides):
                 version="1.0", enforcement_mode=EnforcementMode.enforce, bound_at=NOW,
             ),
             model_identity=ModelIdentityBinding(
-                provider="anthropic", model_id="claude", version="3",
+                provider="example-provider", model_id="example-model", version="3",
                 deployment_type=DeploymentType.api,
                 model_attestation_type=ModelAttestationType.provider_asserted,
                 bound_at=NOW,

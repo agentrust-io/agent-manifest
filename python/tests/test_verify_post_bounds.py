@@ -53,7 +53,7 @@ def manifest(**overrides):
         "artifacts": {
             "system_prompt": {"hash": SHA},
             "policy_bundle": {"hash": SHA_B},
-            "model_identity": {"version": "claude-3", "deployment_type": "api"},
+            "model_identity": {"version": "example-model-3", "deployment_type": "api"},
         },
     }
     m.update(overrides)

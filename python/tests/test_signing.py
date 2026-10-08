@@ -59,8 +59,8 @@ SAMPLE_MANIFEST = {
             "bound_at": "2026-06-23T09:00:00Z",
         },
         "model_identity": {
-            "provider": "anthropic",
-            "model_id": "claude-sonnet-4-6",
+            "provider": "example-provider",
+            "model_id": "example-model",
             "version": "20251001",
             "deployment_type": "api",
             "bound_at": "2026-06-23T09:00:00Z",

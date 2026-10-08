@@ -75,7 +75,7 @@ def base_manifest(poisoning_result: str, subject_digest="bound"):
         "artifacts": {
             "system_prompt": {"hash": SHA_A},
             "policy_bundle": {"hash": SHA_B},
-            "model_identity": {"version": "claude-3", "deployment_type": "api"},
+            "model_identity": {"version": "example-model-3", "deployment_type": "api"},
             "rag_corpus": {
                 "merkle_root": SHA_A,
                 "poisoning_scan": scan,
@@ -91,7 +91,7 @@ def base_context(conformance_level: int = 0):
     return VerificationContext(
         system_prompt_hash=SHA_A,
         policy_bundle_hash=SHA_B,
-        model_version="claude-3",
+        model_version="example-model-3",
         rag_corpus_merkle_root=SHA_A,
         trusted_keys=dict(TRUSTED_KEYS),
         conformance_level=conformance_level,
@@ -187,7 +187,7 @@ def test_no_rag_corpus_no_warnings():
         "artifacts": {
             "system_prompt": {"hash": SHA_A},
             "policy_bundle": {"hash": SHA_B},
-            "model_identity": {"version": "claude-3", "deployment_type": "api"},
+            "model_identity": {"version": "example-model-3", "deployment_type": "api"},
         },
         "delegation_chain": [],
         "hitl_record": None,
@@ -197,7 +197,7 @@ def test_no_rag_corpus_no_warnings():
     ctx = VerificationContext(
         system_prompt_hash=SHA_A,
         policy_bundle_hash=SHA_B,
-        model_version="claude-3",
+        model_version="example-model-3",
         trusted_keys=dict(TRUSTED_KEYS),
         conformance_level=1,
         verified_transparency_entry_ids={TRANSPARENCY_ENTRY_ID},

@@ -117,7 +117,7 @@ def base_manifest(**overrides):
             "policy_bundle": {"hash": SHA_B},
             "model_identity": {
                 "model_hash": None,
-                "version": "claude-3",
+                "version": "example-model-3",
                 "deployment_type": "api",
             },
         },
@@ -130,7 +130,7 @@ def base_context(**overrides):
     ctx = VerificationContext(
         system_prompt_hash=SHA,
         policy_bundle_hash=SHA_B,
-        model_version="claude-3",
+        model_version="example-model-3",
         trusted_keys=dict(TRUSTED_KEYS),
         approver_public_keys={APPROVER_ID: APPROVER_KP.public_b64url()},
     )
