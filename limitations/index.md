@@ -121,12 +121,11 @@ Callers are responsible for deciding how often to call `attest_runtime_state()` 
 
 Hardware attestation adds latency at agent startup (not per-request):
 
-| Provider           | Typical latency                                                 |
-| ------------------ | --------------------------------------------------------------- |
-| Software (Level 0) | < 1 ms                                                          |
-| TPM                | 50 to 200 ms                                                    |
-| SEV-SNP            | 10 to 50 ms                                                     |
-| TDX                | 10 to 50 ms                                                     |
-| OPAQUE             | not implemented (managed service not GA; provider fails closed) |
+| Provider           | Typical latency |
+| ------------------ | --------------- |
+| Software (Level 0) | < 1 ms          |
+| TPM                | 50 to 200 ms    |
+| SEV-SNP            | 10 to 50 ms     |
+| TDX                | 10 to 50 ms     |
 
 Manifest verification (signature check + hash comparison) is < 5 ms in all cases.

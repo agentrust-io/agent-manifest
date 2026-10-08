@@ -7,7 +7,7 @@ This page shows what Agent Manifest has shipped, what is still open, and what th
 Launched at Confidential Computing Summit, June 23 2026.
 
 - Specification: all 10 artifact bindings, conformance levels 0 to 3, and a 197-test conformance suite defined in section 8.2
-- Python SDK: signing, verification, hardware attestation (TPM / SEV-SNP / TDX / OPAQUE), CLI
+- Python SDK: signing, verification, hardware attestation (TPM / SEV-SNP / TDX), CLI
 - Runtime attestation freshness proofs: `attest_runtime_state()` + `verify_runtime_report()` (spec §3.3.2, ADR-0010)
 - Standard crypto profile: Ed25519, SHA-256, RFC 8785
 - Post-quantum profile: ML-DSA-65 (NIST FIPS 204), SHAKE-256 (via `[pq]` extra)
@@ -49,7 +49,7 @@ Driven by adopter feedback. Any normative change goes through the RFC process (1
 
 - Replace SPIFFE, SLSA, CycloneDX, or MCP: we compose with these
 - Build a centralized manifest registry: the spec is designed for decentralized verification
-- Build a proprietary TEE platform: hardware support targets open standards (TPM 2.0, SEV-SNP, TDX) plus OPAQUE as the highest-assurance managed option
+- Build a proprietary TEE platform: hardware support targets open standards (TPM 2.0, SEV-SNP, TDX)
 - Claim regulatory compliance on your behalf: the spec provides the primitives; compliance requires your organization's legal review
 
 ## How to influence the roadmap

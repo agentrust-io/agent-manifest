@@ -113,7 +113,6 @@ A provider is the SDK component that asks the hardware for a report. Pick it by 
 | `TDXProvider`      | Non-paravisor TDX guest; configfs-TSM `tdx_guest` provider and quote-generation path | Manifest digest goes into quote `REPORTDATA`. Request DCAP quote verification and appraise approved measurements and platform policy.       |
 | `AzureCVMProvider` | Azure SNP through the vTPM/HCL path                                                  | Follow the vTPM quote, attestation-key binding, and SNP chain. The guest does not directly control SNP `REPORT_DATA`.                       |
 | `TPMProvider`      | TPM tools and a provisioned attestation key                                          | A TPM quote supplies measured-state evidence; it does not isolate the agent's process memory.                                               |
-| `OPAQUEProvider`   | Disabled in the current SDK; construction raises `AttestationUnavailableError`       | No usable managed-service verification path is implemented.                                                                                 |
 
 Technical detail: device paths, constructor options and report flags
 
@@ -147,7 +146,7 @@ Choose challenge frequency according to the operation and stale-evidence policy.
 
 ## Auto-detection
 
-`select_provider(level=N)` picks a provider for you based on what the machine offers. It is a convenience, and it does not check conformance. The current order is an explicitly configured OPAQUE provider, Azure CVM, direct SNP, direct TDX, TPM, then software. Because OPAQUE is disabled, setting `OPAQUE_ATTESTATION_URL` currently raises instead of selecting a working managed provider.
+`select_provider(level=N)` picks a provider for you based on what the machine offers. It is a convenience, and it does not check conformance. The current order is Azure CVM, direct SNP, direct TDX, TPM, then software.
 
 Without a hardware candidate, requesting `level >= 1` raises `AttestationUnavailableError`. Do not silently retry with `level=0` in a path that requires hardware. For reproducible local tests, choose `SoftwareProvider()` directly rather than depending on the host's devices or environment variables.
 

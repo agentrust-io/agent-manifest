@@ -84,7 +84,7 @@ A manifest can describe up to ten parts of an agent. Which ones must be present,
 
 ## Hardware providers
 
-A provider is the code that collects a signed report from one kind of chip. Supported providers are TPM, AMD SEV-SNP, Intel TDX and OPAQUE. They differ in how the report is collected and checked, and in how well the agent's memory is shielded from the rest of the machine. Use the [hardware guide](https://manifest.agentrust-io.com/tutorials/hardware-attestation/index.md) and [limitations](https://manifest.agentrust-io.com/limitations/index.md) to choose; the provider name alone does not tell you how far to trust a machine.
+A provider is the code that collects a signed report from one kind of chip. Supported providers are TPM, AMD SEV-SNP (including Azure confidential VMs) and Intel TDX. They differ in how the report is collected and checked, and in how well the agent's memory is shielded from the rest of the machine. Use the [hardware guide](https://manifest.agentrust-io.com/tutorials/hardware-attestation/index.md) and [limitations](https://manifest.agentrust-io.com/limitations/index.md) to choose; the provider name alone does not tell you how far to trust a machine.
 
 ## Conformance levels
 

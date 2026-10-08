@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Removed
+
+- **[SDK]** `OPAQUEProvider` is removed from the public API, together with the `opaque` choice for `manifest attest --provider`, the `OPAQUE_ATTESTATION_URL` check in `select_provider()`, and the `opaque` platform label. The provider never worked: it raised `AttestationUnavailableError` on construction. This is a breaking change for code that imports the name. The `AttestationProvider` interface and the TPM, SEV-SNP, TDX, Azure CVM and software providers are unchanged.
+
+### Changed
+
+- **[Spec]** The MCP `initialize` example in section 6.3.1 uses the namespaced key `com.agentrust-io.agentManifest` in place of `co.opaque.agentManifest`, and advertises `"version": "0.2"`. The section 3.1 schema example now says `version` is `'0.2'`, matching the field table. Section 5.1.1 names the second hosting model "service-hosted mode". Spec text, examples and test fixtures use neutral provider and model names.
+- **[Docs]** ADR-0008 carries a dated note that the spec section 8.1 table is authoritative and that no conformance level names a vendor runtime.
+
 ### Fixed
 
 - **[Spec/SDK]** `poisoning_scan` carried a `result` but named nothing about *which* corpus it was computed over: a `clean` or `flagged` scan verified unchanged next to any `rag_corpus.merkle_root`, so a result produced over one corpus could be presented against a different, unscanned one. Section 3.2.5 now requires `poisoning_scan.subject_digest` to equal `rag_corpus.merkle_root` before the scan's `result` is interpreted at all: a present-but-different `subject_digest` fails at every conformance level regardless of `result` (including `not-scanned`), and an absent one fails at Level 1+ whenever `result` is `clean` or `flagged`. Level 0 still permits an absent `subject_digest`. The SDK verifier checks this binding first and does not read `clean`/`flagged` as a statement about the corpus once it fails. Closes #472.

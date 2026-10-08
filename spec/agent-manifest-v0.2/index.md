@@ -51,9 +51,9 @@ Existing approaches reduce to operator trust. A software-signed manifest proves 
 - Forge a human-in-the-loop approval record
 - Rewrite audit logs and re-sign with a software-held key
 
-> The Anthropic Design Test - Applied to Agent Identity
+> Impossible or Tedious - Applied to Agent Identity
 >
-> Anthropic's Zero Trust for AI Agents framework asks whether a control makes an attack impossible or merely tedious. Software-only manifests are tedious: a privileged operator can rewrite them. Hardware raises the bar in two specific ways.
+> A useful zero-trust test for AI agent controls asks whether a control makes an attack impossible or merely tedious. Software-only manifests are tedious: a privileged operator can rewrite them. Hardware raises the bar in two specific ways.
 >
 > First, the TEE launch measurement (SNP `MEASUREMENT`, TDX `MRTD`, TPM PCRs) is computed in silicon before any guest code runs, so the launch image cannot be altered undetected. Second, a signing key sealed to that measurement exists only inside an attested environment, so valid signatures cannot be produced anywhere else.
 >
@@ -196,7 +196,7 @@ An Agent Manifest is a JSON-LD document conforming to the following schema. All 
   "previous_manifest_id": "<string, UUID v7 - OPTIONAL, set on re-issuance>",
   "agent_id": "<string, SPIFFE URI - REQUIRED>",
   "agent_instance_id": "<string, UUID v7 - OPTIONAL, present only on an instance-scoped manifest>",
-  "version": "<string - REQUIRED, set to '0.1'>",
+  "version": "<string - REQUIRED, set to '0.2'>",
   "min_verifier_version": "<string, semantic version - OPTIONAL>",
   "issued_at": "<string, ISO 8601 UTC - REQUIRED>",
   "expires_at": "<string, ISO 8601 UTC - REQUIRED, default issued_at + 90 days>",
@@ -462,7 +462,7 @@ The `RUG_PULL_DETECTED` evidence event is a structured record conforming to a su
 
 `deployment_type` value `"third-party-api"` covers API models not served directly by the declared provider (e.g., a model accessed via an intermediary cloud API gateway).
 
-`capability_level` and `safety_alignment_version` are informational fields. For Anthropic models, `capability_level` SHOULD use the provider's published tier identifier (e.g., `"claude-tier-3"`). These fields MUST NOT be used as a security boundary. Verifiers MUST NOT use them as a substitute for `model_hash` or `model_attestation_type`.
+`capability_level` and `safety_alignment_version` are informational fields. Where the model provider publishes a tier identifier, `capability_level` SHOULD use it (e.g., `"example-tier-3"`). These fields MUST NOT be used as a security boundary. Verifiers MUST NOT use them as a substitute for `model_hash` or `model_attestation_type`.
 
 #### 3.2.5 RAG Corpus Binding
 
@@ -1033,7 +1033,7 @@ Transparency log submission ordering : The `transparency_log_entry` is a top-lev
 1. Populate the top-level `transparency_log_entry` field.
 1. The manifest is complete and ready for use only after step 4.
 
-In hosted mode, the attestation service is responsible for log submission. In self-hosted mode, the signing CLI is responsible.
+In service-hosted mode, the attestation service is responsible for log submission. In self-hosted mode, the signing CLI is responsible.
 
 Transparency log entry format :
 
@@ -1244,12 +1244,12 @@ Two conformant hosting models are defined:
 
 SDK-hosted mode: The agent SDK exposes the verification endpoint locally within the agent process. The endpoint returns hashes of running artifacts (not the artifacts themselves) computed by a trusted component inside the agent process. Access is restricted by mTLS using the agent's SPIFFE SVID. The "without prior operator-controlled authentication" requirement means that a regulator or third-party auditor must be able to reach the endpoint using their own SPIFFE SVID - the operator MUST NOT be able to gate this access.
 
-hosted mode: The agent SDK pushes signed hash attestations of running artifacts to the attestation service at startup and on change. The verification endpoint serves verification results using these pushed hashes. The push protocol uses the agent's SPIFFE SVID for authentication to the attestation service. Third-party verifiers access the verification endpoint without prior operator involvement.
+Service-hosted mode: The agent SDK pushes signed hash attestations of running artifacts to an attestation service outside the agent process at startup and on change. The verification endpoint serves verification results using these pushed hashes. The push protocol uses the agent's SPIFFE SVID for authentication to the attestation service. Third-party verifiers access the verification endpoint without prior operator involvement.
 
 Conformance level requirements:
 
 - Level 0/1: Either hosting model is acceptable.
-- Level 2+: hosted mode is REQUIRED, or SDK-hosted mode with TEE-sealed attestation of the running hash state.
+- Level 2+: service-hosted mode is REQUIRED, or SDK-hosted mode with TEE-sealed attestation of the running hash state.
 
 ##### 5.1.2 Challenge and Context Binding
 
@@ -1536,11 +1536,11 @@ Current implementations (compatible with MCP 2025-11-25): Use the `_meta` field 
     },
     "capabilities": {
       "experimental": {
-        "co.opaque.agentManifest": { "version": "0.1" }
+        "com.agentrust-io.agentManifest": { "version": "0.2" }
       }
     },
     "_meta": {
-      "co.opaque.agentManifest": {
+      "com.agentrust-io.agentManifest": {
         "id": "<UUID v7>",
         "verificationEndpoint": "<HTTPS URI>"
       }
@@ -1791,7 +1791,7 @@ The obligations mapped in section 9.1 (Arts. 12-15, 26) apply only to high-risk 
 
 Decision guidance: If the agent deployment falls within one of the above categories, Arts. 12-15 and 26 obligations apply and Level 2 conformance or above is recommended. If the deployment does not fall within Annex III, the manifest remains a useful provenance and governance primitive but the regulatory obligations in this section are not legally mandated.
 
-GPAI model providers (Anthropic, OpenAI, Google, etc.) are subject to separate obligations under Arts. 51-53 of the EU AI Act. These are distinct from the high-risk system obligations described here, which apply to operators deploying agents built on top of GPAI models.
+GPAI model providers are subject to separate obligations under Arts. 51-53 of the EU AI Act. These are distinct from the high-risk system obligations described here, which apply to operators deploying agents built on top of GPAI models.
 
 Operators in financial services should note that agents evaluating the creditworthiness of natural persons or establishing their credit score fall under Annex III point 5(b), which excludes AI systems used for the purpose of detecting financial fraud, and that agents performing risk assessment and pricing in relation to natural persons in the case of life and health insurance fall under Annex III point 5(c). Both are likely high-risk regardless of the underlying model provider.
 
@@ -1935,8 +1935,8 @@ Target: Q1 2027. Contribution to CoSAI Working Stream 4 (Secure Design Patterns 
 | SPIFFE/SPIRE                           | Agent Manifest uses SPIFFE SVIDs for `agent_id` and `principal_id`. Agent Manifest extends, not replaces, SPIFFE.                                                                                                                                                                                                                                                                                            |
 | SLSA                                   | `supply_chain.slsa_provenance` references SLSA attestations. Agent Manifest adds runtime measurement on top of SLSA build-time provenance.                                                                                                                                                                                                                                                                   |
 | CycloneDX / SPDX (SBOM)                | `supply_chain.sbom` references a CycloneDX or SPDX SBOM. Agent Manifest binds the SBOM hash; it does not replace SBOM tooling.                                                                                                                                                                                                                                                                               |
-| MCP (Anthropic / AAIF)                 | Agent Manifest extends MCP's `initialize` handshake and tool call protocol. It is protocol-agnostic but MCP is the reference implementation.                                                                                                                                                                                                                                                                 |
-| A2A (Google / Linux Foundation)        | No current A2A standard defines a delegation chain. The Agent Manifest delegation chain is a proposed primitive designed for protocol agnosticism, intended to align with A2A specifications as they mature.                                                                                                                                                                                                 |
+| MCP (AAIF)                             | Agent Manifest extends MCP's `initialize` handshake and tool call protocol. It is protocol-agnostic but MCP is the reference implementation.                                                                                                                                                                                                                                                                 |
+| A2A (Linux Foundation)                 | No current A2A standard defines a delegation chain. The Agent Manifest delegation chain is a proposed primitive designed for protocol agnosticism, intended to align with A2A specifications as they mature.                                                                                                                                                                                                 |
 | Sigstore / Rekor                       | v0.1 uses `transparency_log_entry` for the resulting inclusion proof. v0.2 carries the receipt through the COSE `receipts` header defined by the v0.2 envelope specification. Sigstore tooling (cosign) can sign manifests in the standard profile. Level 3 deployments require a private Sigstore instance with ML-DSA-65 support (see section 4.2).                                                        |
 | OpenTelemetry                          | `decision_trace` integrates with OTel spans. Each manifest-bound tool call produces an OTel span with the manifest ID as a baggage item.                                                                                                                                                                                                                                                                     |
 | CoSAI WS1                              | `supply_chain` provenance aligns with CoSAI Working Stream 1 (AI supply chain security). Agent Manifest is a candidate for CoSAI WS1 recommendation.                                                                                                                                                                                                                                                         |
