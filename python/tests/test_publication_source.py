@@ -5,6 +5,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import textwrap
 import unittest
@@ -13,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github/workflows/publish.yml"
 
 
+@unittest.skipIf(sys.platform == "win32", "publisher guard executes on Linux, not Windows WSL")
 @unittest.skipUnless(shutil.which("bash"), "publisher guard requires bash")
 class TestPublicationSource(unittest.TestCase):
     @classmethod
