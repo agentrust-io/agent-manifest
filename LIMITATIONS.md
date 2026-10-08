@@ -221,6 +221,5 @@ Hardware attestation adds latency at agent startup (not per-request):
 | TPM | 50 to 200 ms |
 | SEV-SNP | 10 to 50 ms |
 | TDX | 10 to 50 ms |
-| OPAQUE | not implemented (managed service not GA; provider fails closed) |
 
 Manifest verification (signature check + hash comparison) is < 5 ms in all cases.
