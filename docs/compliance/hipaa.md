@@ -62,9 +62,9 @@ For HIPAA audit log retention (minimum six years), the chain root provides a com
 
 **What agent-manifest provides**
 
-Every manifest field is protected by an Ed25519 + ML-DSA-65 hybrid signature (see [ADR-0005](../adr/0005-ml-dsa-hybrid-signature.md)). The signature covers the canonicalised JSON of the entire manifest (RFC 8785). Any change to any field (model version, prompt hash, tool catalog, delegation chain, HITL approval) makes the signature check fail.
+The issuer signs the manifest: Ed25519 under the `standard` profile, or ML-DSA-65 or an Ed25519 + ML-DSA-65 hybrid under the `post-quantum` profile (see [ADR-0005](../adr/0005-ml-dsa-hybrid-signature.md)). The signature covers the signed fields listed in spec section 3.6, not the whole document: `attestation`, `signature` and `transparency_log_entry` are outside it, and `hitl_record.approvals` is normalized to an empty list before signing (in v0.2 the COSE_Sign1 payload carries no approvals at all). Changing a signed field (model version, prompt hash, tool catalog, delegation chain, or the HITL requirement itself) makes the issuer signature check fail. Each approval is checked separately against its own `approval_signature`.
 
-ML-DSA-65 (NIST FIPS 204) is a signature designed to resist future quantum computers, which supports HIPAA's requirement that integrity mechanisms remain effective over the six-year retention period.
+Under the `post-quantum` profile, ML-DSA-65 (NIST FIPS 204), a signature designed to resist future quantum computers, supports HIPAA's requirement that integrity mechanisms remain effective over the six-year retention period.
 
 ---
 
@@ -74,11 +74,13 @@ ML-DSA-65 (NIST FIPS 204) is a signature designed to resist future quantum compu
 
 **What agent-manifest provides**
 
-The HITL (human-in-the-loop) approval mechanism provides documented human oversight for AI agent deployment. A signed approval record proves:
+The HITL (human-in-the-loop) mechanism has two separate parts. `hitl_record.required` is the requirement, and the issuer's signature covers it, so nobody can quietly remove it; it is not evidence that anyone approved anything. An approval entry is the approval event, signed by the approver's own key. A verified `approval_signature` shows:
 
-- A named approver reviewed the agent before it accessed ePHI
+- The holder of a trusted approver key approved this agent before it accessed ePHI
 - The approval was time-bounded (typically to a single session or shift)
 - The approval covered only the declared scope
+
+Whether a person actually reviewed the agent before that key was used is an organizational control the signature cannot show.
 
 The approver's key is separate from the issuer key, ensuring that a compromised issuer cannot retroactively forge approvals. See [Tutorial: HITL approval workflows](../tutorials/hitl-approval-workflows.md) for implementation details.
 
@@ -104,8 +106,8 @@ The approver's key is separate from the issuer key, ensuring that a compromised 
 |---------------------|-----------|---------------------------|
 | § 164.312(a)(1) | Access control | Signed delegation chain with scope enforcement |
 | § 164.312(b) | Audit controls | Merkle audit chain root (tamper-evident, selective disclosure) |
-| § 164.312(c)(1) | Integrity | Ed25519 + ML-DSA-65 hybrid signature over RFC 8785 canonical JSON |
-| § 164.308(a)(5) | Human oversight | HITL approval record (signed, scoped, time-bounded) |
+| § 164.312(c)(1) | Integrity | Issuer signature over the signed fields of spec section 3.6 (Ed25519, ML-DSA-65 or hybrid by profile) |
+| § 164.308(a)(5) | Human oversight | Signed HITL requirement plus separately signed approvals (scoped, time-bounded) |
 | § 164.308(a)(1) | Security management | Revocation, key rotation, verification failure as security signal |
 
 ---

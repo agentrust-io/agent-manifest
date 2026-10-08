@@ -10,7 +10,7 @@ The General Data Protection Regulation (GDPR) applies to AI agents that process 
 
 **What agent-manifest provides**
 
-A signed manifest is a checkable record of accountability for an AI agent. It proves who issued the agent (`issuer` SPIFFE URI, a standard workload identity), what configuration it was authorised to run, and who approved deployment (the HITL, or human-in-the-loop, record). Because the manifest is signed, the controller can demonstrate these facts without relying on self-reported agent state.
+A signed manifest is a checkable record of accountability for an AI agent. It proves who issued the agent (`issuer` SPIFFE URI, a standard workload identity), what configuration it was authorised to run, and whether human approval was required (the HITL, or human-in-the-loop, record). The issuer's signature covers that requirement; each approval is signed separately by the approver's key and verified on its own. Because both are signed, the controller can demonstrate these facts without relying on self-reported agent state.
 
 A manifest store (database, `.well-known` endpoint, or immutable log) provides an auditable history of every agent version that processed personal data, which supports the controller's duty to demonstrate compliance on request.
 
@@ -74,7 +74,7 @@ The manifest's `issued_at` / `expires_at` pair documents the period during which
 | Ability to ensure ongoing confidentiality | Attestation report (Level 2+) proves the agent runs in a hardware-isolated enclave |
 | Ability to restore availability | Key rotation runbook; revocation through a signed revocation list |
 | Process for regular testing | Conformance module tests run in CI with a coverage gate; the 197-test suite is defined in spec section 8.2 and its distribution in ADR-0008 |
-| Integrity of systems | ML-DSA-65 + Ed25519 hybrid signatures; tamper evidence on every field |
+| Integrity of systems | Issuer signature over the signed fields of spec section 3.6 (Ed25519, ML-DSA-65 or hybrid by profile) |
 
 ---
 
