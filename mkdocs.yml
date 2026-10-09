@@ -216,6 +216,7 @@ nav:
       - Operations:
           - Operations overview: operations/index.md
           - Key rotation: operations/key-rotation.md
+          - Issuer key authorization: operations/issuer-key-authorization.md
           - Audit log management: operations/audit-log.md
           - Monitoring: operations/monitoring.md
       - Compliance:

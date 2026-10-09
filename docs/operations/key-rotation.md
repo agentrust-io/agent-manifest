@@ -6,7 +6,7 @@ Treat planned rotation and a known compromise differently: a compromised key mus
 
 ## Establish the scope
 
-First, list everything the old key touches. Inventory the signing key, affected manifest IDs, trusted revocation authority, issuer-key mappings, verification replicas, cached revocation state, and dependent evidence or approvals. Record the acceptance and availability criteria for this rollout.
+First, list everything the old key touches. Inventory the signing key, affected manifest IDs, trusted revocation authority, issuer-key mappings (see [Issuer key authorization](issuer-key-authorization.md)), verification replicas, cached revocation state, and dependent evidence or approvals. Record the acceptance and availability criteria for this rollout.
 
 ## Prepare replacement manifests
 
