@@ -57,7 +57,7 @@ result = verify_manifest(manifest_or_cose_bytes, context, revocation_store)
 
 `None` and `{}` are not the same. An empty mapping is a deliberate policy that authorizes nothing, so you can switch fail-closed behavior on before you have filled in the mapping. No version gate is needed.
 
-`None` exists so that deployments configured before §5.3.3 keep working. It does not perform the check §5.3.3 requires. In the SDK, the check runs once `trusted_key_issuers` holds a mapping, even an empty one. §5.3.3 requires the check, not this data structure: the authorization path is deployment policy, and other verifiers may hold it in any form that is external to the manifest.
+`None` is backward-compatible SDK behavior, not a conformant §5.3.3 configuration. It exists so that deployments configured before §5.3.3 keep working, and it does not perform the check §5.3.3 requires. In the SDK, the check runs once `trusted_key_issuers` holds a mapping, even an empty one. §5.3.3 requires the check, not this data structure: the authorization path is deployment policy, and other verifiers may hold it in any form that is external to the manifest.
 
 ### Gate on the result, not on `signature_verified`
 
@@ -94,10 +94,10 @@ Since SDK 0.13.0, a v0.2 manifest without `issuer` fails schema validation with 
 
 - take issuer authorization from a trust path external to the manifest, and never from `agent_id` or another identifier the subject controls
 - confirm that the signing key is authorized for the manifest's declared `issuer`
-- complete key resolution and issuer authorization before signature verification
+- complete key resolution and issuer authorization before signature verification, in both envelopes
 - return no `VALID` result when authorization fails or cannot be determined, and keep those two conditions distinct
 
-How you store the policy and how you report failures is up to your implementation. The blocks below show the current SDK implementation, `_signature_key_issuer_mismatch()` in `python/src/agent_manifest/_verify.py`, as a reference. Where it differs from the spec text, the note after them says so.
+How you store the policy and how you report failures is up to your implementation. The blocks below show the current SDK implementation, `_signature_key_issuer_mismatch()` in `python/src/agent_manifest/_verify.py`, as a reference. Where it differs from the spec text, follow the spec text; the note after the blocks names both differences.
 
 ??? info "SDK reference: the authorization check"
 
@@ -162,7 +162,10 @@ How you store the policy and how you report failures is up to your implementatio
     - **Order on v0.2.** §5.3.3 requires issuer authorization before signature verification. On the v0.2 COSE path the SDK verifies the envelope signature during appraisal and runs issuer authorization afterwards. With `trusted_key_issuers` configured, an unauthorized key still never reaches `VALID`.
     - **`None`.** §5.3.3 forbids `VALID` when authorization cannot be completed. With `trusted_key_issuers=None` the SDK skips the check so that deployments configured before §5.3.3 keep working.
 
-    A custom verifier that follows the spec text runs authorization before signature verification in both envelopes and treats a missing authorization policy as a reason to withhold `VALID`.
+    For new conformant verifiers, this means:
+
+    1. Follow the §5.3.3 order: issuer authorization before signature verification, in both envelopes. The SDK's v0.2 COSE order is not a model to copy.
+    2. Treat `trusted_key_issuers=None` as backward-compatible SDK behavior, not as a conformant §5.3.3 configuration. A verifier without an authorization policy withholds `VALID`.
 
 ## Test your configuration
 
