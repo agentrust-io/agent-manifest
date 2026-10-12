@@ -18,7 +18,7 @@ from agent_manifest._transparency import (
 
 ENTRY = TransparencyLogEntry(
     log_id="test-log",
-    entry_id="test-entry",
+    entry_id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     inclusion_proof="proof",
 )
 MANIFEST: dict = {}
@@ -40,7 +40,7 @@ def _verify(response: MagicMock) -> bool:
         return verify_transparency_log_entry(MANIFEST, ENTRY)
 
 
-def test_valid_matching_200_control_remains_true() -> None:
+def test_matching_hash_without_authenticated_inclusion_is_refused() -> None:
     expected_hash = hashlib.sha256(canonicalize({})).hexdigest()
     response = _response_with_json(
         {
@@ -61,7 +61,7 @@ def test_valid_matching_200_control_remains_true() -> None:
         }
     )
 
-    assert _verify(response) is True
+    assert _verify(response) is False
 
 
 def test_invalid_response_json_returns_false() -> None:

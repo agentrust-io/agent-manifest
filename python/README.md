@@ -60,6 +60,25 @@ print(sig_block["algorithm"])   # Ed25519
 print(sig_block["key_id"])      # sha256:<hex>
 ```
 
+### Rekor v1 inclusion helper
+
+The private helper `agent_manifest._transparency.verify_transparency_log_entry`
+now requires a signed entry timestamp, an RFC 6962 inclusion path and a signed
+checkpoint in addition to the manifest's signed-fields content hash. Hash-only
+responses that previously passed are refused. The checkpoint binds the proof's
+root and tree size; a sharded entry ID also binds its checkpoint's tree ID.
+
+The default trust anchor is the pinned production Rekor v1 P-256 key. For a
+private log or a different trusted key, pass `rekor_public_key_pem=trusted_pem`
+explicitly; the helper never obtains a trust key from the log being checked.
+P-256 and Ed25519 keys are supported. This is the Rekor v1 HTTP format, not
+Rekor v2 tiles or a general Sigstore bundle verifier.
+
+`verify_manifest()` does not call this helper. Authenticated historical log
+inclusion does not establish manifest signer authorization, checkpoint
+freshness, consistency between checkpoints, or regulatory compliance. Key
+rotation and current trust-root policy remain the caller's responsibility.
+
 ### Composition-only manifests
 
 Repository scanners can bind the artifacts they know before a model or runtime

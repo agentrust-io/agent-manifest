@@ -26,6 +26,7 @@ import base64
 import hashlib
 import hmac
 import json
+import re
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -142,14 +143,21 @@ def verify_transparency_log_entry(
     manifest_dict: dict[str, Any],
     entry: TransparencyLogEntry,
     rekor_url: str = REKOR_PUBLIC_URL,
+    *,
+    rekor_public_key_pem: bytes | None = None,
 ) -> bool:
-    """Verify that the manifest entry exists in the transparency log.
+    """Verify Rekor v1 inclusion under a pinned or caller-supplied log key.
 
-    Fetches the entry from Rekor and checks that the content hash
-    matches the canonical signed bytes.
+    Requires the manifest content hash, signed entry timestamp (SET), Merkle
+    inclusion path and signed checkpoint to agree. The production Rekor v1 key
+    is pinned; custom log URLs require an explicit trusted P-256 or Ed25519 PEM
+    key. No trust key is fetched from the log being verified.
+
+    This helper is not called by verify_manifest(). It does not establish log
+    consistency/freshness, signer authorization or regulatory compliance.
 
     Returns:
-        True if the entry is present and valid.
+        True only if authenticated inclusion and content binding verify.
     """
     try:
         import httpx
@@ -158,6 +166,14 @@ def verify_transparency_log_entry(
 
     from ._canonicalize import canonicalize
     from ._signing import SIGNED_FIELDS
+    from ._rekor_verify import verify_rekor_evidence
+
+    if rekor_url != REKOR_PUBLIC_URL and rekor_public_key_pem is None:
+        return False
+    if not isinstance(entry.entry_id, str) or not re.fullmatch(
+        r"(?:[0-9a-fA-F]{16})?[0-9a-fA-F]{64}", entry.entry_id
+    ):
+        return False
 
     subset = {k: manifest_dict[k] for k in SIGNED_FIELDS if k in manifest_dict}
     canonical_bytes = canonicalize(subset)
@@ -178,14 +194,27 @@ def verify_transparency_log_entry(
         body = response.json()
         if not isinstance(body, dict):
             return False
-        entry_data: Any = next(iter(body.values()), {})
+        if len(body) != 1:
+            return False
+        response_id, entry_data = next(iter(body.items()))
+        if not isinstance(response_id, str) or not re.fullmatch(
+            r"(?:[0-9a-fA-F]{16})?[0-9a-fA-F]{64}", response_id
+        ):
+            return False
+        if (len(entry.entry_id) == 80 and response_id.lower() != entry.entry_id.lower()) or (
+            response_id[-64:].lower() != entry.entry_id[-64:].lower()
+        ):
+            return False
         if not isinstance(entry_data, dict):
             return False
         encoded_body = entry_data.get("body", "e30=")
         if not isinstance(encoded_body, (str, bytes)):
             return False
-        decoded = json.loads(base64.b64decode(encoded_body))
+        raw_body = base64.b64decode(encoded_body, validate=True)
+        decoded = json.loads(raw_body)
         if not isinstance(decoded, dict):
+            return False
+        if decoded.get("kind") != "hashedrekord" or decoded.get("apiVersion") != "0.0.1":
             return False
         spec = decoded.get("spec", {})
         if not isinstance(spec, dict):
@@ -197,6 +226,17 @@ def verify_transparency_log_entry(
         if not isinstance(hash_data, dict):
             return False
         actual_hash = hash_data.get("value", "")
+        if hash_data.get("algorithm") != "sha256":
+            return False
+        if entry.log_index is not None and (
+            type(entry.log_index) is not int or entry.log_index != entry_data.get("logIndex")
+        ):
+            return False
+        if entry.integrated_time is not None and (
+            type(entry.integrated_time) is not int
+            or entry.integrated_time != entry_data.get("integratedTime")
+        ):
+            return False
     except (AttributeError, TypeError, ValueError):
         return False
 
@@ -204,7 +244,11 @@ def verify_transparency_log_entry(
     # since compare_digest raises TypeError on those instead of False.
     if not isinstance(actual_hash, str) or not actual_hash.isascii():
         return False
-    return hmac.compare_digest(actual_hash, expected_hash)
+    if not hmac.compare_digest(actual_hash, expected_hash):
+        return False
+    return verify_rekor_evidence(
+        entry_data, raw_body, response_id, entry.log_id, rekor_public_key_pem,
+    )
 
 
 def _raw_ed25519_to_pem(raw_public_key: bytes) -> bytes:

@@ -1,0 +1,11 @@
+Copyright The Sigstore Authors. SPDX-License-Identifier: Apache-2.0
+
+Historical staging Rekor v1 interoperability fixture, extracted without changing
+signed bytes from sigstore/sigstore-python at dbe933f28eb6433d0271ab96e0f1349dc0912c8f.
+Source: test/assets/bundle.txt.sigstore
+Key: test/assets/staging-tuf/targets/1d80b8f72505a43e65e6e125247cd508f61b459dc457c1d1bcb78d96e1760959.rekor.pub
+
+Only the tlog entry is retained; certificate and artifact-signature appraisal
+are not performed by these tests. Protobuf JSON integer strings and base64
+proof hashes are converted to the equivalent Rekor v1 HTTP response types.
+The staging key is explicit test trust, never the production default.
