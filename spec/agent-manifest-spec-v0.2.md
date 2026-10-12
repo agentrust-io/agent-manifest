@@ -1724,6 +1724,10 @@ Every tool call evidence record (TRACE envelope) produced by cMCP MUST include t
 
 Hash conflict resolution <!-- CHANGED: SCHEMA F-21 -->: If `policy_hash` in the TRACE envelope differs from `artifacts.policy_bundle.hash` in the agent manifest, the TRACE MUST set `manifest_verification_result: MISMATCH` for that call. The manifest is the authoritative source for approved artifact hashes; the TRACE reflects runtime measurements. A non-empty `mismatch_details` array in the verification result (section 5.2) MUST be generated for every such discrepancy. The `manifest_verification_result` field MUST use the same enum values as the `result` field in section 5.2 - no additional values. Any TRACE with `manifest_verification_result: MISMATCH` or `EXPIRED` MUST NOT be accepted as evidence of a valid tool call for regulatory reporting purposes.
 
+Binding the manifest. `agent_manifest_id` names a manifest but does not bind its bytes: the same identifier can resolve to a different document later. A producer SHOULD also carry `agent_manifest_digest`, `sha256:<64-hex-chars>` over the manifest exactly as distributed (the COSE envelope bytes for v0.2, the RFC 8785 serialization of the signed document for v0.1), inside the envelope signature.
+
+`manifest_verification_result` is the producer's own appraisal at call time. A verifier MUST NOT report it as its own result. To appraise the manifest, a verifier resolves it, checks the resolved bytes against `agent_manifest_digest` when present, and verifies it under section 5. When the manifest cannot be resolved, the verifier reports the manifest as not established rather than inheriting the producer's value; the envelope's own signature result is unaffected.
+
 ### 6.4 Crosswalk: OCSF Runtime Evidence <!-- CHANGED: #269 - identity mapping is now normative; delegation stays informative -->
 
 > **Section 6.4.2 is normative. The rest of section 6.4 is informative.** The identity mapping carries conformance requirements for a producer that emits OCSF events for a manifest-governed session. The delegation crosswalk in 6.4.3 does not, and says why.

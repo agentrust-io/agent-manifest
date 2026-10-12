@@ -14,6 +14,14 @@
 
 ### Changed
 
+- **[Spec]** Section 6.3.2 separates naming a manifest from binding it. A
+  producer SHOULD carry `agent_manifest_digest` inside the envelope
+  signature, and a verifier MUST NOT report the producer's
+  `manifest_verification_result` as its own appraisal; an unresolvable
+  manifest is reported as not established. The result field stays required,
+  so the SDK's envelope validator is unchanged. Raised on
+  agentrust-io/trace-spec#483.
+
 - **[Spec]** The MCP `initialize` example in section 6.3.1 uses the namespaced
   key `com.agentrust-io.agentManifest` in place of `co.opaque.agentManifest`,
   and advertises `"version": "0.2"`. The section 3.1 schema example now says
