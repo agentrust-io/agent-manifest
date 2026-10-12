@@ -18,7 +18,7 @@ A signed manifest is an asset record that software can read. It documents:
 - The tools the agent can invoke (`artifacts.tool_manifest.tools[]`)
 - The cryptographic profile (`crypto_profile`: Ed25519, ML-DSA-65 hybrid)
 
-Every field is signed by the issuer key, so any change to the record shows up. An inventory sweep can verify that all deployed agents have valid, unexpired manifests and produce a signed asset register.
+The issuer signature covers every field settled at signing time (for v0.1 the signed fields of spec section 3.6, for v0.2 the COSE payload), so a change to any of them shows up. Attestation, approvals and transparency receipts attach after signing and carry their own signatures. An inventory sweep can verify that all deployed agents have valid, unexpired manifests and produce a signed asset register.
 
 ---
 

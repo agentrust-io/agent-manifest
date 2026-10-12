@@ -87,7 +87,7 @@ The manifest does not do the logging: the agent's runtime has to write the log, 
 | System prompt used | `artifacts.system_prompt.hash` (SHA-256, content-addressed) |
 | Tools the system can invoke | `artifacts.tool_manifest.tools[]` |
 
-All fields are signed by the issuer key. A deployer can check the signed manifest and see exactly which model, prompt and tools were approved, without taking the agent's word for it. Confirming that the running agent matches still needs the deployer's own runtime values.
+Every field in this table is covered by the issuer signature, in both v0.1 (spec section 3.6) and v0.2 (the COSE payload). A deployer can check the signed manifest and see exactly which model, prompt and tools were approved, without taking the agent's word for it. Confirming that the running agent matches still needs the deployer's own runtime values.
 
 ---
 

@@ -74,7 +74,7 @@ The manifest's `issued_at` / `expires_at` pair documents the period during which
 | Ability to ensure ongoing confidentiality | Attestation report (Level 2+) proves the agent runs in a hardware-isolated enclave |
 | Ability to restore availability | Key rotation runbook; revocation through a signed revocation list |
 | Process for regular testing | Conformance module tests run in CI with a coverage gate; the 197-test suite is defined in spec section 8.2 and its distribution in ADR-0008 |
-| Integrity of systems | Issuer signature over the signed fields of spec section 3.6 (Ed25519, ML-DSA-65 or hybrid by profile) |
+| Integrity of systems | Issuer signature over the v0.1 signed fields of spec section 3.6, or the v0.2 COSE payload (Ed25519, ML-DSA-65 or hybrid by profile) |
 
 ---
 
