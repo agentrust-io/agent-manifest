@@ -7,6 +7,7 @@ Start with the [local verification service](../tutorials/deploying-the-verificat
 | Guide | What it covers |
 |-------|---------------|
 | [Key rotation](key-rotation.md) | Distributing new trust, issuing replacement IDs, and handling compromised keys |
+| [Issuer key authorization](issuer-key-authorization.md) | Restricting each trusted key to the issuers it may sign for (spec §5.3.3) |
 | [Audit log management](audit-log.md) | Storage, retention, querying, and Rekor transparency log integration |
 | [Monitoring](monitoring.md) | Tested verdict/error metrics, latency queries, and alert interpretation |
 

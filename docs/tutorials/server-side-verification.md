@@ -81,7 +81,7 @@ The verifier (the code that checks a manifest) needs its own picture of what sho
 
 ??? info "Technical detail: issuer keys and strict mode"
 
-    `trusted_keys` authenticates the signature under a configured key. Where issuer identity matters, also populate `trusted_key_issuers` to restrict which issuer each key may represent. An empty issuer map does not authorize that named issuer merely because the signature verifies.
+    `trusted_keys` authenticates the signature under a configured key. Where issuer identity matters, also populate `trusted_key_issuers` to restrict which issuer each key may represent. An empty issuer map does not authorize that named issuer merely because the signature verifies. See [Issuer key authorization](../operations/issuer-key-authorization.md) for the settings and how to read the results.
 
     Keep `strict_artifact_verification=True` for the application gate. Setting it to `False` deliberately reduces artifact checking; label such an audit as document verification and do not use it to approve the running agent.
 
