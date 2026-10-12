@@ -4,11 +4,12 @@ These guides are for the people who keep Agent Manifest running day to day: whoe
 
 Start with the [local verification service](https://manifest.agentrust-io.com/tutorials/deploying-the-verification-endpoint/index.md), then decide how your deployment hands out trusted keys, keeps evidence current, and deals with rejected records.
 
-| Guide                                                                                   | What it covers                                                                 |
-| --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| [Key rotation](https://manifest.agentrust-io.com/operations/key-rotation/index.md)      | Distributing new trust, issuing replacement IDs, and handling compromised keys |
-| [Audit log management](https://manifest.agentrust-io.com/operations/audit-log/index.md) | Storage, retention, querying, and Rekor transparency log integration           |
-| [Monitoring](https://manifest.agentrust-io.com/operations/monitoring/index.md)          | Tested verdict/error metrics, latency queries, and alert interpretation        |
+| Guide                                                                                                      | What it covers                                                                 |
+| ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| [Key rotation](https://manifest.agentrust-io.com/operations/key-rotation/index.md)                         | Distributing new trust, issuing replacement IDs, and handling compromised keys |
+| [Issuer key authorization](https://manifest.agentrust-io.com/operations/issuer-key-authorization/index.md) | Restricting each trusted key to the issuers it may sign for (spec §5.3.3)      |
+| [Audit log management](https://manifest.agentrust-io.com/operations/audit-log/index.md)                    | Storage, retention, querying, and Rekor transparency log integration           |
+| [Monitoring](https://manifest.agentrust-io.com/operations/monitoring/index.md)                             | Tested verdict/error metrics, latency queries, and alert interpretation        |
 
 ## Operational model
 
