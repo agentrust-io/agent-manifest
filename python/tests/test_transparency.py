@@ -82,6 +82,8 @@ def _make_get_response_body(
 ) -> dict:
     """Build a plausible Rekor GET response body with matching content hash."""
     spec_body = {
+        "apiVersion": "0.0.1",
+        "kind": "hashedrekord",
         "spec": {
             "data": {"hash": {"algorithm": "sha256", "value": content_hash}},
             "signature": {
@@ -248,8 +250,8 @@ def test_publish_to_rekor_timeout_raises():
 # ---------------------------------------------------------------------------
 
 
-def test_verify_entry_success():
-    """200 response with matching hash returns True."""
+def test_verify_entry_hash_only_response_is_refused():
+    """A hash-only response without SET and proof is refused."""
     content_hash = _expected_content_hash()
     entry = TransparencyLogEntry(
         log_id=FAKE_LOG_ID,
@@ -266,7 +268,7 @@ def test_verify_entry_success():
     with patch("httpx.get", return_value=mock_response):
         result = verify_transparency_log_entry(SAMPLE_MANIFEST, entry)
 
-    assert result is True
+    assert result is False
 
 
 # ---------------------------------------------------------------------------
@@ -430,7 +432,7 @@ def test_verify_entry_hash_compare_uses_constant_time_compare():
     ) as mock_compare:
         result = verify_transparency_log_entry(SAMPLE_MANIFEST, entry)
 
-    assert result is True
+    assert result is False
     mock_compare.assert_called_once_with(content_hash, content_hash)
 
 
