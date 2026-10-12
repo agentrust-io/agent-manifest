@@ -10,8 +10,84 @@ import tempfile
 import textwrap
 import unittest
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github/workflows/publish.yml"
+
+
+def _oidc_grants(workflows):
+    """Inventory effective OIDC grants, including inherited permissions."""
+    grants = set()
+
+    def permits_oidc(permissions):
+        if permissions == "write-all":
+            return True
+        if permissions in (None, "read-all"):
+            return False
+        if not isinstance(permissions, dict):
+            raise AssertionError("unrecognized workflow permissions")
+        value = permissions.get("id-token", "none")
+        if value not in ("none", "write"):
+            raise AssertionError("unrecognized id-token permission")
+        return value == "write"
+
+    for filename, workflow in workflows.items():
+        defaults = workflow.get("permissions")
+        # A workflow-level grant also exposes future jobs by inheritance.
+        if permits_oidc(defaults):
+            raise AssertionError(f"workflow-level OIDC grant in {filename}")
+        for name, job in workflow["jobs"].items():
+            if permits_oidc(job.get("permissions", defaults)):
+                grants.add((filename, name))
+    return grants
+
+
+class TestOIDCPermissionScope(unittest.TestCase):
+    ALLOWED = {("publish.yml", "publish"), ("scorecard.yml", "analysis")}
+
+    def setUp(self):
+        paths = sorted((ROOT / ".github/workflows").glob("*.y*ml"))
+        self.assertTrue(paths, "workflow inventory must not be empty")
+        self.workflows = {
+            path.name: yaml.safe_load(path.read_text(encoding="utf-8"))
+            for path in paths
+        }
+
+    def test_only_reviewed_jobs_can_mint_oidc_tokens(self):
+        self.assertEqual(_oidc_grants(self.workflows), self.ALLOWED)
+
+    def test_test_or_validation_job_grant_is_detected(self):
+        for filename, name in (("ci.yml", "test"), ("publish.yml", "validate"),
+                               ("publish.yml", "build")):
+            for permissions in ({"id-token": "write"}, "write-all"):
+                with self.subTest(workflow=filename, job=name, permissions=permissions):
+                    import copy
+
+                    workflows = copy.deepcopy(self.workflows)
+                    workflows[filename]["jobs"][name]["permissions"] = permissions
+                    self.assertNotEqual(_oidc_grants(workflows), self.ALLOWED)
+
+    def test_new_workflow_cannot_gain_oidc_authority(self):
+        self.workflows["new-validation.yaml"] = {
+            "jobs": {"validate": {"permissions": {"id-token": "write"}}}
+        }
+        self.assertNotEqual(_oidc_grants(self.workflows), self.ALLOWED)
+
+    def test_workflow_level_grant_is_rejected_even_in_allowed_workflow(self):
+        for permissions in ({"id-token": "write"}, "write-all"):
+            with self.subTest(permissions=permissions):
+                self.workflows["publish.yml"]["permissions"] = permissions
+                with self.assertRaisesRegex(AssertionError, "workflow-level OIDC"):
+                    _oidc_grants(self.workflows)
+
+    def test_script_and_comment_mentions_do_not_grant_permissions(self):
+        self.workflows["new-validation.yaml"] = yaml.safe_load(
+            'permissions: read-all\n'
+            'jobs:\n  validate:\n    steps:\n'
+            '      - run: "echo id-token: write" # id-token: write\n'
+        )
+        self.assertEqual(_oidc_grants(self.workflows), self.ALLOWED)
 
 
 @unittest.skipIf(sys.platform == "win32", "publisher guard executes on Linux, not Windows WSL")
