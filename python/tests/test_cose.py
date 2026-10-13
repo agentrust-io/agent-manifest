@@ -1559,9 +1559,12 @@ def test_truncated_cbor_is_rejected():
 
 
 def test_a_bare_break_byte_is_rejected():
-    """cbor2 decodes 0xff to a break sentinel rather than raising, so the
-    untagged-structure check is what has to catch it."""
-    with pytest.raises(CoseStructureError, match="untagged"):
+    """Malformed break byte must be rejected across cbor2 decoder versions.
+
+    Some versions expose a break sentinel, others reject it during CBOR decode.
+    Both paths must produce our own CoseStructureError, never an admission.
+    """
+    with pytest.raises(CoseStructureError, match="untagged|not valid CBOR"):
         verify_cose_manifest(b"\xff", TRUSTED_KEYS)
 
 
@@ -2030,7 +2033,9 @@ def test_signature_slot_type_is_checked_at_decode():
         lambda: attach_unprotected(envelope, 1, b"x"),
         lambda: decode_cose_manifest(envelope),
     ):
-        with pytest.raises(CoseError, match="signature must be a byte string"):
+        with pytest.raises(
+            CoseError, match="signature must be a byte string|not valid CBOR"
+        ):
             call()
 
 
@@ -2062,7 +2067,9 @@ def test_unprotected_header_sentinel_is_checked_at_decode():
         lambda: attach_attestation(envelope, {"platform": "x"}),
         lambda: attach_approvals(envelope, [{"approver_id": "a"}]),
     ):
-        with pytest.raises(CoseStructureError, match="undecodable CBOR value"):
+        with pytest.raises(
+            CoseStructureError, match="undecodable CBOR value|not valid CBOR"
+        ):
             call()
 
     # decode_cose_manifest never re-encodes the unprotected header, so this
