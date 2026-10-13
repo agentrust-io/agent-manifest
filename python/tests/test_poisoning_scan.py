@@ -34,6 +34,7 @@ TRANSPARENCY_ENTRY_ID = "rekor-poisoning-suite-entry"
 
 KP = generate_ed25519()
 TRUSTED_KEYS = {KP.key_id: KP.public_b64url()}
+ISSUER = "spiffe://trust.example/signing-authority"
 
 
 def sign(m):
@@ -71,6 +72,7 @@ def base_manifest(poisoning_result: str, subject_digest="bound"):
         "version": "0.1",
         "issued_at": NOW.isoformat().replace("+00:00", "Z"),
         "expires_at": FUTURE,
+        "issuer": ISSUER,
         "crypto_profile": "standard",
         "artifacts": {
             "system_prompt": {"hash": SHA_A},
@@ -94,6 +96,7 @@ def base_context(conformance_level: int = 0):
         model_version="example-model-3",
         rag_corpus_merkle_root=SHA_A,
         trusted_keys=dict(TRUSTED_KEYS),
+        trusted_key_issuers={key_id: [ISSUER] for key_id in TRUSTED_KEYS},
         conformance_level=conformance_level,
         verified_transparency_entry_ids={TRANSPARENCY_ENTRY_ID},
         transparency_evidence_manifest_id=MID,
@@ -183,6 +186,7 @@ def test_no_rag_corpus_no_warnings():
         "version": "0.1",
         "issued_at": NOW.isoformat().replace("+00:00", "Z"),
         "expires_at": FUTURE,
+        "issuer": ISSUER,
         "crypto_profile": "standard",
         "artifacts": {
             "system_prompt": {"hash": SHA_A},
@@ -199,6 +203,7 @@ def test_no_rag_corpus_no_warnings():
         policy_bundle_hash=SHA_B,
         model_version="example-model-3",
         trusted_keys=dict(TRUSTED_KEYS),
+        trusted_key_issuers={key_id: [ISSUER] for key_id in TRUSTED_KEYS},
         conformance_level=1,
         verified_transparency_entry_ids={TRANSPARENCY_ENTRY_ID},
         transparency_evidence_manifest_id=MID,

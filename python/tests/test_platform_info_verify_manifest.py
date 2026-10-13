@@ -199,6 +199,7 @@ def _base_context(keypair) -> VerificationContext:
         enforcement_mode="enforce",
         model_version="demo-v1",
         trusted_keys={keypair.key_id: keypair.public_b64url()},
+        trusted_key_issuers={keypair.key_id: ["spiffe://trust.acme.co/signing-authority"]},
         enforce_attestation=True,
         audit_chain_root="sha256:" + "d" * 64,
     )

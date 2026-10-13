@@ -139,8 +139,20 @@ def base_context(**overrides: Any) -> dict[str, Any]:
         "policy_bundle_hash": PB_HASH,
         "model_version": "claude-3",
         "trusted_keys": dict(TRUSTED_KEYS),
+        # Spec 5.3.3: VALID needs the signing key authorized for the declared
+        # issuer through a path outside the manifest. Every vector that expects
+        # a verified signature carries that policy; AM-VEC-025 and
+        # AM-VEC-COSE-016 drop it to pin the undetermined case.
+        "trusted_key_issuers": {KEY_ID: [ISSUER]},
     }
     ctx.update(overrides)
+    return ctx
+
+
+def context_without_issuer_policy() -> dict[str, Any]:
+    """A context with trusted keys and no issuer authorization policy."""
+    ctx = base_context()
+    del ctx["trusted_key_issuers"]
     return ctx
 
 
@@ -442,6 +454,10 @@ def cose_negative_vectors() -> list[dict[str, Any]]:
     # differs, so nothing about the object can explain the rejection. A
     # verifier that stops at "the signature verifies under a trusted key"
     # returns VALID here and has no authorization boundary at all.
+    #
+    # signature_verified is false: spec 5.3.3 puts issuer authorization before
+    # signature verification, so a verifier refuses the key without checking
+    # the signature. signature_valid stays true because the bytes are sound.
     vectors.append(_cose_negative(
         "AM-VEC-COSE-009",
         (
@@ -452,7 +468,6 @@ def cose_negative_vectors() -> list[dict[str, Any]]:
         ["5.3", "cose-envelope-v0.2 6"],
         sign_cose_sign1(cose_manifest(), KP),
         "MISMATCH",
-        signature_verified=True,
         context=base_context(
             trusted_key_issuers={KEY_ID: ["spiffe://trust.example/other-authority"]}
         ),
@@ -602,6 +617,21 @@ def cose_negative_vectors() -> list[dict[str, Any]]:
         ["cose-envelope-v0.2 4", "cose-envelope-v0.2 6"],
         _sign_payload(infinite),
         "MISMATCH",
+    ))
+
+    # 016: the v0.2 counterpart of AM-VEC-025. Byte-identical to
+    # AM-VEC-COSE-001 with no issuer authorization policy in the context.
+    vectors.append(_cose_negative(
+        "AM-VEC-COSE-016",
+        (
+            "Without an issuer authorization policy the result is "
+            "UNVERIFIABLE, never VALID. The envelope is byte-identical to "
+            "AM-VEC-COSE-001; only the context differs."
+        ),
+        ["5.3", "cose-envelope-v0.2 6"],
+        sign_cose_sign1(cose_manifest(), KP),
+        "UNVERIFIABLE",
+        context=context_without_issuer_policy(),
     ))
 
     return vectors
@@ -948,11 +978,9 @@ def build() -> list[dict[str, Any]]:
     # stops at "the signature verifies under a trusted key" returns VALID here
     # and has no key-to-issuer authorization boundary at all.
     #
-    # signature_verified is false, not true as on AM-VEC-COSE-009: the v0.1
-    # path evaluates the issuer binding before it verifies the detached
-    # signature (spec 5.3), so on a mismatch it never reaches verification and
-    # the flag stays false. The COSE path appraises the envelope signature
-    # first, so its analog records true.
+    # signature_verified is false, as on AM-VEC-COSE-009: issuer authorization
+    # runs before signature verification (spec 5.3.3), so on a mismatch the
+    # signature is never checked.
     vectors.append(_vector(
         "AM-VEC-022",
         "A trusted key not authorized for the manifest's issuer is rejected.",
@@ -980,9 +1008,9 @@ def build() -> list[dict[str, Any]]:
         {"result": "MISMATCH", "signature_verified": False},
     ))
     # 024 - issuer authorization explicitly configured with no authorized keys.
-    # None means issuer authorization is not configured; an empty mapping means
-    # it is configured but authorizes no signing key. The latter must therefore
-    # fail closed rather than taking the "not configured" path.
+    # An absent mapping means authorization cannot be determined (AM-VEC-025,
+    # UNVERIFIABLE); an empty mapping means it is configured and authorizes no
+    # signing key, which is an authorization failure: MISMATCH.
     vectors.append(_vector(
         "AM-VEC-024",
         "An explicitly empty issuer authorization mapping rejects the signing key.",
@@ -993,6 +1021,20 @@ def build() -> list[dict[str, Any]]:
             "result": "MISMATCH",
             "signature_verified": False,
         },
+    ))
+    # 025 - no issuer authorization policy at all. Spec 5.3.3: authorization
+    # that cannot be determined is distinct from an authorization failure, and
+    # neither permits VALID. The manifest and key are byte-identical to
+    # AM-VEC-001; only trusted_key_issuers is absent. UNVERIFIABLE, not
+    # MISMATCH, because nothing about the manifest was found wrong, and the
+    # signature is not verified because authorization has to complete first.
+    vectors.append(_vector(
+        "AM-VEC-025",
+        "Without an issuer authorization policy the result is UNVERIFIABLE, never VALID.",
+        ["5.3"],
+        base_manifest(),
+        context_without_issuer_policy(),
+        {"result": "UNVERIFIABLE", "signature_verified": False},
     ))
 
     # --- version 0.2, COSE envelope (ADR-0011, issue #243) -----------------

@@ -23,7 +23,7 @@ pip install agent-manifest
 
 The signing key is the secret that makes a manifest trustworthy, so create it once, carefully, and keep it out of the repository. Generate the issuer key through your approved key-management system. For a local development key, `manifest keygen -d keys/` writes key files rather than printing the private key. Keep private files out of source control and logs.
 
-Provision `MANIFEST_SIGNING_KEY` as base64url-encoded raw Ed25519 private bytes using your secret-management process. Configure `MANIFEST_PUBLIC_KEY` (base64url public bytes) and `MANIFEST_KEY_ID` independently on the verifier. The public key can be shared openly; what matters is that nobody can swap it. The example workflow below references all three as Actions secrets.
+Provision `MANIFEST_SIGNING_KEY` as base64url-encoded raw Ed25519 private bytes using your secret-management process. Configure `MANIFEST_PUBLIC_KEY` (base64url public bytes), `MANIFEST_KEY_ID` and `MANIFEST_AUTHORIZED_ISSUER` (the issuer that key may sign for, spec §5.3.3) independently on the verifier. The public key can be shared openly; what matters is that nobody can swap it. The example workflow below references the three key secrets as Actions secrets and the issuer as an Actions variable.
 
 The verifier also needs its own record of what was approved. Provide `approved-context.json` containing the recipient's approved runtime observations using the fields of `VerificationContext`, such as prompt and policy hashes, enforcement mode, and model version. Maintain it under the verifier's change controls; do not generate expected values by copying them from the incoming manifest. Missing required observations can produce `INCOMPLETE` even when the signature is valid.
 
@@ -95,6 +95,7 @@ def main():
     manifest_path = Path(sys.argv[1])
     public_b64url = os.environ["MANIFEST_PUBLIC_KEY"]
     key_id = os.environ["MANIFEST_KEY_ID"]
+    authorized_issuer = os.environ["MANIFEST_AUTHORIZED_ISSUER"]
 
     with open(manifest_path) as f:
         manifest_dict = json.load(f)
@@ -103,6 +104,8 @@ def main():
     approved_inputs = json.loads(context_path.read_text())
     # Trust is configured here, never selected by the received manifest.
     approved_inputs["trusted_keys"] = {key_id: public_b64url}
+    # Spec 5.3.3: the key must be authorized for the manifest's issuer.
+    approved_inputs["trusted_key_issuers"] = {key_id: [authorized_issuer]}
     ctx = VerificationContext.model_validate(approved_inputs)
     result = verify_manifest(manifest_dict, ctx, RevocationStore())
 
@@ -160,6 +163,7 @@ jobs:
         env:
           MANIFEST_PUBLIC_KEY: ${{ secrets.MANIFEST_PUBLIC_KEY }}
           MANIFEST_KEY_ID: ${{ secrets.MANIFEST_KEY_ID }}
+          MANIFEST_AUTHORIZED_ISSUER: ${{ vars.MANIFEST_AUTHORIZED_ISSUER }}
           MANIFEST_CONTEXT_FILE: approved-context.json
         run: python scripts/verify_manifest.py signed-agent-manifest.json
 

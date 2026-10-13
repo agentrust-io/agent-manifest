@@ -245,8 +245,11 @@ class VerifyRequest(BaseModel):
     unsigned manifest yields ``SIGNATURE_MISSING`` - never ``VALID``.
 
     ``trusted_key_issuers`` maps each trusted key_id to the issuer SPIFFE URIs
-    authorized to sign manifests with that key. When supplied, key-to-issuer
-    authorization is fail-closed.
+    authorized to sign manifests with that key (spec 5.3.3). It is required
+    for ``VALID``: without it the issuer check cannot complete, the signature
+    is not verified, and a signed manifest yields ``UNVERIFIABLE``. A key the
+    mapping does not authorize for the manifest's issuer, including under an
+    empty mapping, yields ``MISMATCH``.
 
     ``approver_public_keys`` maps the human-attributable ``approver_id`` on a
     HITL approval to its trusted Ed25519 public key. HITL verification is
@@ -810,6 +813,10 @@ def verify_manifest(
     - A manifest without a ``signature`` block returns ``SIGNATURE_MISSING``.
     - A signed manifest verified without any ``trusted_keys`` in the context
       returns ``UNVERIFIABLE`` - never ``VALID``.
+    - Issuer key authorization (spec 5.3.3) completes before the signature is
+      verified, on both envelopes. Without ``trusted_key_issuers`` it cannot
+      complete and the result is ``UNVERIFIABLE``; a key not authorized for
+      the manifest's ``issuer`` is ``MISMATCH``.
     - A delegation chain that cannot be verified (no
       ``delegation_public_keys``) is marked ``UNVERIFIABLE`` and the overall
       result is ``UNVERIFIABLE`` (spec 3.4.1 / 5.2).
@@ -972,6 +979,11 @@ def verify_manifest(
             sig_block = {}
             signature_missing = False
     profile_downgrade = False
+    issuer_authorization_undetermined = (
+        _envelope is not None
+        and bool(context.trusted_keys)
+        and context.trusted_key_issuers is None
+    )
     if sig_block:
         declared_profile = manifest.get("crypto_profile", "standard")
         permitted = PROFILE_SIGNATURE_ALGORITHMS.get(declared_profile)
@@ -1021,6 +1033,14 @@ def verify_manifest(
             )
             if issuer_mismatch is not None:
                 mismatches.append(issuer_mismatch)
+            elif context.trusted_key_issuers is None:
+                # Spec 5.3.3: with no authorization policy the issuer check
+                # cannot be completed, and it has to complete before the
+                # signature is verified. The signature is left unverified, so
+                # the fail-closed chain below yields UNVERIFIABLE: authorization
+                # undetermined, distinct from the MISMATCH of a key that is not
+                # authorized.
+                issuer_authorization_undetermined = True
             else:
                 from ._signing import (
                     AlgorithmUnavailableError,
@@ -1688,6 +1708,12 @@ def verify_manifest(
         # Signature present but no trusted keys (or verification never ran) -
         # the manifest cannot be authenticated. Never VALID.
         result.result = OverallResult.UNVERIFIABLE
+        if issuer_authorization_undetermined:
+            result.warnings.append(
+                "issuer key authorization could not be determined: no "
+                "trusted_key_issuers policy was supplied, so the signature was "
+                "not verified (spec 5.3.3)"
+            )
     elif transparency_unverifiable and OverallResult.VALID == result.result:
         result.result = OverallResult.UNVERIFIABLE
     elif fields.delegation_chain == DelegationResult.UNVERIFIABLE:
@@ -1783,6 +1809,50 @@ def _cose_manifest_id(cose_bytes: bytes) -> str:
     return manifest_id if isinstance(manifest_id, str) else "unknown"
 
 
+def _authorize_before_signature(
+    cose_bytes: bytes,
+    context: VerificationContext,
+    decode: Callable[[bytes], CoseVerification],
+) -> Optional[CoseVerification]:
+    """Spec 5.3.3 ordering for a COSE envelope: resolve, authorize, then verify.
+
+    Decodes the envelope structurally (steps 1-4, no signature checked) and
+    returns that unverified envelope when the signature must not be checked:
+    a ``kid`` that does not resolve to a trusted key, a key that is not
+    authorized for the declared issuer, or no authorization policy at all. The
+    shared pipeline then reports MISMATCH for the first two and UNVERIFIABLE
+    for the third, with ``signature_verified`` false in every case.
+
+    Returns ``None`` when resolution and authorization both completed, or when
+    there are no trusted keys to resolve against, and the caller verifies the
+    signature as before. A decoding failure also returns ``None``, so the
+    full appraisal reports it exactly as it always has.
+    """
+    if not context.trusted_keys:
+        return None
+    try:
+        decoded = decode(cose_bytes)
+    except Exception:
+        return None
+    for signature in decoded.signatures:
+        if signature.key_id not in context.trusted_keys:
+            raise _cose_key_error(signature.key_id)
+    if context.trusted_key_issuers is None:
+        return decoded
+    for signature in decoded.signatures:
+        if _signature_key_issuer_mismatch(
+            decoded.manifest, signature.key_id, context.trusted_key_issuers
+        ) is not None:
+            return decoded
+    return None
+
+
+def _cose_key_error(key_id: str) -> Exception:
+    from ._cose import CoseKeyError
+
+    return CoseKeyError(f"kid={key_id} is not in trusted_keys")
+
+
 def _verify_cose_envelope(
     cose_bytes: bytes,
     context: VerificationContext,
@@ -1804,12 +1874,17 @@ def _verify_cose_envelope(
         CoseKeyError,
         CoseStructureError,
         CoseVersionError,
+        decode_cose_manifest,
         verify_cose_manifest,
     )
     from ._signing import AlgorithmUnavailableError
 
     try:
-        envelope = verify_cose_manifest(cose_bytes, context.trusted_keys)
+        envelope = _authorize_before_signature(
+            cose_bytes, context, decode_cose_manifest
+        )
+        if envelope is None:
+            envelope = verify_cose_manifest(cose_bytes, context.trusted_keys)
     except CoseVersionError:
         # spec 2.4: an unsupported version is never silently misinterpreted.
         return VerificationResult(

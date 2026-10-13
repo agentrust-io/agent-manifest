@@ -97,6 +97,7 @@ SHA_B = "sha256:" + "b" * 64
 
 KP = generate_ed25519()
 TRUSTED_KEYS = {KP.key_id: KP.public_b64url()}
+DEFAULT_ISSUER = "spiffe://trust.example/issuer/default"
 APPROVER_KP = generate_ed25519()
 APPROVER_ID = "mailto:alice@example.com"
 BOB_KP = generate_ed25519()
@@ -108,7 +109,7 @@ def base_manifest(**overrides):
         "manifest_id": "018f4a3b-2c1d-7e5f-a8b9-0d1e2f3a4b5c",
         "agent_id": "spiffe://trust.example/agent/kyc/prod",
         "version": "0.2",
-        "issuer": "spiffe://trust.example/issuer/default",
+        "issuer": DEFAULT_ISSUER,
         "issued_at": NOW.isoformat().replace("+00:00", "Z"),
         "expires_at": FUTURE,
         "crypto_profile": "standard",
@@ -136,6 +137,11 @@ def base_context(**overrides):
     )
     for k, v in overrides.items():
         setattr(ctx, k, v)
+    if "trusted_key_issuers" not in overrides and ctx.trusted_keys:
+        # Spec 5.3.3: every trusted key is authorized for the issuer the base
+        # manifest declares, so VALID stays reachable. Tests of the issuer
+        # binding itself pass trusted_key_issuers explicitly.
+        ctx.trusted_key_issuers = {kid: [DEFAULT_ISSUER] for kid in ctx.trusted_keys}
     return ctx
 
 
@@ -1236,26 +1242,31 @@ def test_v02_manifest_missing_issuer_is_not_valid():
 def test_v02_manifest_missing_issuer_is_not_rescued_by_key_authorization():
     """The bug is not neutralized just because trusted_key_issuers is unset.
 
-    An unconfigured `trusted_key_issuers` skips `_signature_key_issuer_mismatch`
-    entirely (see its early return), so that check alone never catches this.
-    The schema gate has to be the one that fails closed here.
+    An empty `trusted_key_issuers` mapping would also reject the key, so the
+    assertion that matters is that the schema gate fails closed on its own.
     """
     manifest = base_manifest()
     del manifest["issuer"]
     ctx = base_context(trusted_key_issuers={})
     result = verify_manifest(sign_cose_sign1(manifest, KP), ctx, store())
     assert result.result == OverallResult.MISMATCH
+    assert any(d.field == "schema:issuer" for d in result.mismatch_details)
 
 
-def test_v01_manifest_missing_issuer_still_verifies():
-    """The legacy compatibility this exception exists for is unchanged."""
+def test_v01_manifest_missing_issuer_is_schema_compatible_but_not_valid():
+    """The schema still tolerates a v0.1 manifest without `issuer`, but spec
+    5.3.3 needs the signing key authorized for a declared issuer, and there is
+    none to authorize it for. Under an issuer policy that is an authorization
+    failure, never VALID."""
     from agent_manifest._signing import Ed25519Signer
 
     manifest = base_manifest(version="0.1")
     del manifest["issuer"]
     manifest["signature"] = Ed25519Signer(KP).sign(manifest)
     result = verify_manifest(manifest, base_context(), store())
-    assert result.result == OverallResult.VALID
+    assert result.result == OverallResult.MISMATCH
+    assert [d.field for d in result.mismatch_details] == ["signature.issuer"]
+    assert not any(d.field.startswith("schema:") for d in result.mismatch_details)
 
 
 def test_engine_binds_attestation_to_the_payload_hash():
@@ -2193,3 +2204,69 @@ def test_unprotected_header_sentinel_nested_in_tag_or_set_is_checked_at_decode()
         ):
             with pytest.raises(CoseStructureError, match="undecodable CBOR value"):
                 call()
+
+
+# ---------------------------------------------------------------------------
+# Spec 5.3.3 ordering and the undetermined case on the COSE path (#493).
+# Key resolution and issuer authorization complete before the envelope
+# signature is checked, and with no authorization policy the result is
+# UNVERIFIABLE, never VALID.
+# ---------------------------------------------------------------------------
+
+
+def _count_signature_checks(monkeypatch):
+    from agent_manifest import _cose
+
+    calls = []
+    real = _cose._ed25519_verify
+
+    def spy(public_key_bytes, data, signature):
+        calls.append(public_key_bytes)
+        return real(public_key_bytes, data, signature)
+
+    monkeypatch.setattr(_cose, "_ed25519_verify", spy)
+    return calls
+
+
+def test_unauthorized_issuer_is_refused_before_the_signature_is_checked(monkeypatch):
+    calls = _count_signature_checks(monkeypatch)
+    manifest = base_manifest(issuer="spiffe://trust.example/issuer/other")
+    ctx = base_context(
+        trusted_key_issuers={KP.key_id: ["spiffe://trust.example/issuer/payroll"]}
+    )
+    result = verify_manifest(sign_cose_sign1(manifest, KP), ctx, store())
+    assert result.result == OverallResult.MISMATCH
+    assert [d.field for d in result.mismatch_details] == ["signature.issuer"]
+    assert result.signature_verified is False
+    assert calls == []
+
+
+def test_authorized_issuer_still_has_its_signature_checked(monkeypatch):
+    calls = _count_signature_checks(monkeypatch)
+    result = verify_manifest(sign_cose_sign1(base_manifest(), KP), base_context(), store())
+    assert result.result == OverallResult.VALID
+    assert result.signature_verified is True
+    assert len(calls) == 1
+
+
+def test_no_issuer_policy_is_unverifiable_not_valid(monkeypatch):
+    calls = _count_signature_checks(monkeypatch)
+    ctx = base_context(trusted_key_issuers=None)
+    result = verify_manifest(sign_cose_sign1(base_manifest(), KP), ctx, store())
+    assert result.result == OverallResult.UNVERIFIABLE
+    assert result.signature_verified is False
+    assert result.mismatch_details == []
+    assert any("5.3.3" in w for w in result.warnings)
+    assert calls == []
+
+
+def test_no_issuer_policy_is_distinct_from_an_authorization_failure():
+    signed = sign_cose_sign1(base_manifest(), KP)
+    undetermined = verify_manifest(signed, base_context(trusted_key_issuers=None), store())
+    failed = verify_manifest(
+        signed,
+        base_context(trusted_key_issuers={KP.key_id: ["spiffe://trust.example/other"]}),
+        store(),
+    )
+    assert undetermined.result == OverallResult.UNVERIFIABLE
+    assert failed.result == OverallResult.MISMATCH

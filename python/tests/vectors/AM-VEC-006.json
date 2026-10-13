@@ -64,7 +64,12 @@
     "system_prompt_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "policy_bundle_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     "model_version": "claude-3",
-    "trusted_keys": {}
+    "trusted_keys": {},
+    "trusted_key_issuers": {
+      "56475aa75463474c0285df5dbf2bcab73da651358839e9b77481b2eab107708c": [
+        "spiffe://trust.example/signing-authority"
+      ]
+    }
   },
   "expected": {
     "result": "UNVERIFIABLE",

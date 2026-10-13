@@ -13,6 +13,11 @@
     "model_version": "claude-3",
     "trusted_keys": {
       "56475aa75463474c0285df5dbf2bcab73da651358839e9b77481b2eab107708c": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+    },
+    "trusted_key_issuers": {
+      "56475aa75463474c0285df5dbf2bcab73da651358839e9b77481b2eab107708c": [
+        "spiffe://trust.example/signing-authority"
+      ]
     }
   },
   "expected": {

@@ -72,6 +72,7 @@ def trust_store(**overrides):
         policy_bundle_hash=SHA_B,
         model_version="example-model-3",
         trusted_keys={KP.key_id: KP.public_b64url()},
+        trusted_key_issuers={KP.key_id: ["spiffe://trust.example/signing-authority"]},
     )
     for k, v in overrides.items():
         setattr(ctx, k, v)

@@ -41,6 +41,10 @@ APPROVER_KP = generate_ed25519()
 APPROVER_ID = "mailto:alice@example.com"
 ISSUER_A = "spiffe://trust.example/issuer/a"
 ISSUER_B = "spiffe://trust.example/issuer/b"
+# The issuer every base manifest declares, and the issuer the base context
+# authorizes the signing key for (spec 5.3.3).
+DEFAULT_ISSUER = "spiffe://trust.example/signing-authority"
+TRUSTED_KEY_ISSUERS = {KP.key_id: [DEFAULT_ISSUER]}
 
 
 def sign(m):
@@ -56,6 +60,7 @@ def manifest(**overrides):
         "version": "0.1",
         "issued_at": NOW.isoformat().replace("+00:00", "Z"),
         "expires_at": TS_FUTURE,
+        "issuer": DEFAULT_ISSUER,
         "crypto_profile": "standard",
         "artifacts": {
             "system_prompt": {"hash": SHA_A},
@@ -78,6 +83,7 @@ def ctx(**overrides):
         model_version="example-model-3",
         audit_chain_root=SHA_C,
         trusted_keys=dict(TRUSTED_KEYS),
+        trusted_key_issuers=dict(TRUSTED_KEY_ISSUERS),
         approver_public_keys={APPROVER_ID: APPROVER_KP.public_b64url()},
     )
     for k, v in overrides.items():
@@ -259,7 +265,6 @@ def tool_catalog(tools=None, algorithm="sha256"):
 def sign_catalog_manifest(m, version):
     if version == "0.2":
         m["version"] = version
-        m["issuer"] = ISSUER_A
         return sign_cose_sign1(m, KP)
     return sign(m)
 
@@ -708,10 +713,21 @@ def test_http_post_verify_with_trusted_keys_is_incomplete_without_runtime_eviden
     r = client.post("/verify", json={
         "manifest_id": MID,
         "trusted_keys": TRUSTED_KEYS,
+        "trusted_key_issuers": TRUSTED_KEY_ISSUERS,
     })
     assert r.status_code == 200
     assert r.json()["result"] == "INCOMPLETE"
     assert r.json()["signature_verified"] is True
+
+
+@require_fastapi
+def test_http_post_verify_without_issuer_policy_is_unverifiable():
+    """Spec 5.3.3 over HTTP: trusted keys alone cannot reach VALID."""
+    client, _ = _client()
+    r = client.post("/verify", json={"manifest_id": MID, "trusted_keys": TRUSTED_KEYS})
+    assert r.status_code == 200
+    assert r.json()["result"] == "UNVERIFIABLE"
+    assert r.json()["signature_verified"] is False
 
 
 @require_fastapi

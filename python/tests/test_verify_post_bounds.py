@@ -280,11 +280,15 @@ def test_the_result_is_unaffected_by_the_new_bounds():
 
     ctx_keys = {KP.key_id: KP.public_b64url()}
     m = manifest(version="0.1")
-    del m["issuer"]
     m["signature"] = Ed25519Signer(KP).sign(m)
     c = client({MANIFEST_ID: m})
     response = c.post(
-        "/verify", json={"manifest_id": MANIFEST_ID, "trusted_keys": ctx_keys}
+        "/verify",
+        json={
+            "manifest_id": MANIFEST_ID,
+            "trusted_keys": ctx_keys,
+            "trusted_key_issuers": {KP.key_id: [m["issuer"]]},
+        },
     )
     assert response.status_code == 200
     assert response.json()["signature_verified"] is True

@@ -112,7 +112,10 @@ def test_reordering_signed_unbound_declaration_invalidates_signature() -> None:
 
     result = verify_manifest(
         manifest,
-        VerificationContext(trusted_keys={key.key_id: key.public_b64url()}),
+        VerificationContext(
+            trusted_keys={key.key_id: key.public_b64url()},
+            trusted_key_issuers={key.key_id: ["spiffe://trust.example/issuer/ci"]},
+        ),
         RevocationStore(),
     )
     assert result.result == OverallResult.MISMATCH
@@ -130,6 +133,7 @@ def test_composition_only_verifies_as_incomplete_with_declared_not_bound_fields(
             policy_bundle_hash="sha256:" + "b" * 64,
             enforcement_mode="enforce",
             trusted_keys={key.key_id: key.public_b64url()},
+            trusted_key_issuers={key.key_id: ["spiffe://trust.example/issuer/ci"]},
         ),
         RevocationStore(),
     )

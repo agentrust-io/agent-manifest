@@ -25,10 +25,17 @@ def test_first_manifest(tmp_path):
     assert run.stdout.count("PASS:") == 3
     runner = CliRunner()
     result = runner.invoke(cli, ["verify", str(tmp_path / "signed.json"),
-                                 "--public-key", str(tmp_path / "public.hex")])
+                                 "--public-key", str(tmp_path / "public.hex"),
+                                 "--authorized-issuer",
+                                 "spiffe://trust.acme.co/signing-authority"])
     payload = json.loads(result.stdout)
     assert payload["result"] == "INCOMPLETE"
     assert payload["signature_verified"] is True
+    result = runner.invoke(cli, ["verify", str(tmp_path / "signed.json"),
+                                 "--public-key", str(tmp_path / "public.hex")])
+    payload = json.loads(result.stdout)
+    assert payload["result"] == "UNVERIFIABLE"
+    assert payload["signature_verified"] is False
     result = runner.invoke(cli, ["verify", str(tmp_path / "signed.json")])
     assert json.loads(result.stdout)["result"] == "UNVERIFIABLE"
 
@@ -133,6 +140,7 @@ def test_ci_signing_scripts(tmp_path):
     key = generate_ed25519()
     env = dict(os.environ, MANIFEST_SIGNING_KEY=key.private_b64url(),
                MANIFEST_PUBLIC_KEY=key.public_b64url(), MANIFEST_KEY_ID=key.key_id,
+               MANIFEST_AUTHORIZED_ISSUER="spiffe://trust.acme.co/signing-authority",
                MANIFEST_CONTEXT_FILE="approved-context.json")
     for name, code in zip(("sign.py", "verify.py"), scripts, strict=True):
         (tmp_path / name).write_text(code, encoding="utf-8")

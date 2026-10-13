@@ -346,8 +346,8 @@ def _repaired_envelopes() -> dict[str, tuple[Any, dict[str, Any]]]:
     carrier = canonicalize(cose_manifest(attestation={"placeholder": 0}))
 
     return {
-        # 009's defect is entirely in the context, so the repair is to drop
-        # the issuer binding and leave the envelope untouched.
+        # 009's defect is entirely in the context, so the repair is to restore
+        # the base issuer policy and leave the envelope untouched.
         "AM-VEC-COSE-009": (sign_cose_sign1(cose_manifest(), KP), context),
         "AM-VEC-COSE-010": (_sign_payload(valid_payload), context),
         "AM-VEC-COSE-011": (

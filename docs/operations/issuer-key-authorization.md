@@ -6,7 +6,7 @@ description: Configure and implement the issuer key authorization check from spe
 
 This page is for anyone who verifies manifests and configured trusted keys before spec §5.3.3 existed. It explains how to add the second check that §5.3.3 requires: a trusted key may sign only for the issuers (the organizations that sign manifests) it is authorized for. If you use the SDK verifier, this is a configuration change. If you maintain your own verifier, it is a code change, and the last part of this page separates what §5.3.3 requires from how the SDK implements it.
 
-Applies to SDK 0.15.0. Spec reference: [§5.3.3 Issuer Key Authorization](../spec/agent-manifest-v0.2.md#533-issuer-key-authorization).
+Applies to SDK 0.16.0. Spec reference: [§5.3.3 Issuer Key Authorization](../spec/agent-manifest-v0.2.md#533-issuer-key-authorization).
 
 ## Why a trusted key is not enough
 
@@ -51,13 +51,13 @@ result = verify_manifest(manifest_or_cose_bytes, context, revocation_store)
 
 | Value | Meaning | Effect |
 |-------|---------|--------|
-| `None` (the default) | Issuer authorization is not configured. | The check is skipped. Existing deployments behave as before. |
+| `None` (the default) | No authorization policy, so authorization cannot be determined. | The signature is not verified and the result is `UNVERIFIABLE`, with a warning naming §5.3.3. Before 0.16.0 the check was skipped. |
 | `{}` | Configured, and no key is authorized for any issuer. | Every signed manifest fails the check. Fail-closed. |
 | `{key_id: [issuers]}` | Configured with explicit authorizations. | A manifest passes only if its signing key is listed for its `issuer`. |
 
-`None` and `{}` are not the same. An empty mapping is a deliberate policy that authorizes nothing, so you can switch fail-closed behavior on before you have filled in the mapping. No version gate is needed.
+`None` and `{}` are not the same, and §5.3.3 requires the difference. An empty mapping is a policy that authorizes nothing, so an authorization failure: `MISMATCH`. `None` is no policy, so authorization that cannot be determined: `UNVERIFIABLE`. Neither reaches `VALID`.
 
-`None` is backward-compatible SDK behavior, not a conformant §5.3.3 configuration. It exists so that deployments configured before §5.3.3 keep working, and it does not perform the check §5.3.3 requires. In the SDK, the check runs once `trusted_key_issuers` holds a mapping, even an empty one. §5.3.3 requires the check, not this data structure: the authorization path is deployment policy, and other verifiers may hold it in any form that is external to the manifest.
+A deployment that set `trusted_keys` alone before 0.16.0 now gets `UNVERIFIABLE` until it supplies a policy. §5.3.3 requires the check, not this data structure: the authorization path is deployment policy, and other verifiers may hold it in any form that is external to the manifest.
 
 ### Gate on the result, not on `signature_verified`
 
@@ -68,9 +68,10 @@ Let a request through only when `result.result` is `OverallResult.VALID`. When t
 | Envelope | Unauthorized key | `result.result` | `signature_verified` |
 |----------|------------------|-----------------|----------------------|
 | v0.1 detached signature | the signature is not checked | `MISMATCH` | `false` |
-| v0.2 COSE | the signature was already checked | `MISMATCH` | `true` |
+| v0.2 COSE | the signature is not checked | `MISMATCH` | `false` |
+| either, `trusted_key_issuers=None` | the signature is not checked | `UNVERIFIABLE` | `false` |
 
-Conformance vector `AM-VEC-COSE-009` is exactly the second case: a valid signature from a trusted key that is not authorized for the manifest's issuer.
+Conformance vector `AM-VEC-COSE-009` is the second case: a valid signature from a trusted key that is not authorized for the manifest's issuer, refused before the signature is checked.
 
 For v0.2, pass the COSE bytes to `verify_manifest()`. Calling `verify_cose_manifest()` on its own appraises the envelope and checks the signature, but it does not run issuer authorization.
 
@@ -97,7 +98,7 @@ Since SDK 0.13.0, a v0.2 manifest without `issuer` fails schema validation with 
 - complete key resolution and issuer authorization before signature verification, in both envelopes
 - return no `VALID` result when authorization fails or cannot be determined, and keep those two conditions distinct
 
-How you store the policy and how you report failures is up to your implementation. The blocks below show the current SDK implementation, `_signature_key_issuer_mismatch()` in `python/src/agent_manifest/_verify.py`, as a reference. Where it differs from the spec text, follow the spec text; the note after the blocks names both differences.
+How you store the policy and how you report failures is up to your implementation. The blocks below show the current SDK implementation, `_signature_key_issuer_mismatch()` in `python/src/agent_manifest/_verify.py`, as a reference. Since 0.16.0 it follows the §5.3.3 order and withholds `VALID` when no policy is supplied.
 
 ??? info "SDK reference: the authorization check"
 
@@ -136,7 +137,7 @@ How you store the policy and how you report failures is up to your implementatio
         return None
     ```
 
-    The only manifest inputs are the signing `key_id` and `manifest["issuer"]`. The authorization itself comes entirely from `trusted_key_issuers`. The check distinguishes `None` (skip) from an empty mapping (authorize nothing) with an explicit `is None` test; a truthiness test would merge the two.
+    The only manifest inputs are the signing `key_id` and `manifest["issuer"]`. The authorization itself comes entirely from `trusted_key_issuers`. The function returns `None` for a `None` policy; its callers treat that case as authorization undetermined and leave the signature unverified. The explicit `is None` test keeps it apart from an empty mapping, which authorizes nothing; a truthiness test would merge the two.
 
 ??? info "SDK reference: where the check runs in each envelope"
 
@@ -152,20 +153,9 @@ How you store the policy and how you report failures is up to your implementatio
     verify signature
     ```
 
-    **v0.2 COSE envelope.** The signature was verified during envelope appraisal, before the manifest engine runs, and `signature_verified` takes that value. The authorization check then runs for every signature in the envelope, so in a multi-signature envelope each signer must be authorized for the manifest's `issuer`. Any failure is added to the mismatch details alongside the other checks.
+    **v0.2 COSE envelope.** The same order since 0.16.0. The envelope is decoded without checking the signature, each `kid` is resolved against `trusted_keys` and authorized for the manifest's `issuer`, and only then is the signature checked. In a multi-signature envelope every signer must be authorized.
 
-    When `trusted_key_issuers` is configured, the outcome is the same in both envelopes: no `VALID` result without authorization. Only the position of the check differs, which is why `signature_verified` differs (see the table above).
-
-!!! note "Known divergence pending resolution: SDK and §5.3.3 text"
-    The SDK differs from the literal text of §5.3.3 in two places. This page describes the SDK as it behaves today. Whether the spec text or the implementation changes is still open.
-
-    - **Order on v0.2.** §5.3.3 requires issuer authorization before signature verification. On the v0.2 COSE path the SDK verifies the envelope signature during appraisal and runs issuer authorization afterwards. With `trusted_key_issuers` configured, an unauthorized key still never reaches `VALID`.
-    - **`None`.** §5.3.3 forbids `VALID` when authorization cannot be completed. With `trusted_key_issuers=None` the SDK skips the check so that deployments configured before §5.3.3 keep working.
-
-    For new conformant verifiers, this means:
-
-    1. Follow the §5.3.3 order: issuer authorization before signature verification, in both envelopes. The SDK's v0.2 COSE order is not a model to copy.
-    2. Treat `trusted_key_issuers=None` as backward-compatible SDK behavior, not as a conformant §5.3.3 configuration. A verifier without an authorization policy withholds `VALID`.
+    The outcome is the same in both envelopes: no `VALID` without authorization, and `signature_verified` is false whenever authorization fails or cannot be determined.
 
 ## Test your configuration
 
@@ -176,7 +166,9 @@ The conformance vectors cover each case:
 | `AM-VEC-022` | Trusted key authorized for a different issuer | `MISMATCH` |
 | `AM-VEC-023` | Key authorized for the subject (`agent_id`), not the issuer | `MISMATCH` |
 | `AM-VEC-024` | Empty `trusted_key_issuers` mapping | `MISMATCH` |
-| `AM-VEC-COSE-009` | v0.2: trusted key, valid signature, wrong issuer | `MISMATCH`, `signature_verified: true` |
+| `AM-VEC-025` | v0.1: no `trusted_key_issuers` policy | `UNVERIFIABLE` |
+| `AM-VEC-COSE-009` | v0.2: trusted key, valid signature, wrong issuer | `MISMATCH`, `signature_verified: false` |
+| `AM-VEC-COSE-016` | v0.2: no `trusted_key_issuers` policy | `UNVERIFIABLE` |
 
 Vectors are in `python/tests/vectors/`; their README describes how to run them against your own verifier.
 

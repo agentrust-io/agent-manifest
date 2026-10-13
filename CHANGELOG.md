@@ -14,6 +14,31 @@
 
 ### Changed
 
+- **[SDK]** Issuer key authorization now follows spec section 5.3.3 on both
+  envelopes. This is a breaking change for any caller that sets
+  `trusted_keys` without `trusted_key_issuers`.
+  - With `trusted_key_issuers=None` the issuer check cannot be completed, so
+    the signature is not verified and the result is `UNVERIFIABLE` with a
+    warning naming section 5.3.3. It used to skip the check and could return
+    `VALID` with no issuer authorization at all. An authorization failure is
+    still `MISMATCH`, so the two conditions stay distinguishable as section
+    5.3.3 requires.
+  - On a v0.2 COSE envelope, key resolution and issuer authorization run
+    before the envelope signature is checked. An unauthorized key is now
+    refused with `signature_verified: false` (AM-VEC-COSE-009); before, the
+    signature was verified first and the flag read `true`.
+  - A v0.1 manifest without `issuer` still passes schema validation but can no
+    longer reach `VALID`: there is no declared issuer to authorize the key for.
+  - `manifest verify` gains `--authorized-issuer` (repeatable), the issuer the
+    `--public-key` key may sign for. Without it the CLI result is
+    `UNVERIFIABLE`.
+  - Every conformance vector context that expects a verified signature now
+    carries `trusted_key_issuers`. New vectors AM-VEC-025 (v0.1) and
+    AM-VEC-COSE-016 (v0.2) pin the no-policy case as `UNVERIFIABLE`.
+
+  Both divergences from the section 5.3.3 text were found by @litzki-systems
+  while writing the issuer key authorization guide (#493).
+
 - **[Spec]** The MCP `initialize` example in section 6.3.1 uses the namespaced
   key `com.agentrust-io.agentManifest` in place of `co.opaque.agentManifest`,
   and advertises `"version": "0.2"`. The section 3.1 schema example now says
