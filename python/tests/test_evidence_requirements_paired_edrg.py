@@ -7,10 +7,10 @@ The negative is then restricted to its named verification boundary.
 import copy
 from datetime import UTC, datetime, timedelta
 
-import pytest
-
 import agent_manifest as am
+import pytest
 from agent_manifest.evidence_requirements import verify_evidence_manifest
+
 from tests.test_evidence_requirements import packet as _base_packet
 
 
