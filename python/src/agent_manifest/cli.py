@@ -494,8 +494,8 @@ def verify(
     
     Example:
       manifest verify attested.json --crl-path revocations.jsonl
-      manifest verify signed.json --public-key pub.hex
-        --authorized-issuer spiffe://example.org/issuer --enforce-hitl
+      manifest verify signed.json --public-key pub.hex \\
+        --authorized-issuer spiffe://example.org/issuer --enforce-hitl \\
         --approver-key mailto:alice@example.com=alice.hex
     """
     if crl_trusted_key and not crl_path:

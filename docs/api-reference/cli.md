@@ -142,8 +142,8 @@ Usage: manifest verify [OPTIONS] MANIFEST_FILE
 
   Example:
     manifest verify attested.json --crl-path revocations.jsonl
-    manifest verify signed.json --public-key pub.hex
-      --authorized-issuer spiffe://example.org/issuer --enforce-hitl
+    manifest verify signed.json --public-key pub.hex \
+      --authorized-issuer spiffe://example.org/issuer --enforce-hitl \
       --approver-key mailto:alice@example.com=alice.hex
 
 Options:

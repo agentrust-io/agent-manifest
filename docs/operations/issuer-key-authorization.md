@@ -8,6 +8,9 @@ This page is for anyone who verifies manifests and configured trusted keys befor
 
 Applies to SDK 0.16.0. Spec reference: [§5.3.3 Issuer Key Authorization](../spec/agent-manifest-v0.2.md#533-issuer-key-authorization).
 
+!!! warning "Breaking change in SDK 0.16.0"
+    Up to SDK 0.15.0, a verifier that set `trusted_keys` without `trusted_key_issuers` skipped issuer authorization and could return `VALID`. From 0.16.0 the same configuration returns `UNVERIFIABLE`. If you upgrade, add `trusted_key_issuers` first.
+
 ## Why a trusted key is not enough
 
 Your verifier already holds `trusted_keys`, a mapping from a key ID to a public key. That mapping answers one question: which key made this signature? It does not answer a second one: is that key allowed to sign for the issuer this manifest names?
@@ -41,6 +44,13 @@ context = VerificationContext(
 )
 
 result = verify_manifest(manifest_or_cose_bytes, context, revocation_store)
+```
+
+From the CLI, name the issuer next to the public key:
+
+```bash
+manifest verify signed.json --public-key pub.hex \
+  --authorized-issuer spiffe://trust.example/issuer/prod
 ```
 
 `trusted_key_issuers` is an SDK input. It is not a manifest field, and the normative `POST /verify` request body in [§5.1](../spec/agent-manifest-v0.2.md#51-verification-endpoint) does not define it. The SDK's FastAPI router (`create_router()`) accepts it as an SDK-level extension on its own `POST /verify` request body. Treat it there like `trusted_keys`: a value a caller sends you is not your authorization policy.
@@ -87,7 +97,9 @@ Each authorization failure appears in `result.mismatch_details` with `field="sig
 
 A key ID that is not in `trusted_keys` at all fails earlier, with `field="signature"` and `<key_id not found in trusted_keys>`. That is a key resolution failure, not an authorization failure, and issuer authorization does not run.
 
-Since SDK 0.13.0, a v0.2 manifest without `issuer` fails schema validation with `MISMATCH` before this check runs. The "no `issuer`" row above still applies to v0.1 manifests.
+A missing policy produces no mismatch detail. It appears as `UNVERIFIABLE` with a warning in `result.warnings` that names §5.3.3.
+
+Since SDK 0.13.0, a v0.2 manifest without `issuer` fails schema validation with `MISMATCH` before this check runs. A v0.1 manifest without `issuer` still passes schema validation, but it can never reach `VALID`. With a policy it yields the "no `issuer`" row above; without one, `UNVERIFIABLE`.
 
 ## If you maintain your own verifier
 
@@ -147,6 +159,9 @@ How you store the policy and how you report failures is up to your implementatio
     resolve key_id in trusted_keys ── not found ──> MISMATCH on "signature"
             │
             v
+    no trusted_key_issuers ──> UNVERIFIABLE, signature not verified
+            │
+            v
     authorization check ── fails ──> MISMATCH on "signature.issuer",
             │                        signature not verified
             v
@@ -174,5 +189,5 @@ Vectors are in `python/tests/vectors/`; their README describes how to run them a
 
 ## Related
 
-- [Key rotation](key-rotation.md): when `trusted_key_issuers` is configured, add a new key there together with `trusted_keys`, or manifests signed with the new key fail authorization.
+- [Key rotation](key-rotation.md): add a new key to `trusted_key_issuers` together with `trusted_keys`, or manifests signed with the new key fail authorization.
 - [Server-side verification](../tutorials/server-side-verification.md): where the verifier's trusted inputs come from.

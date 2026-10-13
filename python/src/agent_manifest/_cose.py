@@ -999,6 +999,9 @@ def verify_cose_manifest(
     the result reports ``verified=False``, which the engine renders as
     ``UNVERIFIABLE``.
 
+    Does not check issuer key authorization (spec 5.3.3). Use
+    ``verify_manifest()`` for a complete verification.
+
     Raises:
         CoseStructureError: Malformed envelope, bad header, unknown crit,
             unknown algorithm, or a payload that is not manifest JSON.
