@@ -7,10 +7,10 @@ The negative is then restricted to its named verification boundary.
 import copy
 from datetime import UTC, datetime, timedelta
 
-import agent_manifest as am
 import pytest
-from agent_manifest.evidence_requirements import verify_evidence_manifest
 
+import agent_manifest as am
+from agent_manifest.evidence_requirements import verify_evidence_manifest
 from tests.test_evidence_requirements import packet as _base_packet
 
 
@@ -93,3 +93,24 @@ def test_reject_all_verifier_cannot_satisfy_positive_twins(paired_packet, monkey
     monkeypatch.setattr(am, "verify_manifest", reject_all)
     with pytest.raises(ValueError, match="mutant: reject-all"):
         verify_signed(manifest, key, context)
+
+
+def test_paired_valid_vs_revoked_same_signed_manifest(paired_packet):
+    """Change only the authoritative revocation input, not the signed bytes."""
+    from agent_manifest._revocation import sign_revocation
+
+    manifest, key, context = paired_packet
+    signed = am.sign_cose_sign1(manifest, key)
+    empty = am.RevocationStore()
+    accepted = verify_evidence_manifest(signed, context, empty)
+    assert accepted.manifest_id == manifest["manifest_id"]
+
+    revoked = am.RevocationStore()
+    authority = am.generate_ed25519()
+    revoked.revoke(
+        sign_revocation(
+            manifest["manifest_id"], "test revocation", "test-admin", authority
+        )
+    )
+    with pytest.raises(ValueError, match="manifest appraisal not valid: REVOKED"):
+        verify_evidence_manifest(signed, context, revoked)
