@@ -15,10 +15,11 @@
 ### Changed
 
 - **[Spec]** Section 6.3.2 separates naming a manifest from binding it. A
-  producer SHOULD carry `agent_manifest_digest` inside the envelope
-  signature, and a verifier MUST NOT report the producer's
-  `manifest_verification_result` as its own appraisal; an unresolvable
-  manifest is reported as not established. The result field stays required,
+  producer that claims a binding MUST carry a digest of the manifest covered
+  by the TRACE record's signature, and a verifier MUST NOT report the
+  producer's `manifest_verification_result` as its own appraisal; an
+  unresolvable or undigested manifest is `UNVERIFIABLE`. TRACE defines the
+  carrying field. The result field stays required,
   so the SDK's envelope validator is unchanged. Raised on
   agentrust-io/trace-spec#483.
 
