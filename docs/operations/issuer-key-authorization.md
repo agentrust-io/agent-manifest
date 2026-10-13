@@ -73,7 +73,7 @@ A deployment that set `trusted_keys` alone before 0.16.0 now gets `UNVERIFIABLE`
 
 Let a request through only when `result.result` is `OverallResult.VALID`. When the authorization check runs and fails, the result is `MISMATCH`. Checks that run earlier can end verification first: schema validation, revocation, the validity window, and on v0.2 envelope appraisal. The result is then `REVOKED`, `EXPIRED` or another non-`VALID` value, and the authorization check does not run.
 
-`signature_verified` does not tell you whether authorization passed:
+In the result of `verify_manifest()`, `signature_verified` is true only when authorization passed and the signature checked out. It still does not mean `VALID`: other checks can produce `MISMATCH`, as `AM-VEC-002` shows for a changed system prompt hash.
 
 | Envelope | Unauthorized key | `result.result` | `signature_verified` |
 |----------|------------------|-----------------|----------------------|
