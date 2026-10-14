@@ -8,6 +8,7 @@
 
 ### Changed
 
+- **[Spec]** Section 6.3.2 separates naming a manifest from binding it. A producer that claims a binding MUST carry a digest of the manifest covered by the TRACE record's signature, and a verifier MUST NOT report the producer's `manifest_verification_result` as its own appraisal; an unresolvable or undigested manifest is `UNVERIFIABLE`. TRACE defines the carrying field. The result field stays required, so the SDK's envelope validator is unchanged. Raised on agentrust-io/trace-spec#483.
 - **[Spec]** The MCP `initialize` example in section 6.3.1 uses the namespaced key `com.agentrust-io.agentManifest` in place of `co.opaque.agentManifest`, and advertises `"version": "0.2"`. The section 3.1 schema example now says `version` is `'0.2'`, matching the field table. Section 5.1.1 names the second hosting model "service-hosted mode". Spec text, examples and test fixtures use neutral provider and model names.
 - **[Docs]** ADR-0008 carries a dated note that the spec section 8.1 table is authoritative and that no conformance level names a vendor runtime.
 
