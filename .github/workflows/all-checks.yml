@@ -35,6 +35,8 @@ jobs:
           sleep 60
           stable=0
           while true; do
+            # SC2016: $ENV is jq's, not the shell's, so the filter stays single-quoted.
+            # shellcheck disable=SC2016
             runs=$(gh api --paginate "repos/$REPO/commits/$SHA/check-runs?per_page=100" \
               --jq '.check_runs[] | select(.name != $ENV.SELF and .name != $ENV.GATE)
                     | [.name, .status, (.conclusion // "")] | @tsv')
