@@ -130,9 +130,15 @@ custody grade against an adversary with physical access. It does not remove that
 limit. It lets a verifier insist the silicon says it did its own check.
 
 **Two things this deliberately does not do.** It does not appraise the mitigation
-vectors (`LAUNCH_MIT_VECTOR`, `CURRENT_MIT_VECTOR`) added in v4 reports, because
-the bit meanings are platform-specific and publishing a mask without hardware to
-validate it against would be guessing. And it is not wired into `verify_manifest()`
+vectors (`LAUNCH_MIT_VECTOR`, `CURRENT_MIT_VECTOR`) added in v4 reports. The bit
+meanings are platform-specific: AMD-SB-3020 puts the CVE-2025-0033 mitigation at
+bit 1 for its Milan and Genoa family rows and at bit 0 for Turin. Appraisal of these
+vectors will stay opt-in and platform-specific, and it waits on three gates:
+documented applicability for the platform being appraised, verified identification
+of that platform from the report, and fixtures built from real signed reports. A
+mask for one EPYC generation is not carried over to another, and the bulletin is not
+read as evidence of DDRop coverage. No default mitigation claim changes until those
+gates are met (#434). And it is not wired into `verify_manifest()`
 as a default, so an existing caller gets no new failures and also no new checks.
 
 Not wired in as a default does not mean it cannot gate a verdict today.
