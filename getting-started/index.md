@@ -94,6 +94,9 @@ context = VerificationContext(
     enforcement_mode="enforce",
     model_version="demo-v1",
     trusted_keys={keypair.key_id: keypair.public_b64url()},
+    # Which issuer this key may sign for. Without it the checker cannot do the
+    # issuer check (spec 5.3.3) and returns UNVERIFIABLE, never VALID.
+    trusted_key_issuers={keypair.key_id: ["spiffe://trust.acme.co/signing-authority"]},
 )
 result = verify_manifest(record, context, RevocationStore())
 assert result.result.value == "VALID", result.model_dump_json()
@@ -131,10 +134,10 @@ The checker (verifier) keeps the trusted public key apart from the record. In a 
 ## Inspect the saved record
 
 ```
-manifest verify signed.json --public-key public.hex
+manifest verify signed.json --public-key public.hex   --authorized-issuer spiffe://trust.acme.co/signing-authority
 ```
 
-This command line check gets a trusted key but no values to compare against. Expect `INCOMPLETE`: the signature is verified, but the parts could not be compared. Without `--public-key`, expect `UNVERIFIABLE`, because there is no key to check the signature with. The Python script got `VALID` because it supplied the values to compare.
+This command line check gets a trusted key, and the issuer that key may sign for, but no values to compare against. Expect `INCOMPLETE`: the signature is verified, but the parts could not be compared. Without `--authorized-issuer`, expect `UNVERIFIABLE`, because the checker cannot confirm the key is allowed to sign for this issuer. Without `--public-key`, also expect `UNVERIFIABLE`, because there is no key to check the signature with. The Python script got `VALID` because it supplied the values to compare.
 
 ## Level 1 - TPM attestation
 

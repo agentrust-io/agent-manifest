@@ -8,7 +8,7 @@ An AI agent is software that uses an AI model to take actions on its own. Agent 
 
 TL;DR
 
-[agent-manifest](https://pypi.org/project/agent-manifest/) 0.15.0 (Apache-2.0) signs and checks records on your own computer with Python 3.11+, with no special hardware or cloud account. Its AMD SEV-SNP support was tested on an Azure confidential VM ([#227](https://github.com/agentrust-io/agent-manifest/pull/227)) and its Intel TDX report checker on a Google Cloud C3 machine. A manifest does not watch the agent after it is signed: what the agent does is recorded separately in [TRACE](https://trace.agentrust-io.com/).
+[agent-manifest](https://pypi.org/project/agent-manifest/) 0.16.0 (Apache-2.0) signs and checks records on your own computer with Python 3.11+, with no special hardware or cloud account. Its AMD SEV-SNP support was tested on an Azure confidential VM ([#227](https://github.com/agentrust-io/agent-manifest/pull/227)) and its Intel TDX report checker on a Google Cloud C3 machine. A manifest does not watch the agent after it is signed: what the agent does is recorded separately in [TRACE](https://trace.agentrust-io.com/).
 
 - **Run it**
 
@@ -123,4 +123,4 @@ Yes. The source and license are available on [GitHub](https://github.com/agentru
 - [Specification](https://manifest.agentrust-io.com/spec/agent-manifest-v0.2/index.md): the formal rules an implementation follows.
 - [Architecture decisions](https://manifest.agentrust-io.com/adr/index.md): design rationale.
 
-**Status:** SDK 0.15.0 · Apache-2.0 · proposed to CoSAI WS4 ([RFC #149](https://github.com/cosai-oasis/ws4-secure-design-agentic-systems/issues/149)) · Sponsored by OPAQUE, which funds the engineering, infrastructure and confidential-computing work behind these projects.
+**Status:** SDK 0.16.0 · Apache-2.0 · proposed to CoSAI WS4 ([RFC #149](https://github.com/cosai-oasis/ws4-secure-design-agentic-systems/issues/149)) · Sponsored by OPAQUE, which funds the engineering, infrastructure and confidential-computing work behind these projects.

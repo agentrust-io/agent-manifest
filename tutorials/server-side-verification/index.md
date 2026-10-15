@@ -81,7 +81,7 @@ The verifier (the code that checks a manifest) needs its own picture of what sho
 
 Technical detail: issuer keys and strict mode
 
-`trusted_keys` authenticates the signature under a configured key. Where issuer identity matters, also populate `trusted_key_issuers` to restrict which issuer each key may represent. An empty issuer map does not authorize that named issuer merely because the signature verifies. See [Issuer key authorization](https://manifest.agentrust-io.com/operations/issuer-key-authorization/index.md) for the settings and how to read the results.
+`trusted_keys` names the keys you trust, and `trusted_key_issuers` says which issuer each of them may sign for (spec §5.3.3). Populate both: without `trusted_key_issuers` the check cannot run and the result is `UNVERIFIABLE`, never `VALID`. An empty issuer map authorizes no key, so it yields `MISMATCH`. See [Issuer key authorization](https://manifest.agentrust-io.com/operations/issuer-key-authorization/index.md) for the settings and how to read the results.
 
 Keep `strict_artifact_verification=True` for the application gate. Setting it to `False` deliberately reduces artifact checking; label such an audit as document verification and do not use it to approve the running agent.
 
