@@ -1,0 +1,61 @@
+name: All checks
+
+# One required check that stands for every other check on the PR head. ci.yml
+# runs only on some paths, so its jobs cannot be required directly: a docs PR
+# would wait forever for a test job that never starts. This waits for whatever
+# did run and fails if any of it failed, so Dependabot auto-merge cannot land
+# an update while tests are pending or red.
+#
+# If a failed job is re-run and passes, re-run this job too.
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  all-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      checks: read
+    steps:
+      - name: Wait for every other check on the head commit
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+          SELF: all-checks
+          # Required on its own, and red until a maintainer approves.
+          GATE: "Policy: Awaiting maintainer review"
+        run: |
+          # Give the other workflows for this event time to queue their jobs.
+          sleep 60
+          stable=0
+          while true; do
+            runs=$(gh api --paginate "repos/$REPO/commits/$SHA/check-runs?per_page=100" \
+              --jq '.check_runs[] | select(.name != $ENV.SELF and .name != $ENV.GATE)
+                    | [.name, .status, (.conclusion // "")] | @tsv')
+            failed=$(printf '%s\n' "$runs" | awk -F'\t' 'NF && $2 == "completed" && $3 != "success" && $3 != "skipped" && $3 != "neutral"')
+            if [ -n "$failed" ]; then
+              echo "Failed checks:"
+              printf '%s\n' "$failed"
+              exit 1
+            fi
+            pending=$(printf '%s\n' "$runs" | awk -F'\t' 'NF && $2 != "completed"' | wc -l)
+            if [ "$pending" -eq 0 ]; then
+              # Two quiet polls in a row, so a late-queued job is not missed.
+              stable=$((stable + 1))
+              if [ "$stable" -ge 2 ]; then
+                echo "All other checks passed:"
+                printf '%s\n' "$runs"
+                exit 0
+              fi
+            else
+              stable=0
+              echo "Waiting on $pending check(s)"
+            fi
+            sleep 30
+          done
