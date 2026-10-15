@@ -123,4 +123,4 @@ Yes. The source and license are available on [GitHub](https://github.com/agentru
 - [Specification](https://manifest.agentrust-io.com/spec/agent-manifest-v0.2/index.md): the formal rules an implementation follows.
 - [Architecture decisions](https://manifest.agentrust-io.com/adr/index.md): design rationale.
 
-**Status:** SDK 0.16.0 · Apache-2.0 · proposed to CoSAI WS4 ([RFC #149](https://github.com/cosai-oasis/ws4-secure-design-agentic-systems/issues/149)) · Sponsored by OPAQUE, which funds the engineering, infrastructure and confidential-computing work behind these projects.
+**Status:** SDK 0.16.0 · Apache-2.0 · proposed to CoSAI WS4 ([RFC #149](https://github.com/cosai-oasis/ws4-secure-design-agentic-systems/issues/149)) · AgenTrust is an independent open-source project. No company funds, owns or directs it; contributions are voluntary.
