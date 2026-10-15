@@ -276,6 +276,7 @@ def test_verification_engine_valid_after_sign():
         policy_bundle_hash="sha256:" + "b" * 64,
         enforcement_mode="enforce",
         trusted_keys={kp.key_id: kp.public_b64url()},
+        trusted_key_issuers={kp.key_id: [raw["issuer"]]},
         strict_artifact_verification=False,
     )
     result = verify_manifest(raw, ctx, RevocationStore())

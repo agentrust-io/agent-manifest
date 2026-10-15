@@ -29,6 +29,9 @@ _PUBLIC_VERIFY_API = (
 )
 
 
+ISSUER = "spiffe://trust.example/signing-authority"
+
+
 def _signed_manifest(keypair):
     now = datetime.now(timezone.utc)
     sha_a = "sha256:" + "a" * 64
@@ -39,6 +42,7 @@ def _signed_manifest(keypair):
         "version": "0.1",
         "issued_at": now.isoformat().replace("+00:00", "Z"),
         "expires_at": (now + timedelta(days=90)).isoformat().replace("+00:00", "Z"),
+        "issuer": ISSUER,
         "crypto_profile": "standard",
         "artifacts": {
             "system_prompt": {"hash": sha_a},
@@ -67,6 +71,7 @@ def test_public_verify_roundtrip_valid_then_mismatch():
         enforcement_mode="enforce",
         model_version="example-model-3",
         trusted_keys=trusted,
+        trusted_key_issuers={keypair.key_id: [ISSUER]},
     )
     valid = agent_manifest.verify_manifest(
         manifest, matching, agent_manifest.RevocationStore()
@@ -78,6 +83,7 @@ def test_public_verify_roundtrip_valid_then_mismatch():
         policy_bundle_hash=sha_b,
         model_version="example-model-3",
         trusted_keys=trusted,
+        trusted_key_issuers={keypair.key_id: [ISSUER]},
     )
     mismatch = agent_manifest.verify_manifest(
         manifest, drifted, agent_manifest.RevocationStore()
@@ -97,6 +103,7 @@ def test_partial_context_leaves_unprovided_fields_not_bound():
     partial = agent_manifest.VerificationContext(
         system_prompt_hash=sha_a,
         trusted_keys=trusted,
+        trusted_key_issuers={keypair.key_id: [ISSUER]},
     )
     result = agent_manifest.verify_manifest(
         manifest, partial, agent_manifest.RevocationStore()

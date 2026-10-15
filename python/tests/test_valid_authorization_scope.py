@@ -39,6 +39,7 @@ MID = "018f4a3b-2c1d-7e5f-a8b9-0d1e2f3a4b5c"
 
 KP = generate_ed25519()
 TRUSTED_KEYS = {KP.key_id: KP.public_b64url()}
+ISSUER = "spiffe://trust.example/signing-authority"
 
 # The one tool the reviewer approved, and the two calls through it that a
 # reviewer would treat very differently. Both are inside the approved tool.
@@ -60,6 +61,7 @@ def manifest_with_tool_catalog(**overrides):
         "version": "0.1",
         "issued_at": NOW.isoformat().replace("+00:00", "Z"),
         "expires_at": TS_FUTURE,
+        "issuer": ISSUER,
         "crypto_profile": "standard",
         "artifacts": {
             "system_prompt": {"hash": SHA_A},
@@ -84,6 +86,7 @@ def ctx_matching_catalog():
         model_version="example-model-3",
         audit_chain_root=SHA_C,
         trusted_keys=dict(TRUSTED_KEYS),
+        trusted_key_issuers={key_id: [ISSUER] for key_id in TRUSTED_KEYS},
     )
     c.tool_catalog_hash = TOOL_CATALOG
     return c

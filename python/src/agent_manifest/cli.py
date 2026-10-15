@@ -420,6 +420,10 @@ def attest(manifest_file: str, provider: str, level: int, output: Optional[str])
          "the command description above for the completeness caveat.",
 )
 @click.option("--public-key", default=None, help="Path to a trusted raw Ed25519 public key hex file")
+@click.option("--authorized-issuer", multiple=True, metavar="ISSUER",
+              help="Issuer the --public-key key is authorized to sign for (spec "
+                   "5.3.3, repeatable). Without it the result is UNVERIFIABLE, "
+                   "never VALID")
 @click.option("--approver-key", multiple=True, metavar="APPROVER_ID=PATH",
               help="Trusted HITL approver key as approver_id=path to a raw Ed25519 "
                    "public key hex file (repeatable)")
@@ -445,6 +449,7 @@ def verify(
     crl_path: Optional[str],
     crl_trusted_key: Optional[str],
     public_key: Optional[str],
+    authorized_issuer: tuple[str, ...],
     approver_key: tuple[str, ...],
     require_transparency: bool,
     verified_transparency_entry_id: tuple[str, ...],
@@ -482,13 +487,22 @@ def verify(
     UNVERIFIABLE and the manifest can never verify.
 
     
+    The signing key must also be authorized for the manifest's declared
+    issuer (spec 5.3.3). Name that issuer with --authorized-issuer; without
+    it the issuer check cannot run and the result is UNVERIFIABLE.
+
+    
     Example:
       manifest verify attested.json --crl-path revocations.jsonl
-      manifest verify signed.json --public-key pub.hex --enforce-hitl
+      manifest verify signed.json --public-key pub.hex \\
+        --authorized-issuer spiffe://example.org/issuer --enforce-hitl \\
         --approver-key mailto:alice@example.com=alice.hex
     """
     if crl_trusted_key and not crl_path:
         raise click.ClickException("--crl-trusted-key requires --crl-path.")
+
+    if authorized_issuer and not public_key:
+        raise click.ClickException("--authorized-issuer requires --public-key.")
 
     subject = _load_manifest_or_envelope(manifest_file)
     trusted_keys = _trusted_key_from_public_hex(public_key) if public_key else {}
@@ -496,6 +510,11 @@ def verify(
         enforce_hitl=enforce_hitl,
         enforce_attestation=enforce_attestation,
         trusted_keys=trusted_keys,
+        trusted_key_issuers=(
+            {key_id: list(authorized_issuer) for key_id in trusted_keys}
+            if authorized_issuer
+            else None
+        ),
         approver_public_keys=_approver_public_keys(approver_key),
         require_transparency=require_transparency,
         verified_transparency_entry_ids=set(verified_transparency_entry_id),

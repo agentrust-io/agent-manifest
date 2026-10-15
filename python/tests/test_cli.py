@@ -100,7 +100,7 @@ def test_cli_verify_with_matching_public_key_is_valid(tmp_path):
     result = CliRunner().invoke(
         cli,
         [
-            "verify", str(signed_path), "--public-key", str(public_path),
+            "verify", str(signed_path), "--public-key", str(public_path), "--authorized-issuer", "spiffe://trust.example/signing-authority",
             "--signature-only",
         ],
     )
@@ -119,7 +119,7 @@ def test_cli_verify_with_wrong_public_key_is_mismatch(tmp_path):
 
     result = CliRunner().invoke(
         cli,
-        ["verify", str(signed_path), "--public-key", str(public_path)],
+        ["verify", str(signed_path), "--public-key", str(public_path), "--authorized-issuer", "spiffe://trust.example/signing-authority"],
     )
 
     payload = _json_stdout(result)
@@ -136,7 +136,7 @@ def test_cli_verify_with_malformed_public_key_fails_cleanly(tmp_path):
 
     result = CliRunner().invoke(
         cli,
-        ["verify", str(signed_path), "--public-key", str(public_path)],
+        ["verify", str(signed_path), "--public-key", str(public_path), "--authorized-issuer", "spiffe://trust.example/signing-authority"],
     )
 
     assert result.exit_code != 0
@@ -151,7 +151,7 @@ def test_cli_verify_with_missing_public_key_file_fails_cleanly(tmp_path):
 
     result = CliRunner().invoke(
         cli,
-        ["verify", str(signed_path), "--public-key", str(public_path)],
+        ["verify", str(signed_path), "--public-key", str(public_path), "--authorized-issuer", "spiffe://trust.example/signing-authority"],
     )
 
     assert result.exit_code != 0
@@ -198,7 +198,7 @@ def test_cli_verify_crl_trusted_key_detects_revocation(tmp_path):
         cli,
         [
             "verify", str(signed_path),
-            "--public-key", str(public_path),
+            "--public-key", str(public_path), "--authorized-issuer", "spiffe://trust.example/signing-authority",
             "--signature-only",
             "--crl-path", str(crl_path),
             "--crl-trusted-key", str(authority_path),
@@ -225,7 +225,7 @@ def test_cli_verify_crl_without_trusted_key_still_works_but_warns(tmp_path):
         cli,
         [
             "verify", str(signed_path),
-            "--public-key", str(public_path),
+            "--public-key", str(public_path), "--authorized-issuer", "spiffe://trust.example/signing-authority",
             "--signature-only",
             "--crl-path", str(crl_path),
         ],
@@ -261,7 +261,7 @@ def test_cli_verify_crl_with_wrong_trusted_key_fails_closed(tmp_path):
         cli,
         [
             "verify", str(signed_path),
-            "--public-key", str(public_path),
+            "--public-key", str(public_path), "--authorized-issuer", "spiffe://trust.example/signing-authority",
             "--signature-only",
             "--crl-path", str(crl_path),
             "--crl-trusted-key", str(trusted_path),
@@ -300,7 +300,7 @@ def test_cli_verify_crl_with_tampered_record_fails_closed(tmp_path):
         cli,
         [
             "verify", str(signed_path),
-            "--public-key", str(public_path),
+            "--public-key", str(public_path), "--authorized-issuer", "spiffe://trust.example/signing-authority",
             "--signature-only",
             "--crl-path", str(crl_path),
             "--crl-trusted-key", str(authority_path),
@@ -335,7 +335,7 @@ def test_cli_verify_crl_cannot_detect_deleted_record(tmp_path):
         cli,
         [
             "verify", str(signed_path),
-            "--public-key", str(public_path),
+            "--public-key", str(public_path), "--authorized-issuer", "spiffe://trust.example/signing-authority",
             "--signature-only",
             "--crl-path", str(crl_path),
             "--crl-trusted-key", str(authority_path),
@@ -360,7 +360,7 @@ def test_cli_verify_crl_trusted_key_without_crl_path_fails_cleanly(tmp_path):
         cli,
         [
             "verify", str(signed_path),
-            "--public-key", str(public_path),
+            "--public-key", str(public_path), "--authorized-issuer", "spiffe://trust.example/signing-authority",
             "--crl-trusted-key", str(authority_path),
         ],
     )
@@ -383,7 +383,7 @@ def test_cli_verify_crl_trusted_key_malformed_fails_cleanly(tmp_path):
         cli,
         [
             "verify", str(signed_path),
-            "--public-key", str(public_path),
+            "--public-key", str(public_path), "--authorized-issuer", "spiffe://trust.example/signing-authority",
             "--crl-path", str(crl_path),
             "--crl-trusted-key", str(bad_authority_path),
         ],
@@ -409,7 +409,7 @@ def test_cli_verify_bound_artifacts_without_runtime_hashes_is_incomplete(tmp_pat
 
     result = CliRunner().invoke(
         cli,
-        ["verify", str(signed_path), "--public-key", str(public_path)],
+        ["verify", str(signed_path), "--public-key", str(public_path), "--authorized-issuer", "spiffe://trust.example/signing-authority"],
     )
 
     assert result.exit_code == 1
@@ -427,7 +427,7 @@ def test_cli_required_transparency_missing_is_incomplete(tmp_path):
     result = CliRunner().invoke(
         cli,
         [
-            "verify", str(signed_path), "--public-key", str(public_path),
+            "verify", str(signed_path), "--public-key", str(public_path), "--authorized-issuer", "spiffe://trust.example/signing-authority",
             "--signature-only", "--require-transparency",
         ],
     )
@@ -460,7 +460,7 @@ def test_cli_verified_legacy_transparency_entry_is_valid(tmp_path):
     result = CliRunner().invoke(
         cli,
         [
-            "verify", str(signed_path), "--public-key", str(public_path),
+            "verify", str(signed_path), "--public-key", str(public_path), "--authorized-issuer", "spiffe://trust.example/signing-authority",
             "--signature-only", "--require-transparency",
             "--verified-transparency-entry-id", entry_id,
             "--transparency-evidence-manifest-id", manifest["manifest_id"],
@@ -498,7 +498,7 @@ def test_deprecated_nested_invocation_still_works(tmp_path):
     result = CliRunner().invoke(
         cli,
         [
-            "manifest", "verify", str(signed_path), "--public-key", str(public_path),
+            "manifest", "verify", str(signed_path), "--public-key", str(public_path), "--authorized-issuer", "spiffe://trust.example/signing-authority",
             "--signature-only",
         ],
     )
@@ -582,6 +582,7 @@ def test_cli_verify_hitl_with_trusted_approver_key_is_valid(tmp_path):
     result = CliRunner().invoke(cli, [
         "verify", str(manifest_path),
         "--public-key", str(_write_public_key(tmp_path, keypair)),
+        "--authorized-issuer", "spiffe://trust.example/signing-authority",
         "--approver-key", f"{APPROVER_ID}={_write_approver_key(tmp_path, approver)}",
         "--enforce-hitl", "--signature-only",
     ])
@@ -604,6 +605,7 @@ def test_cli_verify_hitl_without_approver_key_is_unverifiable(tmp_path):
     result = CliRunner().invoke(cli, [
         "verify", str(manifest_path),
         "--public-key", str(_write_public_key(tmp_path, keypair)),
+        "--authorized-issuer", "spiffe://trust.example/signing-authority",
         "--enforce-hitl", "--signature-only",
     ])
 
@@ -629,6 +631,7 @@ def test_cli_verify_hitl_runs_without_enforce_hitl(tmp_path):
     result = CliRunner().invoke(cli, [
         "verify", str(manifest_path),
         "--public-key", str(_write_public_key(tmp_path, keypair)),
+        "--authorized-issuer", "spiffe://trust.example/signing-authority",
         "--signature-only",
     ])
 
@@ -651,6 +654,7 @@ def test_cli_verify_rejects_forged_approval_signature(tmp_path):
     result = CliRunner().invoke(cli, [
         "verify", str(manifest_path),
         "--public-key", str(_write_public_key(tmp_path, keypair)),
+        "--authorized-issuer", "spiffe://trust.example/signing-authority",
         "--approver-key", f"{APPROVER_ID}={_write_approver_key(tmp_path, approver)}",
         "--enforce-hitl", "--signature-only",
     ])
@@ -674,6 +678,7 @@ def test_cli_verify_rejects_approval_replayed_from_another_manifest(tmp_path):
     result = CliRunner().invoke(cli, [
         "verify", str(manifest_path),
         "--public-key", str(_write_public_key(tmp_path, keypair)),
+        "--authorized-issuer", "spiffe://trust.example/signing-authority",
         "--approver-key", f"{APPROVER_ID}={_write_approver_key(tmp_path, approver)}",
         "--enforce-hitl", "--signature-only",
     ])
@@ -690,6 +695,7 @@ def test_cli_verify_rejects_malformed_approver_key_spec(tmp_path):
     result = CliRunner().invoke(cli, [
         "verify", str(signed_path),
         "--public-key", str(_write_public_key(tmp_path, keypair)),
+        "--authorized-issuer", "spiffe://trust.example/signing-authority",
         "--approver-key", "no-separator-here",
     ])
 
@@ -704,6 +710,7 @@ def test_cli_verify_rejects_missing_approver_key_file(tmp_path):
     result = CliRunner().invoke(cli, [
         "verify", str(signed_path),
         "--public-key", str(_write_public_key(tmp_path, keypair)),
+        "--authorized-issuer", "spiffe://trust.example/signing-authority",
         "--approver-key", f"{APPROVER_ID}={tmp_path / 'absent.hex'}",
     ])
 
@@ -1014,3 +1021,25 @@ def test_cli_attest_valid_object_still_works(tmp_path):
     payload = _json_stdout(result)
     assert payload["agent_id"] == "spiffe://trust.example/agent/x"
     assert payload["attestation"]["platform"] == "software"
+
+
+def test_cli_verify_without_authorized_issuer_is_unverifiable(tmp_path):
+    """Spec 5.3.3 (#493): a trusted key alone cannot reach VALID."""
+    keypair = generate_ed25519()
+    signed_path = _write_signed_manifest(tmp_path, keypair)
+    public_path = _write_public_key(tmp_path, keypair)
+    result = CliRunner().invoke(cli, ["verify", str(signed_path), "--public-key", str(public_path)])
+    assert result.exit_code == 1
+    payload = _json_stdout(result)
+    assert payload["result"] == "UNVERIFIABLE"
+    assert payload["signature_verified"] is False
+
+
+def test_cli_verify_authorized_issuer_requires_public_key(tmp_path):
+    path = tmp_path / "m.json"
+    path.write_text("{}")
+    result = CliRunner().invoke(cli, [
+        "verify", str(path), "--authorized-issuer", "spiffe://trust.example/signing-authority",
+    ])
+    assert result.exit_code != 0
+    assert "--authorized-issuer requires --public-key" in result.output

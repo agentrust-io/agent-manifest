@@ -154,13 +154,23 @@ because it tests the same rule from the other side.
 | `AM-VEC-COSE-013` | A payload nested past the depth bound yields a verdict | `MISMATCH` |
 | `AM-VEC-COSE-014` | A `0.2` manifest may not fall back to the v0.1 envelope | `MISMATCH` |
 | `AM-VEC-COSE-015` | The non-JSON literal `Infinity` is rejected likewise | `MISMATCH` |
+| `AM-VEC-COSE-016` | No issuer authorization policy: undetermined, never `VALID` | `UNVERIFIABLE` |
 
 `AM-VEC-COSE-009` is worth calling out. Its envelope is **byte-identical** to
 `AM-VEC-COSE-001`; only `context.trusted_key_issuers` differs, binding the
 signing key to an issuer other than the manifest's. Nothing about the object
 can explain the rejection, so a verifier that stops at "the signature verifies
 under a trusted key" returns `VALID` and has no authorization boundary at all.
-It is the one negative that reports `signature_verified: true`.
+It reports `signature_verified: false` with `signature_valid: true`: spec
+section 5.3.3 puts issuer authorization before signature verification, so the
+key is refused before the signature is checked. `AM-VEC-COSE-016` is the same
+envelope with no `trusted_key_issuers` at all, which section 5.3.3 calls
+authorization that cannot be determined: `UNVERIFIABLE`, not `MISMATCH`.
+
+Every vector whose context carries `trusted_keys` and expects the signature to
+verify also carries `trusted_key_issuers`, authorizing the published key for
+the manifest's `issuer`. A verifier that ignores that field passes those
+vectors and fails `AM-VEC-COSE-016` and `AM-VEC-025`.
 
 `AM-VEC-COSE-010`, `011` and `013` place their defect inside `attestation`,
 which the schema types as a free-form object, so the rest of the document is
@@ -245,12 +255,17 @@ The Python reference assertion lives in
 * `EXPIRED`, `REVOKED`, `INCOMPATIBLE_VERSION`.
 * `SIGNATURE_MISSING` (unsigned) and `UNVERIFIABLE` (no trusted keys; and a
   delegation chain present without keys to verify it).
+
+`AM-VEC-022` … `AM-VEC-025` cover issuer key authorization (spec section
+5.3.3): a key authorized for another issuer, a key authorized for the subject
+rather than the issuer, an explicitly empty policy, all `MISMATCH`, and no
+policy at all, `UNVERIFIABLE`.
 * `INCOMPLETE` (bound artifact, no runtime hash, strict mode) and
   `ATTESTATION_UNAVAILABLE` (attestation enforced but absent).
 * HITL approved / missing / expired, and memory-baseline TTL expiry.
 
-`AM-VEC-COSE-001` … `AM-VEC-COSE-015` cover the v0.2 envelope: one vector
-pinning the encoding byte for byte, and fourteen negatives spanning the
+`AM-VEC-COSE-001` … `AM-VEC-COSE-016` cover the v0.2 envelope: one vector
+pinning the encoding byte for byte, and fifteen negatives spanning the
 protected/unprotected header split, CBOR tagging and framing, payload
 presence, the issuer authorization boundary, the two JSON parser divergences
 (duplicate member names, non-finite numbers), version routing in both

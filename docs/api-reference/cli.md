@@ -136,9 +136,14 @@ Usage: manifest verify [OPTIONS] MANIFEST_FILE
   approver keys you trust with --approver-key. Without them an approval is
   UNVERIFIABLE and the manifest can never verify.
 
+  The signing key must also be authorized for the manifest's declared
+  issuer (spec 5.3.3). Name that issuer with --authorized-issuer; without
+  it the issuer check cannot run and the result is UNVERIFIABLE.
+
   Example:
     manifest verify attested.json --crl-path revocations.jsonl
-    manifest verify signed.json --public-key pub.hex --enforce-hitl
+    manifest verify signed.json --public-key pub.hex \
+      --authorized-issuer spiffe://example.org/issuer --enforce-hitl \
       --approver-key mailto:alice@example.com=alice.hex
 
 Options:
@@ -154,6 +159,9 @@ Options:
                                   record in the file is trusted unauthenticated. See the
                                   command description above for the completeness caveat.
   --public-key TEXT               Path to a trusted raw Ed25519 public key hex file
+  --authorized-issuer ISSUER      Issuer the --public-key key is authorized to sign for
+                                  (spec 5.3.3, repeatable). Without it the result is
+                                  UNVERIFIABLE, never VALID
   --approver-key APPROVER_ID=PATH
                                   Trusted HITL approver key as approver_id=path to a raw
                                   Ed25519 public key hex file (repeatable)

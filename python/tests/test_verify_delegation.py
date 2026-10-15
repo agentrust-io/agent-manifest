@@ -28,6 +28,10 @@ MID = "018f4a3b-2c1d-7e5f-a8b9-0d1e2f3a4b5c"
 SHA = "sha256:" + "a" * 64
 # The manifest signing identity (agent_id) the chain root MUST be bound to.
 AGENT_ID = "spiffe://trust.example/agent/kyc/prod"
+# The manifest's declared issuer. Spec 5.3.3 needs the signing key authorized
+# for it, and the delegation chain root is bound to it (the manifest signing
+# identity) whenever it is present.
+SIGNING_IDENTITY = "spiffe://trust.example/signing-authority"
 
 SCOPE = {
     "tools": ["com.example.read"],
@@ -39,6 +43,7 @@ SCOPE = {
 
 KP = generate_ed25519()
 TRUSTED_KEYS = {KP.key_id: KP.public_b64url()}
+TRUSTED_KEY_ISSUERS = {KP.key_id: [SIGNING_IDENTITY]}
 
 
 def sign(m: dict) -> dict:
@@ -53,6 +58,7 @@ def base_manifest(delegation_chain=None, **overrides) -> dict:
         "version": "0.1",
         "issued_at": NOW,
         "expires_at": "2099-01-01T00:00:00Z",
+        "issuer": SIGNING_IDENTITY,
         "crypto_profile": "standard",
         "artifacts": {
             "system_prompt": {"hash": SHA},
@@ -72,6 +78,7 @@ def base_context(**overrides) -> VerificationContext:
         policy_bundle_hash="sha256:" + "b" * 64,
         model_version="example-model-3",
         trusted_keys=dict(TRUSTED_KEYS),
+        trusted_key_issuers=dict(TRUSTED_KEY_ISSUERS),
     )
     for k, v in overrides.items():
         setattr(ctx, k, v)
@@ -112,7 +119,7 @@ def _make_chain(kp, principal_id="spiffe://trust.example/agent/root", n_hops=1) 
 
 def test_valid_chain_single_hop():
     kp = generate_ed25519()
-    pid = AGENT_ID  # chain root must be bound to the manifest signing identity
+    pid = SIGNING_IDENTITY  # chain root must be bound to the manifest signing identity
     chain = _make_chain(kp, principal_id=pid)
     m = base_manifest(delegation_chain=chain)
     ctx = base_context(delegation_public_keys={pid: kp.public_b64url()})
@@ -124,7 +131,7 @@ def test_valid_chain_single_hop():
 def test_valid_chain_multi_hop():
     root_kp = generate_ed25519()
     sub_kp = generate_ed25519()
-    root_pid = AGENT_ID  # root bound to manifest signing identity
+    root_pid = SIGNING_IDENTITY  # root bound to manifest signing identity
     sub_pid = "spiffe://trust.example/sub"
     narrow_scope = {**SCOPE, "tools": ["com.example.read"]}
 
@@ -156,7 +163,7 @@ def test_valid_chain_agent_principal_type():
     # principal_type must be a schema-valid PrincipalType (human/system/agent);
     # the manifest schema gate rejects out-of-enum values such as "service".
     kp = generate_ed25519()
-    pid = AGENT_ID  # root bound to manifest signing identity
+    pid = SIGNING_IDENTITY  # root bound to manifest signing identity
     sig = DelegationHopSigner(kp).sign_hop(
         hop=0, principal_id=pid, principal_type="agent",
         delegated_at=NOW, scope_grant=SCOPE, manifest_id=MID,
@@ -222,7 +229,7 @@ def test_chain_with_cedar_constraints_is_unverifiable_not_valid():
     themselves as the only unresolved element.
     """
     kp = generate_ed25519()
-    pid = AGENT_ID
+    pid = SIGNING_IDENTITY
     scope = {**SCOPE, "constraints": ["permit(principal, action, resource)"]}
     sig = DelegationHopSigner(kp).sign_hop(
         hop=0, principal_id=pid, principal_type="agent",
@@ -252,7 +259,7 @@ def test_chain_with_malformed_non_cedar_constraints_is_unverifiable_not_valid():
     """
     root_kp = generate_ed25519()
     child_kp = generate_ed25519()
-    root_pid = AGENT_ID
+    root_pid = SIGNING_IDENTITY
     child_pid = "spiffe://trust.example/sub"
     malformed_scope = {**SCOPE, "constraints": ["this is not Cedar at all"]}
 
@@ -288,7 +295,7 @@ def test_chain_empty_constraints_still_valid():
     exactly as before.
     """
     kp = generate_ed25519()
-    pid = AGENT_ID
+    pid = SIGNING_IDENTITY
     chain = _make_chain(kp, principal_id=pid)  # SCOPE has "constraints": []
     m = base_manifest(delegation_chain=chain)
     ctx = base_context(delegation_public_keys={pid: kp.public_b64url()})
@@ -304,7 +311,7 @@ def test_invalid_signature_with_constraints_is_invalid_not_unverifiable():
     """
     kp = generate_ed25519()
     wrong_kp = generate_ed25519()  # signature will be checked against this key
-    pid = AGENT_ID
+    pid = SIGNING_IDENTITY
     scope = {**SCOPE, "constraints": ["permit(principal, action, resource)"]}
     sig = DelegationHopSigner(kp).sign_hop(
         hop=0, principal_id=pid, principal_type="agent",
@@ -331,7 +338,7 @@ def test_later_hop_invalid_signature_after_valid_constrained_root_is_invalid():
     root_kp = generate_ed25519()
     child_kp = generate_ed25519()
     wrong_child_kp = generate_ed25519()  # registered instead of child_kp
-    root_pid = AGENT_ID
+    root_pid = SIGNING_IDENTITY
     child_pid = "spiffe://trust.example/sub"
     constrained_scope = {**SCOPE, "constraints": ["permit(principal, action, resource)"]}
 
@@ -490,7 +497,7 @@ def test_require_delegation_with_no_chain_is_mismatch():
 
 def test_require_delegation_with_valid_chain_is_valid():
     kp = generate_ed25519()
-    pid = AGENT_ID  # root bound to manifest signing identity
+    pid = SIGNING_IDENTITY  # root bound to manifest signing identity
     chain = _make_chain(kp, principal_id=pid)
     m = base_manifest(delegation_chain=chain)
     ctx = base_context(
@@ -551,7 +558,7 @@ def test_empty_principal_id_raises():
 def test_invalid_principal_type_via_verify_manifest():
     """Structural violation in chain must surface as MISMATCH via full verify path."""
     kp = generate_ed25519()
-    pid = AGENT_ID  # root bound to manifest signing identity
+    pid = SIGNING_IDENTITY  # root bound to manifest signing identity
     # Build valid sig but inject invalid principal_type
     sig = DelegationHopSigner(kp).sign_hop(
         hop=0, principal_id=pid, principal_type="agent",

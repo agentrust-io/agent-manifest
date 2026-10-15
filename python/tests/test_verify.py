@@ -33,6 +33,10 @@ APPROVER_KP = generate_ed25519()
 APPROVER_ID = "mailto:alice@example.com"
 ISSUER_A = "spiffe://trust.example/issuer/a"
 ISSUER_B = "spiffe://trust.example/issuer/b"
+# The issuer every base manifest declares, and the issuer the base context
+# authorizes the signing key for (spec 5.3.3).
+DEFAULT_ISSUER = "spiffe://trust.example/signing-authority"
+TRUSTED_KEY_ISSUERS = {KP.key_id: [DEFAULT_ISSUER]}
 
 
 def sign_with(m, kp):
@@ -53,6 +57,7 @@ def base_manifest(**overrides):
         "version": "0.1",
         "issued_at": NOW.isoformat().replace("+00:00", "Z"),
         "expires_at": FUTURE,
+        "issuer": DEFAULT_ISSUER,
         "crypto_profile": "standard",
         "artifacts": {
             "system_prompt": {"hash": SHA},
@@ -72,6 +77,7 @@ def base_context(**overrides):
         policy_bundle_hash="sha256:" + "b" * 64,
         model_version="example-model-3",
         trusted_keys=dict(TRUSTED_KEYS),
+        trusted_key_issuers=dict(TRUSTED_KEY_ISSUERS),
         approver_public_keys={APPROVER_ID: APPROVER_KP.public_b64url()},
     )
     for k, v in overrides.items():
@@ -843,6 +849,35 @@ def test_trusted_key_authorized_for_manifest_issuer_is_valid():
     assert result.signature_verified is True
 
 
+def test_no_issuer_policy_is_unverifiable_not_valid():
+    """Spec 5.3.3 (#493): with trusted keys but no trusted_key_issuers the
+    issuer check cannot complete, so the signature is not verified and the
+    result is UNVERIFIABLE, distinct from the MISMATCH of a failed check."""
+    ctx = base_context(trusted_key_issuers=None)
+    result = verify_manifest(base_manifest(), ctx, store())
+    assert result.result == OverallResult.UNVERIFIABLE
+    assert result.signature_verified is False
+    assert result.mismatch_details == []
+    assert any("5.3.3" in w for w in result.warnings)
+
+
+def test_no_issuer_policy_never_verifies_the_signature(monkeypatch):
+    from agent_manifest import _signing
+
+    calls = []
+    real = _signing.Ed25519Verifier.verify
+
+    def spy(self, manifest, signature_value):
+        calls.append(signature_value)
+        return real(self, manifest, signature_value)
+
+    monkeypatch.setattr(_signing.Ed25519Verifier, "verify", spy)
+    verify_manifest(base_manifest(), base_context(trusted_key_issuers=None), store())
+    assert calls == []
+    verify_manifest(base_manifest(), base_context(), store())
+    assert len(calls) == 1
+
+
 def test_trusted_key_not_authorized_for_claimed_issuer_is_mismatch():
     other = generate_ed25519()
     trusted_keys = dict(TRUSTED_KEYS)
@@ -929,7 +964,10 @@ def test_hybrid_signature_uses_combined_trusted_key(monkeypatch):
             seen["verified"] = True
 
     monkeypatch.setattr(_signing, "HybridVerifier", FakeHybridVerifier)
-    ctx = base_context(trusted_keys={key_id: _b64url_encode(combined_pub)})
+    ctx = base_context(
+        trusted_keys={key_id: _b64url_encode(combined_pub)},
+        trusted_key_issuers={key_id: [DEFAULT_ISSUER]},
+    )
 
     result = verify_manifest(_hybrid_manifest(key_id), ctx, store())
 
@@ -943,7 +981,10 @@ def test_hybrid_trusted_key_must_match_combined_key_id():
     pq_pub = b"p" * 1952
     key_id = hashlib.sha256(ed_pub + pq_pub).hexdigest()
     wrong_combined_pub = ed_pub + (b"q" * 1952)
-    ctx = base_context(trusted_keys={key_id: _b64url_encode(wrong_combined_pub)})
+    ctx = base_context(
+        trusted_keys={key_id: _b64url_encode(wrong_combined_pub)},
+        trusted_key_issuers={key_id: [DEFAULT_ISSUER]},
+    )
 
     result = verify_manifest(_hybrid_manifest(key_id), ctx, store())
 
@@ -1004,7 +1045,10 @@ def test_hybrid_trusted_key_wrong_length_is_mismatch_not_a_crash():
     short_pq_pub = b"p" * 100  # not 1952
     combined_pub = ed_pub + short_pq_pub
     key_id = hashlib.sha256(combined_pub).hexdigest()
-    ctx = base_context(trusted_keys={key_id: _b64url_encode(combined_pub)})
+    ctx = base_context(
+        trusted_keys={key_id: _b64url_encode(combined_pub)},
+        trusted_key_issuers={key_id: [DEFAULT_ISSUER]},
+    )
 
     result = verify_manifest(_hybrid_manifest(key_id), ctx, store())
 
@@ -1023,7 +1067,10 @@ def test_hybrid_non_ascii_key_id_is_mismatch_not_a_crash():
     pq_pub = b"p" * 1952
     combined_pub = ed_pub + pq_pub
     key_id = "é" * 20
-    ctx = base_context(trusted_keys={key_id: _b64url_encode(combined_pub)})
+    ctx = base_context(
+        trusted_keys={key_id: _b64url_encode(combined_pub)},
+        trusted_key_issuers={key_id: [DEFAULT_ISSUER]},
+    )
 
     result = verify_manifest(_hybrid_manifest(key_id), ctx, store())
 
@@ -1187,7 +1234,10 @@ def test_hybrid_without_pq_extra_is_unverifiable(monkeypatch):
     monkeypatch.setattr(_signing, "HybridVerifier", _raise_unavailable)
 
     m = _hybrid_manifest(key_id)
-    ctx = base_context(trusted_keys={key_id: _b64url_encode(combined_pub)})
+    ctx = base_context(
+        trusted_keys={key_id: _b64url_encode(combined_pub)},
+        trusted_key_issuers={key_id: [DEFAULT_ISSUER]},
+    )
     result = verify_manifest(m, ctx, store())
 
     assert result.result == OverallResult.UNVERIFIABLE
@@ -1265,7 +1315,10 @@ def test_standard_profile_with_stronger_signature_is_not_a_downgrade(monkeypatch
             pass
 
     monkeypatch.setattr(_signing, "HybridVerifier", FakeHybridVerifier)
-    ctx = base_context(trusted_keys={key_id: _b64url_encode(combined_pub)})
+    ctx = base_context(
+        trusted_keys={key_id: _b64url_encode(combined_pub)},
+        trusted_key_issuers={key_id: [DEFAULT_ISSUER]},
+    )
 
     result = verify_manifest(_hybrid_manifest(key_id), ctx, store())
 

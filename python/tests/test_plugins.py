@@ -357,7 +357,10 @@ def test_resolved_reference_verifies_manifest_and_bundle(tmp_path):
     result = verify_plugin_manifest_reference(
         root,
         fetch=lambda _uri: manifest_bytes,
-        context=VerificationContext(trusted_keys={key.key_id: key.public_b64url()}),
+        context=VerificationContext(
+            trusted_keys={key.key_id: key.public_b64url()},
+            trusted_key_issuers={key.key_id: ["spiffe://trust.example/issuer/ci"]},
+        ),
         revocation_store=RevocationStore(),
     )
     assert result.status == PluginReferenceStatus.VERIFIED
@@ -481,7 +484,10 @@ def test_json_reference_allows_leading_whitespace_without_changing_raw_digest(tm
     result = verify_plugin_manifest_reference(
         root,
         fetch=lambda _uri: manifest_bytes,
-        context=VerificationContext(trusted_keys={key.key_id: key.public_b64url()}),
+        context=VerificationContext(
+            trusted_keys={key.key_id: key.public_b64url()},
+            trusted_key_issuers={key.key_id: ["spiffe://trust.example/issuer/ci"]},
+        ),
         revocation_store=RevocationStore(),
     )
     assert result.status == PluginReferenceStatus.VERIFIED
@@ -539,7 +545,10 @@ def test_bundle_changed_after_manifest_was_signed_is_fatal(tmp_path):
     result = verify_plugin_manifest_reference(
         root,
         fetch=lambda _uri: manifest_bytes,
-        context=VerificationContext(trusted_keys={key.key_id: key.public_b64url()}),
+        context=VerificationContext(
+            trusted_keys={key.key_id: key.public_b64url()},
+            trusted_key_issuers={key.key_id: ["spiffe://trust.example/issuer/ci"]},
+        ),
         revocation_store=RevocationStore(),
     )
     assert result.status == PluginReferenceStatus.MISMATCH

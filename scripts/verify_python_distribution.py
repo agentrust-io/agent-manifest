@@ -60,6 +60,7 @@ def main() -> None:
         enforcement_mode="enforce",
         model_version="release-smoke",
         trusted_keys={keypair.key_id: keypair.public_b64url()},
+        trusted_key_issuers={keypair.key_id: ["spiffe://trust.example/issuer/release"]},
     )
     result = agent_manifest.verify_manifest(
         manifest, context, agent_manifest.RevocationStore()
