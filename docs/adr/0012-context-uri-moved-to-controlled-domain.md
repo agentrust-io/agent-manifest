@@ -49,7 +49,7 @@ The `@context` URI becomes:
 https://manifest.agentrust-io.com/v0.2/context.json
 ```
 
-`agentrust-io.com` is registered to Opaque at Cloudflare and `manifest.agentrust-io.com`
+`agentrust-io.com` is held by the AgenTrust project at Cloudflare and `manifest.agentrust-io.com`
 already serves the Agent Manifest documentation.
 
 **The version is bumped to v0.2 and consumers cut over. They do not dual-accept.** The

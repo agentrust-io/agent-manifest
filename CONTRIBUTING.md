@@ -1,5 +1,7 @@
 # Contributing to Agent Manifest
 
+AgenTrust is an independent open-source project. No company funds, owns or directs it; contributions are voluntary.
+
 Agent Manifest is an open specification and reference SDK. Contributions are welcome in three areas: the specification, the Python SDK, and the conformance test suite.
 
 ## Before you start
