@@ -20,7 +20,7 @@ labels: spec
 
 - Backward compatible: yes / no / unclear
 - Affects conformance level(s): Level 0 / 1 / 2 / 3 / all
-- Conformance tests that need updating: <!-- e.g. AM-BIND-012, AM-VERIFY-008, or "none" -->
+- Conformance tests that need updating: <!-- executable pytest node IDs from python/ or portable AM-VEC fixture IDs, with source revision; use "none" where appropriate -->
 - Regulatory mapping impact: <!-- e.g. "EU AI Act Art. 14 — HITL section" or "none" -->
 
 ## Alternatives considered

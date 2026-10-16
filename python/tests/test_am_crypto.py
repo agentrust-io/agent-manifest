@@ -2,7 +2,7 @@
 
 Covers Ed25519 signing/verification, canonical JSON, Merkle tree hashing,
 hybrid envelope structure, and SHA-256/SHAKE-256 hash correctness.
-Target: 38 tests.
+Collected parametrized cases are inventoried in docs/conformance-inventory.json.
 """
 import hashlib
 from datetime import datetime, timezone

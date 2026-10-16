@@ -8,7 +8,7 @@
 
 ## Spec impact
 
-<!-- If this touches the spec: which section changed, what the normative delta is, and which conformance test IDs cover it (e.g. AM-BIND-012). Write "none" if SDK-only. -->
+<!-- If this touches the spec: which section changed, what the normative delta is, and which executable pytest node IDs or portable AM-VEC fixture IDs cover it, with source revision. Write "none" if SDK-only. -->
 
 ## Test plan
 

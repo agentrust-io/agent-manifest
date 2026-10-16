@@ -72,7 +72,7 @@ The spec defines exactly three named profiles. Arbitrary algorithm negotiation b
 - `crypto_profile: hybrid` or `post_quantum` requires `pip install "agent-manifest[pq]"`, which pulls in the `oqs` package (Python bindings for `liboqs`, a C library). Importing `oqs` is deferred until a PQC operation is actually needed  -  the package is not imported at module load time.
 - A Level 0 verifier without `oqs` installed cannot verify a `post_quantum` or `hybrid` manifest. The verifier must raise `INCOMPATIBLE_VERSION`. Silent pass is not permitted.
 - Signature sizes: Ed25519 = 64 bytes, ML-DSA-65 = 3309 bytes, hybrid = 3373 bytes plus encoding overhead. Manifests passed in HTTP headers must use the `X-Agent-Manifest-Id` header (a UUID reference) rather than embedding the full signed manifest inline.
-- The conformance test suite includes AM-CRYPTO-010 through AM-CRYPTO-020 covering all three profiles and hybrid verification rejection on partial signature sets.
+- Executable hybrid controls are in `tests/test_am_crypto.py`, including `test_hybrid_both_verify`, `test_hybrid_classical_tampered_fails` and `test_hybrid_pq_tampered_fails`. Report backend-dependent skips separately; the old numeric range was not a selectable test registry.
 
 ## References
 

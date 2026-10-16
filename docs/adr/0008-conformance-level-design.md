@@ -34,7 +34,7 @@ Define **four conformance levels** numbered 0 through 3. Each level is a strict 
 | 2 | Confidential compute | AMD SEV-SNP or Intel TDX | Manifest hash extended into HOST_DATA or RTMR; hardware-signed attestation report |
 | 3 | Managed TEE + audit chain | OPAQUE runtime or equivalent | Silicon measurement plus hardware-signed Merkle-rooted audit chain |
 
-The spec defines **197 conformance tests** distributed across levels. A conformance claim must specify the level: "this implementation is Level 2 conformant" is a meaningful and auditable statement. "This implementation is conformant" without a level qualifier is not.
+The five reference modules currently collect **233 parametrized cases**, inventoried in `docs/conformance-inventory.json`. This does not establish a per-level allocation. A conformance claim must specify the level: "this implementation is Level 2 conformant" is a meaningful and auditable statement. "This implementation is conformant" without a level qualifier is not.
 
 ## Rationale
 
@@ -50,7 +50,7 @@ The spec defines **197 conformance tests** distributed across levels. A conforma
 
 **Strict superset semantics simplify testing.** A Level 2 test suite runs all Level 0 and Level 1 tests plus the Level 2-specific tests. There is no ambiguity about what "passes Level 2" means.
 
-**197 tests covers the full combination space.** The test count reflects all field combinations across 4 levels multiplied by attestation provider variants, artifact binding field permutations, and crypto profile variants. The distribution is: Level 0: 89 tests, Level 1: 51 tests, Level 2: 42 tests, Level 3: 15 tests.
+**Counts do not establish complete coverage.** The original 197-test allocation and 89/51/42/15 level distribution were design figures, not a mapping to the collected implementation tests. Cite executable node IDs and a pinned passing run; do not infer exhaustive field combinations or hardware acceptance from a total.
 
 ## Alternatives considered
 

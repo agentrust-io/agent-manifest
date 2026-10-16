@@ -42,7 +42,7 @@ Leaf data for composite policy sub-bundles (Section 3.2.2): the **raw digest byt
 
 ## Consequences
 
-- The `0x00` prefix on leaf nodes and `0x01` prefix on internal nodes are mandatory. Implementations that omit them will fail conformance test AM-BIND-015.
+- The `0x00` prefix on leaf nodes and `0x01` prefix on internal nodes are mandatory. The executable reference control is `tests/test_am_crypto.py::test_merkle_domain_separation` (run from `python/`).
 - Leaf ordering must be deterministic: tool entries sorted by `tool_id` (lexicographic, Unicode code point order, same as RFC 8785 key ordering). Corpus documents sorted by `document_id`. Composite policy sub-bundles sorted by policy language identifier (`cedar`, `rego`, `yaml-agt`), per Section 3.2.2.
 - Empty trees (no tools, no corpus documents) are represented by the SHA-256 of the empty string: `sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`.
 

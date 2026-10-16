@@ -34,4 +34,4 @@ labels: bug
 
 ## Conformance test ID
 
-<!-- If this maps to a conformance test (e.g. AM-CRYPTO-004), list it here. -->
+<!-- Give a source revision and an executable pytest node ID from python/ (e.g. tests/test_am_crypto.py::test_merkle_domain_separation), or a portable AM-VEC fixture ID. Historical per-test AM-* labels are not pytest selectors. -->

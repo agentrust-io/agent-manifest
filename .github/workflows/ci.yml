@@ -56,6 +56,10 @@ jobs:
           pip install --require-hashes -r ../requirements/dev.txt
           pip install --no-deps -e .
 
+      - name: Check collected conformance inventory
+        working-directory: python
+        run: python ../scripts/conformance_inventory.py
+
       - name: Run tests with coverage
         working-directory: python
         shell: bash

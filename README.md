@@ -24,7 +24,7 @@ Community updates and contributor highlights: [AgenTrust on LinkedIn](https://ww
 [![CI](https://github.com/agentrust-io/agent-manifest/actions/workflows/ci.yml/badge.svg)](https://github.com/agentrust-io/agent-manifest/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![PyPI](https://img.shields.io/pypi/v/agent-manifest?label=PyPI)](https://pypi.org/project/agent-manifest/)
-[![Spec](https://img.shields.io/badge/Spec-v0.2_·_197_tests-0ea5e9)](spec/agent-manifest-spec-v0.2.md)
+[![Spec](https://img.shields.io/badge/Spec-v0.2_·_233_tests-0ea5e9)](spec/agent-manifest-spec-v0.2.md)
 [![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white&style=flat)](https://discord.gg/grgzFEHgkj)
 
 > **Developer Preview.** Launched at Confidential Computing Summit, June 23 2026.
@@ -90,7 +90,7 @@ Put briefly, Agent Plugins describes what a client should install and a manifest
 
 ## Standards alignment
 
-Targeting [CoSAI](https://www.coalitionforsecureai.org/) Working Stream 4, an OASIS Open Project. The specification defines a 197-test conformance suite. Integrates with [TRACE](https://github.com/agentrust-io/trace-spec) for hardware-rooted attestation.
+Targeting [CoSAI](https://www.coalitionforsecureai.org/) Working Stream 4, an OASIS Open Project. The five reference conformance modules collect 233 parametrized cases. Integrates with [TRACE](https://github.com/agentrust-io/trace-spec) for hardware-rooted attestation.
 
 ## Contributing
 

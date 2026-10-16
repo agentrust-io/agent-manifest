@@ -36,7 +36,7 @@ Ed25519 (RFC 8032, cofactorless verification) is the standard profile signature 
 
 ## Consequences
 
-- Implementations must use cofactorless Ed25519 verification. Implementations that use cofactored verification (some older libraries) will fail conformance test AM-CRYPTO-003.
+- Implementations must use cofactorless Ed25519 verification. The executable small-order-key control is `tests/test_am_crypto.py::test_ed25519_small_order_key_rejected` (run from `python/`); cite its pinned result rather than a historical numeric label.
 - The hybrid profile (standard + post-quantum simultaneously) is defined in Section 4.3. When hybrid mode is used, both Ed25519 and ML-DSA-65 signatures must be present and both must verify.
 - Key IDs are the SHA-256 hash of the DER-encoded public key. This allows key rotation without key confusion.
 

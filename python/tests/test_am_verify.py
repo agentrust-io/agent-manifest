@@ -2,7 +2,7 @@
 
 Covers VerificationResult schema, all result states, mismatch detection,
 delegation chain validation, HITL verification, and the FastAPI endpoint
-HTTP contract. Target: 52 tests.
+HTTP contract. Collected parametrized cases are inventoried in docs/conformance-inventory.json.
 """
 from datetime import datetime, timedelta, timezone
 
@@ -912,6 +912,7 @@ _ISSUED_EPOCH = str(int((NOW - timedelta(days=30)).timestamp()))
             (NOW - timedelta(days=1)).isoformat().replace("+00:00", "z"),
         ),
     ],
+    ids=["numeric-epoch", "lowercase-z"],
 )
 def test_expired_manifest_is_not_valid_under_alternate_timestamp_forms(issued_at, expires_at):
     r = verify_manifest(manifest(issued_at=issued_at, expires_at=expires_at), ctx(), store())
