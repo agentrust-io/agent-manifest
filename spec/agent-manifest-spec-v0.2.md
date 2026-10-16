@@ -2071,7 +2071,7 @@ The Art. 13 row in section 9.1 cross-references `operational_lifecycle.expected_
 - Cryptographic protocol definitions for standard and post-quantum profiles
 - Verification API specification with error schemas and revocation protocol
 - TEE attestation binding protocol with per-platform profiles
-- Reference conformance test suite; see the generated [test inventory](../docs/conformance-inventory.json)
+- Reference conformance test suite; see the generated [test inventory](https://github.com/agentrust-io/agent-manifest/blob/main/docs/conformance-inventory.json)
 - Reference implementation targeting CoSAI WS4 + cMCP
 
 ### 10.2 Version 0.2

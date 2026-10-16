@@ -6,7 +6,7 @@ This page shows what Agent Manifest has shipped, what is still open, and what th
 
 Launched at Confidential Computing Summit, June 23 2026.
 
-- Specification: all 10 artifact bindings, conformance levels 0 to 3, and a reference conformance suite defined in section 8.2, with collected cases recorded in the generated [test inventory](docs/conformance-inventory.json)
+- Specification: all 10 artifact bindings, conformance levels 0 to 3, and a reference conformance suite defined in section 8.2, with collected cases recorded in the generated [test inventory](https://github.com/agentrust-io/agent-manifest/blob/main/docs/conformance-inventory.json)
 - Python SDK: signing, verification, hardware attestation (TPM / SEV-SNP / TDX), CLI
 - Runtime attestation freshness proofs: `attest_runtime_state()` + `verify_runtime_report()` (spec §3.3.2, ADR-0010)
 - Standard crypto profile: Ed25519, SHA-256, RFC 8785
