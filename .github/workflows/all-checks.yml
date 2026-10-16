@@ -1,0 +1,172 @@
+name: All checks
+
+# One required check that stands for every other check on the PR head. ci.yml
+# runs only on some paths, so its jobs cannot be required directly: a docs PR
+# would wait forever for a test job that never starts. This works out from
+# ci.yml's own path filters whether CI applies to the PR, and if it does,
+# passes only on a successful CI run for the head commit. A missing CI run is
+# a failure, never a pass. Any other check that completes red fails it too, so
+# Dependabot auto-merge cannot land an update while tests are pending or red.
+#
+# If a failed job is re-run and passes, re-run this job too.
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  all-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      actions: read
+      checks: read
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Wait for CI and every other check on the head commit
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+          PR: ${{ github.event.pull_request.number }}
+          CHANGED: ${{ github.event.pull_request.changed_files }}
+          CI_WORKFLOW: .github/workflows/ci.yml
+          SELF: all-checks
+          # Required on its own, and red until a maintainer approves.
+          GATE: "Policy: Awaiting maintainer review"
+          # Seconds for the CI run to appear, and for everything to finish.
+          CI_APPEAR_LIMIT: 600
+          DEADLINE: 4800
+        run: |
+          set -euo pipefail
+
+          # Does ci.yml run for this PR? Read its pull_request trigger from the
+          # head commit, the same file GitHub evaluates. Anything this cannot
+          # read exactly stops the job rather than guessing.
+          gh api -H "Accept: application/vnd.github.raw" \
+            "repos/$REPO/contents/$CI_WORKFLOW?ref=$SHA" > ci.yml
+          on_type=$(yq '.on | type' ci.yml)
+          if [ "$on_type" != '!!map' ]; then
+            echo "Cannot read the triggers in $CI_WORKFLOW (on: is $on_type)"
+            exit 1
+          fi
+          trigger=$(yq -o=json '.on.pull_request' ci.yml)
+          if [ "$(printf '%s' "$trigger" | jq 'type == "object" and has("paths-ignore")')" = true ]; then
+            echo "$CI_WORKFLOW uses paths-ignore, which this job does not evaluate"
+            exit 1
+          fi
+          patterns=$(printf '%s' "$trigger" | jq -r 'if type == "object" then (.paths // [])[] else empty end')
+          if [ "$trigger" = null ] && [ "$(yq '.on | has("pull_request")' ci.yml)" != true ]; then
+            echo "$CI_WORKFLOW has no pull_request trigger, so CI does not apply"
+            ci_applies=0
+          elif [ -z "$patterns" ]; then
+            ci_applies=1
+          else
+            # GitHub globs: ** crosses directories, * does not. Only literal
+            # path characters are accepted next to them.
+            : > ci-paths.re
+            while IFS= read -r p; do
+              case $p in
+                *[!A-Za-z0-9._/*-]*)
+                  echo "Cannot evaluate path filter '$p' in $CI_WORKFLOW"
+                  exit 1 ;;
+              esac
+              printf '^%s$\n' "$(printf '%s' "$p" | sed -e 's/\./\\./g' \
+                -e 's#\*\*/#\x02#g' -e 's/\*\*/\x01/g' -e 's#\*#[^/]*#g' \
+                -e 's#\x02#(.*/)?#g' -e 's/\x01/.*/g')" >> ci-paths.re
+            done <<< "$patterns"
+            if [ "$CHANGED" -gt 3000 ]; then
+              # The files API stops at 3000, so the list would be partial.
+              ci_applies=1
+            else
+              # A rename counts under both names.
+              gh api --paginate "repos/$REPO/pulls/$PR/files?per_page=100" \
+                --jq '.[] | .filename, (.previous_filename // empty)' > changed.txt
+              if grep -Eq -f ci-paths.re changed.txt; then
+                ci_applies=1
+              else
+                ci_applies=0
+              fi
+            fi
+          fi
+          # A PR that changes CI must not exempt itself by narrowing/removing
+          # its trigger. Renames count under both paths. An incomplete files
+          # list cannot establish that CI was untouched.
+          if [ "$CHANGED" -gt 3000 ]; then
+            ci_applies=1
+          else
+            if [ ! -f changed.txt ]; then
+              gh api --paginate "repos/$REPO/pulls/$PR/files?per_page=100" \
+                --jq '.[] | .filename, (.previous_filename // empty)' > changed.txt
+            fi
+            if grep -Fxq "$CI_WORKFLOW" changed.txt; then
+              ci_applies=1
+            fi
+          fi
+          echo "CI applies to this PR: $ci_applies"
+
+          # Give the other workflows for this event time to queue their jobs.
+          sleep 60
+          stable=0
+          while true; do
+            # SC2016: $ENV is jq's, not the shell's, so the filter stays single-quoted.
+            # shellcheck disable=SC2016
+            runs=$(gh api --paginate "repos/$REPO/commits/$SHA/check-runs?per_page=100" \
+              --jq '.check_runs[] | select(.name != $ENV.SELF and .name != $ENV.GATE)
+                    | [.name, .status, (.conclusion // "")] | @tsv')
+            failed=$(printf '%s\n' "$runs" | awk -F'\t' 'NF && $2 == "completed" && $3 != "success" && $3 != "skipped" && $3 != "neutral"')
+            if [ -n "$failed" ]; then
+              echo "Failed checks:"
+              printf '%s\n' "$failed"
+              exit 1
+            fi
+            pending=$(printf '%s\n' "$runs" | awk -F'\t' 'NF && $2 != "completed"' | wc -l)
+
+            ci_ok=1
+            if [ "$ci_applies" -eq 1 ]; then
+              # The newest CI run for this commit; its status is that of its
+              # latest attempt, so a re-run replaces the earlier result.
+              # shellcheck disable=SC2016
+              ci=$(gh api "repos/$REPO/actions/runs?head_sha=$SHA&event=pull_request&per_page=100" \
+                --jq '[.workflow_runs[] | select((.path | split("@")[0]) == $ENV.CI_WORKFLOW)]
+                      | max_by(.id) // empty | [.status, (.conclusion // ""), .html_url] | @tsv')
+              ci_status=$(printf '%s' "$ci" | cut -f1)
+              ci_conclusion=$(printf '%s' "$ci" | cut -f2)
+              if [ -z "$ci" ]; then
+                ci_ok=0
+                if [ "$SECONDS" -ge "$CI_APPEAR_LIMIT" ]; then
+                  echo "CI applies to this PR but no $CI_WORKFLOW run exists for $SHA"
+                  exit 1
+                fi
+                echo "Waiting for the $CI_WORKFLOW run to start"
+              elif [ "$ci_status" != completed ]; then
+                ci_ok=0
+                echo "Waiting on CI: $ci"
+              elif [ "$ci_conclusion" != success ]; then
+                echo "CI did not succeed: $ci"
+                exit 1
+              fi
+            fi
+
+            if [ "$pending" -eq 0 ] && [ "$ci_ok" -eq 1 ]; then
+              # Two quiet polls in a row, so a late-queued job is not missed.
+              stable=$((stable + 1))
+              if [ "$stable" -ge 2 ]; then
+                echo "All other checks passed:"
+                printf '%s\n' "$runs"
+                exit 0
+              fi
+            else
+              stable=0
+              [ "$pending" -eq 0 ] || echo "Waiting on $pending check(s)"
+            fi
+            if [ "$SECONDS" -ge "$DEADLINE" ]; then
+              echo "Timed out after $SECONDS seconds"
+              exit 1
+            fi
+            sleep 30
+          done
