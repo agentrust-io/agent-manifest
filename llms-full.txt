@@ -329,7 +329,7 @@ The Agent Manifest Specification v0.2 is a formal RFC 2119 document (its rules u
 
 TL;DR
 
-The spec has 10 sections covering the problem statement, data model for all 10 artifact bindings, Ed25519 and post-quantum cryptographic protocols, the verification protocol, integration with AGT and cMCP, the threat model, conformance Levels 0 to 3, and regulatory mapping. Conformance is measured by 197 tests across 5 modules.
+The spec has 10 sections covering the problem statement, data model for all 10 artifact bindings, Ed25519 and post-quantum cryptographic protocols, the verification protocol, integration with AGT and cMCP, the threat model, conformance Levels 0 to 3, and regulatory mapping. The generated [test inventory](https://manifest.agentrust-io.com/conformance-inventory.json) records the collected reference cases.
 
 **Full specification**: [`spec/agent-manifest-spec-v0.2.md`](https://manifest.agentrust-io.com/spec/agent-manifest-v0.2/index.md) (1,500+ lines)
 
@@ -346,20 +346,21 @@ The spec has 10 sections covering the problem statement, data model for all 10 a
 | 5 - Verification Protocol    | HTTP endpoint, result schema, evidence pack, revocation protocol                             |
 | 6 - Integration Architecture | AGT, cMCP, and MCP integration with field cross-checks                                       |
 | 7 - Threat Model             | 10 threat classes addressed; explicit out-of-scope threats                                   |
-| 8 - Conformance              | Levels 0 to 3; 197 conformance tests across 5 modules                                        |
+| 8 - Conformance              | Levels 0 to 3; reference conformance modules and generated inventory                         |
 | 9 - Regulatory Mapping       | EU AI Act, DORA, GDPR, HIPAA, PCI-DSS, FedRAMP                                               |
 | 10 - Roadmap                 | v0.2 targets, v1.0 CoSAI WS4 contribution                                                    |
 
 ## Conformance test modules
 
-| Module    | Tests   | Coverage                                                          |
-| --------- | ------- | ----------------------------------------------------------------- |
-| AM-BIND   | 47      | Artifact binding correctness, hash computation, Merkle trees      |
-| AM-CRYPTO | 38      | Signature generation and verification, RFC 8785 canonicalization  |
-| AM-ATTEST | 29      | TEE attestation binding, field cross-checks, per-platform formats |
-| AM-VERIFY | 52      | Verification endpoint, mismatch detection, delegation, revocation |
-| AM-COMPAT | 31      | AGT integration, cMCP integration, MCP protocol extension         |
-| **Total** | **197** |                                                                   |
+| Module    | Coverage                                                          |
+| --------- | ----------------------------------------------------------------- |
+| AM-BIND   | Artifact binding correctness, hash computation, Merkle trees      |
+| AM-CRYPTO | Signature generation and verification, RFC 8785 canonicalization  |
+| AM-ATTEST | TEE attestation binding, field cross-checks, per-platform formats |
+| AM-VERIFY | Verification endpoint, mismatch detection, delegation, revocation |
+| AM-COMPAT | AGT integration, cMCP integration, MCP protocol extension         |
+
+Collected case totals and per-module counts, including parametrization, are maintained only in the generated inventory. See [Running and citing the reference tests](https://manifest.agentrust-io.com/conformance-testing/index.md) and the generated [node-ID inventory](https://manifest.agentrust-io.com/conformance-inventory.json). Collection is separate from passed/skipped results and level-specific coverage.
 
 ## Key normative references
 
@@ -2128,15 +2129,15 @@ The EU AI Act (Art. 26 via Art. 12 and recital obligations) requires a minimum o
 
 A conformant Agent Manifest implementation MUST pass all tests in the reference test suite. The suite is organized into five modules:
 
-| Module    | Tests    | Coverage                                                                                                                                                    |
-| --------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| AM-BIND   | 47 tests | Artifact binding correctness: hash computation, normalization, Merkle tree construction, schema validation.                                                 |
-| AM-CRYPTO | 38 tests | Signature generation and verification: Ed25519 (cofactorless), ML-DSA-65, hybrid, transparency log inclusion, RFC 8785 canonicalization.                    |
-| AM-ATTEST | 29 tests | TEE attestation binding: manifest hash in report, field cross-checks with cMCP, `audit_key_sealed` enforcement, per-platform measurement format validation. |
-| AM-VERIFY | 52 tests | Verification endpoint: result schema, mismatch detection, delegation chain validation, HITL verification, revocation status check, error response schemas.  |
-| AM-COMPAT | 31 tests | AGT integration, cMCP integration, MCP protocol extension, SLSA provenance binding.                                                                         |
+| Module    | Coverage                                                                                                                                                    |
+| --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AM-BIND   | Artifact binding correctness: hash computation, normalization, Merkle tree construction, schema validation.                                                 |
+| AM-CRYPTO | Signature generation and verification: Ed25519 (cofactorless), ML-DSA-65, hybrid, transparency log inclusion, RFC 8785 canonicalization.                    |
+| AM-ATTEST | TEE attestation binding: manifest hash in report, field cross-checks with cMCP, `audit_key_sealed` enforcement, per-platform measurement format validation. |
+| AM-VERIFY | Verification endpoint: result schema, mismatch detection, delegation chain validation, HITL verification, revocation status check, error response schemas.  |
+| AM-COMPAT | AGT integration, cMCP integration, MCP protocol extension, SLSA provenance binding.                                                                         |
 
-Total: 197 conformance tests. The test suite is published as an open-source repository under the agentrust-io organization and moves with the specification to its target standards body. Conformance claims MUST reference a specific test suite version and MUST include a passing test run against the reference implementation.
+Collected case totals and per-module counts, including parametrization, are maintained in the generated inventory rather than this specification. Collection does not establish exhaustive requirement or hardware coverage. The executable node IDs and module counts are generated in `docs/conformance-inventory.json`; see `docs/conformance-testing.md` for reproduction and citation. Historical per-test AM labels in prose are not registered pytest selectors. The test suite is published as an open-source repository under the agentrust-io organization and moves with the specification to its target standards body. Conformance claims MUST reference a specific test suite version and MUST include a passing test run against the reference implementation.
 
 ## 9. Regulatory Mapping
 
@@ -2278,7 +2279,7 @@ The Art. 13 row in section 9.1 cross-references `operational_lifecycle.expected_
 - Cryptographic protocol definitions for standard and post-quantum profiles
 - Verification API specification with error schemas and revocation protocol
 - TEE attestation binding protocol with per-platform profiles
-- Conformance test suite (197 tests)
+- Reference conformance test suite; see the generated [test inventory](https://github.com/agentrust-io/agent-manifest/blob/main/docs/conformance-inventory.json)
 - Reference implementation targeting CoSAI WS4 + cMCP
 
 ### 10.2 Version 0.2
@@ -3310,7 +3311,7 @@ This page shows what Agent Manifest has shipped, what is still open, and what th
 
 Launched at Confidential Computing Summit, June 23 2026.
 
-- Specification: all 10 artifact bindings, conformance levels 0 to 3, and a 197-test conformance suite defined in section 8.2
+- Specification: all 10 artifact bindings, conformance levels 0 to 3, and a reference conformance suite defined in section 8.2, with collected cases recorded in the generated [test inventory](https://github.com/agentrust-io/agent-manifest/blob/main/docs/conformance-inventory.json)
 - Python SDK: signing, verification, hardware attestation (TPM / SEV-SNP / TDX), CLI
 - Runtime attestation freshness proofs: `attest_runtime_state()` + `verify_runtime_report()` (spec §3.3.2, ADR-0010)
 - Standard crypto profile: Ed25519, SHA-256, RFC 8785
@@ -3448,6 +3449,7 @@ Source: [commercial-interest disclosure](https://github.com/agentrust-io/agent-m
 
 ### Changed
 
+- **[Docs/tests]** Reconcile the five reference conformance modules with pytest collection (233 parametrized cases), add a generated executable node-ID inventory and CI drift check, and replace unresolved prose IDs in contributor templates and ADRs with runnable references. Stabilize two time-dependent parameter IDs. Collection counts do not establish a passing run, exhaustive requirement coverage or a level-specific hardware acceptance result.
 - **[SDK]** Issuer key authorization now follows spec section 5.3.3 on both envelopes. This is a breaking change for any caller that sets `trusted_keys` without `trusted_key_issuers`.
 - With `trusted_key_issuers=None` the issuer check cannot be completed, so the signature is not verified and the result is `UNVERIFIABLE` with a warning naming section 5.3.3. It used to skip the check and could return `VALID` with no issuer authorization at all. An authorization failure is still `MISMATCH`, so the two conditions stay distinguishable as section 5.3.3 requires.
 - On a v0.2 COSE envelope, key resolution and issuer authorization run before the envelope signature is checked. An unauthorized key is now refused with `signature_verified: false` (AM-VEC-COSE-009); before, the signature was verified first and the flag read `true`.

@@ -12,6 +12,7 @@
 
 ### Changed
 
+- **[Docs/tests]** Reconcile the five reference conformance modules with pytest collection (233 parametrized cases), add a generated executable node-ID inventory and CI drift check, and replace unresolved prose IDs in contributor templates and ADRs with runnable references. Stabilize two time-dependent parameter IDs. Collection counts do not establish a passing run, exhaustive requirement coverage or a level-specific hardware acceptance result.
 - **[SDK]** Issuer key authorization now follows spec section 5.3.3 on both envelopes. This is a breaking change for any caller that sets `trusted_keys` without `trusted_key_issuers`.
 - With `trusted_key_issuers=None` the issuer check cannot be completed, so the signature is not verified and the result is `UNVERIFIABLE` with a warning naming section 5.3.3. It used to skip the check and could return `VALID` with no issuer authorization at all. An authorization failure is still `MISMATCH`, so the two conditions stay distinguishable as section 5.3.3 requires.
 - On a v0.2 COSE envelope, key resolution and issuer authorization run before the envelope signature is checked. An unauthorized key is now refused with `signature_verified: false` (AM-VEC-COSE-009); before, the signature was verified first and the flag read `true`.

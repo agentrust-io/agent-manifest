@@ -6,7 +6,7 @@ The Agent Manifest Specification v0.2 is a formal RFC 2119 document (its rules u
 
 TL;DR
 
-The spec has 10 sections covering the problem statement, data model for all 10 artifact bindings, Ed25519 and post-quantum cryptographic protocols, the verification protocol, integration with AGT and cMCP, the threat model, conformance Levels 0 to 3, and regulatory mapping. Conformance is measured by 197 tests across 5 modules.
+The spec has 10 sections covering the problem statement, data model for all 10 artifact bindings, Ed25519 and post-quantum cryptographic protocols, the verification protocol, integration with AGT and cMCP, the threat model, conformance Levels 0 to 3, and regulatory mapping. The generated [test inventory](https://manifest.agentrust-io.com/conformance-inventory.json) records the collected reference cases.
 
 **Full specification**: [`spec/agent-manifest-spec-v0.2.md`](https://manifest.agentrust-io.com/spec/agent-manifest-v0.2/index.md) (1,500+ lines)
 
@@ -23,20 +23,21 @@ The spec has 10 sections covering the problem statement, data model for all 10 a
 | 5 - Verification Protocol    | HTTP endpoint, result schema, evidence pack, revocation protocol                             |
 | 6 - Integration Architecture | AGT, cMCP, and MCP integration with field cross-checks                                       |
 | 7 - Threat Model             | 10 threat classes addressed; explicit out-of-scope threats                                   |
-| 8 - Conformance              | Levels 0 to 3; 197 conformance tests across 5 modules                                        |
+| 8 - Conformance              | Levels 0 to 3; reference conformance modules and generated inventory                         |
 | 9 - Regulatory Mapping       | EU AI Act, DORA, GDPR, HIPAA, PCI-DSS, FedRAMP                                               |
 | 10 - Roadmap                 | v0.2 targets, v1.0 CoSAI WS4 contribution                                                    |
 
 ## Conformance test modules
 
-| Module    | Tests   | Coverage                                                          |
-| --------- | ------- | ----------------------------------------------------------------- |
-| AM-BIND   | 47      | Artifact binding correctness, hash computation, Merkle trees      |
-| AM-CRYPTO | 38      | Signature generation and verification, RFC 8785 canonicalization  |
-| AM-ATTEST | 29      | TEE attestation binding, field cross-checks, per-platform formats |
-| AM-VERIFY | 52      | Verification endpoint, mismatch detection, delegation, revocation |
-| AM-COMPAT | 31      | AGT integration, cMCP integration, MCP protocol extension         |
-| **Total** | **197** |                                                                   |
+| Module    | Coverage                                                          |
+| --------- | ----------------------------------------------------------------- |
+| AM-BIND   | Artifact binding correctness, hash computation, Merkle trees      |
+| AM-CRYPTO | Signature generation and verification, RFC 8785 canonicalization  |
+| AM-ATTEST | TEE attestation binding, field cross-checks, per-platform formats |
+| AM-VERIFY | Verification endpoint, mismatch detection, delegation, revocation |
+| AM-COMPAT | AGT integration, cMCP integration, MCP protocol extension         |
+
+Collected case totals and per-module counts, including parametrization, are maintained only in the generated inventory. See [Running and citing the reference tests](https://manifest.agentrust-io.com/conformance-testing/index.md) and the generated [node-ID inventory](https://manifest.agentrust-io.com/conformance-inventory.json). Collection is separate from passed/skipped results and level-specific coverage.
 
 ## Key normative references
 

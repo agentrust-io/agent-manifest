@@ -1753,15 +1753,15 @@ The EU AI Act (Art. 26 via Art. 12 and recital obligations) requires a minimum o
 
 A conformant Agent Manifest implementation MUST pass all tests in the reference test suite. The suite is organized into five modules:
 
-| Module    | Tests    | Coverage                                                                                                                                                    |
-| --------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| AM-BIND   | 47 tests | Artifact binding correctness: hash computation, normalization, Merkle tree construction, schema validation.                                                 |
-| AM-CRYPTO | 38 tests | Signature generation and verification: Ed25519 (cofactorless), ML-DSA-65, hybrid, transparency log inclusion, RFC 8785 canonicalization.                    |
-| AM-ATTEST | 29 tests | TEE attestation binding: manifest hash in report, field cross-checks with cMCP, `audit_key_sealed` enforcement, per-platform measurement format validation. |
-| AM-VERIFY | 52 tests | Verification endpoint: result schema, mismatch detection, delegation chain validation, HITL verification, revocation status check, error response schemas.  |
-| AM-COMPAT | 31 tests | AGT integration, cMCP integration, MCP protocol extension, SLSA provenance binding.                                                                         |
+| Module    | Coverage                                                                                                                                                    |
+| --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AM-BIND   | Artifact binding correctness: hash computation, normalization, Merkle tree construction, schema validation.                                                 |
+| AM-CRYPTO | Signature generation and verification: Ed25519 (cofactorless), ML-DSA-65, hybrid, transparency log inclusion, RFC 8785 canonicalization.                    |
+| AM-ATTEST | TEE attestation binding: manifest hash in report, field cross-checks with cMCP, `audit_key_sealed` enforcement, per-platform measurement format validation. |
+| AM-VERIFY | Verification endpoint: result schema, mismatch detection, delegation chain validation, HITL verification, revocation status check, error response schemas.  |
+| AM-COMPAT | AGT integration, cMCP integration, MCP protocol extension, SLSA provenance binding.                                                                         |
 
-Total: 197 conformance tests. The test suite is published as an open-source repository under the agentrust-io organization and moves with the specification to its target standards body. Conformance claims MUST reference a specific test suite version and MUST include a passing test run against the reference implementation.
+Collected case totals and per-module counts, including parametrization, are maintained in the generated inventory rather than this specification. Collection does not establish exhaustive requirement or hardware coverage. The executable node IDs and module counts are generated in `docs/conformance-inventory.json`; see `docs/conformance-testing.md` for reproduction and citation. Historical per-test AM labels in prose are not registered pytest selectors. The test suite is published as an open-source repository under the agentrust-io organization and moves with the specification to its target standards body. Conformance claims MUST reference a specific test suite version and MUST include a passing test run against the reference implementation.
 
 ## 9. Regulatory Mapping
 
@@ -1903,7 +1903,7 @@ The Art. 13 row in section 9.1 cross-references `operational_lifecycle.expected_
 - Cryptographic protocol definitions for standard and post-quantum profiles
 - Verification API specification with error schemas and revocation protocol
 - TEE attestation binding protocol with per-platform profiles
-- Conformance test suite (197 tests)
+- Reference conformance test suite; see the generated [test inventory](https://github.com/agentrust-io/agent-manifest/blob/main/docs/conformance-inventory.json)
 - Reference implementation targeting CoSAI WS4 + cMCP
 
 ### 10.2 Version 0.2
