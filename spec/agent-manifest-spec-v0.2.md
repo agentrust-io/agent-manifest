@@ -1228,6 +1228,8 @@ What the field does give is a signed, pre-execution statement of purpose that a 
 
 ### 4.1 Standard Profile
 
+<!-- CHANGED: CVE-2026-33697 - transport row no longer recommends draft-fossati-tls-attestation-08; intra-handshake evidence is not a session binding, so released values are sealed to an attested transport key -->
+
 <!-- CHANGED: CRYPTO-005/SCHEMA F-20 - added domain separation for Merkle trees per RFC 9162; CRYPTO-003 - downgraded aTLS to RECOMMENDED with draft version pin; CRYPTO-007 - Ed25519 validation rules moved to 3.6; SCHEMA F-20 - SPIFFE SVID P-256 preference; CRYPTO-001 - RFC 8785 reference -->
 
 The standard cryptographic profile uses the following primitives:
@@ -1240,7 +1242,7 @@ The standard cryptographic profile uses the following primitives:
 | Canonical JSON serialization | RFC 8785 (JCS) | N/A | Applies to all signing, hashing, and Merkle construction. See section 2.3. |
 | Agent identity | SPIFFE SVID (X.509) | P-256 EC (preferred); RSA-2048 (legacy compatibility only) | New implementations SHOULD use P-256. RSA-2048 permitted only when interfacing with existing PKI that does not support EC. |
 | Attestation binding | Platform-native (AMD, Intel, NVIDIA, ARM, AWS) | Platform-defined | See section 3.3.1 for per-platform measurement formats. |
-| Transport encryption | TLS 1.3 with attestation extensions per draft-fossati-tls-attestation-08 (or superseding version) | P-256 or X25519 | Mutual attestation over TLS per cMCP spec. Note: attestation TLS extensions are not yet an RFC; implementations MUST track the latest IETF RATS WG draft. Until the RFC is finalized, transport attestation is RECOMMENDED rather than REQUIRED for Level 0/1 deployments. A fallback of attestation over application-layer HTTPS is acceptable for Level 0/1. |
+| Transport encryption | TLS 1.3 | P-256 or X25519 | TLS protects the channel and is not an attestation binding. Implementations MUST NOT rely on attestation evidence carried inside the TLS handshake (intra-handshake attestation, as in draft-fossati-tls-attestation-08) to bind that evidence to the session: the evidence is bound to the ephemeral key, not to the channel, so whoever holds any attested ephemeral key can relay or divert the session (CVE-2026-33697; draft-intra-handshake-fail). Where a key, secret or authorization is released on the strength of attestation: the recipient MUST generate a transport keypair inside the attested environment, and the private key MUST NOT leave it; the evidence MUST bind a fresh verifier nonce and that transport public key in a hardware-signed field, which is the guest-controlled report data where the platform exposes one (`REPORT_DATA` on SEV-SNP, `REPORTDATA` on TDX) and otherwise the enclosing quote that carries the nonce (the vTPM quote on Azure paravisor CVMs); and the released value MUST be sealed to that transport key. Under those conditions a relayed exchange yields only ciphertext. The binding protects the confidentiality of the release only: it does not authenticate the TLS peer or session, and it gives nothing against an adversary who can extract the transport private key from the hardware. It is separate from the runtime `caller_data` derivation in section 3.3.2, which binds a nonce to the runtime context, not to a transport key. This specification does not define a combined release protocol or conformance tests for one. Weight Custody Manifest SPEC section 3.2 is a worked example. |
 | Transparency log | Rekor (Sigstore) or compatible | N/A | RFC 9162 Certificate Transparency variant. |
 
 ##### 4.1.1 Merkle Tree Domain Separation <!-- CHANGED: CRYPTO-005 - explicit domain separation per RFC 9162 to prevent length-extension attacks -->
@@ -1265,7 +1267,7 @@ For deployments requiring post-quantum security (classified government, financia
 | Operation | Algorithm | NIST Standard | Notes |
 |---|---|---|---|
 | Manifest signature | ML-DSA-65 | FIPS 204 | Replaces Ed25519. Larger signatures (~3.3KB) but quantum-resistant. |
-| Key exchange | ML-KEM-768 | FIPS 203 | Replaces X25519 in attestation TLS handshake. |
+| Key exchange | ML-KEM-768 | FIPS 203 | Replaces X25519 in the TLS 1.3 key exchange of section 4.1. Not an attestation binding. |
 | Artifact hashing | SHAKE-256 (256-bit output) | FIPS 202 | Extendable output function; replaces SHA-256. Hash values prefixed with `shake256:`. |
 | Hybrid mode | Ed25519 + ML-DSA-65 | Both | Transition period: both signatures required and verified. v0.1: see section 3.6 for the `classical_signature`/`pq_signature` hybrid envelope. v0.2: see `agent-manifest-cose-envelope-v0.2.md` section 2.1 for the COSE_Sign two-signer hybrid structure, which is not the same shape as the v0.1 envelope. |
 
@@ -2026,7 +2028,7 @@ Healthcare AI agents processing protected health information (PHI) are subject t
 |---|---|---|
 | Audit controls | 45 CFR 164.312(b) | `decision_trace.audit_chain_root` + `audit_key_sealed: true` provides hardware-anchored, tamper-evident audit controls. |
 | Integrity controls | 45 CFR 164.312(c)(1) | Artifact hash bindings ensure PHI-processing configurations are not altered without detection. |
-| Transmission security | 45 CFR 164.312(e)(1) | TLS 1.3 transport with attestation extensions (section 4.1) satisfies the transmission security standard. |
+| Transmission security | 45 CFR 164.312(e)(1) | TLS 1.3 transport (section 4.1) provides encryption in transit toward this standard. It does not by itself satisfy it, and it is not an attestation binding. |
 
 #### PCI-DSS v4.0
 

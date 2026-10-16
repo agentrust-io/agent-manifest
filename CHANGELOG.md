@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+### Security
+
+- **[Spec]** The transport row in section 4.1 no longer recommends TLS 1.3
+  with the attestation extensions of draft-fossati-tls-attestation-08. That
+  draft carries evidence inside the handshake and binds it to the ephemeral
+  key only, so a relay holding any attested ephemeral key can divert the
+  session (CVE-2026-33697). Implementations MUST NOT treat intra-handshake
+  evidence as a session binding. A value released on attestation MUST be
+  sealed to a transport key generated inside the attested environment, whose
+  private key never leaves it and whose public key the evidence binds alongside
+  a fresh nonce (report data where the platform exposes it, otherwise the
+  enclosing quote). Sections 4.2 and 9.3 no longer point at the removed
+  mechanism, and 9.3 no longer claims TLS alone satisfies HIPAA transmission
+  security.
+
 ### Removed
 
 - **[SDK]** `OPAQUEProvider` is removed from the public API, together with the
