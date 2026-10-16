@@ -1,0 +1,45 @@
+============================= test session starts =============================
+platform win32 -- Python 3.12.10, pytest-8.4.2, pluggy-1.6.0 -- <python-prefix>\Scripts\python.exe
+rootdir: <source-root>\weight-custody-manifest\python
+configfile: pyproject.toml
+collecting ... collected 35 items
+
+tests/test_memory_sweep.py::test_real_full_range_write_read_transcript_verifies PASSED [  2%]
+tests/test_memory_sweep.py::test_controlled_aliased_mapping_is_detected PASSED [  5%]
+tests/test_memory_sweep.py::test_omitted_range_and_host_tampering_are_rejected PASSED [  8%]
+tests/test_memory_sweep.py::test_host_authored_result_signed_by_wrong_key_is_rejected PASSED [ 11%]
+tests/test_memory_sweep.py::test_short_secret_and_invalid_range_fail_closed PASSED [ 14%]
+tests/test_kbs.py::test_happy_path_releases_key PASSED                   [ 17%]
+tests/test_kbs.py::test_release_denies_when_manifest_has_no_out_of_band_authorization PASSED [ 20%]
+tests/test_kbs.py::test_attacker_manifest_for_same_weights_is_rejected_by_exact_pin PASSED [ 22%]
+tests/test_kbs.py::test_replayed_nonce_denied PASSED                     [ 25%]
+tests/test_kbs.py::test_wrong_platform_denied PASSED                     [ 28%]
+tests/test_kbs.py::test_unknown_serving_image_denied PASSED              [ 31%]
+tests/test_kbs.py::test_revoked_serving_image_denied PASSED              [ 34%]
+tests/test_kbs.py::test_prefer_current_refuses_retiring PASSED           [ 37%]
+tests/test_kbs.py::test_retiring_past_retire_after_denied PASSED         [ 40%]
+tests/test_kbs.py::test_gpu_absent_denied PASSED                         [ 42%]
+tests/test_kbs.py::test_gpu_binding_broken_denied PASSED                 [ 45%]
+tests/test_kbs.py::test_gpu_measurement_mismatch_denied PASSED           [ 48%]
+tests/test_kbs.py::test_attestation_key_revoked_denied PASSED            [ 51%]
+tests/test_kbs.py::test_stale_revocation_cache_denied PASSED             [ 54%]
+tests/test_kbs.py::test_no_key_for_weights_hash_denied PASSED            [ 57%]
+tests/test_kbs.py::test_memory_fingerprint_required_but_absent_denied PASSED [ 60%]
+tests/test_kbs.py::test_memory_fingerprint_aliasing_denied PASSED        [ 62%]
+tests/test_kbs.py::test_memory_fingerprint_clean_releases PASSED         [ 65%]
+tests/test_kbs.py::test_memory_fingerprint_host_authored_and_replayed_results_are_denied PASSED [ 68%]
+tests/test_kbs.py::test_channel_binding_off_by_default_returns_raw_key PASSED [ 71%]
+tests/test_kbs.py::test_channel_binding_required_seals_key_to_enclave PASSED [ 74%]
+tests/test_kbs.py::test_channel_binding_required_but_absent_denied PASSED [ 77%]
+tests/test_kbs.py::test_channel_binding_malformed_transport_key_denied PASSED [ 80%]
+tests/test_kbs.py::test_naive_retire_after_is_read_as_utc_and_does_not_raise PASSED [ 82%]
+tests/test_kbs.py::test_naive_retire_after_still_expires PASSED          [ 85%]
+tests/test_kbs.py::test_aware_retire_after_keeps_its_offset PASSED       [ 88%]
+tests/test_kbs.py::test_unparseable_retire_after_fails_closed[soon] PASSED [ 91%]
+tests/test_kbs.py::test_unparseable_retire_after_fails_closed[] PASSED   [ 94%]
+tests/test_kbs.py::test_unparseable_retire_after_fails_closed[2026-13-45T99:99:99] PASSED [ 97%]
+tests/test_kbs.py::test_unparseable_retire_after_fails_closed[next tuesday] PASSED [100%]
+
+============================= 35 passed in 0.19s ==============================
+
+STDERR

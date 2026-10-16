@@ -1,0 +1,61 @@
+{
+  "captured_at": "2026-09-28T04:55:58+00:00",
+  "results": [
+    {
+      "probe": "export_failure_preserves_accepted_event",
+      "observed": true,
+      "meaning": "Evidence acceptance survives a later operational projection error; memory mode is not durable storage."
+    },
+    {
+      "probe": "failed_ack_suppresses_projection",
+      "observed": true,
+      "meaning": "No operational projection or local chain advance after callback refusal."
+    },
+    {
+      "probe": "empty_complete_declaration_is_accepted",
+      "observed": true,
+      "meaning": "Counterexample: seal does not independently prove capture completeness."
+    },
+    {
+      "probe": "external_commit_retry_requires_sink_idempotency",
+      "observed": true,
+      "meaning": "Counterexample: no cross-store transaction or built-in exactly-once persistence."
+    },
+    {
+      "probe": "signed_bad_memory_is_authentic_not_acceptable",
+      "observed": true,
+      "meaning": "Signature verification authenticates the negative finding. The broker must reject it separately."
+    },
+    {
+      "probe": "signature_verifier_has_no_freshness_input",
+      "observed": true,
+      "meaning": "Broker challenge comparison, not signature verification alone, establishes request freshness."
+    },
+    {
+      "probe": "approval_signer_accepts_method_parameter",
+      "observed": false,
+      "meaning": "Whether this revision lets the human signer cover approval_method; the probe passes it when available."
+    },
+    {
+      "probe": "approval_method_label_is_outside_approval_signature",
+      "observed": true,
+      "meaning": "True means the unaltered approval verifies and the method-label alteration still verifies (label outside the signature). False with the unaltered approval verifying means the label is bound. Not a full runtime test."
+    },
+    {
+      "probe": "approval_unaltered_verifies",
+      "observed": true,
+      "meaning": "Control for the previous probe."
+    },
+    {
+      "probe": "approval_helper_accepts_zero_or_missing_duration",
+      "observed": true,
+      "meaning": "True means the single-approval helper accepts approval_duration_seconds of 0 or absent. The integrated verifier applies its own expiry logic."
+    },
+    {
+      "probe": "requirement_bound_approval_appendable",
+      "observed": true,
+      "meaning": "Issuer pre-image preserves requirements while normalizing only approvals."
+    }
+  ],
+  "limits": "Single-process software probes; no hardware or legal conclusion."
+}

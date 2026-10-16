@@ -1,0 +1,107 @@
+{
+  "captured_at": "2026-09-28T04:55:58+00:00",
+  "python": "3.12.10",
+  "platform": "Windows-11",
+  "dependencies": {
+    "pytest": "8.4.2",
+    "cryptography": "50.0.0",
+    "pydantic": "2.13.4",
+    "jsonschema": "4.26.0",
+    "referencing": "0.37.0",
+    "rfc8785": "0.1.4",
+    "cbor2": "5.9.0",
+    "agentrust-trace": "0.9.0",
+    "opentelemetry-sdk": "1.44.0",
+    "jcs": "0.2.1",
+    "PyYAML": "6.0.3"
+  },
+  "sources": {
+    "agentrust-telemetry": {
+      "commit": "29c13cfa4047a0f5784a90df63b22a3568453158",
+      "verified_by": "git archive of the pinned commit (tar commit id checked)"
+    },
+    "weight-custody-manifest": {
+      "commit": "2acedfa883204f7d1fd457d3ee603198d85be82c",
+      "verified_by": "git archive of the pinned commit (tar commit id checked)"
+    },
+    "agent-manifest": {
+      "commit": "934809709a2815695d65cfacb45dc0a164286046",
+      "verified_by": "git archive of the pinned commit (tar commit id checked)"
+    }
+  },
+  "results": [
+    {
+      "name": "telemetry-tests",
+      "cwd": "agentrust-telemetry",
+      "command": [
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tests",
+        "-v"
+      ],
+      "exit_code": 0,
+      "summary": "111 tests, OK",
+      "log": "telemetry-tests.txt",
+      "log_sha256": "e68fd132e85776a347a4f6401b9ce9c60d48947b2cf81e59bce03d8c8a43fc50"
+    },
+    {
+      "name": "telemetry-conformance",
+      "cwd": "agentrust-telemetry",
+      "command": [
+        "python",
+        "conformance/runner/validate.py"
+      ],
+      "exit_code": 0,
+      "summary": "13 of 13 fixtures returned the expected verdict",
+      "log": "telemetry-conformance.txt",
+      "log_sha256": "f1af2ff732a78ef035226e1190421fcb67881644ff2936b5768131d08ac8e3ab"
+    },
+    {
+      "name": "memory-tests",
+      "cwd": "weight-custody-manifest/python",
+      "command": [
+        "python",
+        "-m",
+        "pytest",
+        "-p",
+        "no:cacheprovider",
+        "-o",
+        "pythonpath=src",
+        "tests/test_memory_sweep.py",
+        "tests/test_kbs.py",
+        "-v"
+      ],
+      "exit_code": 0,
+      "summary": "35 passed",
+      "log": "memory-tests.txt",
+      "log_sha256": "c8ec45488f99012cee49b452376d00cd01f0bf28bea3793bd8e7b7a2606f6366"
+    },
+    {
+      "name": "approval-tests",
+      "cwd": "agent-manifest/python",
+      "command": [
+        "python",
+        "-m",
+        "pytest",
+        "-p",
+        "no:cacheprovider",
+        "-o",
+        "pythonpath=src",
+        "tests/test_signing.py",
+        "tests/test_delegation_hitl.py",
+        "-v"
+      ],
+      "exit_code": 0,
+      "summary": "74 passed, 1 warning",
+      "log": "approval-tests.txt",
+      "log_sha256": "56a0b9a6a7668cb05cfd91077e5599e61b36b72d2abc9eb6cbccce5506352d5c"
+    }
+  ],
+  "limits": [
+    "Local software tests only; no protected-hardware execution.",
+    "Tests and implementation share a repository and are not independent validation."
+  ]
+}

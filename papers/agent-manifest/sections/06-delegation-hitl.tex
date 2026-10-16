@@ -1,0 +1,72 @@
+\section{Delegation and Human Oversight}
+\label{sec:deleg}
+
+\subsection{Delegation chains}
+
+When one agent delegates to another (an A2A hop), the sub-agent's manifest carries a
+\texttt{delegation\_chain}: an ordered list of hops, each naming the delegating
+principal, a \texttt{scope\_grant} (the tools and data classifications the hop is
+permitted), a delegation signature, and the principal's manifest id and attestation
+hash. Because each hop is signed and references the parent manifest, a verifier
+reconstructs the full chain of authority from the leaf agent back to the root.
+
+The chain enforces \emph{monotonic narrowing}: a hop's scope must be a subset of the
+scope it was granted, so a sub-agent cannot acquire capabilities its delegator lacked:
+the \emph{scope-laundering} attack. A maximum delegation depth (default~3) bounds
+the chain and prevents unbounded re-delegation. The delegation chain is the input AGT
+uses to apply scope-narrowing policy at runtime (Section~\ref{sec:integration}).
+Figure~\ref{fig:delegation} shows a three-principal chain and the capability set
+shrinking at each hop.
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[
+  font=\scriptsize,
+  node distance=1.9cm,
+  princ/.style={draw, thick, rounded corners=3pt, minimum width=2.2cm,
+    minimum height=1.0cm, align=center},
+  scope/.style={draw, rounded corners=2pt, fill=gray!6, align=left, inner sep=3pt,
+    font=\scriptsize},
+  hop/.style={-{Stealth[length=2mm]}, thick},
+]
+\node[princ, fill=green!12] (iss)  {Issuer\\{\scriptsize (human root)}};
+\node[princ, fill=blue!12]  (ag)   [right=of iss] {Agent\\{\scriptsize hop~1}};
+\node[princ, fill=blue!8]   (sub)  [right=of ag]  {Sub-agent\\{\scriptsize hop~2}};
+
+\draw[hop] (iss) -- node[above, font=\scriptsize]{delegates} node[below, font=\scriptsize\itshape]{signed hop} (ag);
+\draw[hop] (ag)  -- node[above, font=\scriptsize]{delegates} node[below, font=\scriptsize\itshape]{signed hop} (sub);
+
+\node[scope] (s0) [below=0.55cm of iss] {\textbf{grant}\\tools: \{A,B,C,D\}\\depth $\leq 3$};
+\node[scope] (s1) [below=0.55cm of ag]  {\textbf{grant $\subseteq$}\\tools: \{A,B,C\}\\depth $\leq 2$};
+\node[scope] (s2) [below=0.55cm of sub] {\textbf{grant $\subseteq$}\\tools: \{A,B\}\\depth $\leq 1$};
+
+\draw[-{Stealth[length=1.6mm]}, gray] (s0.east) -- (s1.west);
+\draw[-{Stealth[length=1.6mm]}, gray] (s1.east) -- (s2.west);
+
+\node[gray!80, font=\scriptsize\itshape] at ($(s0.south)!0.5!(s2.south) + (0,-0.45)$)
+  {monotonic narrowing: each grant is a subset of the previous (verifier rejects any widening)};
+\end{tikzpicture}
+\caption{Delegation chain from issuer to agent to sub-agent. Each hop is signed by the
+delegating principal and references the parent manifest; the capability grant narrows
+monotonically (tools drop, depth budget decrements). The verifier rejects any hop whose
+scope exceeds its delegator's grant, defeating scope laundering.}
+\label{fig:delegation}
+\end{figure}
+
+\subsection{Human-in-the-loop approvals}
+
+When policy requires a human to authorize an action, the manifest carries an
+\texttt{hitl\_record}: the requirement flag, the approvals collected, and an
+escalation policy. Each approval names the approver (by OIDC subject,
+\texttt{mailto:} URI, or DID, not a SPIFFE workload identity, since the approver is
+a person), the approved scope (a risk tier and the artifact set the human signed off
+on), and a timestamp. A verifier returns \texttt{APPROVED}, \texttt{EXPIRED},
+\texttt{NOT\_REQUIRED}, \texttt{MISSING}, or \texttt{APPROVAL\_INSUFFICIENT}. When
+each approval's signature is verified against the approver's key, an auditor has
+evidence that an identified human approved the recorded scope, which supports
+human-oversight obligations such as EU AI Act Article~14~\citep{euaiact2024}. At the
+evaluated SDK revision, \texttt{verify\_manifest} did not check
+\texttt{approval\_signature}: a signed manifest whose approvals were replaced with
+forged ones still returned \texttt{VALID} and \texttt{APPROVED}
+(\texttt{experiments/results/rerun-2026-10-01}). The SDK has verified approval
+signatures in that path since commit 36d0c89 (August 22, 2026).

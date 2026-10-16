@@ -1,0 +1,91 @@
+============================= test session starts =============================
+platform win32 -- Python 3.12.10, pytest-8.4.2, pluggy-1.6.0 -- <python-prefix>\Scripts\python.exe
+rootdir: <source-root>\agent-manifest\python
+configfile: pyproject.toml
+collecting ... collected 74 items
+
+tests/test_signing.py::test_pre_image_excludes_attestation PASSED        [  1%]
+tests/test_signing.py::test_pre_image_excludes_signature PASSED          [  2%]
+tests/test_signing.py::test_pre_image_includes_all_signed_fields PASSED  [  4%]
+tests/test_signing.py::test_pre_image_is_rfc8785 PASSED                  [  5%]
+tests/test_signing.py::test_ed25519_sign_verify_roundtrip PASSED         [  6%]
+tests/test_signing.py::test_ed25519_wrong_message_fails PASSED           [  8%]
+tests/test_signing.py::test_ed25519_wrong_key_fails PASSED               [  9%]
+tests/test_signing.py::test_ed25519_truncated_signature_fails PASSED     [ 10%]
+tests/test_signing.py::test_ed25519_wrong_algorithm_label_not_accepted PASSED [ 12%]
+tests/test_signing.py::test_ed25519_signed_fields_list_correct PASSED    [ 13%]
+tests/test_signing.py::test_ed25519_sign_block_validates_against_model PASSED [ 14%]
+tests/test_signing.py::test_ed25519_small_order_key_rejected PASSED      [ 16%]
+tests/test_signing.py::test_ed25519_all_small_order_points_rejected PASSED [ 17%]
+tests/test_signing.py::test_ed25519_truncated_sig_raises_invalid_signature PASSED [ 18%]
+tests/test_signing.py::test_b64url_decode_rejects_plus PASSED            [ 20%]
+tests/test_signing.py::test_b64url_decode_rejects_slash PASSED           [ 21%]
+tests/test_signing.py::test_b64url_decode_accepts_valid PASSED           [ 22%]
+tests/test_signing.py::test_ed25519_public_key_roundtrip_b64url PASSED   [ 24%]
+tests/test_signing.py::test_ml_dsa65_sign_verify_roundtrip PASSED        [ 25%]
+tests/test_signing.py::test_ml_dsa65_wrong_message_fails PASSED          [ 27%]
+tests/test_signing.py::test_hybrid_sign_verify_roundtrip PASSED          [ 28%]
+tests/test_signing.py::test_hybrid_tampered_classical_fails PASSED       [ 29%]
+tests/test_signing.py::test_hybrid_tampered_pq_fails PASSED              [ 31%]
+tests/test_signing.py::test_hybrid_both_components_cover_same_pre_image PASSED [ 32%]
+tests/test_signing.py::test_signed_fields_match_spec_coverage_table PASSED [ 33%]
+tests/test_signing.py::test_pre_image_normalizes_hitl_approvals_to_empty PASSED [ 35%]
+tests/test_signing.py::test_pre_image_keeps_hitl_required_tamper_evident PASSED [ 36%]
+tests/test_signing.py::test_approvals_attach_post_issuance_without_resigning PASSED [ 37%]
+tests/test_signing.py::test_newly_signed_fields_are_tamper_evident PASSED [ 39%]
+tests/test_signing.py::test_ed25519_keypair_repr_redacts_private_key PASSED [ 40%]
+tests/test_signing.py::test_ed25519_keypair_str_equals_repr PASSED       [ 41%]
+tests/test_signing.py::test_ed25519_keypair_private_b64url_roundtrip PASSED [ 43%]
+tests/test_signing.py::test_ed25519_from_private_bytes_valid PASSED      [ 44%]
+tests/test_signing.py::test_ed25519_from_private_bytes_malformed_raises PASSED [ 45%]
+tests/test_signing.py::test_ed25519_from_private_bytes_too_short_raises PASSED [ 47%]
+tests/test_signing.py::test_ed25519_verifier_wrong_length_key_raises PASSED [ 48%]
+tests/test_signing.py::test_ed25519_verifier_zero_length_key_raises PASSED [ 50%]
+tests/test_signing.py::test_ed25519_verifier_rsa_sized_bytes_raises PASSED [ 51%]
+tests/test_signing.py::test_ed25519_signer_signed_at_is_iso8601 PASSED   [ 52%]
+tests/test_signing.py::test_ml_dsa65_signer_signed_at_is_iso8601 PASSED  [ 54%]
+tests/test_signing.py::test_hybrid_signer_signed_at_is_iso8601 PASSED    [ 55%]
+tests/test_delegation_hitl.py::test_hop_pre_image_includes_manifest_id PASSED [ 56%]
+tests/test_delegation_hitl.py::test_hop_pre_image_includes_scope PASSED  [ 58%]
+tests/test_delegation_hitl.py::test_hop_pre_image_deterministic PASSED   [ 59%]
+tests/test_delegation_hitl.py::test_hop_pre_image_different_hops PASSED  [ 60%]
+tests/test_delegation_hitl.py::test_delegation_sign_verify_single_hop PASSED [ 62%]
+tests/test_delegation_hitl.py::test_delegation_wrong_key_fails PASSED    [ 63%]
+tests/test_delegation_hitl.py::test_delegation_wrong_manifest_id_fails PASSED [ 64%]
+tests/test_delegation_hitl.py::test_scope_laundering_detected PASSED     [ 66%]
+tests/test_delegation_hitl.py::test_depth_exceeded_raises PASSED         [ 67%]
+tests/test_delegation_hitl.py::test_empty_chain_passes PASSED            [ 68%]
+tests/test_delegation_hitl.py::test_missing_public_key_raises PASSED     [ 70%]
+tests/test_delegation_hitl.py::test_root_principal_must_match_manifest_issuer PASSED [ 71%]
+tests/test_delegation_hitl.py::test_root_principal_matching_issuer_passes PASSED [ 72%]
+tests/test_delegation_hitl.py::test_root_principal_matches_via_principal_manifest_id PASSED [ 74%]
+tests/test_delegation_hitl.py::test_child_dropping_parent_constraint_is_rejected PASSED [ 75%]
+tests/test_delegation_hitl.py::test_child_adding_constraint_is_allowed PASSED [ 77%]
+tests/test_delegation_hitl.py::test_child_raising_ttl_is_rejected PASSED [ 78%]
+tests/test_delegation_hitl.py::test_child_unbounded_ttl_under_bounded_parent_is_rejected PASSED [ 79%]
+tests/test_delegation_hitl.py::test_child_raising_max_delegation_depth_is_rejected PASSED [ 81%]
+tests/test_delegation_hitl.py::test_child_delegated_late_with_equal_ttl_outlives_parent_is_rejected PASSED [ 82%]
+tests/test_delegation_hitl.py::test_child_delegated_late_with_shorter_ttl_still_within_parent_window_passes PASSED [ 83%]
+tests/test_delegation_hitl.py::test_mixed_z_and_naive_delegated_at_still_refuses_on_absolute_expiry PASSED [ 85%]
+tests/test_delegation_hitl.py::test_approval_pre_image_includes_manifest_id PASSED [ 86%]
+tests/test_delegation_hitl.py::test_approval_pre_image_includes_scope PASSED [ 87%]
+tests/test_delegation_hitl.py::test_approval_sign_verify PASSED          [ 89%]
+tests/test_delegation_hitl.py::test_approval_wrong_key_fails PASSED      [ 90%]
+tests/test_delegation_hitl.py::test_approval_wrong_manifest_id_fails PASSED [ 91%]
+tests/test_delegation_hitl.py::test_approval_scope_change_fails PASSED   [ 93%]
+tests/test_delegation_hitl.py::test_approval_expired_raises PASSED       [ 94%]
+tests/test_delegation_hitl.py::test_approval_no_duration_does_not_expire PASSED [ 95%]
+tests/test_delegation_hitl.py::test_hitl_approval_rejects_spiffe_approver_id PASSED [ 97%]
+tests/test_delegation_hitl.py::test_hitl_approval_accepts_mailto_approver_id PASSED [ 98%]
+tests/test_delegation_hitl.py::test_hitl_approval_accepts_did_approver_id PASSED [100%]
+
+============================== warnings summary ===============================
+..\..\..\venv\Lib\site-packages\_pytest\config\__init__.py:1474
+  <python-prefix>\Lib\site-packages\_pytest\config\__init__.py:1474: PytestConfigWarning: Unknown config option: asyncio_mode
+  
+    self._warn_or_fail_if_strict(f"Unknown config option: {key}\n")
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================== 74 passed, 1 warning in 0.44s ========================
+
+STDERR

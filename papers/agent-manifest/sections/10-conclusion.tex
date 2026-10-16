@@ -1,0 +1,23 @@
+\section{Conclusion}
+\label{sec:conclusion}
+
+Agent Manifest gives an AI agent a verifiable identity. By binding the ten artifacts
+that define an agent (system prompt, policy, tools, model, retrieval corpus,
+memory, decision trace, delegation, supply chain, and human approvals) into one
+signed, hardware-attestable, tamper-evident record, it lets a verifier detect differences between supplied artifacts and a signed
+baseline. Establishing that those artifacts were used in a deployed agent requires
+additional runtime evidence and trusted attestation binding. The design favors
+tamper-evidence over tamper-resistance, reuses established primitives (SPIFFE, JCS,
+Ed25519/ML-DSA, RFC~9162 Merkle trees, RATS/EAT), and slots into the runtime stack
+alongside cMCP and TRACE for attestation and AGT for policy.
+
+\paragraph{Limitations and future work.}
+The format is settled for the static artifacts; several pieces are staged. Memory and
+retrieval bindings capture a baseline and a drift policy but continuous in-flight
+verification of mutating state is future work. The post-quantum profile is specified
+and implemented but was not exercised: its tests skip without the ML-DSA
+dependency. Federated, cross-organization
+verification (where one trust domain appraises another's manifests) is targeted
+for the next revision, alongside richer multi-model manifests. The specification is a
+developer-preview draft; the roadmap is community hardening toward an open standard
+with multiple independent implementations and conformance certification.

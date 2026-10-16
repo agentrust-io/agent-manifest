@@ -1,0 +1,15 @@
+PASS conformance\fixtures\valid\action.json
+PASS conformance\fixtures\valid\approval.json
+PASS conformance\fixtures\valid\data-flow.json
+PASS conformance\fixtures\valid\evidence.json
+PASS conformance\fixtures\valid\policy-decision.json
+PASS conformance\fixtures\valid\usage.json
+PASS conformance\fixtures\invalid\action-without-digest.json
+PASS conformance\fixtures\invalid\aggregate-cost-without-rollup.json
+PASS conformance\fixtures\invalid\model-call-with-rollup.json
+PASS conformance\fixtures\invalid\numeric-timestamp.json
+PASS conformance\fixtures\invalid\raw-content.json
+PASS conformance\fixtures\invalid\usage-without-measurement.json
+PASS conformance\fixtures\invalid\zero-trace-id.json
+
+STDERR

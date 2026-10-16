@@ -1,0 +1,290 @@
+{
+  "env": {
+    "python": "3.12.10",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "processor": "ARMv8 (64-bit) Family 8 Model 1 Revision 201, Qualcomm Technologies Inc",
+    "timestamp": "2026-07-01T20:45:42Z",
+    "iters": 2000,
+    "chain_iters": 1000,
+    "warmup": 50,
+    "crypto_profile": "standard (Ed25519)",
+    "pq_ml_dsa_65_available": false
+  },
+  "sign_verify": {
+    "level0": {
+      "description": "4 artifacts (software-only)",
+      "sign": {
+        "n": 2000,
+        "mean_ms": 0.78361,
+        "median_ms": 0.6316,
+        "p95_ms": 1.4616,
+        "p99_ms": 2.5388,
+        "min_ms": 0.589,
+        "max_ms": 5.6445
+      },
+      "verify": {
+        "n": 2000,
+        "mean_ms": 1.06609,
+        "median_ms": 0.83945,
+        "p95_ms": 2.1393,
+        "p99_ms": 3.4433,
+        "min_ms": 0.6883,
+        "max_ms": 29.8894
+      },
+      "size": {
+        "canonical_jcs_bytes": 2018,
+        "signed_json_bytes": 2592,
+        "artifact_bindings": 4
+      }
+    },
+    "multi_artifact": {
+      "description": "5 artifacts + RAG corpus",
+      "sign": {
+        "n": 2000,
+        "mean_ms": 1.1872,
+        "median_ms": 1.0172,
+        "p95_ms": 2.0221,
+        "p99_ms": 3.5725,
+        "min_ms": 0.849,
+        "max_ms": 6.9822
+      },
+      "verify": {
+        "n": 2000,
+        "mean_ms": 1.83041,
+        "median_ms": 1.421,
+        "p95_ms": 3.9442,
+        "p99_ms": 7.6731,
+        "min_ms": 0.9503,
+        "max_ms": 33.6445
+      },
+      "size": {
+        "canonical_jcs_bytes": 2968,
+        "signed_json_bytes": 3542,
+        "artifact_bindings": 5
+      }
+    },
+    "hitl": {
+      "description": "4 artifacts + HITL approval",
+      "sign": {
+        "n": 2000,
+        "mean_ms": 0.72242,
+        "median_ms": 0.55375,
+        "p95_ms": 1.4722,
+        "p99_ms": 2.5519,
+        "min_ms": 0.5098,
+        "max_ms": 12.062
+      },
+      "verify": {
+        "n": 2000,
+        "mean_ms": 1.1228,
+        "median_ms": 0.87745,
+        "p95_ms": 2.3473,
+        "p99_ms": 4.3566,
+        "min_ms": 0.6258,
+        "max_ms": 11.1315
+      },
+      "size": {
+        "canonical_jcs_bytes": 2311,
+        "signed_json_bytes": 2885,
+        "artifact_bindings": 4
+      }
+    },
+    "level1": {
+      "description": "8 artifacts + attestation + tlog",
+      "sign": {
+        "n": 2000,
+        "mean_ms": 1.78676,
+        "median_ms": 1.52165,
+        "p95_ms": 3.1649,
+        "p99_ms": 4.8365,
+        "min_ms": 1.1439,
+        "max_ms": 9.4475
+      },
+      "verify": {
+        "n": 2000,
+        "mean_ms": 5.89321,
+        "median_ms": 4.91275,
+        "p95_ms": 11.5614,
+        "p99_ms": 19.0063,
+        "min_ms": 2.9022,
+        "max_ms": 34.6695
+      },
+      "size": {
+        "canonical_jcs_bytes": 4968,
+        "signed_json_bytes": 5542,
+        "artifact_bindings": 6
+      }
+    }
+  },
+  "delegation": {
+    "iters": 1000,
+    "rows": [
+      {
+        "depth": 1,
+        "n": 1000,
+        "mean_ms": 0.54066,
+        "median_ms": 0.26955,
+        "p95_ms": 1.4865,
+        "p99_ms": 4.6078,
+        "min_ms": 0.2048,
+        "max_ms": 25.6873
+      },
+      {
+        "depth": 2,
+        "n": 1000,
+        "mean_ms": 0.59865,
+        "median_ms": 0.4399,
+        "p95_ms": 1.2338,
+        "p99_ms": 2.8839,
+        "min_ms": 0.4093,
+        "max_ms": 5.8611
+      },
+      {
+        "depth": 3,
+        "n": 1000,
+        "mean_ms": 0.80159,
+        "median_ms": 0.6424,
+        "p95_ms": 1.5082,
+        "p99_ms": 2.5404,
+        "min_ms": 0.6121,
+        "max_ms": 4.5386
+      },
+      {
+        "depth": 4,
+        "n": 1000,
+        "mean_ms": 1.12449,
+        "median_ms": 0.87145,
+        "p95_ms": 2.2151,
+        "p99_ms": 3.9761,
+        "min_ms": 0.8152,
+        "max_ms": 7.6752
+      },
+      {
+        "depth": 5,
+        "n": 1000,
+        "mean_ms": 1.45557,
+        "median_ms": 1.1305,
+        "p95_ms": 3.1044,
+        "p99_ms": 4.8357,
+        "min_ms": 1.0114,
+        "max_ms": 7.6041
+      },
+      {
+        "depth": 6,
+        "n": 1000,
+        "mean_ms": 2.19343,
+        "median_ms": 1.7336,
+        "p95_ms": 4.5431,
+        "p99_ms": 7.5824,
+        "min_ms": 1.217,
+        "max_ms": 11.4618
+      },
+      {
+        "depth": 7,
+        "n": 1000,
+        "mean_ms": 3.01294,
+        "median_ms": 2.2324,
+        "p95_ms": 7.5589,
+        "p99_ms": 12.3601,
+        "min_ms": 1.6262,
+        "max_ms": 24.3992
+      },
+      {
+        "depth": 8,
+        "n": 1000,
+        "mean_ms": 3.63089,
+        "median_ms": 2.76745,
+        "p95_ms": 8.2398,
+        "p99_ms": 13.4972,
+        "min_ms": 1.8547,
+        "max_ms": 34.7222
+      },
+      {
+        "depth": 9,
+        "n": 1000,
+        "mean_ms": 3.89404,
+        "median_ms": 3.13525,
+        "p95_ms": 8.2419,
+        "p99_ms": 13.4169,
+        "min_ms": 2.0843,
+        "max_ms": 39.6447
+      },
+      {
+        "depth": 10,
+        "n": 1000,
+        "mean_ms": 3.85873,
+        "median_ms": 3.16155,
+        "p95_ms": 7.8506,
+        "p99_ms": 11.9272,
+        "min_ms": 2.3,
+        "max_ms": 18.5721
+      }
+    ]
+  },
+  "tamper": {
+    "all_caught": true,
+    "n_cases": 10,
+    "cases": [
+      {
+        "field": "system_prompt.hash",
+        "result": "MISMATCH",
+        "signature_verified": false,
+        "caught": true
+      },
+      {
+        "field": "policy_bundle.hash",
+        "result": "MISMATCH",
+        "signature_verified": false,
+        "caught": true
+      },
+      {
+        "field": "tool_manifest.catalog_hash",
+        "result": "MISMATCH",
+        "signature_verified": false,
+        "caught": true
+      },
+      {
+        "field": "model_identity.version",
+        "result": "MISMATCH",
+        "signature_verified": false,
+        "caught": true
+      },
+      {
+        "field": "decision_trace.audit_chain_root",
+        "result": "MISMATCH",
+        "signature_verified": false,
+        "caught": true
+      },
+      {
+        "field": "supply_chain.container_image_digest",
+        "result": "MISMATCH",
+        "signature_verified": false,
+        "caught": true
+      },
+      {
+        "field": "agent_id",
+        "result": "MISMATCH",
+        "signature_verified": false,
+        "caught": true
+      },
+      {
+        "field": "issuer",
+        "result": "MISMATCH",
+        "signature_verified": false,
+        "caught": true
+      },
+      {
+        "field": "manifest_id",
+        "result": "MISMATCH",
+        "signature_verified": false,
+        "caught": true
+      },
+      {
+        "field": "issued_at",
+        "result": "MISMATCH",
+        "signature_verified": false,
+        "caught": true
+      }
+    ]
+  }
+}

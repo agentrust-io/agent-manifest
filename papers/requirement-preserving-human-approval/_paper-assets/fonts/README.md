@@ -1,0 +1,1 @@
+Open-license fonts from google/fonts, downloaded September 4, 2026. Static review instances generated with fontTools from Montserrat[wght].ttf and Roboto[wdth,wght].ttf. Corresponding OFL licenses are retained.

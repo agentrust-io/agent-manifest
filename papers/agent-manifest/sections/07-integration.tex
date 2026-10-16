@@ -1,0 +1,31 @@
+\section{Integration}
+\label{sec:integration}
+
+Agent Manifest is deliberately one layer of a stack. It answers \emph{identity and
+provenance}; three neighboring systems answer the rest.
+
+\paragraph{cMCP: runtime attestation.}
+cMCP~\citep{cmcp2026} is the reference runtime that enforces the manifest's policy and
+tool bindings at the Model Context Protocol boundary. It detects tool-catalog
+``rug-pulls'' before the agent sees the change, and it signs a decision record per
+tool call. The manifest's decision-trace artifact (Table~\ref{tab:artifacts},~\#7)
+binds the root of the audit chain cMCP produces, so a verifier can tie the static
+manifest to the dynamic record of what the agent did.
+
+\paragraph{TRACE: portable evidence.}
+TRACE~\citep{trace2026} is the portable, hardware-attested evidence format cMCP emits
+for each session. Where the manifest establishes the agent at deployment time, a TRACE
+Trust Record attests its behavior at run time; the two are joined by the manifest's
+\texttt{audit\_chain\_root}, which is the same chain TRACE commits.
+
+\paragraph{AGT: policy and observability.}
+The Agent Governance Toolkit~\citep{agt2026} consumes the manifest at runtime: the
+attestation level feeds AGT's trust score, the delegation chain feeds scope-narrowing
+policy, the decision-trace root feeds AGT's governance event sink, and a revocation
+record triggers AGT's kill switch. Agent Manifest supplies the verifiable facts; AGT
+acts on them.
+
+\paragraph{MCP and A2A.}
+The tool-manifest binding extends the MCP~\citep{mcp2024} initialize handshake with a
+pinned catalog hash, and the delegation chain proposes an A2A delegation format. Both
+are protocol-agnostic; MCP is the reference surface.

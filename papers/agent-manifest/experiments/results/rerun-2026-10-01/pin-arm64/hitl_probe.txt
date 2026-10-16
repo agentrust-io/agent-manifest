@@ -1,0 +1,25 @@
+{
+  "enforce_hitl=False": {
+    "original": [
+      "VALID",
+      "APPROVED"
+    ],
+    "forged_approvals": [
+      "VALID",
+      "APPROVED",
+      true
+    ]
+  },
+  "enforce_hitl=True": {
+    "original": [
+      "VALID",
+      "APPROVED"
+    ],
+    "forged_approvals": [
+      "VALID",
+      "APPROVED",
+      true
+    ]
+  }
+}
+approval keys: ['approval_id', 'approval_method', 'approval_signature', 'approved_at', 'approved_scope', 'approver_id', 'approver_identity_type', 'approver_role', 'evidence_uri']

@@ -1,0 +1,134 @@
+\section{The Manifest}
+\label{sec:model}
+
+A manifest is a JSON document with a canonical (RFC~8785) serialization over which a
+signature is computed. Table~\ref{tab:top} lists the top-level fields.
+
+\begin{table}[h]
+\centering
+\small
+\caption{Top-level manifest fields (optional fields italicized).}
+\label{tab:top}
+\begin{tabular}{p{3.7cm}p{3.6cm}p{4.9cm}}
+\toprule
+Field & Type & Notes \\
+\midrule
+\texttt{manifest\_id} & UUIDv7~\citep{uuid9562} & time-ordered unique id \\
+\texttt{agent\_id} & SPIFFE URI & the agent workload \\
+\texttt{version} & string & schema version (\texttt{0.1}) \\
+\texttt{issued\_at} & ISO 8601 UTC & issuance time \\
+\texttt{expires\_at} & ISO 8601 UTC & $\geq$ 1\,h after, $\leq$ 365\,days \\
+\texttt{issuer} & SPIFFE URI & signing authority \\
+\texttt{crypto\_profile} & \texttt{standard} $|$ \texttt{post-quantum} & signature suite \\
+\texttt{artifacts} & object & the ten artifact bindings (Table~\ref{tab:artifacts}) \\
+\texttt{attestation} & object & TEE evidence; required at Level~1+ \\
+\emph{\texttt{delegation\_chain}} & list & present when the agent was delegated to \\
+\emph{\texttt{hitl\_record}} & object & present when policy mandates human approval \\
+\texttt{signature} & object & algorithm, key id, signed-field list, value \\
+\emph{\texttt{transparency\_log\_entry}} & object & inclusion proof; required in production \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{The ten artifact bindings}
+
+The \texttt{artifacts} object binds each agent-defining surface by hash and metadata,
+so any post-approval change to the underlying artifact is detectable.
+Table~\ref{tab:artifacts} summarizes the bindings.
+
+\begin{table}[h]
+\centering
+\small
+\caption{The ten artifact bindings and their key bound fields.}
+\label{tab:artifacts}
+\begin{tabular}{p{0.4cm}p{3.0cm}p{8.6cm}}
+\toprule
+\# & Binding & Key bound fields \\
+\midrule
+1 & System prompt & \texttt{hash}, version, classification, safety level \\
+2 & Policy bundle & \texttt{hash}, policy language (Cedar/Rego/YAML/composite), enforcement mode, AGT version \\
+3 & Tool manifest & \texttt{catalog\_hash}, per-tool entries, dynamic-registration and rug-pull policy \\
+4 & Model identity & provider, model id, version, deployment type, \texttt{model\_hash}, attestation type \\
+5 & RAG corpus & \texttt{merkle\_root}, document count, ingestion-policy hash, poisoning scan \\
+6 & Memory baseline & \texttt{snapshot\_hash}, memory type, drift policy, TTL \\
+7 & Decision trace & \texttt{audit\_chain\_root} (a TRACE chain), trace type, signing key id, entry count \\
+8 & Delegation chain & per-hop principal, \texttt{scope\_grant}, delegation signature, principal manifest id \\
+9 & Supply chain & container/base-image digests, SLSA provenance, SBOM, MCP servers \\
+10 & Human-in-the-loop & required flag, approvals, escalation policy \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Figure~\ref{fig:binding} shows the binding structure: ten heterogeneous artifacts
+each reduce to a digest, the digests collect into the \texttt{artifacts} object,
+the whole document is serialized with RFC~8785 canonical JSON, and one signature
+plus an optional transparency-log inclusion proof close the record. Any change to
+any bound artifact changes its digest, changes the canonical bytes, and invalidates
+the single signature: this is what makes the record tamper-evident.
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[
+  font=\scriptsize,
+  art/.style={draw, rounded corners=2pt, minimum width=2.55cm, minimum height=0.42cm,
+    fill=blue!5, align=left, inner sep=2pt},
+  core/.style={draw, thick, rounded corners=3pt, minimum width=2.7cm, minimum height=0.9cm,
+    fill=blue!12, align=center},
+  sig/.style={draw, thick, rounded corners=3pt, minimum width=2.7cm, minimum height=0.7cm,
+    fill=green!12, align=center},
+  tl/.style={draw, rounded corners=3pt, minimum width=2.7cm, minimum height=0.65cm,
+    fill=orange!12, align=center},
+  ln/.style={-{Stealth[length=1.6mm]}, gray!70},
+]
+% Left column: ten artifact bindings
+\node[art] (a1)  {1 System prompt};
+\node[art] (a2)  [below=2pt of a1] {2 Policy bundle};
+\node[art] (a3)  [below=2pt of a2] {3 Tool manifest};
+\node[art] (a4)  [below=2pt of a3] {4 Model identity};
+\node[art] (a5)  [below=2pt of a4] {5 RAG corpus};
+\node[art] (a6)  [below=2pt of a5] {6 Memory baseline};
+\node[art] (a7)  [below=2pt of a6] {7 Decision trace};
+\node[art] (a8)  [below=2pt of a7] {8 Delegation chain};
+\node[art] (a9)  [below=2pt of a8] {9 Supply chain};
+\node[art] (a10) [below=2pt of a9] {10 Human-in-the-loop};
+
+% Middle: the artifacts object (collected digests)
+\node[core] (obj) [right=2.1cm of a5, yshift=-9pt] {\texttt{artifacts}\\object\\(10 digests)};
+
+% edges from each artifact to the object, labeled as a digest
+\foreach \n in {a1,a2,a3,a4,a5,a6,a7,a8,a9,a10} {
+  \draw[ln] (\n.east) -- (obj.west);
+}
+\node[gray!80] at ($(a5.east)!0.5!(obj.west) + (0,0.95)$) {\itshape hash / Merkle root};
+
+% Right: canonicalize -> sign -> transparency log
+\node[core] (canon) [right=1.3cm of obj] {RFC~8785\\canonical\\JSON bytes};
+\node[sig]  (sign)  [below=0.5cm of canon] {Ed25519 / ML-DSA-65\\signature};
+\node[tl]   (tlog)  [below=0.45cm of sign] {transparency log\\inclusion proof};
+
+\draw[ln] (obj.east) -- (canon.west);
+\draw[ln] (canon.south) -- (sign.north);
+\draw[ln] (sign.south) -- (tlog.north);
+
+% background box around the signed record
+\begin{scope}[on background layer]
+  \node[draw, dashed, rounded corners, fit=(canon)(sign)(tlog), inner sep=6pt,
+        label={[font=\scriptsize\itshape]above:signed, tamper-evident record}] {};
+\end{scope}
+\end{tikzpicture}
+\caption{Ten agent-defining artifacts each reduce to a digest, collect into the
+\texttt{artifacts} object, canonicalize under RFC~8785, and are closed by one
+signature and an optional transparency-log inclusion proof. Any post-approval change
+to any artifact changes its digest and invalidates the single signature.}
+\label{fig:binding}
+\end{figure}
+
+The binding pattern is uniform: each artifact contributes a digest (a SHA-256 hash, a
+Merkle root for collections, or an audit-chain root for the decision trace) into the
+signed manifest, so verifying the signature plus recomputing the artifact's digest
+detects any divergence. The model-identity binding distinguishes a \emph{hash-bound}
+model (weights digest verifiable) from a \emph{provider-asserted} one (a hosted API,
+where the provider's assertion is the strongest available evidence). The
+decision-trace binding is the join point with the runtime stack: its
+\texttt{audit\_chain\_root} is the root of the TRACE audit chain cMCP
+produces~\citep{trace2026,cmcp2026}.
