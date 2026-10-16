@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Security
+
+- **[Spec]** The transport row in section 4.1 no longer recommends TLS 1.3
+  with the attestation extensions of draft-fossati-tls-attestation-08. That
+  draft carries evidence inside the handshake and binds it to the ephemeral
+  key only, so a relay holding any attested ephemeral key can divert the
+  session (CVE-2026-33697). Implementations MUST NOT treat intra-handshake
+  evidence as a session binding. A value released on attestation MUST be
+  sealed to a transport key that the evidence binds alongside a fresh nonce.
+
 ### Removed
 
 - **[SDK]** `OPAQUEProvider` is removed from the public API, together with the

@@ -1228,6 +1228,8 @@ What the field does give is a signed, pre-execution statement of purpose that a 
 
 ### 4.1 Standard Profile
 
+<!-- CHANGED: CVE-2026-33697 - transport row no longer recommends draft-fossati-tls-attestation-08; intra-handshake evidence is not a session binding, so released values are sealed to an attested transport key -->
+
 <!-- CHANGED: CRYPTO-005/SCHEMA F-20 - added domain separation for Merkle trees per RFC 9162; CRYPTO-003 - downgraded aTLS to RECOMMENDED with draft version pin; CRYPTO-007 - Ed25519 validation rules moved to 3.6; SCHEMA F-20 - SPIFFE SVID P-256 preference; CRYPTO-001 - RFC 8785 reference -->
 
 The standard cryptographic profile uses the following primitives:
@@ -1240,7 +1242,7 @@ The standard cryptographic profile uses the following primitives:
 | Canonical JSON serialization | RFC 8785 (JCS) | N/A | Applies to all signing, hashing, and Merkle construction. See section 2.3. |
 | Agent identity | SPIFFE SVID (X.509) | P-256 EC (preferred); RSA-2048 (legacy compatibility only) | New implementations SHOULD use P-256. RSA-2048 permitted only when interfacing with existing PKI that does not support EC. |
 | Attestation binding | Platform-native (AMD, Intel, NVIDIA, ARM, AWS) | Platform-defined | See section 3.3.1 for per-platform measurement formats. |
-| Transport encryption | TLS 1.3 with attestation extensions per draft-fossati-tls-attestation-08 (or superseding version) | P-256 or X25519 | Mutual attestation over TLS per cMCP spec. Note: attestation TLS extensions are not yet an RFC; implementations MUST track the latest IETF RATS WG draft. Until the RFC is finalized, transport attestation is RECOMMENDED rather than REQUIRED for Level 0/1 deployments. A fallback of attestation over application-layer HTTPS is acceptable for Level 0/1. |
+| Transport encryption | TLS 1.3 | P-256 or X25519 | TLS protects the channel and is not an attestation binding. Implementations MUST NOT rely on attestation evidence carried inside the TLS handshake (intra-handshake attestation, as in draft-fossati-tls-attestation-08) to bind that evidence to the session: the evidence is bound to the ephemeral key, not to the channel, so whoever holds any attested ephemeral key can relay or divert the session (CVE-2026-33697; draft-intra-handshake-fail). Where a key, secret or authorization is released on the strength of attestation, the evidence MUST bind a fresh verifier nonce and the recipient's transport public key in the platform report data, and the released value MUST be sealed to that transport key, so a relayed exchange yields only ciphertext. Weight Custody Manifest SPEC section 3.2 is a worked example. |
 | Transparency log | Rekor (Sigstore) or compatible | N/A | RFC 9162 Certificate Transparency variant. |
 
 ##### 4.1.1 Merkle Tree Domain Separation <!-- CHANGED: CRYPTO-005 - explicit domain separation per RFC 9162 to prevent length-extension attacks -->
