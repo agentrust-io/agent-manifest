@@ -93,6 +93,20 @@ jobs:
               fi
             fi
           fi
+          # A PR that changes CI must not exempt itself by narrowing/removing
+          # its trigger. Renames count under both paths. An incomplete files
+          # list cannot establish that CI was untouched.
+          if [ "$CHANGED" -gt 3000 ]; then
+            ci_applies=1
+          else
+            if [ ! -f changed.txt ]; then
+              gh api --paginate "repos/$REPO/pulls/$PR/files?per_page=100" \
+                --jq '.[] | .filename, (.previous_filename // empty)' > changed.txt
+            fi
+            if grep -Fxq "$CI_WORKFLOW" changed.txt; then
+              ci_applies=1
+            fi
+          fi
           echo "CI applies to this PR: $ci_applies"
 
           # Give the other workflows for this event time to queue their jobs.
