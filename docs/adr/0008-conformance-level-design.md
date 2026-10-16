@@ -48,7 +48,7 @@ The five reference modules currently collect **233 parametrized cases**, invento
 
 **Level 3 covers the highest-assurance environments.** A Merkle-rooted audit chain inside a managed TEE provides non-repudiable, hardware-anchored evidence of every decision the agent made, tied to a silicon measurement. This evidence level is required for FedRAMP High, HIPAA covered components handling PHI, and financial regulation (DORA) critical function assessment.
 
-**Strict superset semantics simplify testing.** A Level 2 test suite runs all Level 0 and Level 1 tests plus the Level 2-specific tests. There is no ambiguity about what "passes Level 2" means.
+**Strict superset semantics describe the test design intent.** A Level 2 test suite is intended to run all Level 0 and Level 1 tests plus the Level 2-specific tests. This describes the intended suite composition, not the current test inventory or an implemented per-level test selection. The 233 collected reference cases establish neither that allocation nor a passing Level 2 run.
 
 **Counts do not establish complete coverage.** The original 197-test allocation and 89/51/42/15 level distribution were design figures, not a mapping to the collected implementation tests. Cite executable node IDs and a pinned passing run; do not infer exhaustive field combinations or hardware acceptance from a total.
 
