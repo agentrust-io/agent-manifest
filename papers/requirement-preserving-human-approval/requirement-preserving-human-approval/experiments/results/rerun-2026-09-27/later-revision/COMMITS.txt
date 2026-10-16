@@ -1,0 +1,3 @@
+agent-manifest 3c124914e3dcd64369a16d27a5cae6943b918916
+weight-custody-manifest 94d5519fd604f7be5a784539a37c1fc021e3d607
+agentrust-telemetry c3515681261fd0ab6e6aa38e20eb2f071aee7a20

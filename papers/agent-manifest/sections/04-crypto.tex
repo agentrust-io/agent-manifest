@@ -1,0 +1,36 @@
+\section{Cryptographic Protocols}
+\label{sec:crypto}
+
+\subsection{Canonicalization and signing}
+
+The signature pre-image is the RFC~8785 JCS~\citep{jcs8785} serialization of the
+manifest's signed fields, encoded as UTF-8 without a BOM; Ed25519 and ML-DSA-65 sign
+these bytes directly. SHA-256 (SHAKE-256 in the post-quantum profile) is the
+artifact-digest and Merkle hash. JCS is required precisely
+because ad-hoc sorting diverges on non-ASCII strings and IEEE~754 numbers; two
+conformant implementations must produce identical bytes.
+
+The standard profile signs with Ed25519~\citep{eddsa8032}; the post-quantum profile
+signs with ML-DSA-65 (NIST FIPS~204)~\citep{mldsa204}; the hybrid mode carries both a
+classical and a post-quantum signature over the \emph{identical} pre-image, and a
+verifier requires both to validate. A key id is the SHA-256 hex digest of the raw
+public-key bytes, and signature values are base64url without padding. The signature
+block records its \texttt{algorithm}, \texttt{key\_id}, \texttt{key\_type}
+(\texttt{software} $|$ \texttt{hsm} $|$ \texttt{tee-sealed}), and the explicit list of
+\texttt{signed\_fields}.
+
+\subsection{Merkle commitments}
+
+Artifact collections commit via Merkle trees with RFC~9162~\citep{ct9162}
+domain-separated nodes (leaf $0x00$, interior $0x01 \,\|\, \text{left} \,\|\,
+\text{right}$), so the retrieval corpus binds as a single \texttt{merkle\_root} over
+its documents and the transparency-log entry carries an RFC~9162 inclusion proof. The
+decision trace binds as a hash-chained or Merkle-log audit root.
+
+\subsection{Post-quantum profile}
+
+Because manifests may need to remain verifiable for years, Agent Manifest specifies a
+post-quantum profile from v0.1: \texttt{crypto\_profile: post-quantum} selects
+ML-DSA-65 and SHAKE-256, and the hybrid mode lets a deployment carry both classical
+and post-quantum signatures during migration, so a manifest stays verifiable whether
+or not a verifier has post-quantum support.

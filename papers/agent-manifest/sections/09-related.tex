@@ -1,0 +1,28 @@
+\section{Related Work and Regulatory Mapping}
+\label{sec:related}
+
+\paragraph{Standards composition.}
+Agent Manifest composes rather than replaces. It reuses SPIFFE~\citep{spiffe2018} for
+identity, RFC~8785~\citep{jcs8785} for canonicalization, Ed25519~\citep{eddsa8032} and
+ML-DSA-65~\citep{mldsa204} for signatures, RFC~9162~\citep{ct9162} Merkle trees and
+Sigstore/Rekor~\citep{sigstore2021} for transparency, SLSA~\citep{slsa2023} and
+SBOM formats for supply-chain provenance, RATS/EAT~\citep{rats2021,eat2023} for
+attestation, and UUIDv7~\citep{uuid9562} for identifiers. Its contribution is the
+\emph{binding rule} that places each of these into one signed, hardware-attestable
+record scoped to an agent.
+
+\paragraph{Relative to the runtime stack.}
+Static documentation (model cards, AIBOMs) describes intent but is unbound to what
+deployed; runtime governance frameworks enforce behavior but do not attest identity
+and provenance; platform attestation proves the environment but not the agent. Agent
+Manifest is the identity-and-provenance layer that the runtime evidence formats
+(TRACE and cMCP~\citep{trace2026,cmcp2026}) and governance toolkits like
+AGT~\citep{agt2026} build on.
+
+\paragraph{Regulatory mapping.}
+The manifest's records map onto emerging obligations: tamper-evident record-keeping
+for high-risk AI (EU AI Act Article~12) is served by the signed, transparency-anchored
+manifest; human-oversight requirements (Article~14)~\citep{euaiact2024} by the HITL
+record (Section~\ref{sec:deleg}); and equivalent audit-trail duties under sector
+regimes (financial, healthcare) by the same evidence. Agent Manifest does not claim
+compliance; it produces the cryptographic evidence a compliance program needs.

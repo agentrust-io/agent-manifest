@@ -1,0 +1,39 @@
+\section{Verification}
+\label{sec:verification}
+
+\subsection{Signed fields}
+
+A fixed, normative set of fields is covered by the signature: the manifest metadata
+(\texttt{manifest\_id}, \texttt{agent\_id}, \texttt{version}, \texttt{issued\_at},
+\texttt{expires\_at}, \texttt{issuer}, \texttt{crypto\_profile}), the
+\texttt{artifacts}, the \texttt{delegation\_chain}, and the \texttt{hitl\_record},
+among others. Three fields are deliberately \emph{outside} the signature because they
+are appended after signing: the \texttt{attestation} report (bound instead through the
+key the report attests), the \texttt{signature} block itself, and the
+\texttt{transparency\_log\_entry} (which can only exist after the signed manifest is
+registered). Within \texttt{hitl\_record}, the \texttt{approvals} list is normalized
+to empty before signing, so approvals attach after issuance and each must be
+authenticated by its own \texttt{approval\_signature}.
+
+\subsection{Fail-closed semantics}
+
+Verification is fail-closed: \texttt{VALID} requires a verifiable signature against a
+trusted key. A signed manifest whose key is not trusted returns
+\texttt{UNVERIFIABLE}; an unsigned manifest returns \texttt{SIGNATURE\_MISSING};
+neither returns \texttt{VALID}. The verifier emits a structured result: an overall
+state (\texttt{VALID}, \texttt{MISMATCH}, \texttt{EXPIRED}, \texttt{REVOKED},
+\texttt{INCOMPLETE}, \texttt{ATTESTATION\_UNAVAILABLE}, \texttt{INCOMPATIBLE\_VERSION},
+\texttt{SIGNATURE\_MISSING}, or \texttt{UNVERIFIABLE}) plus per-artifact field
+results (\texttt{MATCH}, \texttt{MISMATCH}, \texttt{NOT\_BOUND}, \texttt{EXPIRED}) and,
+where present, delegation and HITL results. A verifier checks \texttt{version} before
+anything else: an unsupported version returns \texttt{INCOMPATIBLE\_VERSION}, never
+\texttt{VALID}.
+
+\subsection{Revocation}
+
+A manifest can be revoked before \texttt{expires\_at} (for a leaked key, a
+withdrawn approval, or a compromised artifact). Revocation records are signed and
+distributed as an append-only, JSON-lines certificate revocation list; a verifier
+consults current revocation state at verification time and returns \texttt{REVOKED}
+for a listed manifest. Revocation also drives the downstream kill switch when Agent
+Manifest is paired with AGT (Section~\ref{sec:integration}).

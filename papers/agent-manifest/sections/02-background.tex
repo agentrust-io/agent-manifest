@@ -1,0 +1,40 @@
+\section{Background}
+\label{sec:background}
+
+Agent Manifest composes established primitives rather than inventing new ones.
+
+\paragraph{Workload identity.}
+SPIFFE~\citep{spiffe2018} gives workloads cryptographic identities of the form
+\texttt{spiffe://trust-domain/path}. Agent Manifest uses SPIFFE URIs as the canonical
+form for both \texttt{agent\_id} (the agent) and \texttt{issuer} (the signing
+authority), reusing identity already issued by SPIRE, Kubernetes, and service meshes
+without a new registry. Human approvers, who are not workloads, are named instead by
+OIDC subject, \texttt{mailto:} URI, or W3C DID.
+
+\paragraph{Attestation.}
+The manifest's hardware evidence follows RATS~\citep{rats2021} and normalizes
+platform reports through EAT~\citep{eat2023}. A TEE attestation report binds the
+manifest's signing key to a measured environment, so a verifier can confirm the
+manifest was produced where it claims.
+
+\paragraph{Canonicalization and signatures.}
+Every signature is computed over the RFC~8785 JSON Canonicalization Scheme
+(JCS)~\citep{jcs8785} form of the signed fields, so independent implementations
+produce byte-identical pre-images. Signatures use Ed25519~\citep{eddsa8032} in the
+standard profile and ML-DSA-65~\citep{mldsa204} in the post-quantum profile.
+
+\paragraph{Tamper-evident logs.}
+Artifact collections (the retrieval corpus, the decision trace) and the transparency
+anchor use Merkle trees with RFC~9162~\citep{ct9162} domain-separated interior nodes;
+transparency-log entries follow the Sigstore/Rekor model~\citep{sigstore2021}.
+Identifiers are time-ordered UUIDv7~\citep{uuid9562}.
+
+\paragraph{Relationship to the runtime stack.}
+Agent Manifest answers \emph{who and what} an agent is. It is complementary to
+cMCP~\citep{cmcp2026}, which enforces policy and produces hardware-attested evidence
+at the tool-call boundary, and to TRACE~\citep{trace2026}, the portable evidence
+format cMCP emits; the manifest's decision-trace artifact references a TRACE
+audit chain. It composes with the Agent Governance Toolkit (AGT)~\citep{agt2026},
+which supplies policy enforcement, trust scoring, and observability: the manifest's
+attestation level feeds AGT's trust score, its delegation chain feeds scope-narrowing
+policy, and its revocation feeds AGT's kill switch.

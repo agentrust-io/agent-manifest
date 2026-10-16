@@ -1,0 +1,62 @@
+\section{Introduction}
+\label{sec:intro}
+
+An AI agent is not a single artifact. What it does is determined by a system prompt,
+a policy bundle, a set of tool schemas, a model and its version, a retrieval corpus,
+a memory state, the decisions it records, the sub-agents it delegates to, its supply
+chain, and the human approvals that gate its actions. Today none of these is
+attested. A signed JWT proves which credential called an API; it proves nothing about
+the agent behind the call.
+
+This is the \emph{agent identity gap}. When an agent acts in a regulated environment,
+its operator can show policy documents, SOC reports, and mutable application logs,
+none of which prove what actually ran. A reviewer cannot confirm which system prompt
+defined the agent, which model version executed, which policy was in force, which
+tools were authorized, whether the retrieval corpus or memory was poisoned, what the
+agent decided, whether a human approved a high-risk action, or whether the deployed
+binary matches the one reviewed.
+
+Agent Manifest closes this gap. It binds the artifacts that define an agent into one
+cryptographically signed, hardware-attestable, tamper-evident record. Its central
+design choice is \emph{tamper-evidence over tamper-resistance}: rather than trying to
+prevent change, the manifest makes change \emph{detectable} by any third party that
+holds it and compares it to hardware attestation. Each artifact is bound by hash;
+the manifest is canonicalized with RFC~8785~\citep{jcs8785}, signed with
+Ed25519~\citep{eddsa8032} (or post-quantum ML-DSA-65~\citep{mldsa204}), and registered
+on an append-only transparency log.
+
+\subsection*{The ten unattested surfaces}
+
+Agent Manifest binds ten artifacts: (1)~the system prompt, (2)~the policy bundle,
+(3)~the tool manifest, (4)~the model identity, (5)~the retrieval (RAG) corpus,
+(6)~the memory baseline, (7)~the decision trace, (8)~the A2A delegation chain,
+(9)~the supply chain, and (10)~the human-in-the-loop approvals. Each is a surface an
+adversary can alter without detection in today's deployments; each becomes
+tamper-evident once bound (Section~\ref{sec:model}).
+
+\subsection*{Contributions}
+
+\begin{itemize}[leftmargin=1.5em]
+  \item \textbf{A manifest schema} binding ten agent-defining artifacts, with a
+    SPIFFE identity and a confirmation key (Section~\ref{sec:model}).
+  \item \textbf{Cryptographic protocols}: RFC~8785 canonicalization, Ed25519 and a
+    post-quantum ML-DSA-65 profile, and RFC~9162 Merkle commitments
+    (Section~\ref{sec:crypto}).
+  \item \textbf{A fail-closed verification protocol} with explicit result states and
+    revocation (Section~\ref{sec:verification}).
+  \item \textbf{Delegation and human-oversight} bindings that prevent scope laundering
+    across agent hops (Section~\ref{sec:deleg}).
+  \item \textbf{Integration and conformance}: composition with cMCP, TRACE, and
+    AGT (Section~\ref{sec:integration}), and an open SDK with a conformance specification
+    of 197 tests across four levels (Section~\ref{sec:conformance}).
+\end{itemize}
+
+\subsection*{Paper structure}
+
+Section~\ref{sec:background} reviews the primitives Agent Manifest composes.
+Section~\ref{sec:model} defines the manifest. Section~\ref{sec:crypto} gives the
+cryptographic protocols and Section~\ref{sec:verification} the verification protocol.
+Section~\ref{sec:deleg} covers delegation and human oversight,
+Section~\ref{sec:integration} integration with the surrounding stack,
+Section~\ref{sec:conformance} conformance, Section~\ref{sec:related} related work and
+regulatory mapping, and Section~\ref{sec:conclusion} concludes.

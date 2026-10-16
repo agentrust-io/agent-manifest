@@ -1,0 +1,103 @@
+\documentclass[10pt,letterpaper]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{iftex}
+% mathptmx has no TU-encoded faces, so under XeTeX (Tectonic) earlier versions fell back
+% to Latin Modern regular and lost every bold and italic. Use Termes there.
+\ifPDFTeX\usepackage{mathptmx}\else\usepackage{fontspec}\setmainfont{texgyretermes}[Extension=.otf,UprightFont=*-regular,BoldFont=*-bold,ItalicFont=*-italic,BoldItalicFont=*-bolditalic]\fi
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{tikz}
+\usetikzlibrary{positioning,arrows.meta,fit,backgrounds,calc}
+\usepackage{natbib}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+\usepackage{microtype}
+\usepackage{parskip}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage{caption}
+
+\setlength{\parskip}{6pt}
+\setlength{\parindent}{0pt}
+\setlength{\emergencystretch}{3em}
+
+\lstset{
+  basicstyle=\small\ttfamily,
+  breaklines=true,
+  frame=single,
+  numbers=left,
+  numberstyle=\tiny,
+  xleftmargin=2em,
+  framexleftmargin=1.5em,
+  backgroundcolor=\color{gray!8},
+}
+
+\title{\textbf{Agent Manifest: Portable, Hardware-Attestable Identity and
+Provenance for AI Agents}}
+
+\author{
+  Imran Siddique \\
+  OPAQUE Systems \\[4pt]
+  \normalsize \url{https://github.com/agentrust-io/agent-manifest}
+}
+
+\date{October 1, 2026 \\ \small Technical report, version 2}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Agent Manifest proposes a signed record of the artifacts that define
+an AI agent, including its system prompt, model, policy, tools, retrieval corpus,
+memory, decision trace, delegation, supply chain, and human approvals. Artifact
+digests and canonical serialization make changes to the recorded baseline
+detectable when a verifier has the relevant artifacts and trusted keys. The
+design composes SPIFFE identities, RFC 8785 canonicalization, Ed25519 signatures,
+an optional ML-DSA-65 profile, and hardware-attestation bindings. This technical
+report describes the original model and preserves the recorded Ed25519 software
+benchmarks, delegation checks, and tamper probes. Signed metadata alone does not
+prove that the recorded configuration was used during execution. The evaluation
+does not measure post-quantum performance or establish live hardware provenance;
+continuous verification of mutable memory and retrieval state is outside its
+scope. Current SDK behavior and normative requirements are maintained separately.
+\end{abstract}
+
+\paragraph{Scope of this edition.}
+This is an author-prepared technical report, not peer reviewed and not a
+normative specification. It revises a manuscript originally dated June 23, 2026;
+the recorded experiments include later runs and have not been rerun for this
+edition. Architectural requirements describe intended checks, not proof that
+the historical SDK implements every check. Consult the linked project
+specification and limitations before implementing the design.
+Version 2 (October 1, 2026) corrects the signature pre-image description, the tamper-probe field
+list, the delegation per-hop figure and the conformance test count, states the
+inferred SDK revision, records that the evaluated verifier did not authenticate
+human approvals, adds the result of an October 2026 rerun, replaces two
+repository citations with the published reports, and restores bold and italic
+type that the Tectonic build had dropped; the recorded numbers are unchanged.
+
+\noindent\textbf{Patent Pending.}
+
+\tableofcontents
+\newpage
+
+\input{sections/01-intro}
+\input{sections/02-background}
+\input{sections/03-model}
+\input{sections/04-crypto}
+\input{sections/05-verification}
+\input{sections/06-delegation-hitl}
+\input{sections/07-integration}
+\input{sections/08-conformance}
+\input{sections/09-related}
+\input{sections/10-conclusion}
+
+\bibliographystyle{plainnat}
+\bibliography{refs}
+
+\end{document}
