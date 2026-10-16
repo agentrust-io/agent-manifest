@@ -68,33 +68,10 @@ def main() -> int:
     elif not INVENTORY.exists() or INVENTORY.read_text(encoding="utf-8") != serialized:
         print(
             "Conformance inventory changed; run scripts/conformance_inventory.py --write, "
-            "then reconcile the documented counts and review the diff.",
+            "then review the inventory diff.",
             file=sys.stderr,
         )
         return 1
-    for filename in ("spec/agent-manifest-spec-v0.2.md", "docs/spec-overview.md"):
-        text = (ROOT / filename).read_text(encoding="utf-8")
-        for module, details in actual["modules"].items():
-            match = re.search(
-                r"^\| " + module + r" \| (\d+)(?: tests)? \|", text, re.MULTILINE
-            )
-            if match is None or int(match[1]) != details["count"]:
-                print(
-                    f"{filename}: {module} count differs from collection",
-                    file=sys.stderr,
-                )
-                return 1
-    total = actual["total_collected"]
-    summaries = {
-        "README.md": f"_{total}_tests-",
-        "ROADMAP.md": f"{total}-test",
-        "docs/spec-overview.md": f"| **Total** | **{total}** |",
-        "spec/agent-manifest-spec-v0.2.md": f"Total: {total} collected reference test cases",
-    }
-    for filename, expected in summaries.items():
-        if expected not in (ROOT / filename).read_text(encoding="utf-8"):
-            print(f"{filename}: total differs from collection", file=sys.stderr)
-            return 1
     print(f"{actual['total_collected']} collected cases; inventory matches collection")
     return 0
 

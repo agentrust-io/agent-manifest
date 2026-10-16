@@ -1,5 +1,5 @@
 ---
-description: Agent Manifest Specification v0.2, an RFC 2119 standard for the cryptographic identity and provenance of AI agents, with 233 conformance tests.
+description: Agent Manifest Specification v0.2, an RFC 2119 standard for the cryptographic identity and provenance of AI agents, with an executable reference conformance suite.
 ---
 
 # Specification Overview
@@ -9,7 +9,7 @@ This page is a map of the specification, the formal rulebook that anyone buildin
 The Agent Manifest Specification v0.2 is a formal RFC 2119 document (its rules use the standard words MUST, SHOULD and MAY with fixed meanings) defining a verifiable declaration of an AI agent's deployment content: a signed list of what the agent was approved to run with.
 
 !!! tip "TL;DR"
-    The spec has 10 sections covering the problem statement, data model for all 10 artifact bindings, Ed25519 and post-quantum cryptographic protocols, the verification protocol, integration with AGT and cMCP, the threat model, conformance Levels 0 to 3, and regulatory mapping. The five reference modules collect 233 parametrized test cases.
+    The spec has 10 sections covering the problem statement, data model for all 10 artifact bindings, Ed25519 and post-quantum cryptographic protocols, the verification protocol, integration with AGT and cMCP, the threat model, conformance Levels 0 to 3, and regulatory mapping. The generated [test inventory](conformance-inventory.json) records the collected reference cases.
 
 **Full specification**: [`spec/agent-manifest-spec-v0.2.md`](spec/agent-manifest-v0.2.md) (1,500+ lines)
 
@@ -26,22 +26,21 @@ The Agent Manifest Specification v0.2 is a formal RFC 2119 document (its rules u
 | 5  -  Verification Protocol | HTTP endpoint, result schema, evidence pack, revocation protocol |
 | 6  -  Integration Architecture | AGT, cMCP, and MCP integration with field cross-checks |
 | 7  -  Threat Model | 10 threat classes addressed; explicit out-of-scope threats |
-| 8  -  Conformance | Levels 0 to 3; 233 conformance tests across 5 modules |
+| 8  -  Conformance | Levels 0 to 3; reference conformance modules and generated inventory |
 | 9  -  Regulatory Mapping | EU AI Act, DORA, GDPR, HIPAA, PCI-DSS, FedRAMP |
 | 10  -  Roadmap | v0.2 targets, v1.0 CoSAI WS4 contribution |
 
 ## Conformance test modules
 
-| Module | Tests | Coverage |
-|--------|-------|---------|
-| AM-BIND | 44 | Artifact binding correctness, hash computation, Merkle trees |
-| AM-CRYPTO | 29 | Signature generation and verification, RFC 8785 canonicalization |
-| AM-ATTEST | 41 | TEE attestation binding, field cross-checks, per-platform formats |
-| AM-VERIFY | 88 | Verification endpoint, mismatch detection, delegation, revocation |
-| AM-COMPAT | 31 | AGT integration, cMCP integration, MCP protocol extension |
-| **Total** | **233** | |
+| Module | Coverage |
+|--------|----------|
+| AM-BIND | Artifact binding correctness, hash computation, Merkle trees |
+| AM-CRYPTO | Signature generation and verification, RFC 8785 canonicalization |
+| AM-ATTEST | TEE attestation binding, field cross-checks, per-platform formats |
+| AM-VERIFY | Verification endpoint, mismatch detection, delegation, revocation |
+| AM-COMPAT | AGT integration, cMCP integration, MCP protocol extension |
 
-The table counts pytest-collected cases, including parametrization. See [Running and citing the reference tests](conformance-testing.md) and the generated [node-ID inventory](conformance-inventory.json). Collection is separate from passed/skipped results and level-specific coverage.
+Collected case totals and per-module counts, including parametrization, are maintained only in the generated inventory. See [Running and citing the reference tests](conformance-testing.md) and the generated [node-ID inventory](conformance-inventory.json). Collection is separate from passed/skipped results and level-specific coverage.
 
 ## Key normative references
 

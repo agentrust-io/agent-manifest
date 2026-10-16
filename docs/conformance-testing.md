@@ -19,8 +19,9 @@ python -m pytest tests/test_am_crypto.py::test_ed25519_small_order_key_rejected 
 count. The check derives it from pytest collection, including parametrized
 cases, rather than counting `def test_` declarations. CI checks the inventory.
 After adding, removing or parametrizing a module test, regenerate it with
-`python scripts/conformance_inventory.py --write`, reconcile the counts in
-spec section 8.2, the overview, README and roadmap, and review the diff.
+`python scripts/conformance_inventory.py --write` and review the inventory diff.
+The specification and overview describe module responsibilities and link to this
+inventory; adding a test does not require editing descriptive counts in those documents.
 
 A collection count is not a passing run, a level-specific distribution, complete
 requirement coverage or evidence of hardware execution. Report passed and
