@@ -2,7 +2,7 @@
 
 Covers manifest pre-image correctness, attestation provider interface,
 report structure, field cross-checks with cMCP, and the TPM PCR pipeline.
-Target: 29 tests.
+Collected parametrized cases are inventoried in docs/conformance-inventory.json.
 """
 import hashlib
 

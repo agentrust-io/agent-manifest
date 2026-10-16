@@ -67,7 +67,7 @@ Conformance levels (how much a manifest covers and how strongly it is backed) gi
 | 2: Full stack | + all 10 artifacts bound, HITL approvals, delegation chain, cMCP for all MCP servers, at least 180 days of log retention, a drift policy | Provides evidence relevant to DORA Art. 9 for regulated industries (spec section 8.1) |
 | 3: Post-quantum | + ML-DSA-65 signatures, ML-KEM-768 key exchange, SHAKE-256 hashing | Deployments with long-horizon sensitivity |
 
-CI runs the full test suite with `pytest --cov=agent_manifest --cov-fail-under=80`, including the five conformance modules (AM-BIND, AM-CRYPTO, AM-ATTEST, AM-VERIFY, AM-COMPAT), and produces a verifiable coverage record that can be cited in DORA testing documentation. The specification defines a 197-test conformance suite (section 8.2); the implemented module tests do not yet map one to one onto that list.
+CI runs the full test suite with `pytest --cov=agent_manifest --cov-fail-under=80`, including the five conformance modules (AM-BIND, AM-CRYPTO, AM-ATTEST, AM-VERIFY, AM-COMPAT), and produces a verifiable coverage record that can be cited in DORA testing documentation. The current five reference modules collect 233 parametrized cases (section 8.2), listed by executable node ID in docs/conformance-inventory.json. A count does not establish completeness or a passing run.
 
 ---
 

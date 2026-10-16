@@ -2,7 +2,7 @@
 
 Covers AGT integration, MCP protocol extension, cMCP field cross-check,
 SLSA provenance binding, and JSON Schema export for non-Python verifiers.
-Target: 31 tests.
+Collected parametrized cases are inventoried in docs/conformance-inventory.json.
 """
 import json
 from datetime import datetime, timedelta, timezone

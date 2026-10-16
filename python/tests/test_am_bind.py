@@ -2,7 +2,7 @@
 
 Covers all 10 artifact bindings: schema validation, cardinality enforcement,
 conditional requirements, enum exhaustiveness, and the Manifest root model.
-Target: 47 tests.
+Collected parametrized cases are inventoried in docs/conformance-inventory.json.
 """
 from datetime import datetime, timedelta, timezone
 

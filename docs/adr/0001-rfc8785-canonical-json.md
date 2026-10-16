@@ -38,7 +38,7 @@ Use RFC 8785 JSON Canonicalization Scheme (JCS) for all canonical serialization.
 
 ## Consequences
 
-- All SDK implementations must implement RFC 8785. This is a hard requirement for conformance test AM-CRYPTO-001.
+- All SDK implementations must implement RFC 8785. Reference controls include `tests/test_am_crypto.py::test_canonical_json_key_order` and `tests/test_am_crypto.py::test_canonical_json_appendix_d_vector` (run from `python/`).
 - Null-valued optional fields must be excluded from the canonical form (not included as `null`). This is specified in Section 2.3 and enforced in AM-BIND tests.
 - Float handling follows RFC 8785 §3.2.2.3 (ECMAScript number formatting). NaN and Infinity are rejected.
 

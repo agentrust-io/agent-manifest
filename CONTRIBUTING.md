@@ -100,7 +100,7 @@ changes to this gate cannot bypass the repository's normal review checks.
 ## Submitting a PR
 
 1. Fork the repo and create a branch from `main`.
-2. Write tests for any SDK changes. Conformance test IDs (e.g. `AM-BIND-001`) must be referenced in the test docstring.
+2. Write tests for any SDK changes. Reference the executable pytest node ID (for example, `tests/test_am_crypto.py::test_merkle_domain_separation`, run from `python/`). Historical per-test `AM-*` labels in prose/docstrings are not selectable IDs. For changes to the five `test_am_*` modules, run `python scripts/conformance_inventory.py --write` from the repository root, reconcile the documented counts, and review the generated inventory. See [Running and citing the reference tests](docs/conformance-testing.md).
 3. Ensure `pytest`, `mypy`, and `ruff check` all pass locally.
 4. Open a PR against `main`. Fill in the PR template.
 5. One maintainer approval is required to merge.
