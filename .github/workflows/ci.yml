@@ -82,6 +82,8 @@ jobs:
       - name: Ruff check
         working-directory: python
         run: ruff check src/ tests/ --select E,F,W --ignore E501
+      - name: Test all-checks gate with offline GitHub fixtures
+        run: python scripts/test_all_checks_gate.py
 
   typecheck:
     name: Type check
