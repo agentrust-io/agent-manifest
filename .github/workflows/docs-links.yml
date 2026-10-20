@@ -9,6 +9,8 @@ on:
       - "hooks/**"
       - "mkdocs.yml"
       - "requirements-docs.txt"
+      - "requirements/docs.txt"
+      - "requirements/server.txt"
       - "scripts/check_built_links.py"
       - ".github/workflows/docs-links.yml"
   workflow_dispatch:
