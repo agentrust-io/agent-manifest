@@ -9,6 +9,8 @@ on:
       - "hooks/**"
       - "mkdocs.yml"
       - "requirements-docs.txt"
+      - "requirements/docs.txt"
+      - "requirements/server.txt"
       - "python/src/**"
       - "README.md"
       - "CHANGELOG.md"
