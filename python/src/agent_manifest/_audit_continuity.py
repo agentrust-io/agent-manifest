@@ -165,6 +165,7 @@ def verify_continuity(
     for checkpoint in (signed, current):
         if (any(type(v) is not int for v in
                 (checkpoint.tree_size, checkpoint.seq, checkpoint.ttl_seconds))
+                or checkpoint.seq < 0
                 or not isinstance(checkpoint.audit_chain_root, str)
                 or not isinstance(checkpoint.observed_at, datetime)):
             return ContinuityVerdict(False, "discontinuity")
@@ -233,7 +234,11 @@ def verify_continuity(
         return ContinuityVerdict(False, "rollback")
 
     # Stage 3: freshness.
-    if now > _as_utc(current.observed_at) + timedelta(seconds=current.ttl_seconds):
+    try:
+        expires_at = _as_utc(current.observed_at) + timedelta(seconds=current.ttl_seconds)
+    except OverflowError:
+        return ContinuityVerdict(False, "expired")
+    if now > expires_at:
         return ContinuityVerdict(False, "expired")
 
     return ContinuityVerdict(True, "accepted")

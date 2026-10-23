@@ -45,6 +45,8 @@ DeltaReason = Literal["accepted", "drift", "rollback", "expired", "budget"]
 
 
 def _kv_leaf(op: dict[str, Any]) -> bytes:
+    if op["op"] not in ("PUT", "DEL"):
+        raise ValueError(f"unsupported kv operation: {op['op']!r}")
     payload = {"op": op["op"], "key": op["key"]}
     if op["op"] == "PUT":
         payload["value"] = op["value"]
@@ -52,6 +54,8 @@ def _kv_leaf(op: dict[str, Any]) -> bytes:
 
 
 def _vector_leaf(op: dict[str, Any]) -> bytes:
+    if op["op"] != "ADD":
+        raise ValueError(f"unsupported vector operation: {op['op']!r}")
     emb = op["embedding"]
     # Disambiguate a raw-bytes embedding from a hex-looking string, so that
     # b"\x01\x02" and "0102" can never produce the same leaf preimage.
@@ -67,10 +71,15 @@ def _vector_leaf(op: dict[str, Any]) -> bytes:
 
 
 def _graph_leaf(op: dict[str, Any]) -> bytes:
-    if op.get("kind") == "edge":
+    if op["op"] != "ADD":
+        raise ValueError(f"unsupported graph operation: {op['op']!r}")
+    kind = op.get("kind", "node")
+    if kind == "edge":
         payload = {"op": op["op"], "src": op["src"], "rel": op["rel"],
                    "dst": op["dst"], "props": op.get("props", {})}
         return _TAGS["graph-edge"] + canonicalize(payload)
+    if kind != "node":
+        raise ValueError(f"unsupported graph operation kind: {kind!r}")
     payload = {"op": op["op"], "node_id": op["node_id"], "props": op.get("props", {})}
     return _TAGS["graph-node"] + canonicalize(payload)
 
@@ -122,6 +131,8 @@ def fold_kv(ops: list[dict[str, Any]]) -> dict[str, Any]:
             state[op["key"]] = op["value"]
         elif op["op"] == "DEL":
             state.pop(op["key"], None)
+        else:
+            raise ValueError(f"unsupported kv operation: {op['op']!r}")
     return state
 
 
@@ -205,6 +216,7 @@ def verify_delta(
     for checkpoint in (prev, new):
         if (any(type(v) is not int for v in
                 (checkpoint.tree_size, checkpoint.seq, checkpoint.ttl_seconds))
+                or checkpoint.seq < 0
                 or not isinstance(checkpoint.memory_root, str)
                 or not isinstance(checkpoint.approved_at, datetime)
                 or type(checkpoint.max_delta_fraction) not in (int, float)):
