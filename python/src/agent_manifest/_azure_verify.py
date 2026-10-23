@@ -91,7 +91,10 @@ def _strict_b64url_decode(value: str) -> bytes:
     if not isinstance(value, str) or not _B64URL_ALPHABET_RE.fullmatch(value):
         raise binascii.Error("invalid base64url alphabet")
     padded = value + "=" * ((4 - len(value) % 4) % 4)
-    return base64.urlsafe_b64decode(padded)
+    raw = base64.urlsafe_b64decode(padded)
+    if base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii") != value:
+        raise binascii.Error("non-canonical base64url encoding")
+    return raw
 
 
 # RFC 7517 / RFC 7518 private or symmetric JWK parameters that MUST NOT appear
@@ -111,6 +114,16 @@ def _decode_jwk_uint(value: Any) -> tuple[bytes, int]:
     return raw, int.from_bytes(raw, "big")
 
 
+def _reject_duplicate_runtime_members(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    # The signed runtime bytes must have one interpretation before AK selection.
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate runtime-data JSON member")
+        result[key] = value
+    return result
+
+
 def _find_hcl_ak_jwk(runtime_data: bytes) -> Optional[dict[str, Any]]:
     """Return the ``HCLAkPub`` JWK dict from Azure HCL runtime-data JSON, or ``None``.
 
@@ -122,8 +135,8 @@ def _find_hcl_ak_jwk(runtime_data: bytes) -> Optional[dict[str, Any]]:
     private or symmetric key parameters.
     """
     try:
-        parsed = json.loads(runtime_data)
-    except (json.JSONDecodeError, UnicodeDecodeError, TypeError):
+        parsed = json.loads(runtime_data, object_pairs_hook=_reject_duplicate_runtime_members)
+    except (ValueError, UnicodeDecodeError, TypeError):
         return None
     if not isinstance(parsed, dict):
         return None
@@ -482,3 +495,4 @@ def verify_azure_runtime_quote(
     return _ak_quote_bound_to_snp(
         quote.raw, quote_sig, ak_pub_pem, runtime_data, bytes(snp_report_bytes)
     )
+
