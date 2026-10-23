@@ -340,6 +340,26 @@ def test_non_auditcheckpoint_argument_fails_closed_not_crashes():
     assert not verdict2.accepted and verdict2.reason == "discontinuity"
 
 
+def test_huge_ttl_seconds_and_negative_seq_or_ttl_fail_closed():
+    leaves = _leaves(3)
+    base = _cp(CHAIN_3, 3, 2)
+    huge_ttl = AuditCheckpoint(**{**base.__dict__, "ttl_seconds": 10**18})
+    v_huge = verify_continuity(
+        _cp(CHAIN_2, 2, 1), huge_ttl,
+        trace_type="hash-chained", appended_entry_leaves=[leaves[2]],
+    )
+    assert not v_huge.accepted and v_huge.reason == "expired"
+
+    neg_seq = AuditCheckpoint(**{**base.__dict__, "seq": -1})
+    v_neg = verify_continuity(
+        _cp(CHAIN_2, 2, 1), neg_seq,
+        trace_type="hash-chained", appended_entry_leaves=[leaves[2]],
+    )
+    assert not v_neg.accepted and v_neg.reason == "discontinuity"
+
+
+
+
 # ---------------------------------------------------------------------------
 # Garbage in the container the active trace_type does NOT use is simply
 # unused, not a rejection reason.

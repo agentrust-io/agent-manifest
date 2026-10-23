@@ -247,3 +247,32 @@ def test_verify_delta_rejects_nonempty_forged_proof_as_drift():
     forged = [b"\x00" * 32]  # structurally non-empty but bogus
     v = verify_delta(prev, new, new_ops[len(prev_ops):], forged, representation="kv", now=now)
     assert v.accepted is False and v.reason == "drift"
+
+
+def test_memory_delta_rejects_negative_seq_and_unknown_op_kinds():
+    import pytest
+
+    now = datetime(2026, 6, 15, 12, 0, tzinfo=UTC)
+    prev_ops = _kv(4)
+    new_ops = prev_ops + [{"op": "PUT", "key": "k4", "value": 1}]
+    prev = MemoryCheckpoint.from_ops(prev_ops, "kv", seq=1, approved_at=now, ttl_seconds=3600)
+    new = MemoryCheckpoint.from_ops(new_ops, "kv", seq=2, approved_at=now, ttl_seconds=3600)
+    proof = memory_merkletree(new_ops, "kv").consistency_proof(4)
+
+    bad_cp = MemoryCheckpoint(new.memory_root, 5, -1, now, 3600)
+    v = verify_delta(prev, bad_cp, [new_ops[-1]], proof, representation="kv", now=now)
+    assert v.accepted is False and v.reason == "drift"
+
+    with pytest.raises(ValueError, match="unsupported kv operation"):
+        build_memory_tree([{"op": "PATCH", "key": "k1"}], "kv")
+    with pytest.raises(ValueError, match="unsupported vector operation"):
+        build_memory_tree(
+            [{"op": "DEL", "id": "v1", "embedding": "01", "embedding_model_id": "m"}],
+            "vector",
+        )
+    with pytest.raises(ValueError, match="unsupported graph operation kind"):
+        build_memory_tree(
+            [{"op": "ADD", "kind": "hyperedge", "node_id": "n1"}],
+            "graph",
+        )
+
