@@ -366,6 +366,38 @@ def test_parse_signature_rejects_overstated_qe_auth_size():
         parse_tdx_quote_signature(bytes(tampered))
 
 
+@pytest.mark.parametrize("trailer", [b"ATTACKER_TRAILER", b"\x00", b"\xff"])
+def test_parse_signature_rejects_trailing_quote_bytes(trailer: bytes):
+    quote, root_pem = _build_quote(hashlib.sha256(b"trailing-quote").digest())
+    with pytest.raises(TdxVerificationError, match="trailing byte"):
+        parse_tdx_quote_signature(quote + trailer)
+    with pytest.raises(TdxVerificationError, match="trailing byte"):
+        verify_tdx_quote(quote + trailer, trusted_root_pem=root_pem)
+
+
+def test_parse_signature_rejects_trailing_auth_bytes():
+    quote, _ = _build_quote(hashlib.sha256(b"trailing-auth").digest())
+    off = 48 + 584
+    (auth_size,) = struct.unpack_from("<I", quote, off)
+    tampered = bytearray(quote + b"EXTRA")
+    tampered[off:off + 4] = (auth_size + 5).to_bytes(4, "little")
+    with pytest.raises(TdxVerificationError, match="trailing byte.*QE certification data"):
+        parse_tdx_quote_signature(bytes(tampered))
+
+
+def test_parse_signature_rejects_trailing_cert_data_bytes():
+    quote, _ = _build_quote(hashlib.sha256(b"trailing-cert-data").digest())
+    off = 48 + 584
+    (auth_size,) = struct.unpack_from("<I", quote, off)
+    cert_size_off = off + 4 + 130
+    (cert_size,) = struct.unpack_from("<I", quote, cert_size_off)
+    tampered = bytearray(quote + b"EXTRA")
+    tampered[off:off + 4] = (auth_size + 5).to_bytes(4, "little")
+    tampered[cert_size_off:cert_size_off + 4] = (cert_size + 5).to_bytes(4, "little")
+    with pytest.raises(TdxVerificationError, match="trailing byte.*PCK chain"):
+        parse_tdx_quote_signature(bytes(tampered))
+
+
 # --- Committed real-hardware capture ------------------------------------------
 # GCP C3 confidential VM, non-paravisor TDX, captured 2026-07-21 (#305). These
 # ran nowhere until now: the only real-quote test was gated on an environment

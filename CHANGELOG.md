@@ -82,6 +82,16 @@
 
 ### Fixed
 
+- **[SDK]** Reject trailing bytes after the signed TDX DCAP quote container,
+  QE signature data, and QE certification data in `parse_tdx_quote_signature()`
+  with `TdxVerificationError`; reject RFC 7517 / RFC 7518 private or symmetric
+  JWK parameters (`d`, `p`, `q`, `dp`, `dq`, `qi`, `oth`, `k`), non-minimal
+  leading-`0x00` `Base64urlUInt` encodings, and invalid RSA public parameters
+  (`n < 3`, `e < 3`, or even values) on Azure `HCLAkPub` runtime data; and
+  bound delegation and HITL integer fields (`hop`, `max_delegation_depth`,
+  `ttl_seconds`, and `approval_duration_seconds`) by the RFC 8785 safe-integer
+  range (`2**53 - 1`) (#526).
+
 - **[Spec/SDK]** `poisoning_scan` carried a `result` but named nothing about
   *which* corpus it was computed over: a `clean` or `flagged` scan verified
   unchanged next to any `rag_corpus.merkle_root`, so a result produced over

@@ -83,6 +83,10 @@ _OFF_QE_REPORT_DATA = 320
 # Certification-data types (Intel DCAP).
 _CERT_TYPE_QE_REPORT = 6
 _CERT_TYPE_PCK_CHAIN = 5
+# Linux configfs-TSM tdx_guest (drivers/virt/coco/tdx-guest/tdx-guest.c,
+# GET_QUOTE_BUF_SIZE = 8000) returns a fixed 8000-byte zero-initialized outblob
+# whose unused tail after auth_size is all NUL bytes.
+_TSM_QUOTE_BUF_LEN = 8000
 
 
 class TdxVerificationError(Exception):
@@ -155,6 +159,13 @@ def parse_tdx_quote_signature(quote: bytes) -> TdxQuoteSignature:
             f"quote declares {auth_size} bytes of signature data, "
             f"{len(quote) - off} available"
         )
+    if off + auth_size != len(quote) and not (
+        len(quote) == _TSM_QUOTE_BUF_LEN and not any(quote[off + auth_size:])
+    ):
+        raise TdxVerificationError(
+            f"quote has {len(quote) - (off + auth_size)} trailing byte(s) "
+            f"after declared {auth_size}-byte signature data"
+        )
     auth = quote[off:off + auth_size]
     if len(auth) < 134:
         raise TdxVerificationError("truncated quote signature data")
@@ -170,6 +181,11 @@ def parse_tdx_quote_signature(quote: bytes) -> TdxQuoteSignature:
         raise TdxVerificationError(
             f"quote declares {cert_size} bytes of QE certification data, "
             f"{len(auth) - 134} available"
+        )
+    if 134 + cert_size != len(auth):
+        raise TdxVerificationError(
+            f"quote signature data has {len(auth) - (134 + cert_size)} trailing "
+            f"byte(s) after declared {cert_size}-byte QE certification data"
         )
     cert_data = auth[134:134 + cert_size]
     if len(cert_data) < 448 + 6:
@@ -197,6 +213,11 @@ def parse_tdx_quote_signature(quote: bytes) -> TdxQuoteSignature:
         raise TdxVerificationError(
             f"quote declares {pck_size} bytes of PCK chain, "
             f"{len(cert_data) - o2} available"
+        )
+    if o2 + pck_size != len(cert_data):
+        raise TdxVerificationError(
+            f"QE certification data has {len(cert_data) - (o2 + pck_size)} trailing "
+            f"byte(s) after declared {pck_size}-byte PCK chain"
         )
 
     return TdxQuoteSignature(

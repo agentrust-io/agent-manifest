@@ -219,3 +219,31 @@ def test_structurally_valid_root_mismatch_keeps_existing_binding_failure() -> No
     root = _minimal_hop()
     with pytest.raises(ValueError, match="does not match the manifest"):
         verify_delegation_chain([root], {}, MID, manifest_issuer="spiffe://x/other")
+
+
+@pytest.mark.parametrize(
+    "out_of_range",
+    [(1 << 53), -(1 << 53), float(1 << 53), -float(1 << 53), 1e20],
+)
+def test_jcs_safe_integer_bounds_enforced_on_delegation_integers(out_of_range) -> None:
+    from agent_manifest._delegation import _JCS_SAFE_INTEGER, _is_int, _is_json_integer
+
+    assert _is_json_integer(_JCS_SAFE_INTEGER) is True
+    assert _is_json_integer(-_JCS_SAFE_INTEGER) is True
+    assert _is_int(out_of_range) is False
+
+    root = _minimal_hop()
+    root["hop"] = out_of_range
+    with pytest.raises(ValueError, match="hop must be a JSON integer"):
+        verify_delegation_chain([root], {}, MID)
+
+    if out_of_range > 0:
+        root_depth = _minimal_hop()
+        root_depth["scope_grant"] = {**SCOPE, "max_delegation_depth": out_of_range}
+        with pytest.raises(ValueError, match="max_delegation_depth must be a non-negative integer"):
+            verify_delegation_chain([root_depth], {}, MID)
+
+        root_ttl = _minimal_hop()
+        root_ttl["scope_grant"] = {**SCOPE, "ttl_seconds": out_of_range}
+        with pytest.raises(ValueError, match="ttl_seconds must be a positive integer or null"):
+            verify_delegation_chain([root_ttl], {}, MID)
