@@ -718,6 +718,42 @@ def test_cli_verify_rejects_missing_approver_key_file(tmp_path):
     assert "Approver key file not found" in result.output
 
 
+def test_cli_rejects_duplicate_json_keys_nan_and_short_private_key(tmp_path):
+    keypair = generate_ed25519()
+    signed_path = _write_signed_manifest(tmp_path, keypair)
+    public_path = _write_public_key(tmp_path, keypair)
+
+    # 1. Duplicate JSON keys in manifest file
+    raw = signed_path.read_text()
+    dup_path = tmp_path / "dup.json"
+    dup_path.write_text(raw[:-1] + ', "issuer": "spiffe://evil/issuer"}')
+    res_dup = CliRunner().invoke(
+        cli,
+        [
+            "verify",
+            str(dup_path),
+            "--public-key",
+            str(public_path),
+            "--authorized-issuer",
+            "spiffe://trust.example/signing-authority",
+            "--signature-only",
+        ],
+    )
+    assert res_dup.exit_code != 0
+    assert "duplicate JSON object key" in res_dup.output
+
+    # 2. Short private key in manifest sign fails cleanly with ClickException
+    short_key = tmp_path / "short.hex"
+    short_key.write_text("aa" * 16)
+    res_sign = CliRunner().invoke(
+        cli, ["sign", str(signed_path), "--key", str(short_key)]
+    )
+    assert res_sign.exit_code != 0
+    assert "must be 32 bytes" in res_sign.output
+    assert "Traceback" not in res_sign.output
+
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission bits only")
 @pytest.mark.parametrize("umask", [0o022, 0o077, 0o777])
 def test_cli_keygen_private_key_mode_0600_under_umask(tmp_path, umask):
