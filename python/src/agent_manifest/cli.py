@@ -43,6 +43,19 @@ from ._verify import (
 )
 
 
+def _no_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in out:
+            raise ValueError(f"duplicate JSON object key: {key!r}")
+        out[key] = value
+    return out
+
+
+def _no_nonfinite_constant(token: str) -> Any:
+    raise ValueError(f"non-finite JSON constant is not allowed: {token}")
+
+
 def _load_json(path: str) -> dict[str, Any]:
     """Load a JSON file and require its top-level value to be an object.
 
@@ -67,10 +80,14 @@ def _load_json(path: str) -> dict[str, Any]:
             raise
         raise click.ClickException(f"{path} is a directory, not a JSON file.")
     try:
-        data = json.loads(raw.decode("utf-8"))
+        data = json.loads(
+            raw.decode("utf-8"),
+            object_pairs_hook=_no_duplicate_keys,
+            parse_constant=_no_nonfinite_constant,
+        )
     except UnicodeDecodeError as exc:
         raise click.ClickException(f"{path} is not valid UTF-8: {exc}")
-    except json.JSONDecodeError as exc:
+    except (json.JSONDecodeError, ValueError) as exc:
         raise click.ClickException(f"{path} is not valid JSON: {exc}")
     if not isinstance(data, dict):
         raise click.ClickException(f"{path} does not contain a JSON object.")
@@ -91,8 +108,12 @@ def _load_manifest_or_envelope(path: str) -> "dict[str, Any] | bytes":
     if raw[:1] == b"\xd2" or raw[:2] == b"\xd8\x62":
         return raw
     try:
-        data = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        data = json.loads(
+            raw.decode("utf-8"),
+            object_pairs_hook=_no_duplicate_keys,
+            parse_constant=_no_nonfinite_constant,
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
         raise click.ClickException(f"{path} is neither JSON nor a COSE envelope: {exc}")
     if not isinstance(data, dict):
         raise click.ClickException(f"{path} does not contain a manifest object.")
@@ -120,6 +141,8 @@ def _public_bytes_from_hex_file(path: str, label: str = "Public key") -> bytes:
         )
 
     key_hex = key_path.read_text().strip()
+    if any(ch.isspace() for ch in key_hex):
+        raise click.ClickException(f"{label} file does not contain valid hex data.")
     try:
         public_bytes = bytes.fromhex(key_hex)
     except ValueError:
@@ -238,11 +261,18 @@ def sign(manifest_file: str, key: str, output: Optional[str]) -> None:
     key_hex = key_path.read_text().strip()
     # SEC-010: wrap hex decode so ValueError doesn't expose key_hex in traceback
     try:
+        if any(ch.isspace() for ch in key_hex):
+            raise ValueError("internal whitespace")
         key_bytes = bytes.fromhex(key_hex)
     except ValueError:
         raise click.ClickException("Key file does not contain valid hex data.")
     finally:
         del key_hex  # prevent key material from lingering in locals
+
+    if len(key_bytes) != 32:
+        raise click.ClickException(
+            f"Ed25519 private key must be 32 bytes, got {len(key_bytes)} bytes."
+        )
 
     kp = ed25519_from_private_bytes(key_bytes)
 
