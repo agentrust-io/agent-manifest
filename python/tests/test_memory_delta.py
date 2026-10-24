@@ -263,12 +263,23 @@ def test_memory_delta_rejects_negative_seq_and_unknown_op_kinds():
     v = verify_delta(prev, bad_cp, [new_ops[-1]], proof, representation="kv", now=now)
     assert v.accepted is False and v.reason == "drift"
 
+    bad_ttl_cp = MemoryCheckpoint(new.memory_root, 5, 2, now, -1)
+    v_ttl = verify_delta(prev, bad_ttl_cp, [new_ops[-1]], proof, representation="kv", now=now)
+    assert v_ttl.accepted is False and v_ttl.reason == "drift"
+
     with pytest.raises(ValueError, match="unsupported kv operation"):
         build_memory_tree([{"op": "PATCH", "key": "k1"}], "kv")
+    with pytest.raises(ValueError, match="unsupported kv operation"):
+        fold_kv([{"op": "PATCH", "key": "k1"}])
     with pytest.raises(ValueError, match="unsupported vector operation"):
         build_memory_tree(
             [{"op": "DEL", "id": "v1", "embedding": "01", "embedding_model_id": "m"}],
             "vector",
+        )
+    with pytest.raises(ValueError, match="unsupported graph operation"):
+        build_memory_tree(
+            [{"op": "DEL", "kind": "node", "node_id": "n1"}],
+            "graph",
         )
     with pytest.raises(ValueError, match="unsupported graph operation kind"):
         build_memory_tree(

@@ -357,6 +357,13 @@ def test_huge_ttl_seconds_and_negative_seq_or_ttl_fail_closed():
     )
     assert not v_neg.accepted and v_neg.reason == "discontinuity"
 
+    neg_ttl = AuditCheckpoint(**{**base.__dict__, "ttl_seconds": -1})
+    v_neg_ttl = verify_continuity(
+        _cp(CHAIN_2, 2, 1), neg_ttl,
+        trace_type="hash-chained", appended_entry_leaves=[leaves[2]],
+    )
+    assert not v_neg_ttl.accepted and v_neg_ttl.reason == "discontinuity"
+
 
 
 
