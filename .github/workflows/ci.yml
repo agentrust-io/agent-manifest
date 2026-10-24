@@ -54,9 +54,10 @@ jobs:
 
       - name: Install package and dev deps
         working-directory: python
+        shell: bash
         run: |
-          pip install --require-hashes -r ../requirements/dev.txt
-          pip install --no-deps -e .
+          python -m pip install --require-hashes -r ../requirements/dev.txt
+          python -m pip install --no-deps -e .
 
       - name: Check collected conformance inventory
         working-directory: python
