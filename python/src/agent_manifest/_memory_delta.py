@@ -217,6 +217,7 @@ def verify_delta(
         if (any(type(v) is not int for v in
                 (checkpoint.tree_size, checkpoint.seq, checkpoint.ttl_seconds))
                 or checkpoint.seq < 0
+                or checkpoint.ttl_seconds < 0
                 or not isinstance(checkpoint.memory_root, str)
                 or not isinstance(checkpoint.approved_at, datetime)
                 or type(checkpoint.max_delta_fraction) not in (int, float)):

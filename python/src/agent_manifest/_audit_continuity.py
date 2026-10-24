@@ -166,6 +166,7 @@ def verify_continuity(
         if (any(type(v) is not int for v in
                 (checkpoint.tree_size, checkpoint.seq, checkpoint.ttl_seconds))
                 or checkpoint.seq < 0
+                or checkpoint.ttl_seconds < 0
                 or not isinstance(checkpoint.audit_chain_root, str)
                 or not isinstance(checkpoint.observed_at, datetime)):
             return ContinuityVerdict(False, "discontinuity")
