@@ -84,14 +84,17 @@ def test_delegation_wrong_length_signature_raises_clear_error():
 
 def test_delegation_truncated_signature_raises_clear_error():
     """Same as above, undershooting instead of overshooting the length."""
+    from agent_manifest._signing import _b64url_decode, _b64url_encode
+
     kp = generate_ed25519()
     sig = DelegationHopSigner(kp).sign_hop(
         hop=0, principal_id="spiffe://x/o", principal_type="agent",
         delegated_at=NOW, scope_grant=SCOPE, manifest_id=MID,
     )
+    short_sig = _b64url_encode(_b64url_decode(sig)[:-6])
     chain = [{"hop": 0, "principal_id": "spiffe://x/o", "principal_type": "agent",
                "delegated_at": NOW, "scope_grant": SCOPE,
-               "delegation_signature": sig[:-8]}]
+               "delegation_signature": short_sig}]
     with pytest.raises(InvalidSignature, match="must be 64 bytes"):
         verify_delegation_chain(chain, {"spiffe://x/o": kp.public_bytes}, MID)
 
@@ -887,8 +890,12 @@ def test_wrong_length_signature_raises_clear_error():
 
 def test_truncated_signature_raises_clear_error():
     """Same as above, undershooting instead of overshooting the length."""
+    from agent_manifest._signing import _b64url_decode, _b64url_encode
+
     approval, key = _valid_approval()
-    approval["approval_signature"] = approval["approval_signature"][:-8]
+    approval["approval_signature"] = _b64url_encode(
+        _b64url_decode(approval["approval_signature"])[:-6]
+    )
     with pytest.raises(InvalidSignature, match="must be 64 bytes"):
         verify_hitl_approval(approval, MID, key)
 
