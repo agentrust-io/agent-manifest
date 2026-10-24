@@ -22,4 +22,4 @@ pip-audit>=2.7
 prometheus-client>=0.20,<1
 ruff
 pyyaml
-setuptools>=83.0.0
+setuptools>=84.1.0
