@@ -347,3 +347,27 @@ def test_shake256_length():
 def test_unsupported_algorithm_raises():
     with pytest.raises(ValueError, match="Unsupported"):
         canonical_hash({"v": 1}, algorithm="md5")
+
+
+@pytest.mark.parametrize("bad_key", [1, None, (1, 2)])
+def test_non_string_dict_key_raises_type_error(bad_key):
+    with pytest.raises(TypeError, match="not a string"):
+        canonicalize({bad_key: "v"})
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"k": chr(0xD800)},
+        {"k2": chr(0xDFFF)},
+        {chr(0xD800): "v"},
+        [chr(0xDC00)],
+    ],
+)
+def test_lone_surrogate_raises_explicit_value_error(payload):
+    from agent_manifest._canonicalize import _quote
+
+    with pytest.raises(ValueError, match="lone UTF-16 surrogate"):
+        canonicalize(payload)
+    with pytest.raises(ValueError, match="lone UTF-16 surrogate"):
+        _quote(chr(0xD800))
