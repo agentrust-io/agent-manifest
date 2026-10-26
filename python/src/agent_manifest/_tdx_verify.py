@@ -171,6 +171,8 @@ def parse_tdx_quote_signature(quote: bytes) -> TdxQuoteSignature:
             f"quote declares {cert_size} bytes of QE certification data, "
             f"{len(auth) - 134} available"
         )
+    if 134 + cert_size < len(auth):
+        raise TdxVerificationError("trailing bytes after QE certification data")
     cert_data = auth[134:134 + cert_size]
     if len(cert_data) < 448 + 6:
         raise TdxVerificationError("truncated QE certification data")
@@ -198,6 +200,8 @@ def parse_tdx_quote_signature(quote: bytes) -> TdxQuoteSignature:
             f"quote declares {pck_size} bytes of PCK chain, "
             f"{len(cert_data) - o2} available"
         )
+    if o2 + pck_size < len(cert_data):
+        raise TdxVerificationError("trailing bytes after PCK certificate chain")
 
     return TdxQuoteSignature(
         signed_body=signed,
