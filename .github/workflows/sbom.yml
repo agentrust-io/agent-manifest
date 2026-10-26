@@ -5,6 +5,9 @@ on:
     branches: [main]
     paths:
       - "python/pyproject.toml"
+      - "requirements/all.txt"
+      - "requirements/sbom.txt"
+      - ".github/workflows/sbom.yml"
   workflow_dispatch:
 
 permissions:
