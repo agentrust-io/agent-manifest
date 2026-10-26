@@ -68,6 +68,16 @@ def case(name, expected, **override):
 
 
 case("applicable-green", 0)
+for dependency in ("agt.txt", "agt.in", "agt-overrides.txt", "dev.txt", "release.txt"):
+    for expected, runs in ((0, [good]), (1, [])):
+        case(
+            f"dependency-{dependency}-ci-{'green' if runs else 'missing'}",
+            expected,
+            ci=(ROOT / ".github/workflows/ci.yml").read_text(),
+            files=[{"filename": "requirements/" + dependency}],
+            runs=runs,
+            deadline="4800",
+        )
 case("missing-ci", 1, runs=[])
 case("stale-sha-only", 1, runs=[dict(good, head_sha="b" * 40)])
 for outcome in ("failure", "cancelled", "skipped", "neutral", "timed_out"):
