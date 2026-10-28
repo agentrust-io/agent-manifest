@@ -123,6 +123,13 @@ def _serialize_dict(d: dict[str, Any], *, exclude_none: bool, depth: int) -> str
     # so the two orderings can disagree. Encoding each key to UTF-16BE
     # before comparing reproduces the mandated UTF-16 code-unit order while
     # keeping the keys themselves as `str`.
+    for k in d:
+        if not isinstance(k, str):
+            raise TypeError(
+                f"JSON object key of type {type(k).__name__!r} is not a string under RFC 8785"
+            )
+        if any(0xD800 <= ord(ch) <= 0xDFFF for ch in k):
+            raise ValueError("lone UTF-16 surrogate is not valid I-JSON / RFC 8785")
     parts: list[str] = []
     for k in sorted(d.keys(), key=lambda key: key.encode("utf-16-be")):
         v = d[k]
@@ -155,6 +162,8 @@ def _quote(s: str) -> str:
     buf: list[str] = ['"']
     for ch in s:
         cp = ord(ch)
+        if 0xD800 <= cp <= 0xDFFF:
+            raise ValueError("lone UTF-16 surrogate is not valid I-JSON / RFC 8785")
         if ch == '"':
             buf.append('\\"')
         elif ch == "\\":
