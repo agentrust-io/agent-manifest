@@ -4,6 +4,10 @@
 
 ### Security
 
+- **[SDK]** TDX quote signature parsing rejects trailing bytes inside the declared
+  signature and QE certification containers, after the nested QE data or PCK
+  certificate chain. Existing padded hardware capture buffers remain supported.
+
 - **[Spec]** The transport row in section 4.1 no longer recommends TLS 1.3
   with the attestation extensions of draft-fossati-tls-attestation-08. That
   draft carries evidence inside the handshake and binds it to the ephemeral
