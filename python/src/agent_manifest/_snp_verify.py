@@ -280,6 +280,11 @@ class SnpReport:
 
 def parse_snp_report(report: bytes) -> SnpReport:
     """Parse a raw 1184-byte SEV-SNP attestation report."""
+    if not isinstance(report, (bytes, bytearray, memoryview)):
+        raise SnpVerificationError(
+            f"SNP report must be bytes, got {type(report).__name__}"
+        )
+    report = bytes(report)
     if len(report) < _SNP_REPORT_LEN:
         raise SnpVerificationError(
             f"SNP report too short: {len(report)} bytes, need {_SNP_REPORT_LEN}"
@@ -500,7 +505,7 @@ def load_snp_cert_chain(pem_bundle: bytes) -> tuple[object, object, object]:
     ark = next((c for c in rsa_certs if c.subject == c.issuer), None)
     ask = next((c for c in rsa_certs if c is not ark), None)
 
-    if vcek is None or ask is None or ark is None:
+    if len(certs) != 3 or vcek is None or ask is None or ark is None:
         raise SnpVerificationError(
             "bundle must contain a VCEK (EC), an ASK and a self-signed ARK (RSA)"
         )
@@ -521,8 +526,6 @@ def verify_snp_signature(report: SnpReport, vcek_cert_der: bytes) -> bool:
     algorithm. A wrong or tampered report returns False rather than raising.
     """
     try:
-        from typing import cast
-
         from cryptography import x509
         from cryptography.exceptions import InvalidSignature
         from cryptography.hazmat.primitives import hashes
@@ -538,15 +541,35 @@ def verify_snp_signature(report: SnpReport, vcek_cert_der: bytes) -> bool:
             f"(expected {SIG_ALGO_ECDSA_P384_SHA384}, ECDSA-P384/SHA-384)"
         )
 
-    vcek = x509.load_der_x509_certificate(vcek_cert_der)
+    try:
+        vcek = x509.load_der_x509_certificate(vcek_cert_der)
+    except Exception as exc:
+        raise SnpVerificationError(f"could not parse VCEK certificate: {exc}") from exc
+    pub = vcek.public_key()
+    if not isinstance(pub, ec.EllipticCurvePublicKey) or pub.curve.name != "secp384r1":
+        raise SnpVerificationError(
+            "VCEK certificate must carry an EC P-384 (secp384r1) public key"
+        )
+    if len(report.signature) != 512:
+        return False
+    if (
+        any(report.signature[_SIG_COMPONENT_BYTES:_SIG_COMPONENT_STRIDE])
+        or any(
+            report.signature[
+                _SIG_COMPONENT_STRIDE + _SIG_COMPONENT_BYTES : 2 * _SIG_COMPONENT_STRIDE
+            ]
+        )
+        or any(report.signature[2 * _SIG_COMPONENT_STRIDE :])
+    ):
+        return False
     r = int.from_bytes(report.signature[0:_SIG_COMPONENT_BYTES], "little")
     s = int.from_bytes(
         report.signature[_SIG_COMPONENT_STRIDE:_SIG_COMPONENT_STRIDE + _SIG_COMPONENT_BYTES],
         "little",
     )
+    if r == 0 or s == 0:
+        return False
     der_sig = utils.encode_dss_signature(r, s)
-    # The VCEK leaf carries an EC (P-384) key; narrow for the ECDSA overload.
-    pub = cast(ec.EllipticCurvePublicKey, vcek.public_key())
     try:
         pub.verify(der_sig, report.signed_body, ec.ECDSA(hashes.SHA384()))
         return True
@@ -601,7 +624,7 @@ def verify_vcek_chain(
         cert_chain_pem,
         re.DOTALL,
     )
-    if len(pems) < 2:
+    if len(pems) != 2:
         raise SnpVerificationError("cert_chain must contain ASK and ARK certificates")
 
     vcek = x509.load_der_x509_certificate(vcek_cert_der)

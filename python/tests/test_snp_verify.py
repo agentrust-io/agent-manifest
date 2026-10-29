@@ -593,3 +593,69 @@ def test_edited_embedded_ark_is_refused(monkeypatch):
     monkeypatch.setitem(_snp_verify.AMD_ARK_SHA256, "Milan", "0" * 64)
     with pytest.raises(SnpVerificationError, match="recorded SHA-256"):
         _snp_verify.amd_ark_certificates()
+
+
+@pytest.mark.parametrize("pad_offset", [48, 71, 120, 143, 144, 511])
+def test_verify_snp_signature_rejects_nonzero_padding_or_reserved_signature_bytes(
+    pad_offset: int,
+):
+    report, vcek_der = _synthetic_signed_report()
+    mutated = bytearray(report)
+    mutated[0x2A0 + pad_offset] = 1
+    assert verify_snp_signature(parse_snp_report(bytes(mutated)), vcek_der) is False
+
+
+@pytest.mark.parametrize("comp_offset", [0, 72])
+def test_verify_snp_signature_rejects_zero_r_or_s(comp_offset: int):
+    report, vcek_der = _synthetic_signed_report()
+    mutated = bytearray(report)
+    mutated[0x2A0 + comp_offset : 0x2A0 + comp_offset + 48] = bytes(48)
+    assert verify_snp_signature(parse_snp_report(bytes(mutated)), vcek_der) is False
+
+
+def test_snp_verify_rejects_non_p384_vcek_extra_certs_and_non_bytes():
+    from datetime import datetime, timedelta, timezone
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.hazmat.primitives.serialization import Encoding
+    from cryptography.x509.oid import NameOID
+
+    from agent_manifest import load_snp_cert_chain
+
+    report, _ = _synthetic_signed_report()
+    assert parse_snp_report(bytearray(report)).raw == report
+    assert parse_snp_report(memoryview(report)).raw == report
+
+    rsa_vcek_der, chain_pem, ark_der = _rsa_pss_chain()
+    with pytest.raises(SnpVerificationError, match="P-384"):
+        verify_snp_signature(parse_snp_report(report), rsa_vcek_der)
+
+    p256_key = ec.generate_private_key(ec.SECP256R1())
+    t0 = datetime(2020, 1, 1, tzinfo=timezone.utc)
+    p256_name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "VCEK-P256")])
+    p256_cert = (
+        x509.CertificateBuilder()
+        .subject_name(p256_name)
+        .issuer_name(p256_name)
+        .public_key(p256_key.public_key())
+        .serial_number(1)
+        .not_valid_before(t0)
+        .not_valid_after(t0 + timedelta(days=365))
+        .sign(p256_key, hashes.SHA256())
+    )
+    with pytest.raises(SnpVerificationError, match="P-384"):
+        verify_snp_signature(
+            parse_snp_report(report), p256_cert.public_bytes(Encoding.DER)
+        )
+
+    for bad_input in ("not-bytes", None, 123):
+        with pytest.raises(SnpVerificationError, match="must be bytes"):
+            parse_snp_report(bad_input)  # type: ignore[arg-type]
+
+    bundle = _snp_shaped_bundle()
+    with pytest.raises(SnpVerificationError, match="must contain a VCEK"):
+        load_snp_cert_chain(bundle + bundle)
+    with pytest.raises(SnpVerificationError, match="cert_chain must contain ASK and ARK"):
+        verify_vcek_chain(rsa_vcek_der, chain_pem + chain_pem, trusted_ark_der=ark_der)
