@@ -834,6 +834,18 @@ def test_oversized_approval_duration_raises_value_error():
         verify_hitl_approval(approval, MID, key)
 
 
+@pytest.mark.parametrize("out_of_range", [(1 << 53), float(1 << 53), 1e20])
+def test_hitl_approval_duration_rejects_above_jcs_safe_integer(out_of_range):
+    from pydantic import ValidationError
+
+    from agent_manifest._delegation import _check_hitl_approval_duration
+
+    with pytest.raises(ValueError, match="approval_duration_seconds is out of range"):
+        _check_hitl_approval_duration(out_of_range)
+    with pytest.raises(ValidationError, match="approval_duration_seconds is out of range"):
+        _approved_scope(approval_duration_seconds=out_of_range)
+
+
 @pytest.mark.parametrize("bad_sig", [12345, ["a", "list"], {"not": "a string"}])
 def test_non_string_approval_signature_raises_value_error(bad_sig):
     approval, key = _valid_approval()
