@@ -10,3 +10,6 @@
 #     --generate-hashes --universal --python-version 3.11 -o requirements/agt.txt
 agent-governance-toolkit>=4.1
 agent-governance-toolkit-core>=4.1
+
+# Security floor for the scanner's transitive DNS dependency (GHSA-45c3-73f7-pv4m).
+dnspython>=2.9.0
