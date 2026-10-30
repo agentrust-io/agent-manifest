@@ -286,6 +286,17 @@ def test_nv_certify_parser_rejects_trailing_bytes():
         parse_nv_certify_info(common.attested_raw + b"extra")
 
 
+def test_parse_tpm_quote_rejects_trailing_bytes_and_non_bytes():
+    attest = _build_attest(NONCE, PCR)
+    with pytest.raises(TpmVerificationError, match="trailing bytes"):
+        parse_tpm_quote(attest + b"\x00")
+    for bad in ("not-bytes", None, 123):
+        with pytest.raises(TpmVerificationError, match="must be bytes"):
+            parse_tpm_quote(bad)  # type: ignore[arg-type]
+        with pytest.raises(TpmVerificationError, match="must be bytes"):
+            parse_tpmt_signature(bad)  # type: ignore[arg-type]
+
+
 def test_nv_certify_parsers_are_public_api():
     import agent_manifest
 

@@ -252,6 +252,13 @@ def test_b64url_decode_rejects_non_str():
         _b64url_decode(None)  # type: ignore[arg-type]
 
 
+@pytest.mark.parametrize("bad_b64", ["A", "AB", "AC", "AD", "AAAAA", "A" * 42 + "B", "A" * 85 + "B"])
+def test_b64url_decode_rejects_non_canonical_encodings(bad_b64: str):
+    with pytest.raises(ValueError, match="Invalid base64url"):
+        _b64url_decode(bad_b64)
+
+
+
 def test_ed25519_public_key_roundtrip_b64url():
     kp = generate_ed25519()
     b64 = kp.public_b64url()

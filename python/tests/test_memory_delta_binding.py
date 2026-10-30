@@ -105,8 +105,8 @@ def test_literal_spec_vector_and_wrong_operation():
 
 @pytest.mark.parametrize("field,value", [
     ("tree_size", -1), ("tree_size", 6.5), ("tree_size", "6"), ("tree_size", True),
-    ("tree_size", 1 << 10000), ("seq", 1.5), ("seq", "2"), ("seq", None),
-    ("ttl_seconds", 3600.5), ("ttl_seconds", "3600"), ("ttl_seconds", False),
+    ("tree_size", 1 << 10000), ("seq", -1), ("seq", 1.5), ("seq", "2"), ("seq", None),
+    ("ttl_seconds", -1), ("ttl_seconds", 3600.5), ("ttl_seconds", "3600"), ("ttl_seconds", False),
     ("approved_at", "today"), ("approved_at", None), ("max_delta_fraction", "1"),
     ("memory_root", None), ("memory_root", "sha256:ab"),
 ])
@@ -150,7 +150,8 @@ def test_unencodable_operations_fail_closed(delta):
 def test_verdict_order_nan_budget_and_ttl_overflow():
     """LD-5: invalid ops remain drift even when a later gate would also reject."""
     prev, new, delta, proof = advance()
-    for changes, reason in [({"seq": 1}, "rollback"), ({"ttl_seconds": -1}, "expired"),
+    for changes, reason in [({"seq": 1}, "rollback"),
+                            ({"approved_at": datetime(2026, 6, 15, 10, tzinfo=timezone.utc)}, "expired"),
                             ({"ttl_seconds": 10**100}, "expired"),
                             ({"max_delta_fraction": float("nan")}, "budget"),
                             ({"max_delta_fraction": 10**1000}, "budget"),

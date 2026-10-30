@@ -193,8 +193,13 @@ def _b64url_decode(s: str) -> bytes:
         raise ValueError(
             "Invalid base64url: contains non-URL-safe characters (use - and _ not + and /)"
         )
+    if len(s) % 4 == 1:
+        raise ValueError("Invalid base64url: length % 4 == 1 is not a valid base64url encoding")
     pad = 4 - len(s) % 4
-    return base64.urlsafe_b64decode(s + ("=" * pad if pad != 4 else ""))
+    raw = base64.urlsafe_b64decode(s + ("=" * pad if pad != 4 else ""))
+    if _b64url_encode(raw) != s:
+        raise ValueError("Invalid base64url: non-canonical encoding (non-zero trailing padding bits)")
+    return raw
 
 
 def _key_id(public_key_bytes: bytes) -> str:
