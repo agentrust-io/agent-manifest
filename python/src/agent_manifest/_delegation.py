@@ -74,15 +74,23 @@ _REQUIRED_HOP_FIELDS = frozenset({
     "scope_grant", "delegation_signature",
 })
 _SCOPE_LIST_FIELDS = ("tools", "data_classifications", "constraints")
+# RFC 8785 §3.2.2.3 safe-integer bound (2**53 - 1).
+_JCS_SAFE_INTEGER = (1 << 53) - 1
 
 
 def _is_json_integer(value: Any) -> bool:
-    """True for JSON-Schema integer values, excluding Python booleans."""
+    """True for JSON-Schema integer values within the RFC 8785 safe-integer range,
+    excluding Python booleans."""
     if isinstance(value, bool):
         return False
     if isinstance(value, int):
-        return True
-    return isinstance(value, float) and value.is_integer()
+        return -_JCS_SAFE_INTEGER <= value <= _JCS_SAFE_INTEGER
+    if isinstance(value, float) and value.is_integer():
+        return -_JCS_SAFE_INTEGER <= int(value) <= _JCS_SAFE_INTEGER
+    return False
+
+
+_is_int = _is_json_integer
 
 
 def delegation_depth_exceeded(chain_length: int, root_max_depth: int) -> bool:
@@ -520,8 +528,17 @@ def _check_scope_narrowing(
         and parent_delegated_at is not None
         and child_delegated_at is not None
     ):
-        parent_expiry = _parse_delegated_at(parent_delegated_at) + timedelta(seconds=parent_ttl)
-        child_expiry = _parse_delegated_at(child_delegated_at) + timedelta(seconds=child_ttl)
+        try:
+            parent_expiry = _parse_delegated_at(parent_delegated_at) + timedelta(
+                seconds=parent_ttl
+            )
+            child_expiry = _parse_delegated_at(child_delegated_at) + timedelta(
+                seconds=child_ttl
+            )
+        except OverflowError as exc:
+            raise ValueError(
+                f"Delegation hop {hop_index} ttl_seconds overflows datetime range"
+            ) from exc
         if child_expiry > parent_expiry:
             raise ValueError(
                 f"Scope laundering at hop {hop_index}: child scope_grant "
@@ -652,6 +669,14 @@ def _check_hitl_approval_duration(duration: Any) -> None:
             f"HITL approval.approved_scope.approval_duration_seconds must be "
             f"a positive integer, got {duration!r}"
         )
+    if not (1 <= int(duration) <= _JCS_SAFE_INTEGER):
+        raise ValueError(
+            f"HITL approval.approved_scope.approval_duration_seconds is out of "
+            f"range: {duration}"
+        )
+
+
+_check_hitl_record = _check_hitl_approval_duration
 
 
 def _parse_hitl_approval_timestamp(value: Any) -> datetime:
