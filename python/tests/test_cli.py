@@ -718,6 +718,115 @@ def test_cli_verify_rejects_missing_approver_key_file(tmp_path):
     assert "Approver key file not found" in result.output
 
 
+def test_cli_rejects_duplicate_json_keys_nan_and_short_private_key(tmp_path):
+    keypair = generate_ed25519()
+    signed_path = _write_signed_manifest(tmp_path, keypair)
+    public_path = _write_public_key(tmp_path, keypair)
+
+    # 1. Duplicate JSON keys in manifest/config file (both verify and create)
+    raw = signed_path.read_text()
+    dup_path = tmp_path / "dup.json"
+    dup_path.write_text(raw[:-1] + ', "issuer": "spiffe://evil/issuer"}')
+    res_dup_create = CliRunner().invoke(cli, ["create", str(dup_path)])
+    assert res_dup_create.exit_code != 0
+    assert "duplicate JSON object key" in res_dup_create.output
+
+    res_dup = CliRunner().invoke(
+        cli,
+        [
+            "verify",
+            str(dup_path),
+            "--public-key",
+            str(public_path),
+            "--authorized-issuer",
+            "spiffe://trust.example/signing-authority",
+            "--signature-only",
+        ],
+    )
+    assert res_dup.exit_code != 0
+    assert "duplicate JSON object key" in res_dup.output
+
+    # 2. Short private key in manifest sign fails cleanly with ClickException
+    short_key = tmp_path / "short.hex"
+    short_key.write_text("aa" * 16)
+    res_sign = CliRunner().invoke(
+        cli, ["sign", str(signed_path), "--key", str(short_key)]
+    )
+    assert res_sign.exit_code != 0
+    assert "must be 32 bytes" in res_sign.output
+    assert "Traceback" not in res_sign.output
+
+    # 3. NaN, Infinity, -Infinity, and overflowed floats (1e999, -1e999) rejected
+    for idx, tok in enumerate(("NaN", "Infinity", "-Infinity", "1e999", "-1e999")):
+        nonfin_path = tmp_path / f"nonfinite_{idx}.json"
+        nonfin_path.write_text(f'{{"agent_id": "a", "bad": {tok}}}')
+        res_create = CliRunner().invoke(cli, ["create", str(nonfin_path)])
+        assert res_create.exit_code != 0
+        assert "non-finite JSON" in res_create.output
+
+        res_ver = CliRunner().invoke(
+            cli,
+            [
+                "verify",
+                str(nonfin_path),
+                "--public-key",
+                str(public_path),
+                "--authorized-issuer",
+                "spiffe://trust.example/signing-authority",
+                "--signature-only",
+            ],
+        )
+        assert res_ver.exit_code != 0
+        assert "non-finite JSON" in res_ver.output
+
+    # Normal finite float is accepted
+    finite_path = tmp_path / "finite.json"
+    finite_path.write_text('{"agent_id": "spiffe://trust.example/agent/x", "weight": 1.25}')
+    res_finite = CliRunner().invoke(cli, ["create", str(finite_path)])
+    assert res_finite.exit_code == 0, res_finite.output
+    assert _json_stdout(res_finite)["weight"] == 1.25
+
+    # 4. Internal/leading/trailing whitespace and invalid UTF-8 in key files
+    ws_internal_key = tmp_path / "ws_internal.hex"
+    ws_internal_key.write_text("aa" * 16 + " " + "bb" * 16)
+    ws_leading_key = tmp_path / "ws_leading.hex"
+    ws_leading_key.write_text(" " + "aa" * 32)
+    ws_trailing_key = tmp_path / "ws_trailing.hex"
+    ws_trailing_key.write_text("aa" * 32 + "\n")
+    bad_utf8_key = tmp_path / "bad_utf8.hex"
+    bad_utf8_key.write_bytes(b"\xff\xfe\x00\x01")
+
+    for bad_key_path in (
+        ws_internal_key,
+        ws_leading_key,
+        ws_trailing_key,
+        bad_utf8_key,
+    ):
+        res_bad_priv = CliRunner().invoke(
+            cli, ["sign", str(signed_path), "--key", str(bad_key_path)]
+        )
+        assert res_bad_priv.exit_code != 0
+        assert "Key file does not contain valid hex data" in res_bad_priv.output
+        assert "Traceback" not in res_bad_priv.output
+
+        res_bad_pub = CliRunner().invoke(
+            cli,
+            [
+                "verify",
+                str(signed_path),
+                "--public-key",
+                str(bad_key_path),
+                "--authorized-issuer",
+                "spiffe://trust.example/signing-authority",
+                "--signature-only",
+            ],
+        )
+        assert res_bad_pub.exit_code != 0
+        assert "Public key file does not contain valid hex data" in res_bad_pub.output
+        assert "Traceback" not in res_bad_pub.output
+
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission bits only")
 @pytest.mark.parametrize("umask", [0o022, 0o077, 0o777])
 def test_cli_keygen_private_key_mode_0600_under_umask(tmp_path, umask):
