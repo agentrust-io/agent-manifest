@@ -1,0 +1,3 @@
+{
+  "requirements/agt-overrides.txt": "compiler override constraints, not a generated hash lock"
+}
