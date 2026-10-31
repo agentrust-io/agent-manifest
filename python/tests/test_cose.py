@@ -2270,3 +2270,217 @@ def test_no_issuer_policy_is_distinct_from_an_authorization_failure():
     )
     assert undetermined.result == OverallResult.UNVERIFIABLE
     assert failed.result == OverallResult.MISMATCH
+
+
+def test_cose_rejects_trailing_protected_bytes_empty_kid_and_non_string_crypto_profile():
+    body = sign1_body(protected=protected_with() + b"\x00")
+    with pytest.raises(CoseStructureError, match="trailing bytes"):
+        verify_cose_manifest(rebuild(COSE_SIGN1_TAG, body), TRUSTED_KEYS)
+
+    body_empty_kid = sign1_body(protected=protected_with(kid=b""))
+    with pytest.raises(CoseStructureError, match="no kid"):
+        verify_cose_manifest(rebuild(COSE_SIGN1_TAG, body_empty_kid), TRUSTED_KEYS)
+
+    manifest = base_manifest()
+    manifest["crypto_profile"] = ["post-quantum"]
+    body_bad_profile = sign1_body(payload=json.dumps(manifest).encode())
+    with pytest.raises(CoseStructureError, match="crypto_profile must be a string"):
+        verify_cose_manifest(rebuild(COSE_SIGN1_TAG, body_bad_profile), TRUSTED_KEYS)
+
+
+def test_new_decoder_requests_unbuffered_read_size_and_falls_back(monkeypatch):
+    import io
+    from agent_manifest import _cose
+
+    recorded_kwargs = []
+    real_decoder = cbor2.CBORDecoder
+
+    def spy_decoder(stream, *args, **kwargs):
+        recorded_kwargs.append(dict(kwargs))
+        return real_decoder(stream, *args, **kwargs)
+
+    monkeypatch.setattr(_cose.cbor2, "CBORDecoder", spy_decoder)
+    body = sign1_body(protected=protected_with() + b"\x00")
+    with pytest.raises(CoseStructureError, match="trailing bytes"):
+        verify_cose_manifest(rebuild(COSE_SIGN1_TAG, body), TRUSTED_KEYS)
+    assert recorded_kwargs == [{"read_size": 1}, {"read_size": 1}]
+
+    def legacy_decoder(stream, *args, **kwargs):
+        if "read_size" in kwargs:
+            raise TypeError("unexpected keyword argument 'read_size'")
+        return real_decoder(stream)
+
+    monkeypatch.setattr(_cose.cbor2, "CBORDecoder", legacy_decoder)
+    dec = _cose._new_decoder(io.BytesIO(cbor2.dumps({"a": 1})))
+    assert dec.decode() == {"a": 1}
+
+
+@pytest.mark.parametrize(
+    "bad_val",
+    [object(), [{"nested": object()}], cbor2.CBORTag(258, [object()])],
+    ids=["direct", "nested-list-dict", "nested-tag"],
+)
+def test_protected_header_sentinel_direct_and_nested_is_rejected(monkeypatch, bad_val):
+    """A CBOR break-marker sentinel (direct or nested) inside a protected
+    header map must be rejected with CoseStructureError."""
+    signed = sign_cose_sign1(base_manifest(), KP)
+    real_decode = cbor2.CBORDecoder.decode
+
+    def smuggle_into_protected(self):
+        res = real_decode(self)
+        if isinstance(res, dict) and HDR_ALG in res:
+            poisoned = dict(res)
+            poisoned[999] = bad_val
+            return poisoned
+        return res
+
+    monkeypatch.setattr(cbor2.CBORDecoder, "decode", smuggle_into_protected)
+    with pytest.raises(
+        CoseStructureError,
+        match="body protected header contains an undecodable CBOR value",
+    ):
+        decode_cose_manifest(signed)
+    with pytest.raises(
+        CoseStructureError,
+        match="body protected header contains an undecodable CBOR value",
+    ):
+        verify_cose_manifest(signed, TRUSTED_KEYS)
+
+    # Also exercises _decode_protected on a COSE_Sign signer protected header
+    _, body = parts(signed)
+    body_protected = cbor2.dumps(
+        {
+            HDR_CONTENT_TYPE: MEDIA_TYPE_MANIFEST_JSON,
+            HDR_TYP: MEDIA_TYPE_MANIFEST_COSE,
+        },
+        canonical=True,
+    )
+    entry_protected = cbor2.dumps(
+        {HDR_ALG: ALG_EDDSA, HDR_KID: hashlib.sha256(KP.public_bytes).digest()},
+        canonical=True,
+    )
+    cose_sign_env = rebuild(
+        COSE_SIGN_TAG,
+        [body_protected, {}, body[2], [[entry_protected, {}, body[3]]]],
+    )
+    with pytest.raises(
+        CoseStructureError,
+        match="COSE_Signature 0 protected header contains an undecodable CBOR value",
+    ):
+        verify_cose_manifest(cose_sign_env, TRUSTED_KEYS)
+
+
+@pytest.mark.parametrize(
+    "bad_val",
+    [object(), [{"nested": object()}], cbor2.CBORTag(258, [object()])],
+    ids=["direct", "nested-list-dict", "nested-tag"],
+)
+def test_cose_sign_signer_unprotected_header_sentinel_is_rejected(
+    monkeypatch, bad_val
+):
+    """A CBOR break-marker sentinel (direct or nested) inside a COSE_Sign
+    signer's unprotected header must be rejected with CoseStructureError."""
+    _, body = parts(sign_cose_sign1(base_manifest(), KP))
+    body_protected = cbor2.dumps(
+        {
+            HDR_CONTENT_TYPE: MEDIA_TYPE_MANIFEST_JSON,
+            HDR_TYP: MEDIA_TYPE_MANIFEST_COSE,
+        },
+        canonical=True,
+    )
+    entry_protected = cbor2.dumps(
+        {HDR_ALG: ALG_EDDSA, HDR_KID: hashlib.sha256(KP.public_bytes).digest()},
+        canonical=True,
+    )
+    envelope = rebuild(
+        COSE_SIGN_TAG,
+        [body_protected, {}, body[2], [[entry_protected, {}, body[3]]]],
+    )
+    decoded = cbor2.loads(envelope)
+    tag, env_body = decoded.tag, list(decoded.value)
+    env_body[3] = [[entry_protected, {999: bad_val}, body[3]]]
+    fake_decoded = cbor2.CBORTag(tag, tuple(env_body))
+
+    real_decode = cbor2.CBORDecoder.decode
+
+    def smuggle_into_signer_unprotected(self):
+        res = real_decode(self)
+        if isinstance(res, cbor2.CBORTag) and res.tag == COSE_SIGN_TAG:
+            return fake_decoded
+        return res
+
+    monkeypatch.setattr(
+        cbor2.CBORDecoder, "decode", smuggle_into_signer_unprotected
+    )
+    with pytest.raises(
+        CoseStructureError,
+        match="COSE_Signature 0 unprotected header contains an undecodable CBOR value",
+    ):
+        decode_cose_manifest(envelope)
+    with pytest.raises(
+        CoseStructureError,
+        match="COSE_Signature 0 unprotected header contains an undecodable CBOR value",
+    ):
+        verify_cose_manifest(envelope, TRUSTED_KEYS)
+
+
+def test_cbor_shared_reference_cycle_in_headers_raises_cose_structure_error():
+    """A CBOR value-sharing cycle (tags 28/29) inside protected headers or
+    passed to _reject_cbor_sentinels must raise CoseStructureError rather than
+    RecursionError."""
+    from agent_manifest._cose import _reject_cbor_sentinels
+
+    _, body = parts(sign_cose_sign1(base_manifest(), KP))
+
+    cyclic_list = []
+    cyclic_list.append(cyclic_list)
+
+    # 1) Body protected header with a real CBOR shared-reference cycle (tags 28/29)
+    cyclic_protected = cbor2.dumps(
+        {
+            HDR_ALG: ALG_ED25519,
+            HDR_CONTENT_TYPE: MEDIA_TYPE_MANIFEST_JSON,
+            HDR_KID: hashlib.sha256(KP.public_bytes).digest(),
+            HDR_TYP: MEDIA_TYPE_MANIFEST_COSE,
+            999: cyclic_list,
+        },
+        value_sharing=True,
+    )
+    cyclic_protected_env = rebuild(
+        COSE_SIGN1_TAG, [cyclic_protected, {}, body[2], body[3]]
+    )
+    with pytest.raises(CoseStructureError, match="cyclic CBOR structure"):
+        decode_cose_manifest(cyclic_protected_env)
+    with pytest.raises(CoseStructureError, match="cyclic CBOR structure"):
+        verify_cose_manifest(cyclic_protected_env, TRUSTED_KEYS)
+
+    # 2) COSE_Sign signer protected header with a real CBOR shared-reference cycle
+    body_protected = cbor2.dumps(
+        {
+            HDR_CONTENT_TYPE: MEDIA_TYPE_MANIFEST_JSON,
+            HDR_TYP: MEDIA_TYPE_MANIFEST_COSE,
+        },
+        canonical=True,
+    )
+    cyclic_entry_protected = cbor2.dumps(
+        {
+            HDR_ALG: ALG_EDDSA,
+            HDR_KID: hashlib.sha256(KP.public_bytes).digest(),
+            999: cyclic_list,
+        },
+        value_sharing=True,
+    )
+    cyclic_signer_env = rebuild(
+        COSE_SIGN_TAG,
+        [body_protected, {}, body[2], [[cyclic_entry_protected, {}, body[3]]]],
+    )
+    with pytest.raises(CoseStructureError, match="cyclic CBOR structure"):
+        decode_cose_manifest(cyclic_signer_env)
+    with pytest.raises(CoseStructureError, match="cyclic CBOR structure"):
+        verify_cose_manifest(cyclic_signer_env, TRUSTED_KEYS)
+
+    # 3) Direct _reject_cbor_sentinels call on cyclic map/tag containers
+    cyclic_map = {}
+    cyclic_map["self"] = cbor2.CBORTag(9999, cyclic_map)
+    with pytest.raises(CoseStructureError, match="cyclic CBOR structure"):
+        _reject_cbor_sentinels(cyclic_map, what="unprotected header")

@@ -601,8 +601,10 @@ def _plain(value: Any) -> Any:
     return value
 
 
-def _reject_cbor_sentinels(value: Any, *, what: str) -> None:
-    """Recursively reject cbor2's internal break-marker sentinel.
+def _reject_cbor_sentinels(
+    value: Any, *, what: str, _active: Optional[set[int]] = None
+) -> None:
+    """Recursively reject cbor2's internal break-marker sentinel and cycles.
 
     A stray break byte (``0xff``) in the wrong position does not always make
     cbor2 raise during decode: depending on where it lands, cbor2 hands back
@@ -632,21 +634,46 @@ def _reject_cbor_sentinels(value: Any, *, what: str) -> None:
     tucked inside any of these - ``{1: CBORTag(9999, [sentinel])}`` or
     ``{1: {sentinel}}`` decode without error and without matching the old
     Mapping/list/tuple-only check - so all of them are recursed into.
+    Active container identities are tracked so CBOR value-sharing cycles
+    (tags 28/29) fail closed with ``CoseStructureError``.
     """
     if type(value) is object:
         raise CoseStructureError(
             f"{what} contains an undecodable CBOR value "
             "(a malformed indefinite-length break byte)"
         )
-    if isinstance(value, Mapping):
-        for key, item in value.items():
-            _reject_cbor_sentinels(key, what=what)
-            _reject_cbor_sentinels(item, what=what)
-    elif isinstance(value, cbor2.CBORTag):
-        _reject_cbor_sentinels(value.value, what=what)
-    elif isinstance(value, (list, tuple, set, frozenset)):
-        for item in value:
-            _reject_cbor_sentinels(item, what=what)
+    if isinstance(value, (Mapping, cbor2.CBORTag, list, tuple, set, frozenset)):
+        if _active is None:
+            _active = set()
+        obj_id = id(value)
+        if obj_id in _active:
+            raise CoseStructureError(
+                f"{what} contains a cyclic CBOR structure"
+            )
+        _active.add(obj_id)
+        try:
+            if isinstance(value, Mapping):
+                for key, item in value.items():
+                    _reject_cbor_sentinels(key, what=what, _active=_active)
+                    _reject_cbor_sentinels(item, what=what, _active=_active)
+            elif isinstance(value, cbor2.CBORTag):
+                _reject_cbor_sentinels(value.value, what=what, _active=_active)
+            else:
+                for item in value:
+                    _reject_cbor_sentinels(item, what=what, _active=_active)
+        except RecursionError as exc:
+            raise CoseStructureError(
+                f"{what} is too deeply nested: {exc}"
+            ) from exc
+        finally:
+            _active.remove(obj_id)
+
+
+def _new_decoder(stream: io.BytesIO) -> cbor2.CBORDecoder:
+    try:
+        return cbor2.CBORDecoder(stream, read_size=1)
+    except TypeError:  # cbor2 < 5.8
+        return cbor2.CBORDecoder(stream)
 
 
 def _decode_tagged(cose_bytes: bytes) -> tuple[int, list[Any]]:
@@ -664,7 +691,7 @@ def _decode_tagged(cose_bytes: bytes) -> tuple[int, list[Any]]:
         )
     stream = io.BytesIO(bytes(cose_bytes))
     try:
-        decoded = cbor2.CBORDecoder(stream).decode()
+        decoded = _new_decoder(stream).decode()
     except RecursionError as exc:  # deeply nested CBOR (DOS-006)
         raise CoseStructureError(f"COSE object is too deeply nested: {exc}") from exc
     except Exception as exc:  # cbor2 raises several unrelated types
@@ -728,14 +755,18 @@ def _decode_protected(protected: bytes, *, what: str) -> dict[Any, Any]:
         # A zero-length protected header is legal CBOR in COSE generally, but
         # this profile requires parameters in it, so it is always a rejection.
         raise CoseStructureError(f"{what} protected header is empty")
+    stream = io.BytesIO(bytes(protected))
     try:
-        header = cbor2.loads(protected)
+        header = _new_decoder(stream).decode()
     except Exception as exc:
         raise CoseStructureError(
             f"{what} protected header is not valid CBOR: {exc}"
         ) from exc
+    if stream.read(1):
+        raise CoseStructureError(f"{what} protected header has trailing bytes")
     if not isinstance(header, Mapping):
         raise CoseStructureError(f"{what} protected header must be a map")
+    _reject_cbor_sentinels(header, what=f"{what} protected header")
     return dict(header)
 
 
@@ -789,7 +820,7 @@ def _read_alg_and_kid(header: Mapping[Any, Any], *, what: str) -> tuple[int, byt
     if not isinstance(alg, int) or isinstance(alg, bool):
         raise CoseStructureError(f"{what} alg must be an integer code point, got {alg!r}")
     kid = header.get(HDR_KID)
-    if not isinstance(kid, bytes):
+    if not isinstance(kid, bytes) or not kid:
         raise CoseStructureError(f"{what} protected header has no kid byte string")
     return alg, kid
 
@@ -927,6 +958,8 @@ def _check_profile(manifest: Mapping[str, Any], algorithms: tuple[int, ...]) -> 
     ``-8`` is a downgrade whatever the signature says.
     """
     declared = manifest.get("crypto_profile", "standard")
+    if not isinstance(declared, str):
+        raise CoseStructureError("crypto_profile must be a string")
     required = PROFILE_REQUIRED_ALGORITHMS.get(declared)
     if required is None:
         return
@@ -1060,6 +1093,9 @@ def _appraise(
                 raise CoseStructureError(
                     f"COSE_Signature {index} unprotected header must be a map"
                 )
+            _reject_cbor_sentinels(
+                sign_unprotected, what=f"COSE_Signature {index} unprotected header"
+            )
             if not isinstance(signature, bytes):
                 raise CoseStructureError(
                     f"COSE_Signature {index} signature must be a byte string"
