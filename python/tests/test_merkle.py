@@ -858,3 +858,77 @@ def test_verify_consistency_rejects_oversized_proof():
     assert verify_consistency(
         _tree_of(m).root(), big.root(), m, n, oversized
     ) is False
+
+
+def test_merkle_tree_and_builders_validate_types_and_nul_framing():
+    from agent_manifest._merkle import verify_consistency_append
+
+    m, n = 2, 4
+    small, big = _tree_of(m), _tree_of(n)
+    proof = big.consistency_proof(m)
+    assert verify_consistency_append(
+        small.root(), big.root(), m, n, proof, [b"leaf-2", b"leaf-3"], algorithm="md5"
+    ) is False
+    assert verify_consistency_append(
+        small.root(), big.root(), m, n, proof, b"raw-bytes"
+    ) is False
+    assert verify_consistency_append(
+        small.root(), big.root(), m, n, proof, None  # type: ignore[arg-type]
+    ) is False
+
+    def _raising_gen():
+        yield b"leaf-2"
+        raise ValueError("bad preimage during iteration")
+
+    assert verify_consistency_append(
+        small.root(), big.root(), m, n, proof, _raising_gen()
+    ) is False
+
+    class _RaisingIterable:
+        def __iter__(self):
+            return self
+
+        def __next__(self) -> bytes:
+            raise RuntimeError("broken iterator")
+
+    assert verify_consistency_append(
+        small.root(), big.root(), m, n, proof, _RaisingIterable()
+    ) is False
+
+    tree = _tree_of(3)
+    with pytest.raises(TypeError):
+        tree.add_leaf("not-bytes")  # type: ignore[arg-type]
+    with pytest.raises(ValueError):
+        tree.add_prehashed_leaf(b"short")
+    with pytest.raises(TypeError):
+        tree.inclusion_proof(True)
+    with pytest.raises(TypeError):
+        tree.consistency_proof(True)
+    inc = tree.inclusion_proof(0)
+    assert not tree.verify_inclusion(
+        InclusionProof(True, inc.tree_size, inc.leaf_hash, inc.audit_path)
+    )
+    assert tree.verify_inclusion(None) is False  # type: ignore[arg-type]
+    assert tree.verify_inclusion({}) is False  # type: ignore[arg-type]
+
+    class _NoIterList(list):
+        def __iter__(self):
+            raise AssertionError("oversized audit_path must be rejected before scanning elements")
+
+    oversized_path = _NoIterList(inc.audit_path + [b"\x00" * 32] * 10)
+    assert (
+        tree.verify_inclusion(
+            InclusionProof(inc.leaf_index, inc.tree_size, inc.leaf_hash, oversized_path)
+        )
+        is False
+    )
+    with pytest.raises(ValueError, match="NUL"):
+        build_corpus_tree([CorpusDocument("doc\x001", b"body")])
+    nul_tool = _make_tool_with_algorithms(
+        "com.example\x00tool", "sha256", "aa" * 32, "sha256", "bb" * 32
+    )
+    with pytest.raises(ValueError, match="NUL"):
+        build_catalog_tree([nul_tool])
+    tool = _make_tool_with_algorithms("com.example.tool", "sha256", "aa" * 32, "sha256", "bb" * 32)
+    with pytest.raises(ValueError, match="duplicate"):
+        build_catalog_tree([tool, tool])

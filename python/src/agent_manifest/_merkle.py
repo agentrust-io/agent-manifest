@@ -104,12 +104,17 @@ class MerkleTree:
 
         Returns the leaf hash (useful for sorting before tree construction).
         """
+        if type(leaf_preimage) is not bytes:
+            raise TypeError("leaf_preimage must be bytes")
         leaf_hash = self._h(b"\x00" + leaf_preimage)
         self._leaf_hashes.append(leaf_hash)
         return leaf_hash
 
     def add_prehashed_leaf(self, leaf_hash: bytes) -> None:
         """Append an already-hashed leaf (used when leaves are pre-sorted)."""
+        digest_size = len(EMPTY_TREE[self._algorithm])
+        if type(leaf_hash) is not bytes or len(leaf_hash) != digest_size:
+            raise ValueError(f"leaf_hash must be {digest_size} bytes")
         self._leaf_hashes.append(leaf_hash)
 
     def root(self) -> bytes:
@@ -128,6 +133,8 @@ class MerkleTree:
         Raises:
             IndexError: If *leaf_index* is out of range.
         """
+        if type(leaf_index) is not int:
+            raise TypeError("leaf_index must be an integer")
         n = len(self._leaf_hashes)
         if leaf_index < 0 or leaf_index >= n:
             raise IndexError(
@@ -150,12 +157,25 @@ class MerkleTree:
         alone doesn't imply the same tree. ``leaf_index`` range and
         ``audit_path`` length are checked too, as defense in depth.
         """
+        if not isinstance(proof, InclusionProof):
+            return False
+        digest_size = len(EMPTY_TREE[self._algorithm])
+        if (
+            type(proof.leaf_index) is not int
+            or type(proof.tree_size) is not int
+            or type(proof.leaf_hash) is not bytes
+            or len(proof.leaf_hash) != digest_size
+            or not isinstance(proof.audit_path, list)
+        ):
+            return False
         n = len(self._leaf_hashes)
         if proof.tree_size != n:
             return False
         if not 0 <= proof.leaf_index < n:
             return False
         if len(proof.audit_path) != _expected_audit_path_length(n, proof.leaf_index):
+            return False
+        if any(type(p) is not bytes or len(p) != digest_size for p in proof.audit_path):
             return False
         expected_root = self.root()
         computed = _compute_root_from_proof(
@@ -177,6 +197,8 @@ class MerkleTree:
         Raises:
             ValueError: If *first_size* is not in ``1..len(leaves)``.
         """
+        if type(first_size) is not int:
+            raise TypeError("first_size must be an integer")
         n = len(self._leaf_hashes)
         if not 0 < first_size <= n:
             raise ValueError(
@@ -399,6 +421,10 @@ def verify_consistency_append(
     validation, and at most the declared delta plus one elements are read.
     Empty prior trees require re-baselining rather than delta acceptance.
     """
+    if not isinstance(algorithm, str) or algorithm not in _HASH_FNS:
+        return False
+    if isinstance(appended_preimages, (bytes, bytearray, memoryview, str)):
+        return False
     h = _HASH_FNS[algorithm]
     digest_size = len(h(b""))
     if (type(first_size) is not int or type(second_size) is not int
@@ -418,10 +444,14 @@ def verify_consistency_append(
         return False
     leaves: list[bytes] = []
     count = second_size - first_size
-    for preimage in appended_preimages:
-        if len(leaves) == count or not isinstance(preimage, bytes):
-            return False
-        leaves.append(h(b"\x00" + preimage))
+    try:
+        iterator = iter(appended_preimages)
+        for preimage in iterator:
+            if len(leaves) == count or not isinstance(preimage, bytes):
+                return False
+            leaves.append(h(b"\x00" + preimage))
+    except Exception:
+        return False
     if len(leaves) != count:
         return False
     tree = MerkleTree(algorithm=algorithm)
@@ -504,6 +534,10 @@ def build_corpus_tree(
     # Compute leaf preimages and hashes before sorting
     leaf_hashes: list[bytes] = []
     for doc in documents:
+        if not isinstance(doc.document_id, str) or "\x00" in doc.document_id:
+            raise ValueError("document_id must be a string without NUL bytes")
+        if type(doc.content_bytes) is not bytes:
+            raise TypeError("content_bytes must be bytes")
         leaf_data = doc.document_id.encode("utf-8") + b"\x00" + doc.content_bytes
         leaf_hash = tree._h(b"\x00" + leaf_data)
         leaf_hashes.append(leaf_hash)
@@ -571,9 +605,15 @@ def build_catalog_tree(
         return f"{algorithm}:{EMPTY_TREE[algorithm].hex()}"
 
     sorted_tools = sorted(tools, key=lambda t: t.tool_id)
+    seen_ids: set[str] = set()
 
     tree = MerkleTree(algorithm=algorithm)
     for tool in sorted_tools:
+        if "\x00" in tool.tool_id:
+            raise ValueError(f"build_catalog_tree: tool_id {tool.tool_id!r} contains NUL byte")
+        if tool.tool_id in seen_ids:
+            raise ValueError(f"build_catalog_tree: duplicate tool_id {tool.tool_id!r}")
+        seen_ids.add(tool.tool_id)
         _require_matching_algorithm(tool, "schema_hash", tool.schema_hash, algorithm)
         _require_matching_algorithm(
             tool, "description_hash", tool.description_hash, algorithm
