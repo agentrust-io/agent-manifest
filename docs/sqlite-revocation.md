@@ -18,9 +18,16 @@ router = create_crl_router(crl)
 ```
 
 Writes become visible after commit. Identical records are idempotent. Distinct
-records for one manifest are retained; reads return the last committed record,
-matching the file backend's last-record convention. There is no un-revoke.
+records for one manifest are retained. Reads choose the lexicographically greatest
+signed `(revoked_at.isoformat(), reason, revoked_by)` tuple for that manifest.
+This is a deterministic representative, not commit order or chronological event
+order across timestamp offsets. The SQLite sequence column is not authenticated
+and never decides which signed record is returned. Reordering rows or importing
+the same records in a different order produces the same result. This differs from
+the file backend's last-record convention. There is no un-revoke.
 Returned records are detached. The verifier adapter rejects unsigned writes.
+Pass the raw `crl` to `create_crl_router`, including for its list endpoint; the
+`verifier_store()` adapter is only for the verification APIs.
 
 Every lookup authenticates all present history, including before returning
 absence. This is linear work, suitable for bounded local inventories rather

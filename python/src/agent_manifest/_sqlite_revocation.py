@@ -73,14 +73,23 @@ class SQLiteCRL:
             )
 
     def all_records(self) -> list[SignedRevocationRecord]:
-        """Authenticate all history and return the last committed record per ID."""
+        """Authenticate all history and select a signed-content representative.
+
+        The greatest (ISO timestamp text, reason, authority) tuple wins. This
+        is deterministic selection, not authenticated commit or event ordering.
+        """
         records: dict[str, SignedRevocationRecord] = {}
         with closing(self._connect()) as connection:
             for manifest_id, payload in connection.execute(
-                "SELECT manifest_id, record FROM revocations ORDER BY sequence"
+                "SELECT manifest_id, record FROM revocations"
             ):
-                records[manifest_id] = self._decode(manifest_id, payload)
-        return list(records.values())
+                record = self._decode(manifest_id, payload)
+                previous = records.get(manifest_id)
+                if previous is None or (
+                    record.revoked_at.isoformat(), record.reason, record.revoked_by
+                ) > (previous.revoked_at.isoformat(), previous.reason, previous.revoked_by):
+                    records[manifest_id] = record
+        return [records[manifest_id] for manifest_id in sorted(records)]
 
     def get_record(self, manifest_id: str) -> SignedRevocationRecord | None:
         # Authenticate the complete inventory, including earlier records, before
@@ -116,7 +125,7 @@ class SQLiteCRL:
         return len(records)
 
     def verifier_store(self) -> RevocationStore:
-        """Return an adapter accepted by verify_manifest and create_router."""
+        """Return the verification adapter; pass the raw CRL to create_crl_router."""
         return _SQLiteVerifierStore(self)
 
 

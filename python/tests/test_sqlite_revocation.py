@@ -2,6 +2,8 @@
 import multiprocessing
 import sqlite3
 from contextlib import closing
+from datetime import datetime, timezone
+from unittest.mock import patch
 
 import pytest
 from fastapi import FastAPI
@@ -59,6 +61,38 @@ def test_idempotence_and_detached_records(setup):
         assert connection.execute("SELECT count(*) FROM revocations").fetchone()[0] == 1
     store.get_record(MID).reason = "changed"
     assert store.get_record(MID).reason == "compromised"
+
+
+@pytest.mark.parametrize("same_time", [False, True])
+def test_signed_selection_survives_sequence_swap_and_reverse_import(setup, tmp_path, same_time):
+    path, key, store, _ = setup
+    # Sign fixed fields using the actual authority, independently of SQLite's
+    # sequence allocation. Swapping sequence values must not change selection.
+    with patch("agent_manifest._revocation.datetime") as clock:
+        clock.now.return_value = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        first = sign_revocation(MID, "a-first", "admin", key)
+        clock.now.return_value = datetime(2026, 1, 1 if same_time else 2, tzinfo=timezone.utc)
+        selected = sign_revocation(MID, "z-selected", "admin", key)
+    store.revoke(first)
+    store.revoke(selected)
+    assert store.get_record(MID) == selected
+    assert store.verifier_store().get_record(MID).reason == "z-selected"
+    with closing(sqlite3.connect(path)) as connection, connection:
+        # Swap the two primary keys without transient uniqueness collisions.
+        connection.execute("UPDATE revocations SET sequence=-sequence")
+        connection.execute("UPDATE revocations SET sequence=3+sequence")
+    assert SQLiteCRL(path, key.public_bytes).get_record(MID) == selected
+    assert store.all_records() == [selected]
+    assert store.is_revoked(MID)
+    app = FastAPI()
+    app.include_router(create_crl_router(store))
+    assert TestClient(app).get("/.well-known/agent-manifest/revocation").json() == [
+        selected.model_dump(mode="json")]
+    other = SQLiteCRL.initialize(tmp_path / "import.sqlite", key.public_bytes)
+    source = tmp_path / "reverse.jsonl"
+    source.write_text(selected.model_dump_json() + "\n" + first.model_dump_json() + "\n")
+    assert other.import_jsonl(source) == 2
+    assert other.get_record(MID) == selected
 
 
 def test_uncommitted_write_rolls_back(setup):
