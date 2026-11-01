@@ -1,0 +1,133 @@
+name: Devouch command
+
+# Lets a maintainer remove someone from the vouched list by commenting
+#   /devouch @username [reason]
+# Two valid places to run it:
+#   - on an issue or pull request opened by @username, or
+#   - on an issue the maintainer opened themselves, for an account that has
+#     no open issue or pull request of its own left to comment on.
+# Only accounts that can already push may do it, the same bar /vouch uses,
+# so one command can't do something the other can't undo.
+#
+# The entry is not deleted outright. It moves out of the active list into a
+# dated history comment at the bottom of the file, so a later /vouch for the
+# same account restores access without erasing the record of why it was
+# removed.
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  devouch:
+    if: github.repository_owner == 'agentrust-io' && startsWith(github.event.comment.body, '/devouch')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Remove the named account from the vouched list
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        with:
+          script: |
+            const commenter = context.payload.comment.user.login;
+            const body = context.payload.comment.body.trim();
+            const issueNumber = context.payload.issue.number;
+            const threadAuthor = context.payload.issue.user.login;
+
+            const reply = (text) => github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: text,
+            });
+
+            let permission = 'none';
+            try {
+              const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                username: commenter,
+              });
+              permission = data.permission;
+            } catch (e) {
+              core.setFailed(`Could not read permission for ${commenter}: ${e.message}`);
+              return;
+            }
+            if (!['admin', 'maintain', 'write'].includes(permission)) {
+              core.info(`${commenter} has ${permission} access. Ignoring.`);
+              return;
+            }
+
+            const match = body.match(/^\/devouch\s+@?([A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38})(?:\s+([^\n]*))?\s*$/);
+            if (!match) {
+              await reply('Usage: `/devouch @username [reason]`, one account per comment.');
+              return;
+            }
+            const target = match[1];
+            const reason = (match[2] || '').trim();
+
+            const onTargetsThread = threadAuthor.toLowerCase() === target.toLowerCase();
+            const onOwnIssue = threadAuthor.toLowerCase() === commenter.toLowerCase();
+            if (!onTargetsThread && !onOwnIssue) {
+              await reply(
+                `/devouch must be run on a thread opened by @${target}, or on an issue you opened yourself.`
+              );
+              return;
+            }
+
+            const { data: file } = await github.rest.repos.getContent({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              path: '.github/VOUCHED',
+              ref: 'vouched',
+            });
+            const current = Buffer.from(file.content, 'base64').toString('utf-8');
+            const lines = current.split('\n');
+
+            const idx = lines.findIndex(
+              l => l.trim() && !l.trim().startsWith('#') && l.trim().toLowerCase() === target.toLowerCase()
+            );
+
+            if (idx === -1) {
+              await reply(`@${target} is not currently on the vouched list.`);
+              return;
+            }
+
+            lines.splice(idx, 1);
+
+            const date = new Date().toISOString().slice(0, 10);
+            const reasonText = reason ? `: ${reason}` : '';
+            const historyHeader = '# --- Denounce history (not read by vouch-check; kept for record) ---';
+            const historyLine = `# ${target} denounced by ${commenter} on ${date}${reasonText}`;
+
+            let updated = lines.join('\n').replace(/\n*$/, '\n');
+            if (!updated.includes(historyHeader)) {
+              updated += `\n${historyHeader}\n`;
+            }
+            updated += `${historyLine}\n`;
+
+            try {
+              await github.rest.repos.createOrUpdateFileContents({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                path: '.github/VOUCHED',
+                branch: 'vouched',
+                message: `chore: devouch ${target}\n\nDevouched by ${commenter} in #${issueNumber}.${reason ? `\n\nReason: ${reason}` : ''}`,
+                content: Buffer.from(updated, 'utf-8').toString('base64'),
+                sha: file.sha,
+              });
+            } catch (e) {
+
+              core.setFailed(`Could not update .github/VOUCHED: ${e.message}`);
+              await reply(
+                `Could not update the vouched list, it may have changed at the same time. Please try the command again.`
+              );
+              return;
+            }
+
+            await reply(
+              `@${target} has been devouched by @${commenter}.${reason ? ` Reason: ${reason}` : ''} ` +
+              `Pull requests and issues from that account will be closed by the vouch check until re-vouched.`
+            );
