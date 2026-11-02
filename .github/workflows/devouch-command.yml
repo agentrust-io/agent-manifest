@@ -4,20 +4,26 @@ name: Devouch command
 #   /devouch @username [reason]
 # on a single line. Two valid places to run it:
 #   - on an issue or pull request opened by @username, or
-#   - on an issue the maintainer opened themselves, for an account that has
-#     no open issue or pull request of its own left to comment on.
+#   - on an issue or pull request you opened yourself, for an account that
+#     has no open thread of its own left to comment on. issue_comment fires
+#     for both issues and pull requests, and this command treats them the
+#     same way; it does not require the "own thread" case to specifically
+#     be an issue.
 # Only accounts that can already push may do it, the same bar /vouch uses,
 # so one command can't do something the other can't undo.
 #
-# The entry is not deleted outright. It moves into a dated line under a
-# history header placed right after the file's leading comments, before the
-# active usernames. /vouch (unchanged) always appends new names at the end
-# of the file, so they land below this header, keeping the active list and
-# the history cleanly separated no matter how many times an account is
-# devouched and re-vouched.
+# The entry is not deleted outright. It moves into a dated line inside an
+# explicitly delimited history block (begin/end marker comments) placed
+# right after the file's leading comments, before the active usernames.
+# /vouch (unchanged) always appends new names at the end of the file, so
+# they land below this block, keeping the active list and the history
+# cleanly separated no matter how many times an account is devouched and
+# re-vouched. The begin/end markers, rather than "everything between the
+# header and the first active line", are what make the block's boundaries
+# unambiguous even if someone manually edits a comment nearby.
 #
 # Note: vouch-check.yml only runs on pull_request_target (opened, reopened).
-# It does not gate issues. The confirmation message below reflects that.
+# It does not gate issues.
 
 on:
   issue_comment:
@@ -36,7 +42,9 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         with:
           script: |
-            const HISTORY_HEADER = '# --- Devouch history (not read by vouch-check; kept for record) ---';
+            const HISTORY_BEGIN = '# --- Devouch history begin ---';
+            const HISTORY_END = '# --- Devouch history end ---';
+            const MAX_REASON_LENGTH = 300;
 
             const commenter = context.payload.comment.user.login;
             const body = context.payload.comment.body.trim();
@@ -77,31 +85,37 @@ jobs:
               return;
             }
             const target = match[1];
-            const reason = (match[2] || '').trim();
+            let reason = (match[2] || '').trim();
+            if (reason.length > MAX_REASON_LENGTH) {
+              reason = reason.slice(0, MAX_REASON_LENGTH);
+            }
 
             const onTargetsThread = threadAuthor.toLowerCase() === target.toLowerCase();
-            const onOwnIssue = threadAuthor.toLowerCase() === commenter.toLowerCase();
-            if (!onTargetsThread && !onOwnIssue) {
+            const onOwnThread = threadAuthor.toLowerCase() === commenter.toLowerCase();
+            if (!onTargetsThread && !onOwnThread) {
               await reply(
-                `/devouch must be run on a thread opened by @${target}, or on an issue you opened yourself.`
+                `/devouch must be run on a thread opened by @${target}, or on one you opened yourself.`
               );
               return;
             }
 
-            const { data: file } = await github.rest.repos.getContent({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              path: '.github/VOUCHED',
-              ref: 'vouched',
-            });
+            let file;
+            try {
+              const res = await github.rest.repos.getContent({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                path: '.github/VOUCHED',
+                ref: 'vouched',
+              });
+              file = res.data;
+            } catch (e) {
+              core.setFailed(`Could not read .github/VOUCHED: ${e.message}`);
+              await reply('Could not read the vouched list. Nothing was changed.');
+              return;
+            }
             const current = Buffer.from(file.content, 'base64').toString('utf-8');
             const lines = current.split('\n');
 
-            // Remove every case-insensitive active match, not just the
-            // first. An active entry is a non-empty line that doesn't start
-            // with '#'. After this, target must not appear as an active
-            // entry under any circumstance, even if the file somehow held a
-            // duplicate.
             const isActiveMatch = (l) => {
               const t = l.trim();
               return t && !t.startsWith('#') && t.toLowerCase() === target.toLowerCase();
@@ -118,9 +132,19 @@ jobs:
             const reasonText = reason ? `: ${reason}` : '';
             const historyLine = `# ${target} devouched by ${commenter} on ${date}${reasonText}`;
 
-            const headerIdx = remaining.findIndex(l => l.trim() === HISTORY_HEADER);
+            const beginIdx = remaining.findIndex(l => l.trim() === HISTORY_BEGIN);
+            const endIdx = beginIdx === -1
+              ? -1
+              : remaining.findIndex((l, i) => i > beginIdx && l.trim() === HISTORY_END);
+
             let result;
-            if (headerIdx === -1) {
+            if (beginIdx !== -1 && endIdx !== -1) {
+              result = [
+                ...remaining.slice(0, endIdx),
+                historyLine,
+                ...remaining.slice(endIdx),
+              ];
+            } else {
               const firstActiveIdx = remaining.findIndex(l => {
                 const t = l.trim();
                 return t && !t.startsWith('#');
@@ -128,20 +152,11 @@ jobs:
               const insertAt = firstActiveIdx === -1 ? remaining.length : firstActiveIdx;
               result = [
                 ...remaining.slice(0, insertAt),
-                HISTORY_HEADER,
+                HISTORY_BEGIN,
                 historyLine,
+                HISTORY_END,
                 '',
                 ...remaining.slice(insertAt),
-              ];
-            } else {
-              let end = headerIdx + 1;
-              while (end < remaining.length && remaining[end].trim().startsWith('#')) {
-                end += 1;
-              }
-              result = [
-                ...remaining.slice(0, end),
-                historyLine,
-                ...remaining.slice(end),
               ];
             }
 
