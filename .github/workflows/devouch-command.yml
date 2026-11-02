@@ -2,17 +2,22 @@ name: Devouch command
 
 # Lets a maintainer remove someone from the vouched list by commenting
 #   /devouch @username [reason]
-# Two valid places to run it:
+# on a single line. Two valid places to run it:
 #   - on an issue or pull request opened by @username, or
 #   - on an issue the maintainer opened themselves, for an account that has
 #     no open issue or pull request of its own left to comment on.
 # Only accounts that can already push may do it, the same bar /vouch uses,
 # so one command can't do something the other can't undo.
 #
-# The entry is not deleted outright. It moves out of the active list into a
-# dated history comment at the bottom of the file, so a later /vouch for the
-# same account restores access without erasing the record of why it was
-# removed.
+# The entry is not deleted outright. It moves into a dated line under a
+# history header placed right after the file's leading comments, before the
+# active usernames. /vouch (unchanged) always appends new names at the end
+# of the file, so they land below this header, keeping the active list and
+# the history cleanly separated no matter how many times an account is
+# devouched and re-vouched.
+#
+# Note: vouch-check.yml only runs on pull_request_target (opened, reopened).
+# It does not gate issues. The confirmation message below reflects that.
 
 on:
   issue_comment:
@@ -31,6 +36,8 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         with:
           script: |
+            const HISTORY_HEADER = '# --- Devouch history (not read by vouch-check; kept for record) ---';
+
             const commenter = context.payload.comment.user.login;
             const body = context.payload.comment.body.trim();
             const issueNumber = context.payload.issue.number;
@@ -60,9 +67,13 @@ jobs:
               return;
             }
 
-            const match = body.match(/^\/devouch\s+@?([A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38})(?:\s+([^\n]*))?\s*$/);
+            // Horizontal whitespace only ([ \t]), not \s, so the command
+            // grammar stays single-line. A newline anywhere in the comment
+            // (including a second /devouch on its own line) makes the whole
+            // match fail rather than silently folding into the reason text.
+            const match = body.match(/^\/devouch[ \t]+@?([A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38})(?:[ \t]+([^\n]*))?[ \t]*$/);
             if (!match) {
-              await reply('Usage: `/devouch @username [reason]`, one account per comment.');
+              await reply('Usage: `/devouch @username [reason]`, one account per comment, on a single line.');
               return;
             }
             const target = match[1];
@@ -86,27 +97,55 @@ jobs:
             const current = Buffer.from(file.content, 'base64').toString('utf-8');
             const lines = current.split('\n');
 
-            const idx = lines.findIndex(
-              l => l.trim() && !l.trim().startsWith('#') && l.trim().toLowerCase() === target.toLowerCase()
-            );
+            // Remove every case-insensitive active match, not just the
+            // first. An active entry is a non-empty line that doesn't start
+            // with '#'. After this, target must not appear as an active
+            // entry under any circumstance, even if the file somehow held a
+            // duplicate.
+            const isActiveMatch = (l) => {
+              const t = l.trim();
+              return t && !t.startsWith('#') && t.toLowerCase() === target.toLowerCase();
+            };
+            const removedCount = lines.filter(isActiveMatch).length;
+            const remaining = lines.filter(l => !isActiveMatch(l));
 
-            if (idx === -1) {
+            if (removedCount === 0) {
               await reply(`@${target} is not currently on the vouched list.`);
               return;
             }
 
-            lines.splice(idx, 1);
-
             const date = new Date().toISOString().slice(0, 10);
             const reasonText = reason ? `: ${reason}` : '';
-            const historyHeader = '# --- Denounce history (not read by vouch-check; kept for record) ---';
-            const historyLine = `# ${target} denounced by ${commenter} on ${date}${reasonText}`;
+            const historyLine = `# ${target} devouched by ${commenter} on ${date}${reasonText}`;
 
-            let updated = lines.join('\n').replace(/\n*$/, '\n');
-            if (!updated.includes(historyHeader)) {
-              updated += `\n${historyHeader}\n`;
+            const headerIdx = remaining.findIndex(l => l.trim() === HISTORY_HEADER);
+            let result;
+            if (headerIdx === -1) {
+              const firstActiveIdx = remaining.findIndex(l => {
+                const t = l.trim();
+                return t && !t.startsWith('#');
+              });
+              const insertAt = firstActiveIdx === -1 ? remaining.length : firstActiveIdx;
+              result = [
+                ...remaining.slice(0, insertAt),
+                HISTORY_HEADER,
+                historyLine,
+                '',
+                ...remaining.slice(insertAt),
+              ];
+            } else {
+              let end = headerIdx + 1;
+              while (end < remaining.length && remaining[end].trim().startsWith('#')) {
+                end += 1;
+              }
+              result = [
+                ...remaining.slice(0, end),
+                historyLine,
+                ...remaining.slice(end),
+              ];
             }
-            updated += `${historyLine}\n`;
+
+            const updated = result.join('\n').replace(/\n+$/, '\n');
 
             try {
               await github.rest.repos.createOrUpdateFileContents({
@@ -119,7 +158,6 @@ jobs:
                 sha: file.sha,
               });
             } catch (e) {
-
               core.setFailed(`Could not update .github/VOUCHED: ${e.message}`);
               await reply(
                 `Could not update the vouched list, it may have changed at the same time. Please try the command again.`
@@ -129,5 +167,5 @@ jobs:
 
             await reply(
               `@${target} has been devouched by @${commenter}.${reason ? ` Reason: ${reason}` : ''} ` +
-              `Pull requests and issues from that account will be closed by the vouch check until re-vouched.`
+              `Pull requests from that account will be closed by the vouch check until re-vouched.`
             );
