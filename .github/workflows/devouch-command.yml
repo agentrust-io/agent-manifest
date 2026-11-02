@@ -4,11 +4,10 @@ name: Devouch command
 #   /devouch @username [reason]
 # on a single line. Two valid places to run it:
 #   - on an issue or pull request opened by @username, or
-#   - on an issue or pull request you opened yourself, for an account that
-#     has no open thread of its own left to comment on. issue_comment fires
-#     for both issues and pull requests, and this command treats them the
-#     same way; it does not require the "own thread" case to specifically
-#     be an issue.
+#   - on an issue or pull request you opened yourself, but only if @username
+#     currently has no open issue or pull request of their own in this
+#     repository. That's checked with a search query before the fallback is
+#     allowed, not assumed.
 # Only accounts that can already push may do it, the same bar /vouch uses,
 # so one command can't do something the other can't undo.
 #
@@ -18,12 +17,13 @@ name: Devouch command
 # /vouch (unchanged) always appends new names at the end of the file, so
 # they land below this block, keeping the active list and the history
 # cleanly separated no matter how many times an account is devouched and
-# re-vouched. The begin/end markers, rather than "everything between the
-# header and the first active line", are what make the block's boundaries
-# unambiguous even if someone manually edits a comment nearby.
+# re-vouched. If the markers are ever found in anything other than exactly
+# one matched begin/end pair in the right order, the workflow refuses to
+# touch the file rather than guess at a repair.
 #
 # Note: vouch-check.yml only runs on pull_request_target (opened, reopened).
-# It does not gate issues.
+# It does not retroactively close pull requests that are already open, and
+# it does not gate issues at all.
 
 on:
   issue_comment:
@@ -32,11 +32,17 @@ on:
 permissions:
   contents: write
   issues: write
+  pull-requests: read
+
+concurrency:
+  group: vouched-list-${{ github.repository }}
+  cancel-in-progress: false
 
 jobs:
   devouch:
     if: github.repository_owner == 'agentrust-io' && startsWith(github.event.comment.body, '/devouch')
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Remove the named account from the vouched list
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
@@ -75,10 +81,6 @@ jobs:
               return;
             }
 
-            // Horizontal whitespace only ([ \t]), not \s, so the command
-            // grammar stays single-line. A newline anywhere in the comment
-            // (including a second /devouch on its own line) makes the whole
-            // match fail rather than silently folding into the reason text.
             const match = body.match(/^\/devouch[ \t]+@?([A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38})(?:[ \t]+([^\n]*))?[ \t]*$/);
             if (!match) {
               await reply('Usage: `/devouch @username [reason]`, one account per comment, on a single line.');
@@ -86,17 +88,41 @@ jobs:
             }
             const target = match[1];
             let reason = (match[2] || '').trim();
-            if (reason.length > MAX_REASON_LENGTH) {
-              reason = reason.slice(0, MAX_REASON_LENGTH);
+            let truncated = false;
+            const reasonCodePoints = Array.from(reason);
+            if (reasonCodePoints.length > MAX_REASON_LENGTH) {
+              reason = reasonCodePoints.slice(0, MAX_REASON_LENGTH).join('');
+              truncated = true;
             }
-
             const onTargetsThread = threadAuthor.toLowerCase() === target.toLowerCase();
             const onOwnThread = threadAuthor.toLowerCase() === commenter.toLowerCase();
-            if (!onTargetsThread && !onOwnThread) {
-              await reply(
-                `/devouch must be run on a thread opened by @${target}, or on one you opened yourself.`
-              );
-              return;
+            if (!onTargetsThread) {
+              if (!onOwnThread) {
+                await reply(
+                  `/devouch must be run on a thread opened by @${target}, or on one you opened yourself.`
+                );
+                return;
+              }
+              let openCount = 0;
+              try {
+                const { data: searchResult } = await github.rest.search.issuesAndPullRequests({
+                  q: `repo:${context.repo.owner}/${context.repo.repo} is:open author:${target}`,
+                  per_page: 1,
+                });
+                openCount = searchResult.total_count;
+              } catch (e) {
+                core.setFailed(`Could not check @${target}'s open issues/PRs: ${e.message}`);
+                await reply(
+                  `Could not verify whether @${target} still has an open issue or pull request. Nothing was changed, please retry.`
+                );
+                return;
+              }
+              if (openCount > 0) {
+                await reply(
+                  `/devouch must be run on a thread opened by @${target}. They still have an open issue or pull request in this repository.`
+                );
+                return;
+              }
             }
 
             let file;
@@ -116,33 +142,53 @@ jobs:
             const current = Buffer.from(file.content, 'base64').toString('utf-8');
             const lines = current.split('\n');
 
+            const beginIndices = [];
+            const endIndices = [];
+            lines.forEach((l, i) => {
+              const t = l.trim();
+              if (t === HISTORY_BEGIN) beginIndices.push(i);
+              if (t === HISTORY_END) endIndices.push(i);
+            });
+            const wellFormed =
+              (beginIndices.length === 0 && endIndices.length === 0) ||
+              (beginIndices.length === 1 && endIndices.length === 1 && beginIndices[0] < endIndices[0]);
+            if (!wellFormed) {
+              core.setFailed('`.github/VOUCHED` has a malformed devouch history block.');
+              await reply(
+                'The devouch history block in `.github/VOUCHED` looks malformed (expected zero markers, or exactly one matching begin/end pair in order). Nothing was changed. Please fix the file on the `vouched` branch by hand before retrying.'
+              );
+              return;
+            }
+
             const isActiveMatch = (l) => {
               const t = l.trim();
               return t && !t.startsWith('#') && t.toLowerCase() === target.toLowerCase();
             };
             const removedCount = lines.filter(isActiveMatch).length;
-            const remaining = lines.filter(l => !isActiveMatch(l));
-
             if (removedCount === 0) {
               await reply(`@${target} is not currently on the vouched list.`);
               return;
             }
+            const remaining = lines.filter(l => !isActiveMatch(l));
 
             const date = new Date().toISOString().slice(0, 10);
-            const reasonText = reason ? `: ${reason}` : '';
+            const truncationNote = truncated ? ' (truncated)' : '';
+            const reasonText = reason ? `: ${reason}${truncationNote}` : '';
             const historyLine = `# ${target} devouched by ${commenter} on ${date}${reasonText}`;
 
-            const beginIdx = remaining.findIndex(l => l.trim() === HISTORY_BEGIN);
-            const endIdx = beginIdx === -1
+            const newBeginIdx = remaining.findIndex(l => l.trim() === HISTORY_BEGIN);
+            const newEndIdx = newBeginIdx === -1
               ? -1
-              : remaining.findIndex((l, i) => i > beginIdx && l.trim() === HISTORY_END);
+              : remaining.findIndex((l, i) => i > newBeginIdx && l.trim() === HISTORY_END);
 
             let result;
-            if (beginIdx !== -1 && endIdx !== -1) {
+            if (newBeginIdx !== -1 && newEndIdx !== -1) {
+              // Already-validated, well-formed block: insert just before
+              // the end marker.
               result = [
-                ...remaining.slice(0, endIdx),
+                ...remaining.slice(0, newEndIdx),
                 historyLine,
-                ...remaining.slice(endIdx),
+                ...remaining.slice(newEndIdx),
               ];
             } else {
               const firstActiveIdx = remaining.findIndex(l => {
@@ -168,7 +214,7 @@ jobs:
                 repo: context.repo.repo,
                 path: '.github/VOUCHED',
                 branch: 'vouched',
-                message: `chore: devouch ${target}\n\nDevouched by ${commenter} in #${issueNumber}.${reason ? `\n\nReason: ${reason}` : ''}`,
+                message: `chore: devouch ${target}\n\nDevouched by ${commenter} in #${issueNumber}.${reason ? `\n\nReason: ${reason}${truncationNote}` : ''}`,
                 content: Buffer.from(updated, 'utf-8').toString('base64'),
                 sha: file.sha,
               });
@@ -181,6 +227,7 @@ jobs:
             }
 
             await reply(
-              `@${target} has been devouched by @${commenter}.${reason ? ` Reason: ${reason}` : ''} ` +
-              `Pull requests from that account will be closed by the vouch check until re-vouched.`
+              `@${target} has been devouched by @${commenter}.${reason ? ` Reason: ${reason}${truncationNote}` : ''} ` +
+              `New or reopened pull requests from that account will be closed by the vouch check until re-vouched. ` +
+              `This does not close pull requests that are already open; close those separately if needed.`
             );
