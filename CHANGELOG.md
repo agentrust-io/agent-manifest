@@ -4,6 +4,11 @@
 
 ### Security
 
+- **[SDK]** Reject duplicate JSON members in `plugin.json` and `mcp.json`
+  before canonical reference digests or MCP declaration hashes are computed.
+  Plugin reference verification refuses ambiguous bundles before fetching a
+  manifest. Valid bundles retain their existing digest semantics. Fixes #564.
+
 - **[SDK]** TDX quote signature parsing rejects trailing bytes inside the declared
   signature and QE certification containers, after the nested QE data or PCK
   certificate chain. Existing padded hardware capture buffers remain supported.

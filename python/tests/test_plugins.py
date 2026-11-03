@@ -111,6 +111,40 @@ def test_malformed_plugin_json_is_refused(tmp_path):
         load_plugin_bundle(root)
 
 
+@pytest.mark.parametrize(
+    "members",
+    [
+        '"name": "shadow", "name": "demo"',
+        '"name": "shadow", "na\\u006de": "demo"',
+        '"name": "demo", "extensions": {"vendor": {"mode": 1, "mode": 2}}',
+    ],
+)
+def test_duplicate_plugin_members_are_refused_before_hashing(tmp_path, members):
+    root = _bundle(tmp_path)
+    (root / "plugin.json").write_text(
+        '{"$schema": ' + json.dumps(SCHEMA) + ', ' + members + '}',
+        encoding="utf-8",
+    )
+    for read in (load_plugin_bundle, bundle_reference_digest):
+        with pytest.raises(PluginBundleError, match="plugin.json.*duplicate member"):
+            read(root)
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        '{"mcpServers": {"srv": {"command": "one"}, "srv": {"command": "two"}}}',
+        '{"srv": {"command": "one", "command": "two"}}',
+        '{"mcpServers": {}, "mcpServers": {"srv": {"command": "two"}}}',
+    ],
+)
+def test_duplicate_mcp_members_are_refused_before_declaration_hashing(tmp_path, raw):
+    root = _bundle(tmp_path)
+    (root / "mcp.json").write_text(raw, encoding="utf-8")
+    with pytest.raises(PluginBundleError, match="mcp.json.*duplicate member"):
+        load_plugin_bundle(root)
+
+
 def test_not_a_directory_is_refused(tmp_path):
     with pytest.raises(PluginBundleError, match="not a directory"):
         load_plugin_bundle(tmp_path / "nope")
@@ -287,6 +321,39 @@ def test_reference_digest_excludes_only_its_own_namespace(tmp_path):
     plugin["extensions"]["com.example.other"] = {"setting": True}
     plugin_path.write_text(json.dumps(plugin), encoding="utf-8")
     assert bundle_reference_digest(root) != before
+
+
+def test_signed_reference_refuses_inserted_duplicate_plugin_member(tmp_path):
+    root = _bundle(tmp_path)
+    key = generate_ed25519()
+    manifest_bytes = _referenced_manifest(root, key)
+    _attach_reference(root, manifest_bytes)
+    context = VerificationContext(
+        trusted_keys={key.key_id: key.public_b64url()},
+        trusted_key_issuers={key.key_id: ["spiffe://trust.example/issuer/ci"]},
+    )
+    calls = []
+
+    def fetch(uri):
+        calls.append(uri)
+        return manifest_bytes
+
+    valid = verify_plugin_manifest_reference(
+        root, fetch=fetch, context=context, revocation_store=RevocationStore()
+    )
+    assert valid.status == PluginReferenceStatus.VERIFIED
+    calls.clear()
+    path = root / "plugin.json"
+    original = path.read_text(encoding="utf-8")
+    mutated = original.replace('"name": "demo"', '"name": "shadow", "name": "demo"', 1)
+    assert mutated != original
+    path.write_text(mutated, encoding="utf-8")
+    refused = verify_plugin_manifest_reference(
+        root, fetch=fetch, context=context, revocation_store=RevocationStore()
+    )
+    assert refused.status == PluginReferenceStatus.INVALID
+    assert "duplicate member" in refused.reason
+    assert calls == []
 
 
 def test_absent_reference_is_not_a_failure_and_does_not_fetch(tmp_path):
