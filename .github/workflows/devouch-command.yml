@@ -42,7 +42,6 @@ jobs:
     concurrency:
       group: vouched-list-${{ github.repository }}
       cancel-in-progress: false
-      queue: max
     steps:
       - name: Remove the named account from the vouched list
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
