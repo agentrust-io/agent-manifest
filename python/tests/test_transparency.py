@@ -512,3 +512,34 @@ def test_verify_entry_non_ascii_hash_value_fails_closed_not_typeerror():
         result = verify_transparency_log_entry(SAMPLE_MANIFEST, entry)
 
     assert result is False
+
+
+def test_rekor_normalizes_hitl_approvals_via_signing_pre_image_and_validates_entry_id():
+    from agent_manifest._rekor_verify import verify_rekor_evidence
+    from agent_manifest._signing import signing_pre_image
+
+    manifest_with_hitl = {
+        **SAMPLE_MANIFEST,
+        "hitl_record": {
+            "required": True,
+            "approvals": [{"approver_id": "did:web:approver", "approval_signature": "AA"}],
+        },
+    }
+    expected_hash = hashlib.sha256(signing_pre_image(manifest_with_hitl)).hexdigest()
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = _make_rekor_body(FAKE_ENTRY_UUID, FAKE_LOG_ID)
+
+    with patch("httpx.post", return_value=mock_response) as mock_post:
+        publish_to_rekor(
+            manifest_dict=manifest_with_hitl,
+            signature_value=_SIG_VALUE,
+            public_key_b64url=_PUB_B64URL,
+        )
+    posted_hash = mock_post.call_args.kwargs["json"]["spec"]["data"]["hash"]["value"]
+    assert posted_hash == expected_hash
+
+    body = b"test-body"
+    leaf_hex = hashlib.sha256(b"\x00" + body).hexdigest()
+    assert verify_rekor_evidence({}, body, "not-hex-" + leaf_hex, FAKE_LOG_ID, None) is False
+

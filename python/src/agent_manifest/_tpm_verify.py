@@ -164,6 +164,11 @@ def _unwrap_attest(data: bytes) -> bytes:
     silently reinterpreted as a size prefix and reported as a framing fault,
     which sends whoever is debugging it to the wrong problem.
     """
+    if not isinstance(data, (bytes, bytearray, memoryview)):
+        raise TpmVerificationError(
+            f"TPM quote must be bytes, got {type(data).__name__}"
+        )
+    data = bytes(data)
     if len(data) < 6:
         raise TpmVerificationError("TPM quote too short")
     if int.from_bytes(data[0:4], "big") == TPM_GENERATED_VALUE:
@@ -281,7 +286,11 @@ def parse_tpm_quote(attest: bytes) -> TpmQuote:
         pos += size_of_select
         selections.append(PcrSelection(hash_alg=hash_alg, pcr_select=pcr_select))
 
-    pcr_digest, _pos = _read_2b(attested, pos)
+    pcr_digest, pos = _read_2b(attested, pos)
+    if pos != len(attested):
+        raise TpmVerificationError(
+            "TPMS_QUOTE_INFO has trailing bytes after pcrDigest"
+        )
     return TpmQuote(
         magic=common.magic,
         attest_type=common.attest_type,
@@ -316,6 +325,11 @@ def parse_tpmt_signature(blob: bytes) -> ParsedSignature:
     Raises :class:`TpmVerificationError` on anything malformed, so a caller
     cannot mistake a truncated blob for a signature that failed to verify.
     """
+    if not isinstance(blob, (bytes, bytearray, memoryview)):
+        raise TpmVerificationError(
+            f"TPMT_SIGNATURE must be bytes, got {type(blob).__name__}"
+        )
+    blob = bytes(blob)
     if len(blob) < 6:
         raise TpmVerificationError("TPMT_SIGNATURE too short")
     try:

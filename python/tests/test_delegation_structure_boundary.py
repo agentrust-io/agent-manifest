@@ -219,3 +219,78 @@ def test_structurally_valid_root_mismatch_keeps_existing_binding_failure() -> No
     root = _minimal_hop()
     with pytest.raises(ValueError, match="does not match the manifest"):
         verify_delegation_chain([root], {}, MID, manifest_issuer="spiffe://x/other")
+
+
+@pytest.mark.parametrize(
+    "out_of_range",
+    [(1 << 53), -(1 << 53), float(1 << 53), -float(1 << 53), 1e20],
+)
+def test_jcs_safe_integer_bounds_enforced_on_delegation_integers(out_of_range) -> None:
+    from agent_manifest._delegation import _JCS_SAFE_INTEGER, _is_int, _is_json_integer
+
+    assert _is_json_integer(_JCS_SAFE_INTEGER) is True
+    assert _is_json_integer(-_JCS_SAFE_INTEGER) is True
+    assert _is_int(out_of_range) is False
+
+    root = _minimal_hop()
+    root["hop"] = out_of_range
+    with pytest.raises(ValueError, match="hop must be a JSON integer"):
+        verify_delegation_chain([root], {}, MID)
+
+    if out_of_range > 0:
+        root_depth = _minimal_hop()
+        root_depth["scope_grant"] = {**SCOPE, "max_delegation_depth": out_of_range}
+        with pytest.raises(ValueError, match="max_delegation_depth must be a non-negative integer"):
+            verify_delegation_chain([root_depth], {}, MID)
+
+        root_ttl = _minimal_hop()
+        root_ttl["scope_grant"] = {**SCOPE, "ttl_seconds": out_of_range}
+        with pytest.raises(ValueError, match="ttl_seconds must be a positive integer or null"):
+            verify_delegation_chain([root_ttl], {}, MID)
+
+
+def test_multi_hop_chain_catches_ttl_seconds_timedelta_overflow() -> None:
+    from agent_manifest._delegation import _JCS_SAFE_INTEGER
+
+    root_key = generate_ed25519()
+    child_key = generate_ed25519()
+    huge_scope = {**SCOPE, "ttl_seconds": _JCS_SAFE_INTEGER}
+    sig0 = DelegationHopSigner(root_key).sign_hop(
+        hop=0,
+        principal_id="spiffe://x/root",
+        principal_type="agent",
+        delegated_at="2026-01-01T00:00:00Z",
+        scope_grant=huge_scope,
+        manifest_id=MID,
+    )
+    sig1 = DelegationHopSigner(child_key).sign_hop(
+        hop=1,
+        principal_id="spiffe://x/child",
+        principal_type="agent",
+        delegated_at="2026-01-01T00:01:00Z",
+        scope_grant=huge_scope,
+        manifest_id=MID,
+    )
+    hop0 = {
+        "hop": 0,
+        "principal_id": "spiffe://x/root",
+        "principal_type": "agent",
+        "delegated_at": "2026-01-01T00:00:00Z",
+        "scope_grant": dict(huge_scope),
+        "delegation_signature": sig0,
+    }
+    hop1 = {
+        "hop": 1,
+        "principal_id": "spiffe://x/child",
+        "principal_type": "agent",
+        "delegated_at": "2026-01-01T00:01:00Z",
+        "scope_grant": dict(huge_scope),
+        "delegation_signature": sig1,
+    }
+    keys = {
+        "spiffe://x/root": root_key.public_bytes,
+        "spiffe://x/child": child_key.public_bytes,
+    }
+    with pytest.raises(ValueError, match="ttl_seconds overflows datetime range"):
+        verify_delegation_chain([hop0, hop1], keys, MID)
+

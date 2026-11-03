@@ -84,12 +84,10 @@ def publish_to_rekor(
             'Install with: pip install "agent-manifest[server]"'
         )
 
-    from ._canonicalize import canonicalize
-    from ._signing import SIGNED_FIELDS, _b64url_decode
+    from ._signing import _b64url_decode, signing_pre_image
 
     # Build the signed bytes (must match what was signed)
-    subset = {k: manifest_dict[k] for k in SIGNED_FIELDS if k in manifest_dict}
-    canonical_bytes = canonicalize(subset)
+    canonical_bytes = signing_pre_image(manifest_dict)
 
     # Decode public key from base64url to PEM for Rekor
     pub_raw = _b64url_decode(public_key_b64url)
@@ -164,9 +162,8 @@ def verify_transparency_log_entry(
     except ImportError:
         raise ImportError("Rekor verification requires httpx.")
 
-    from ._canonicalize import canonicalize
-    from ._signing import SIGNED_FIELDS
     from ._rekor_verify import verify_rekor_evidence
+    from ._signing import signing_pre_image
 
     if rekor_url != REKOR_PUBLIC_URL and rekor_public_key_pem is None:
         return False
@@ -175,8 +172,7 @@ def verify_transparency_log_entry(
     ):
         return False
 
-    subset = {k: manifest_dict[k] for k in SIGNED_FIELDS if k in manifest_dict}
-    canonical_bytes = canonicalize(subset)
+    canonical_bytes = signing_pre_image(manifest_dict)
     expected_hash = hashlib.sha256(canonical_bytes).hexdigest()
 
     try:

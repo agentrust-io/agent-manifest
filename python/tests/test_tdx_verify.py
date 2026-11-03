@@ -366,6 +366,32 @@ def test_parse_signature_rejects_overstated_qe_auth_size():
         parse_tdx_quote_signature(bytes(tampered))
 
 
+@pytest.mark.parametrize("container", ["signature", "certification"])
+def test_signature_containers_reject_trailing_bytes(container):
+    quote, root_pem = _build_quote(hashlib.sha256(b"exact-container-size").digest())
+    assert verify_tdx_quote(quote, trusted_root_pem=root_pem) is True
+    parsed = parse_tdx_quote_signature(quote)
+    trailer = b"UNDECLARED_TRAILER"
+    tampered = bytearray(quote + trailer)
+    auth_length_offset = _HDR + _BODY
+    auth_offset = auth_length_offset + 4
+    # Include the trailer in the outer container, leaving the nested
+    # QE certification length unchanged to isolate the signature boundary.
+    auth_size = struct.unpack_from("<I", tampered, auth_length_offset)[0]
+    struct.pack_into("<I", tampered, auth_length_offset, auth_size + len(trailer))
+    if container == "certification":
+        # Also include it in QE certification data, leaving only the PCK chain
+        # length unchanged. None of the signed bytes have been modified.
+        cert_length_offset = auth_offset + 130
+        cert_size = struct.unpack_from("<I", tampered, cert_length_offset)[0]
+        struct.pack_into("<I", tampered, cert_length_offset, cert_size + len(trailer))
+    assert bytes(tampered[:_HDR + _BODY]) == parsed.signed_body
+    with pytest.raises(TdxVerificationError, match="trailing bytes"):
+        parse_tdx_quote_signature(bytes(tampered))
+    with pytest.raises(TdxVerificationError, match="trailing bytes"):
+        verify_tdx_quote(bytes(tampered), trusted_root_pem=root_pem)
+
+
 # --- Committed real-hardware capture ------------------------------------------
 # GCP C3 confidential VM, non-paravisor TDX, captured 2026-07-21 (#305). These
 # ran nowhere until now: the only real-quote test was gated on an environment

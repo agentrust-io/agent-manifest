@@ -7,6 +7,7 @@ import json
 from datetime import UTC, datetime, timedelta
 
 import agent_manifest as am
+import agent_manifest._verify as verifier
 import cbor2
 import pytest
 from agent_manifest.evidence_requirements import (
@@ -80,6 +81,55 @@ def packet():
         trusted_key_issuers={kid: [manifest["issuer"]]},
     )
     return manifest, key, context
+
+
+@pytest.mark.parametrize(
+    "offset,expected",
+    [
+        (timedelta(microseconds=-1), "MISMATCH"),
+        (timedelta(0), "VALID"),
+        (timedelta(hours=2, microseconds=-1), "VALID"),
+        (timedelta(hours=2), "EXPIRED"),
+        (timedelta(hours=2, microseconds=1), "EXPIRED"),
+    ],
+    ids=["before-issue", "at-issue", "before-expiry", "at-expiry", "after-expiry"],
+)
+def test_paired_validity_window_pinned_clock(packet, monkeypatch, offset, expected):
+    """Use identical signed bytes and trust inputs at fixed validity boundaries."""
+    manifest, key, context = packet
+    issued = datetime(2026, 10, 13, 12, tzinfo=UTC)
+    manifest["issued_at"] = issued.isoformat()
+    manifest["expires_at"] = (issued + timedelta(hours=2)).isoformat()
+    for artifact in manifest["artifacts"].values():
+        artifact["bound_at"] = issued.isoformat()
+    signed = am.sign_cose_sign1(manifest, key)
+    revocations = am.RevocationStore()
+    clock = [issued + timedelta(hours=1)]
+
+    class FixedClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return clock[0].astimezone(tz) if tz else clock[0].replace(tzinfo=None)
+
+    monkeypatch.setattr(verifier, "datetime", FixedClock)
+    accepted = verify_evidence_manifest(signed, context, revocations)
+    assert accepted.manifest_id == manifest["manifest_id"]
+    assert dict(accepted.artifact_results)["policy_bundle"] == "MATCH"
+    # Verify the envelope independently so an earlier cryptographic refusal
+    # cannot masquerade as the validity-window result under test.
+    assert am.verify_cose_manifest(signed, context.trusted_keys).manifest == manifest
+
+    clock[0] = issued + offset
+    result = am.verify_manifest(signed, context, revocations)
+    assert result.result.value == expected
+    if expected == "MISMATCH":
+        assert [detail.field for detail in result.mismatch_details] == ["validity.issued_at"]
+    if expected == "VALID":
+        boundary = verify_evidence_manifest(signed, context, revocations)
+        assert boundary.manifest_id == accepted.manifest_id
+    else:
+        with pytest.raises(ValueError, match=f"manifest appraisal not valid: {expected}"):
+            verify_evidence_manifest(signed, context, revocations)
 
 
 def test_signed_requirements_and_exact_projection(packet):

@@ -4,6 +4,10 @@
 
 ### Security
 
+- **[SDK]** TDX quote signature parsing rejects trailing bytes inside the declared
+  signature and QE certification containers, after the nested QE data or PCK
+  certificate chain. Existing padded hardware capture buffers remain supported.
+
 - **[Spec]** The transport row in section 4.1 no longer recommends TLS 1.3
   with the attestation extensions of draft-fossati-tls-attestation-08. That
   draft carries evidence inside the handshake and binds it to the ephemeral
@@ -81,6 +85,15 @@
   authoritative and that no conformance level names a vendor runtime.
 
 ### Fixed
+
+- **[SDK]** Reject RFC 7517 / RFC 7518 private or symmetric
+  JWK parameters (`d`, `p`, `q`, `dp`, `dq`, `qi`, `oth`, `k`), non-minimal
+  leading-`0x00` `Base64urlUInt` encodings, duplicate JSON object keys, and
+  invalid RSA public parameters (`n < 3`, `e < 3`, or even values) on Azure
+  `HCLAkPub` runtime data; and bound delegation and HITL integer fields
+  (`hop`, `max_delegation_depth`, `ttl_seconds`, and
+  `approval_duration_seconds`) by the RFC 8785 safe-integer range
+  (`2**53 - 1`) (#526).
 
 - **[Spec/SDK]** `poisoning_scan` carried a `result` but named nothing about
   *which* corpus it was computed over: a `clean` or `flagged` scan verified

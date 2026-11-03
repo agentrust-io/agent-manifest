@@ -682,6 +682,54 @@ def test_ak_public_numbers_and_modulus_reject_empty_n_or_e():
     assert ak_public_numbers_from_runtime_data(runtime_data) is None
 
 
+@pytest.mark.parametrize("private_param", ["d", "p", "q", "dp", "dq", "qi", "oth", "k"])
+def test_ak_public_numbers_and_modulus_reject_private_or_symmetric_jwk_params(private_param: str):
+    import json
+
+    from agent_manifest._azure_verify import (
+        ak_from_runtime_data,
+        ak_modulus_hex_from_runtime_data,
+        ak_public_numbers_from_runtime_data,
+    )
+
+    good_n = base64.urlsafe_b64encode(b"\x01\x00\x01\xff").rstrip(b"=").decode()
+    jwk = {"kid": "HCLAkPub", "n": good_n, "e": "AQAB", private_param: "AQAB"}
+    runtime_data = json.dumps({"keys": [jwk]}).encode()
+    assert ak_modulus_hex_from_runtime_data(runtime_data) is None
+    assert ak_public_numbers_from_runtime_data(runtime_data) is None
+    assert ak_from_runtime_data(runtime_data) is None
+
+
+def test_ak_public_numbers_and_modulus_reject_leading_zero_and_invalid_rsa_integers():
+    import json
+
+    from agent_manifest._azure_verify import (
+        ak_modulus_hex_from_runtime_data,
+        ak_public_numbers_from_runtime_data,
+    )
+
+    good_n = base64.urlsafe_b64encode(b"\x01\x00\x01\xff").rstrip(b"=").decode()
+    leading_zero_n = base64.urlsafe_b64encode(b"\x00\x01\x00\x01\xff").rstrip(b"=").decode()
+    leading_zero_e = base64.urlsafe_b64encode(b"\x00\x01\x00\x01").rstrip(b"=").decode()
+    even_n = base64.urlsafe_b64encode(b"\x01\x00\x01\xfe").rstrip(b"=").decode()
+    one_b64 = base64.urlsafe_b64encode(b"\x01").rstrip(b"=").decode()
+    two_b64 = base64.urlsafe_b64encode(b"\x02").rstrip(b"=").decode()
+
+    for bad_n in (leading_zero_n, even_n, one_b64, two_b64):
+        runtime_data = json.dumps(
+            {"keys": [{"kid": "HCLAkPub", "n": bad_n, "e": "AQAB"}]}
+        ).encode()
+        assert ak_modulus_hex_from_runtime_data(runtime_data) is None
+        assert ak_public_numbers_from_runtime_data(runtime_data) is None
+
+    for bad_e in (leading_zero_e, one_b64, two_b64, "AA"):
+        runtime_data = json.dumps(
+            {"keys": [{"kid": "HCLAkPub", "n": good_n, "e": bad_e}]}
+        ).encode()
+        assert ak_modulus_hex_from_runtime_data(runtime_data) is None
+        assert ak_public_numbers_from_runtime_data(runtime_data) is None
+
+
 def test_strict_b64url_decode_rejects_trailing_newline_regex_dollar_hole():
     # Python's `$` regex anchor matches at end-of-string OR just before a
     # single trailing '\n' -- so a naive `^[A-Za-z0-9_-]*$` alphabet check

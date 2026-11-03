@@ -128,6 +128,10 @@ def verify_rekor_evidence(
         )).digest()
         if _hex_hash(record["logID"]) != key_id or _hex_hash(log_id) != key_id:
             return False
+        if not isinstance(entry_id, str) or not re.fullmatch(
+            r"(?:[0-9a-fA-F]{16})?[0-9a-fA-F]{64}", entry_id
+        ):
+            return False
         # Entry UUIDs are the leaf hash, optionally prefixed by a shard ID.
         if entry_id[-64:].lower() != hashlib.sha256(b"\x00" + body).hexdigest():
             return False

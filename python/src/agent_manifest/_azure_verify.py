@@ -91,7 +91,37 @@ def _strict_b64url_decode(value: str) -> bytes:
     if not isinstance(value, str) or not _B64URL_ALPHABET_RE.fullmatch(value):
         raise binascii.Error("invalid base64url alphabet")
     padded = value + "=" * ((4 - len(value) % 4) % 4)
-    return base64.urlsafe_b64decode(padded)
+    raw = base64.urlsafe_b64decode(padded)
+    if base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii") != value:
+        raise binascii.Error("non-canonical base64url encoding")
+    return raw
+
+
+# RFC 7517 / RFC 7518 private or symmetric JWK parameters that MUST NOT appear
+# on the public vTPM attestation key (HCLAkPub).
+_FORBIDDEN_JWK_PRIVATE_PARAMS = frozenset({"d", "p", "q", "dp", "dq", "qi", "oth", "k"})
+
+
+def _decode_jwk_uint(value: Any) -> tuple[bytes, int]:
+    """Decode an RFC 7518 §2 Base64urlUInt member (minimal big-endian unsigned integer).
+
+    Rejects empty strings, non-base64url characters, empty decoded byte strings,
+    and leading 0x00 bytes (RFC 7518 §2 requires the minimum number of octets).
+    """
+    raw = _strict_b64url_decode(value)
+    if not raw or raw[0] == 0:
+        raise ValueError("non-minimal Base64urlUInt encoding")
+    return raw, int.from_bytes(raw, "big")
+
+
+def _reject_duplicate_runtime_members(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    # The signed runtime bytes must have one interpretation before AK selection.
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate runtime-data JSON member")
+        result[key] = value
+    return result
 
 
 def _find_hcl_ak_jwk(runtime_data: bytes) -> Optional[dict[str, Any]]:
@@ -100,27 +130,34 @@ def _find_hcl_ak_jwk(runtime_data: bytes) -> Optional[dict[str, Any]]:
     Fails closed (returns ``None``, never raises) on any malformed input:
     bad JSON, non-UTF-8 bytes, a top-level value that isn't an object, a
     ``"keys"`` value that isn't a list (e.g. ``{"keys": 1}``, which would
-    otherwise blow up trying to iterate an int), or list entries that aren't
-    key-shaped objects.
+    otherwise blow up trying to iterate an int), list entries that aren't
+    key-shaped objects, or an ``HCLAkPub`` entry carrying RFC 7517 / RFC 7518
+    private or symmetric key parameters.
     """
     try:
-        parsed = json.loads(runtime_data)
-    except (json.JSONDecodeError, UnicodeDecodeError, TypeError):
+        parsed = json.loads(runtime_data, object_pairs_hook=_reject_duplicate_runtime_members)
+    except (ValueError, UnicodeDecodeError, TypeError):
         return None
     if not isinstance(parsed, dict):
         return None
     keys = parsed.get("keys", [])
     if not isinstance(keys, list):
         return None
-    return next((k for k in keys if isinstance(k, dict) and k.get("kid") == "HCLAkPub"), None)
+    ak = next((k for k in keys if isinstance(k, dict) and k.get("kid") == "HCLAkPub"), None)
+    if ak is None or (ak.keys() & _FORBIDDEN_JWK_PRIVATE_PARAMS):
+        return None
+    if "kty" in ak and ak["kty"] != "RSA":
+        return None
+    return ak
 
 
 def ak_modulus_hex_from_runtime_data(runtime_data: bytes) -> Optional[str]:
     """Extract the ``HCLAkPub`` RSA modulus (hex) from Azure HCL runtime-data JSON.
 
     Returns ``None`` on any malformed input (bad JSON, missing key, bad
-    base64) rather than raising -- callers treat that as "cannot establish
-    the binding", i.e. fail closed.
+    base64, private JWK parameters, non-minimal Base64urlUInt encoding, or
+    invalid RSA modulus/exponent) rather than raising -- callers treat that
+    as "cannot establish the binding", i.e. fail closed.
 
     An RSA public key is the pair ``(n, e)``, not ``n`` alone: this helper is
     kept for callers (e.g. matching a vTPM persistent handle by modulus) that
@@ -133,29 +170,43 @@ def ak_modulus_hex_from_runtime_data(runtime_data: bytes) -> Optional[str]:
     if ak is None or "n" not in ak:
         return None
     try:
-        return _strict_b64url_decode(ak["n"]).hex()
+        n_bytes, n_int = _decode_jwk_uint(ak["n"])
+        if n_int < 3 or n_int % 2 == 0:
+            return None
+        if "e" in ak:
+            _, e_int = _decode_jwk_uint(ak["e"])
+            if e_int < 3 or e_int % 2 == 0:
+                return None
     except (binascii.Error, ValueError, TypeError):
         return None
+    return n_bytes.hex()
 
 
 def ak_public_numbers_from_runtime_data(runtime_data: bytes) -> Optional[tuple[str, int]]:
     """Extract the ``HCLAkPub`` RSA public numbers ``(n, e)`` from runtime data.
 
     Returns ``(modulus_hex, exponent_int)``, or ``None`` on any malformed
-    input (bad JSON, missing/malformed ``n`` or ``e``, bad base64) -- never
-    raises. Both values must be checked to authenticate the exact key: a
-    modulus match alone does not establish ``e`` also matches, and a
-    different ``e`` describes a different key even with the same ``n``.
+    input (bad JSON, missing/malformed ``n`` or ``e``, bad base64, private
+    JWK parameters, non-minimal Base64urlUInt encoding, or invalid odd RSA
+    integers ``< 3``) -- never raises. Both values must be checked to
+    authenticate the exact key: a modulus match alone does not establish
+    ``e`` also matches, and a different ``e`` describes a different key even
+    with the same ``n``.
     """
     ak = _find_hcl_ak_jwk(runtime_data)
     if ak is None or "n" not in ak or "e" not in ak:
         return None
     try:
-        n_hex = _strict_b64url_decode(ak["n"]).hex()
-        e_int = int.from_bytes(_strict_b64url_decode(ak["e"]), "big")
+        n_bytes, n_int = _decode_jwk_uint(ak["n"])
+        _, e_int = _decode_jwk_uint(ak["e"])
     except (binascii.Error, ValueError, TypeError):
         return None
-    return n_hex, e_int
+    if n_int < 3 or n_int % 2 == 0 or e_int < 3 or e_int % 2 == 0:
+        return None
+    return n_bytes.hex(), e_int
+
+
+ak_from_runtime_data = ak_public_numbers_from_runtime_data
 
 
 def verify_azure_manifest_binding(
@@ -444,3 +495,4 @@ def verify_azure_runtime_quote(
     return _ak_quote_bound_to_snp(
         quote.raw, quote_sig, ak_pub_pem, runtime_data, bytes(snp_report_bytes)
     )
+
