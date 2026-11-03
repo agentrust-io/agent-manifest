@@ -23,7 +23,7 @@ name: Devouch command
 #
 # Note: vouch-check.yml only runs on pull_request_target (opened, reopened).
 # It does not retroactively close pull requests that are already open, and
-# it does not gate issues at all.
+# it does not gate issues. The confirmation message reflects that.
 
 on:
   issue_comment:
@@ -34,15 +34,15 @@ permissions:
   issues: write
   pull-requests: read
 
-concurrency:
-  group: vouched-list-${{ github.repository }}
-  cancel-in-progress: false
-
 jobs:
   devouch:
     if: github.repository_owner == 'agentrust-io' && startsWith(github.event.comment.body, '/devouch')
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    concurrency:
+      group: vouched-list-${{ github.repository }}
+      cancel-in-progress: false
+      queue: max
     steps:
       - name: Remove the named account from the vouched list
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
@@ -51,6 +51,7 @@ jobs:
             const HISTORY_BEGIN = '# --- Devouch history begin ---';
             const HISTORY_END = '# --- Devouch history end ---';
             const MAX_REASON_LENGTH = 300;
+            const USERNAME_RE = '[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}';
 
             const commenter = context.payload.comment.user.login;
             const body = context.payload.comment.body.trim();
@@ -81,19 +82,32 @@ jobs:
               return;
             }
 
-            const match = body.match(/^\/devouch[ \t]+@?([A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38})(?:[ \t]+([^\n]*))?[ \t]*$/);
+            const commandRe = new RegExp(
+              `^/devouch[ \\t]+@?(${USERNAME_RE})(?:[ \\t]+([^\\n]*))?[ \\t]*$`
+            );
+            const match = body.match(commandRe);
             if (!match) {
               await reply('Usage: `/devouch @username [reason]`, one account per comment, on a single line.');
               return;
             }
             const target = match[1];
             let reason = (match[2] || '').trim();
+
+            const secondHandleRe = new RegExp(`^@(${USERNAME_RE})(?:[ \\t]|$)`);
+            if (secondHandleRe.test(reason)) {
+              await reply(
+                "Usage: `/devouch @username [reason]`, one account per comment. The reason can't start with another @handle, that would ping them in this reply."
+              );
+              return;
+            }
+
             let truncated = false;
             const reasonCodePoints = Array.from(reason);
             if (reasonCodePoints.length > MAX_REASON_LENGTH) {
               reason = reasonCodePoints.slice(0, MAX_REASON_LENGTH).join('');
               truncated = true;
             }
+
             const onTargetsThread = threadAuthor.toLowerCase() === target.toLowerCase();
             const onOwnThread = threadAuthor.toLowerCase() === commenter.toLowerCase();
             if (!onTargetsThread) {
@@ -139,8 +153,7 @@ jobs:
               await reply('Could not read the vouched list. Nothing was changed.');
               return;
             }
-            const current = Buffer.from(file.content, 'base64').toString('utf-8');
-            const lines = current.split('\n');
+            const lines = Buffer.from(file.content, 'base64').toString('utf-8').split('\n');
 
             const beginIndices = [];
             const endIndices = [];
@@ -162,7 +175,7 @@ jobs:
 
             const isActiveMatch = (l) => {
               const t = l.trim();
-              return t && !t.startsWith('#') && t.toLowerCase() === target.toLowerCase();
+              return Boolean(t) && !t.startsWith('#') && t.toLowerCase() === target.toLowerCase();
             };
             const removedCount = lines.filter(isActiveMatch).length;
             if (removedCount === 0) {
@@ -176,24 +189,22 @@ jobs:
             const reasonText = reason ? `: ${reason}${truncationNote}` : '';
             const historyLine = `# ${target} devouched by ${commenter} on ${date}${reasonText}`;
 
-            const newBeginIdx = remaining.findIndex(l => l.trim() === HISTORY_BEGIN);
-            const newEndIdx = newBeginIdx === -1
+            const beginIdx = remaining.findIndex(l => l.trim() === HISTORY_BEGIN);
+            const endIdx = beginIdx === -1
               ? -1
-              : remaining.findIndex((l, i) => i > newBeginIdx && l.trim() === HISTORY_END);
+              : remaining.findIndex((l, i) => i > beginIdx && l.trim() === HISTORY_END);
 
             let result;
-            if (newBeginIdx !== -1 && newEndIdx !== -1) {
-              // Already-validated, well-formed block: insert just before
-              // the end marker.
+            if (beginIdx !== -1 && endIdx !== -1) {
               result = [
-                ...remaining.slice(0, newEndIdx),
+                ...remaining.slice(0, endIdx),
                 historyLine,
-                ...remaining.slice(newEndIdx),
+                ...remaining.slice(endIdx),
               ];
             } else {
               const firstActiveIdx = remaining.findIndex(l => {
                 const t = l.trim();
-                return t && !t.startsWith('#');
+                return Boolean(t) && !t.startsWith('#');
               });
               const insertAt = firstActiveIdx === -1 ? remaining.length : firstActiveIdx;
               result = [
@@ -206,7 +217,7 @@ jobs:
               ];
             }
 
-            const updated = result.join('\n').replace(/\n+$/, '\n');
+            const updated = result.join('\n').replace(/\n*$/, '\n');
 
             try {
               await github.rest.repos.createOrUpdateFileContents({
