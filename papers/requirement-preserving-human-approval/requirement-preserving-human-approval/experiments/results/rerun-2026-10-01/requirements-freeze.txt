@@ -9,7 +9,7 @@ iniconfig==2.3.0
 jcs==0.2.1
 jsonschema==4.26.0
 jsonschema-specifications==2025.9.1
-opentelemetry-api==1.44.0
+opentelemetry-api==1.45.1
 opentelemetry-sdk==1.44.0
 opentelemetry-semantic-conventions==0.65b0
 packaging==26.3
