@@ -392,8 +392,21 @@ def verify_plugin_manifest_reference(
 
 
 def _load_json(path: Path, label: str) -> Any:
+    def reject_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in result:
+                raise PluginBundleError(
+                    f"{label} contains duplicate member {key!r}: {path}"
+                )
+            result[key] = value
+        return result
+
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        return json.loads(
+            path.read_text(encoding="utf-8"),
+            object_pairs_hook=reject_duplicates,
+        )
     except FileNotFoundError:
         raise PluginBundleError(f"{label} not found: {path}") from None
     except UnicodeDecodeError as exc:
