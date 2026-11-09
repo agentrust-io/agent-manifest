@@ -15,7 +15,7 @@ import hmac
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Protocol
 
 from pydantic import BaseModel
 
@@ -281,7 +281,15 @@ class FileCRL:
 # ---------------------------------------------------------------------------
 
 
-def create_crl_router(crl: FileCRL) -> Any:
+class CRLReader(Protocol):
+    """Read interface shared by file and database CRLs."""
+
+    def all_records(self) -> list[SignedRevocationRecord]: ...
+
+    def get_record(self, manifest_id: str) -> SignedRevocationRecord | None: ...
+
+
+def create_crl_router(crl: CRLReader) -> Any:
     """Return a FastAPI router serving the CRL at /.well-known endpoints."""
     try:
         from fastapi import APIRouter, HTTPException
