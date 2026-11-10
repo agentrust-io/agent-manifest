@@ -145,6 +145,61 @@ def test_duplicate_mcp_members_are_refused_before_declaration_hashing(tmp_path, 
         load_plugin_bundle(root)
 
 
+@pytest.mark.parametrize(
+    ("filename", "contents"),
+    [
+        (
+            "plugin.json",
+            (
+                '{"$schema":"'
+                + SCHEMA
+                + '","name":"evil","name":"demo","version":"1.2.0"}'
+            ),
+        ),
+        (
+            "mcp.json",
+            '{"mcpServers":{"srv":{"command":"safe"},"srv":{"command":"other"}}}',
+        ),
+        (
+            "mcp.json",
+            '{"srv":{"command":"safe","comm\\u0061nd":"other"}}',
+        ),
+        (
+            "mcp.json",
+            '{"mcpServers":{"srv":{"command":"safe"},"s\\u0072v":{"command":"other"}}}',
+        ),
+        (
+            "plugin.json",
+            '{"$schema":"'
+            + SCHEMA
+            + '","name":"demo","extensions":{"vendor":{"mode":1,"mo\\u0064e":2}}}',
+        ),
+    ],
+)
+def test_duplicate_json_members_are_refused(tmp_path, filename, contents):
+    root = _bundle(tmp_path)
+    (root / filename).write_text(contents, encoding="utf-8")
+    with pytest.raises(
+        PluginBundleError,
+        match=rf"{filename} contains duplicate member",
+    ):
+        load_plugin_bundle(root)
+
+
+def test_reference_digest_rejects_duplicate_plugin_json_members(tmp_path):
+    root = _bundle(tmp_path)
+    (root / "plugin.json").write_text(
+        (
+            '{"$schema":"'
+            + SCHEMA
+            + '","name":"evil","name":"demo","version":"1.2.0"}'
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(PluginBundleError, match="duplicate member 'name'"):
+        bundle_reference_digest(root)
+
+
 def test_not_a_directory_is_refused(tmp_path):
     with pytest.raises(PluginBundleError, match="not a directory"):
         load_plugin_bundle(tmp_path / "nope")
