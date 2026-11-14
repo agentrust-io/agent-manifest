@@ -1292,6 +1292,12 @@ def verify_manifest(
 
     mb = artifacts.get("memory_baseline") or {}
     if mb:
+        if context.conformance_level >= 2 and mb.get("drift_policy") == "log-only":
+            mismatches.append(MismatchDetail(
+                field="memory_baseline.drift_policy",
+                expected_hash="<deny-on-drift or alert-on-drift at Level 2+>",
+                actual_hash="<log-only>",
+            ))
         from datetime import timedelta
         # Check TTL expiry for memory baseline
         ttl = mb.get("ttl_seconds")
