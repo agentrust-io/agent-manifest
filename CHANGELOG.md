@@ -4,6 +4,8 @@
 
 ### Security
 
+- **[SDK]** Return a structured mismatch when an attestation manifest pre-image contains integers outside the RFC 8785 canonicalization domain, instead of raising from verification. Fixes #568.
+
 - **[SDK]** Reject duplicate JSON members in `plugin.json` and `mcp.json`
   before canonical reference digests or MCP declaration hashes are computed.
   Plugin reference verification refuses ambiguous bundles before fetching a
