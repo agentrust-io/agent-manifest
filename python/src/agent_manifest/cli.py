@@ -14,6 +14,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import math
 import os
 import sys
 from datetime import datetime, timezone
@@ -43,6 +44,26 @@ from ._verify import (
 )
 
 
+def _no_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in out:
+            raise ValueError(f"duplicate JSON object key: {key!r}")
+        out[key] = value
+    return out
+
+
+def _no_nonfinite_constant(token: str) -> Any:
+    raise ValueError(f"non-finite JSON constant is not allowed: {token}")
+
+
+def _parse_float(token: str) -> float:
+    val = float(token)
+    if not math.isfinite(val):
+        raise ValueError(f"non-finite JSON float is not allowed: {token}")
+    return val
+
+
 def _load_json(path: str) -> dict[str, Any]:
     """Load a JSON file and require its top-level value to be an object.
 
@@ -67,10 +88,15 @@ def _load_json(path: str) -> dict[str, Any]:
             raise
         raise click.ClickException(f"{path} is a directory, not a JSON file.")
     try:
-        data = json.loads(raw.decode("utf-8"))
+        data = json.loads(
+            raw.decode("utf-8"),
+            object_pairs_hook=_no_duplicate_keys,
+            parse_constant=_no_nonfinite_constant,
+            parse_float=_parse_float,
+        )
     except UnicodeDecodeError as exc:
         raise click.ClickException(f"{path} is not valid UTF-8: {exc}")
-    except json.JSONDecodeError as exc:
+    except (json.JSONDecodeError, ValueError) as exc:
         raise click.ClickException(f"{path} is not valid JSON: {exc}")
     if not isinstance(data, dict):
         raise click.ClickException(f"{path} does not contain a JSON object.")
@@ -91,8 +117,13 @@ def _load_manifest_or_envelope(path: str) -> "dict[str, Any] | bytes":
     if raw[:1] == b"\xd2" or raw[:2] == b"\xd8\x62":
         return raw
     try:
-        data = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        data = json.loads(
+            raw.decode("utf-8"),
+            object_pairs_hook=_no_duplicate_keys,
+            parse_constant=_no_nonfinite_constant,
+            parse_float=_parse_float,
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
         raise click.ClickException(f"{path} is neither JSON nor a COSE envelope: {exc}")
     if not isinstance(data, dict):
         raise click.ClickException(f"{path} does not contain a manifest object.")
@@ -119,10 +150,12 @@ def _public_bytes_from_hex_file(path: str, label: str = "Public key") -> bytes:
             f"{label} file not found or is not a regular file: {path}"
         )
 
-    key_hex = key_path.read_text().strip()
     try:
+        key_hex = key_path.read_text(encoding="utf-8")
+        if any(ch.isspace() for ch in key_hex):
+            raise ValueError("whitespace in hex key")
         public_bytes = bytes.fromhex(key_hex)
-    except ValueError:
+    except (UnicodeDecodeError, ValueError):
         raise click.ClickException(f"{label} file does not contain valid hex data.")
 
     if len(public_bytes) != 32:
@@ -235,14 +268,22 @@ def sign(manifest_file: str, key: str, output: Optional[str]) -> None:
     if not key_path.is_file():
         raise click.ClickException(f"Key file not found or is not a regular file: {key}")
 
-    key_hex = key_path.read_text().strip()
-    # SEC-010: wrap hex decode so ValueError doesn't expose key_hex in traceback
+    key_hex: Optional[str] = None
+    # SEC-010: wrap UTF-8 and hex decode so errors don't expose key_hex in traceback
     try:
+        key_hex = key_path.read_text(encoding="utf-8")
+        if any(ch.isspace() for ch in key_hex):
+            raise ValueError("whitespace in hex key")
         key_bytes = bytes.fromhex(key_hex)
-    except ValueError:
+    except (UnicodeDecodeError, ValueError):
         raise click.ClickException("Key file does not contain valid hex data.")
     finally:
-        del key_hex  # prevent key material from lingering in locals
+        key_hex = None  # prevent key material from lingering in locals
+
+    if len(key_bytes) != 32:
+        raise click.ClickException(
+            f"Ed25519 private key must be 32 bytes, got {len(key_bytes)} bytes."
+        )
 
     kp = ed25519_from_private_bytes(key_bytes)
 
