@@ -1883,3 +1883,33 @@ def test_nested_omissions_alone_are_still_tolerated():
     result = verify_manifest(sign(m), base_context(), store())
 
     assert result.result != OverallResult.MISMATCH
+
+
+@pytest.mark.parametrize("trusted", [False, True])
+@pytest.mark.parametrize("enforce", [False, True])
+@pytest.mark.parametrize("value", [2**53, 2**53 + 1])
+def test_attestation_noncanonical_integer_returns_mismatch(trusted, enforce, value):
+    manifest = base_manifest()
+    manifest["operational_lifecycle"] = {"expected_lifetime_days": value}
+    manifest["attestation"] = {"platform": "tpm", "manifest_hash_in_report": SHA}
+    context = base_context(enforce_attestation=enforce)
+    if not trusted:
+        context.trusted_keys = {}
+    result = verify_manifest(manifest, context, store())
+    assert result.result == OverallResult.MISMATCH
+    assert result.attestation_verified is False
+    assert any(d.field == "attestation.manifest_hash_in_report" for d in result.mismatch_details)
+
+
+@pytest.mark.parametrize("value", [1, 2**53 - 1])
+def test_attestation_safe_integer_preserves_valid_appraisal(value):
+    manifest = base_manifest(operational_lifecycle={"expected_lifetime_days": value})
+    digest = _manifest_hash(manifest)
+    manifest["attestation"] = {"platform": "tpm", "manifest_hash_in_report": digest}
+    result = verify_manifest(manifest, base_context(
+        verified_attestation_manifest_hashes={digest},
+        attestation_evidence_manifest_id=manifest["manifest_id"],
+    ), store())
+    assert result.result == OverallResult.VALID
+    assert result.attestation_verified is True
+    assert result.mismatch_details == []

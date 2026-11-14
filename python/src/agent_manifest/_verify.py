@@ -1595,7 +1595,19 @@ def verify_manifest(
                 for k, v in manifest.items()
                 if k not in ("attestation", "transparency_log_entry")
             }
-            expected_attest_hash = "sha256:" + _hashlib.sha256(_canonicalize(subset)).hexdigest()
+            try:
+                expected_attest_hash = "sha256:" + _hashlib.sha256(_canonicalize(subset)).hexdigest()
+            except ValueError:
+                # Schema-valid integers can exceed the canonicalizer's safe
+                # domain. Untrusted input must yield a verdict, not an exception.
+                mismatches.append(MismatchDetail(
+                    field="attestation.manifest_hash_in_report",
+                    expected_hash="<RFC 8785 canonicalizable manifest pre-image>",
+                    actual_hash="<manifest pre-image outside canonicalization domain>",
+                ))
+                result.result = OverallResult.MISMATCH
+                result.mismatch_details = mismatches
+                return result
         if not isinstance(attestation_block, dict):
             # Spec 3.3: attestation MUST be omitted (not null) when there's
             # none - a present null or other non-dict value is invalid,
