@@ -16,6 +16,9 @@ jobs:
   vouch:
     if: github.repository_owner == 'agentrust-io' && startsWith(github.event.comment.body, '/vouch')
     runs-on: ubuntu-latest
+    concurrency:
+      group: vouched-list-${{ github.repository }}
+      cancel-in-progress: false
     steps:
       - name: Add the named account to the vouched list
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9

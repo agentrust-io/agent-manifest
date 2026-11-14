@@ -1,0 +1,243 @@
+name: Devouch command
+
+# Lets a maintainer remove someone from the vouched list by commenting
+#   /devouch @username [reason]
+# on a single line. Two valid places to run it:
+#   - on an issue or pull request opened by @username, or
+#   - on an issue or pull request you opened yourself, but only if @username
+#     currently has no open issue or pull request of their own in this
+#     repository. That's checked with a search query before the fallback is
+#     allowed, not assumed.
+# Only accounts that can already push may do it, the same bar /vouch uses,
+# so one command can't do something the other can't undo.
+#
+# The entry is not deleted outright. It moves into a dated line inside an
+# explicitly delimited history block (begin/end marker comments) placed
+# right after the file's leading comments, before the active usernames.
+# /vouch (unchanged) always appends new names at the end of the file, so
+# they land below this block, keeping the active list and the history
+# cleanly separated no matter how many times an account is devouched and
+# re-vouched. If the markers are ever found in anything other than exactly
+# one matched begin/end pair in the right order, the workflow refuses to
+# touch the file rather than guess at a repair.
+#
+# Note: vouch-check.yml only runs on pull_request_target (opened, reopened).
+# It does not retroactively close pull requests that are already open, and
+# it does not gate issues. The confirmation message reflects that.
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: read
+
+jobs:
+  devouch:
+    if: github.repository_owner == 'agentrust-io' && startsWith(github.event.comment.body, '/devouch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency:
+      group: vouched-list-${{ github.repository }}
+      cancel-in-progress: false
+    steps:
+      - name: Remove the named account from the vouched list
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        with:
+          script: |
+            const HISTORY_BEGIN = '# --- Devouch history begin ---';
+            const HISTORY_END = '# --- Devouch history end ---';
+            const MAX_REASON_LENGTH = 300;
+            const USERNAME_RE = '[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}';
+
+            const commenter = context.payload.comment.user.login;
+            const body = context.payload.comment.body.trim();
+            const issueNumber = context.payload.issue.number;
+            const threadAuthor = context.payload.issue.user.login;
+
+            const reply = (text) => github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: text,
+            });
+
+            let permission = 'none';
+            try {
+              const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                username: commenter,
+              });
+              permission = data.permission;
+            } catch (e) {
+              core.setFailed(`Could not read permission for ${commenter}: ${e.message}`);
+              return;
+            }
+            if (!['admin', 'maintain', 'write'].includes(permission)) {
+              core.info(`${commenter} has ${permission} access. Ignoring.`);
+              return;
+            }
+
+            const commandRe = new RegExp(
+              `^/devouch[ \\t]+@?(${USERNAME_RE})(?:[ \\t]+([^\\n]*))?[ \\t]*$`
+            );
+            const match = body.match(commandRe);
+            if (!match) {
+              await reply('Usage: `/devouch @username [reason]`, one account per comment, on a single line.');
+              return;
+            }
+            const target = match[1];
+            let reason = (match[2] || '').trim();
+
+            const secondHandleRe = new RegExp(`^@(${USERNAME_RE})(?:[ \\t]|$)`);
+            if (secondHandleRe.test(reason)) {
+              await reply(
+                "Usage: `/devouch @username [reason]`, one account per comment. The reason can't start with another @handle, that would ping them in this reply."
+              );
+              return;
+            }
+
+            let truncated = false;
+            const reasonCodePoints = Array.from(reason);
+            if (reasonCodePoints.length > MAX_REASON_LENGTH) {
+              reason = reasonCodePoints.slice(0, MAX_REASON_LENGTH).join('');
+              truncated = true;
+            }
+
+            const onTargetsThread = threadAuthor.toLowerCase() === target.toLowerCase();
+            const onOwnThread = threadAuthor.toLowerCase() === commenter.toLowerCase();
+            if (!onTargetsThread) {
+              if (!onOwnThread) {
+                await reply(
+                  `/devouch must be run on a thread opened by @${target}, or on one you opened yourself.`
+                );
+                return;
+              }
+              let openCount = 0;
+              try {
+                const { data: searchResult } = await github.rest.search.issuesAndPullRequests({
+                  q: `repo:${context.repo.owner}/${context.repo.repo} is:open author:${target}`,
+                  per_page: 1,
+                });
+                openCount = searchResult.total_count;
+              } catch (e) {
+                core.setFailed(`Could not check @${target}'s open issues/PRs: ${e.message}`);
+                await reply(
+                  `Could not verify whether @${target} still has an open issue or pull request. Nothing was changed, please retry.`
+                );
+                return;
+              }
+              if (openCount > 0) {
+                await reply(
+                  `/devouch must be run on a thread opened by @${target}. They still have an open issue or pull request in this repository.`
+                );
+                return;
+              }
+            }
+
+            let file;
+            try {
+              const res = await github.rest.repos.getContent({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                path: '.github/VOUCHED',
+                ref: 'vouched',
+              });
+              file = res.data;
+            } catch (e) {
+              core.setFailed(`Could not read .github/VOUCHED: ${e.message}`);
+              await reply('Could not read the vouched list. Nothing was changed.');
+              return;
+            }
+            const lines = Buffer.from(file.content, 'base64').toString('utf-8').split('\n');
+
+            const beginIndices = [];
+            const endIndices = [];
+            lines.forEach((l, i) => {
+              const t = l.trim();
+              if (t === HISTORY_BEGIN) beginIndices.push(i);
+              if (t === HISTORY_END) endIndices.push(i);
+            });
+            const wellFormed =
+              (beginIndices.length === 0 && endIndices.length === 0) ||
+              (beginIndices.length === 1 && endIndices.length === 1 && beginIndices[0] < endIndices[0]);
+            if (!wellFormed) {
+              core.setFailed('`.github/VOUCHED` has a malformed devouch history block.');
+              await reply(
+                'The devouch history block in `.github/VOUCHED` looks malformed (expected zero markers, or exactly one matching begin/end pair in order). Nothing was changed. Please fix the file on the `vouched` branch by hand before retrying.'
+              );
+              return;
+            }
+
+            const isActiveMatch = (l) => {
+              const t = l.trim();
+              return Boolean(t) && !t.startsWith('#') && t.toLowerCase() === target.toLowerCase();
+            };
+            const removedCount = lines.filter(isActiveMatch).length;
+            if (removedCount === 0) {
+              await reply(`@${target} is not currently on the vouched list.`);
+              return;
+            }
+            const remaining = lines.filter(l => !isActiveMatch(l));
+
+            const date = new Date().toISOString().slice(0, 10);
+            const truncationNote = truncated ? ' (truncated)' : '';
+            const reasonText = reason ? `: ${reason}${truncationNote}` : '';
+            const historyLine = `# ${target} devouched by ${commenter} on ${date}${reasonText}`;
+
+            const beginIdx = remaining.findIndex(l => l.trim() === HISTORY_BEGIN);
+            const endIdx = beginIdx === -1
+              ? -1
+              : remaining.findIndex((l, i) => i > beginIdx && l.trim() === HISTORY_END);
+
+            let result;
+            if (beginIdx !== -1 && endIdx !== -1) {
+              result = [
+                ...remaining.slice(0, endIdx),
+                historyLine,
+                ...remaining.slice(endIdx),
+              ];
+            } else {
+              const firstActiveIdx = remaining.findIndex(l => {
+                const t = l.trim();
+                return Boolean(t) && !t.startsWith('#');
+              });
+              const insertAt = firstActiveIdx === -1 ? remaining.length : firstActiveIdx;
+              result = [
+                ...remaining.slice(0, insertAt),
+                HISTORY_BEGIN,
+                historyLine,
+                HISTORY_END,
+                '',
+                ...remaining.slice(insertAt),
+              ];
+            }
+
+            const updated = result.join('\n').replace(/\n*$/, '\n');
+
+            try {
+              await github.rest.repos.createOrUpdateFileContents({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                path: '.github/VOUCHED',
+                branch: 'vouched',
+                message: `chore: devouch ${target}\n\nDevouched by ${commenter} in #${issueNumber}.${reason ? `\n\nReason: ${reason}${truncationNote}` : ''}`,
+                content: Buffer.from(updated, 'utf-8').toString('base64'),
+                sha: file.sha,
+              });
+            } catch (e) {
+              core.setFailed(`Could not update .github/VOUCHED: ${e.message}`);
+              await reply(
+                `Could not update the vouched list, it may have changed at the same time. Please try the command again.`
+              );
+              return;
+            }
+
+            await reply(
+              `@${target} has been devouched by @${commenter}.${reason ? ` Reason: ${reason}${truncationNote}` : ''} ` +
+              `New or reopened pull requests from that account will be closed by the vouch check until re-vouched. ` +
+              `This does not close pull requests that are already open; close those separately if needed.`
+            );
