@@ -1883,3 +1883,29 @@ def test_nested_omissions_alone_are_still_tolerated():
     result = verify_manifest(sign(m), base_context(), store())
 
     assert result.result != OverallResult.MISMATCH
+
+
+@pytest.mark.parametrize("level", [0, 1, 2, 3])
+@pytest.mark.parametrize("policy", ["log-only", "alert-on-drift", "deny-on-drift"])
+def test_memory_drift_policy_conformance(level, policy):
+    manifest = base_manifest()
+    manifest["artifacts"]["memory_baseline"] = {
+        "baseline_id": manifest["manifest_id"],
+        "memory_type": "none",
+        "store": "local",
+        "approved_at": NOW.isoformat(),
+        "bound_at": NOW.isoformat(),
+        "drift_policy": policy,
+    }
+    sign(manifest)
+    attach_transparency_entry(manifest)
+    result = verify_manifest(manifest, base_context(
+        conformance_level=level,
+        verified_transparency_entry_ids={TRANSPARENCY_ENTRY_ID},
+        transparency_evidence_manifest_id=manifest["manifest_id"],
+    ), store())
+    forbidden = level >= 2 and policy == "log-only"
+    assert result.result == (OverallResult.MISMATCH if forbidden else OverallResult.VALID)
+    assert [d.field for d in result.mismatch_details] == (
+        ["memory_baseline.drift_policy"] if forbidden else []
+    )
