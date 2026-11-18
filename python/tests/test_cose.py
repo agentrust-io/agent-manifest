@@ -34,7 +34,6 @@ from agent_manifest._cose import (
     MEDIA_TYPE_MANIFEST_COSE,
     MEDIA_TYPE_MANIFEST_JSON,
     CoseDowngradeError,
-    CoseError,
     CoseKeyError,
     CoseStructureError,
     CoseVersionError,
@@ -1569,12 +1568,21 @@ def test_truncated_cbor_is_rejected():
         verify_cose_manifest(b"\x82\x01", TRUSTED_KEYS)
 
 
+def _assert_cose_rejection(error: CoseStructureError, expected_prefix: str) -> None:
+    message = str(error)
+    if message.startswith("COSE object is not valid CBOR:"):
+        assert isinstance(error.__cause__, cbor2.CBORDecodeError), (
+            f"expected a CBOR decode error, got {error.__cause__!r}"
+        )
+    else:
+        assert message.startswith(expected_prefix), message
+
+
 def test_a_bare_break_byte_is_rejected():
     """Reject the bare break whether cbor2 raises or returns a sentinel."""
-    with pytest.raises(
-        CoseStructureError, match=r"^(?:untagged COSE structure|COSE object is not valid CBOR:)"
-    ):
+    with pytest.raises(CoseStructureError) as rejected:
         verify_cose_manifest(b"\xff", TRUSTED_KEYS)
+    _assert_cose_rejection(rejected.value, "untagged COSE structure")
 
 
 def test_deeply_nested_cbor_is_rejected_not_crashed():
@@ -2042,11 +2050,9 @@ def test_signature_slot_type_is_checked_at_decode():
         lambda: attach_unprotected(envelope, 1, b"x"),
         lambda: decode_cose_manifest(envelope),
     ):
-        with pytest.raises(
-            CoseStructureError,
-            match=r"^(?:COSE_Sign1 signature must be a byte string|COSE object is not valid CBOR:)",
-        ):
+        with pytest.raises(CoseStructureError) as rejected:
             call()
+        _assert_cose_rejection(rejected.value, "COSE_Sign1 signature must be a byte string")
 
 
 def test_unprotected_header_sentinel_is_checked_at_decode():
@@ -2076,18 +2082,13 @@ def test_unprotected_header_sentinel_is_checked_at_decode():
         lambda: attach_unprotected(envelope, 1, b"x"),
         lambda: attach_attestation(envelope, {"platform": "x"}),
         lambda: attach_approvals(envelope, [{"approver_id": "a"}]),
+        lambda: decode_cose_manifest(envelope),
     ):
-        with pytest.raises(
-            CoseStructureError,
-            match=r"^(?:unprotected header contains an undecodable CBOR value|COSE object is not valid CBOR:)",
-        ):
+        with pytest.raises(CoseStructureError) as rejected:
             call()
-
-    # decode_cose_manifest never re-encodes the unprotected header, so this
-    # same envelope must still raise an SDK error. There is no valid JSON
-    # payload even if the decoder returns a break sentinel.
-    with pytest.raises(CoseError):
-        decode_cose_manifest(envelope)
+        _assert_cose_rejection(
+            rejected.value, "unprotected header contains an undecodable CBOR value"
+        )
 
 
 def test_attach_unprotected_rejects_a_caller_supplied_unencodable_value():
