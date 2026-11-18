@@ -5,6 +5,7 @@
 ### Security
 
 - **[SDK]** Enforce the existing Level 2+ memory drift-policy restriction: log-only produces a mismatch, while Levels 0 and 1 retain their existing behavior. Fixes #569.
+- **[SDK]** Return a structured mismatch when an attestation manifest pre-image cannot be canonicalized under RFC 8785, while preserving independent transparency appraisal. Fixes #568.
 
 - **[SDK]** Reject duplicate JSON members in `plugin.json` and `mcp.json`
   before canonical reference digests or MCP declaration hashes are computed.

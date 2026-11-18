@@ -1909,3 +1909,43 @@ def test_memory_drift_policy_conformance(level, policy):
     assert [d.field for d in result.mismatch_details] == (
         ["memory_baseline.drift_policy"] if forbidden else []
     )
+
+
+@pytest.mark.parametrize("trusted", [False, True])
+@pytest.mark.parametrize("enforce", [False, True])
+@pytest.mark.parametrize("value", [2**53, 2**53 + 1])
+def test_attestation_noncanonical_integer_returns_mismatch(trusted, enforce, value):
+    manifest = base_manifest()
+    manifest["operational_lifecycle"] = {"expected_lifetime_days": value}
+    manifest["attestation"] = {"platform": "tpm", "manifest_hash_in_report": SHA}
+    attach_transparency_entry(manifest)
+    context = base_context(
+        enforce_attestation=enforce,
+        require_transparency=True,
+        verified_transparency_entry_ids={TRANSPARENCY_ENTRY_ID},
+        transparency_evidence_manifest_id=manifest["manifest_id"],
+    )
+    if not trusted:
+        context.trusted_keys = {}
+    result = verify_manifest(manifest, context, store())
+    assert result.result == OverallResult.MISMATCH
+    assert result.attestation_verified is False
+    assert result.transparency_verified is True
+    assert result.fields_verified.system_prompt == FieldResult.MATCH
+    details = [d for d in result.mismatch_details if d.field == "attestation.manifest_hash_in_report"]
+    assert len(details) == 1
+    assert details[0].actual_hash == "<manifest pre-image outside canonicalization domain>"
+
+
+@pytest.mark.parametrize("value", [1, 2**53 - 1])
+def test_attestation_safe_integer_preserves_valid_appraisal(value):
+    manifest = base_manifest(operational_lifecycle={"expected_lifetime_days": value})
+    digest = _manifest_hash(manifest)
+    manifest["attestation"] = {"platform": "tpm", "manifest_hash_in_report": digest}
+    result = verify_manifest(manifest, base_context(
+        verified_attestation_manifest_hashes={digest},
+        attestation_evidence_manifest_id=manifest["manifest_id"],
+    ), store())
+    assert result.result == OverallResult.VALID
+    assert result.attestation_verified is True
+    assert result.mismatch_details == []

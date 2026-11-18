@@ -1601,8 +1601,14 @@ def verify_manifest(
                 for k, v in manifest.items()
                 if k not in ("attestation", "transparency_log_entry")
             }
-            expected_attest_hash = "sha256:" + _hashlib.sha256(_canonicalize(subset)).hexdigest()
-        if not isinstance(attestation_block, dict):
+            try:
+                expected_attest_hash = "sha256:" + _hashlib.sha256(_canonicalize(subset)).hexdigest()
+            except ValueError:
+                expected_attest_hash = None
+        if expected_attest_hash is None:
+            hash_matches = False
+            reported_hash_repr = "<manifest pre-image outside canonicalization domain>"
+        elif not isinstance(attestation_block, dict):
             # Spec 3.3: attestation MUST be omitted (not null) when there's
             # none - a present null or other non-dict value is invalid,
             # not "absent".
@@ -1661,8 +1667,11 @@ def verify_manifest(
             # manifest. Gating it on enforce_attestation meant the default
             # verifier returned VALID for exactly that.
             mismatches.append(MismatchDetail(
-                field="attestation",
-                expected_hash=expected_attest_hash,
+                field=(
+                    "attestation.manifest_hash_in_report"
+                    if expected_attest_hash is None else "attestation"
+                ),
+                expected_hash=expected_attest_hash or "<RFC 8785 canonicalizable manifest pre-image>",
                 actual_hash=reported_hash_repr,
             ))
 
