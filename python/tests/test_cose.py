@@ -34,7 +34,6 @@ from agent_manifest._cose import (
     MEDIA_TYPE_MANIFEST_COSE,
     MEDIA_TYPE_MANIFEST_JSON,
     CoseDowngradeError,
-    CoseError,
     CoseKeyError,
     CoseStructureError,
     CoseVersionError,
@@ -1569,11 +1568,21 @@ def test_truncated_cbor_is_rejected():
         verify_cose_manifest(b"\x82\x01", TRUSTED_KEYS)
 
 
+def _assert_cose_rejection(error: CoseStructureError, expected_prefix: str) -> None:
+    message = str(error)
+    if message.startswith("COSE object is not valid CBOR:"):
+        assert isinstance(error.__cause__, cbor2.CBORDecodeError), (
+            f"expected a CBOR decode error, got {error.__cause__!r}"
+        )
+    else:
+        assert message.startswith(expected_prefix), message
+
+
 def test_a_bare_break_byte_is_rejected():
-    """cbor2 decodes 0xff to a break sentinel rather than raising, so the
-    untagged-structure check is what has to catch it."""
-    with pytest.raises(CoseStructureError, match="untagged"):
+    """Reject the bare break whether cbor2 raises or returns a sentinel."""
+    with pytest.raises(CoseStructureError) as rejected:
         verify_cose_manifest(b"\xff", TRUSTED_KEYS)
+    _assert_cose_rejection(rejected.value, "untagged COSE structure")
 
 
 def test_deeply_nested_cbor_is_rejected_not_crashed():
@@ -2025,8 +2034,8 @@ def test_a_deeply_nested_payload_is_refused_before_it_is_parsed():
 def test_signature_slot_type_is_checked_at_decode():
     """A COSE body whose signature slot is not a byte string is rejected in step 1.
 
-    Found by fuzzing. cbor2 decodes a stray break byte into its internal break
-    marker, a bare ``object()``, and the signature slot was the one element
+    Found by fuzzing with a cbor2 decoder that returned a break sentinel
+    for a stray break byte. The signature slot was the one element
     ``_decode_tagged`` never type-checked. So this envelope reached
     ``attach_unprotected``, which re-encodes, and died there with
     ``CBOREncodeError`` instead of the ``CoseError`` every caller is written
@@ -2041,16 +2050,17 @@ def test_signature_slot_type_is_checked_at_decode():
         lambda: attach_unprotected(envelope, 1, b"x"),
         lambda: decode_cose_manifest(envelope),
     ):
-        with pytest.raises(CoseError, match="signature must be a byte string"):
+        with pytest.raises(CoseStructureError) as rejected:
             call()
+        _assert_cose_rejection(rejected.value, "COSE_Sign1 signature must be a byte string")
 
 
 def test_unprotected_header_sentinel_is_checked_at_decode():
     """A value inside the unprotected header cannot be an undecodable sentinel.
 
     Found by ``fuzz_cose`` (ClusterFuzzLite). Same underlying cbor2 quirk as
-    ``test_signature_slot_type_is_checked_at_decode`` above - a stray break
-    byte decodes into cbor2's internal break marker, a bare ``object()`` -
+    ``test_signature_slot_type_is_checked_at_decode`` above - older decoders
+    can return a break sentinel for a stray break byte -
     but this time the marker lands as a *value inside the unprotected header
     map* rather than in the signature slot. ``_decode_tagged`` checked that
     the unprotected header was a ``Mapping`` but never inspected what was
@@ -2072,15 +2082,13 @@ def test_unprotected_header_sentinel_is_checked_at_decode():
         lambda: attach_unprotected(envelope, 1, b"x"),
         lambda: attach_attestation(envelope, {"platform": "x"}),
         lambda: attach_approvals(envelope, [{"approver_id": "a"}]),
+        lambda: decode_cose_manifest(envelope),
     ):
-        with pytest.raises(CoseStructureError, match="undecodable CBOR value"):
+        with pytest.raises(CoseStructureError) as rejected:
             call()
-
-    # decode_cose_manifest never re-encodes the unprotected header, so this
-    # same envelope is expected to fail for an unrelated, earlier reason
-    # (there is no valid JSON payload here) rather than leak anything.
-    with pytest.raises(CoseError):
-        decode_cose_manifest(envelope)
+        _assert_cose_rejection(
+            rejected.value, "unprotected header contains an undecodable CBOR value"
+        )
 
 
 def test_attach_unprotected_rejects_a_caller_supplied_unencodable_value():
