@@ -1570,9 +1570,10 @@ def test_truncated_cbor_is_rejected():
 
 
 def test_a_bare_break_byte_is_rejected():
-    """cbor2 decodes 0xff to a break sentinel rather than raising, so the
-    untagged-structure check is what has to catch it."""
-    with pytest.raises(CoseStructureError, match="untagged"):
+    """Reject the bare break whether cbor2 raises or returns a sentinel."""
+    with pytest.raises(
+        CoseStructureError, match=r"^(?:untagged COSE structure|COSE object is not valid CBOR:)"
+    ):
         verify_cose_manifest(b"\xff", TRUSTED_KEYS)
 
 
@@ -2025,8 +2026,8 @@ def test_a_deeply_nested_payload_is_refused_before_it_is_parsed():
 def test_signature_slot_type_is_checked_at_decode():
     """A COSE body whose signature slot is not a byte string is rejected in step 1.
 
-    Found by fuzzing. cbor2 decodes a stray break byte into its internal break
-    marker, a bare ``object()``, and the signature slot was the one element
+    Found by fuzzing with a cbor2 decoder that returned a break sentinel
+    for a stray break byte. The signature slot was the one element
     ``_decode_tagged`` never type-checked. So this envelope reached
     ``attach_unprotected``, which re-encodes, and died there with
     ``CBOREncodeError`` instead of the ``CoseError`` every caller is written
@@ -2041,7 +2042,10 @@ def test_signature_slot_type_is_checked_at_decode():
         lambda: attach_unprotected(envelope, 1, b"x"),
         lambda: decode_cose_manifest(envelope),
     ):
-        with pytest.raises(CoseError, match="signature must be a byte string"):
+        with pytest.raises(
+            CoseStructureError,
+            match=r"^(?:COSE_Sign1 signature must be a byte string|COSE object is not valid CBOR:)",
+        ):
             call()
 
 
@@ -2049,8 +2053,8 @@ def test_unprotected_header_sentinel_is_checked_at_decode():
     """A value inside the unprotected header cannot be an undecodable sentinel.
 
     Found by ``fuzz_cose`` (ClusterFuzzLite). Same underlying cbor2 quirk as
-    ``test_signature_slot_type_is_checked_at_decode`` above - a stray break
-    byte decodes into cbor2's internal break marker, a bare ``object()`` -
+    ``test_signature_slot_type_is_checked_at_decode`` above - older decoders
+    can return a break sentinel for a stray break byte -
     but this time the marker lands as a *value inside the unprotected header
     map* rather than in the signature slot. ``_decode_tagged`` checked that
     the unprotected header was a ``Mapping`` but never inspected what was
@@ -2073,12 +2077,15 @@ def test_unprotected_header_sentinel_is_checked_at_decode():
         lambda: attach_attestation(envelope, {"platform": "x"}),
         lambda: attach_approvals(envelope, [{"approver_id": "a"}]),
     ):
-        with pytest.raises(CoseStructureError, match="undecodable CBOR value"):
+        with pytest.raises(
+            CoseStructureError,
+            match=r"^(?:unprotected header contains an undecodable CBOR value|COSE object is not valid CBOR:)",
+        ):
             call()
 
     # decode_cose_manifest never re-encodes the unprotected header, so this
-    # same envelope is expected to fail for an unrelated, earlier reason
-    # (there is no valid JSON payload here) rather than leak anything.
+    # same envelope must still raise an SDK error. There is no valid JSON
+    # payload even if the decoder returns a break sentinel.
     with pytest.raises(CoseError):
         decode_cose_manifest(envelope)
 
