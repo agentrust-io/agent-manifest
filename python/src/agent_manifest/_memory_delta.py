@@ -26,6 +26,7 @@ from typing import Any, Literal
 from ._canonicalize import canonicalize
 from ._merkle import _MAX_MERKLE_LEAVES, MerkleTree, verify_consistency_append
 from ._types import HashValue
+from .models import MemoryCheckpointBinding
 
 # Domain-separation tags keep one representation's leaf from colliding with
 # another's even for structurally identical canonical payloads.
@@ -143,14 +144,48 @@ def fold_kv(ops: list[dict[str, Any]]) -> dict[str, Any]:
 
 @dataclass(frozen=True)
 class MemoryCheckpoint:
-    """An approved memory state anchor over the operation log."""
+    """Verifier input backed by one complete, authenticated checkpoint binding.
 
-    memory_root: str          # HashValue ("sha256:<hex>")
-    tree_size: int            # number of operation leaves
-    seq: int                  # monotonic checkpoint sequence
-    approved_at: datetime
-    ttl_seconds: int
+    Verifiers construct this wrapper with :meth:`from_binding` after verifying
+    the manifest that carries ``artifacts.memory_checkpoint``.  Root and tree
+    size deliberately remain in that one binding so they cannot be assembled
+    from independently supplied values.
+    """
+
+    binding: MemoryCheckpointBinding
     max_delta_fraction: float = 0.5
+
+    @property
+    def memory_root(self) -> str:
+        return self.binding.memory_root
+
+    @property
+    def tree_size(self) -> int:
+        return self.binding.tree_size
+
+    @property
+    def seq(self) -> int:
+        return self.binding.seq
+
+    @property
+    def approved_at(self) -> datetime:
+        return self.binding.approved_at
+
+    @property
+    def ttl_seconds(self) -> int:
+        return self.binding.ttl_seconds
+
+    @classmethod
+    def from_binding(
+        cls,
+        binding: MemoryCheckpointBinding,
+        *,
+        max_delta_fraction: float = 0.5,
+    ) -> "MemoryCheckpoint":
+        """Wrap a checkpoint binding obtained from an authenticated manifest."""
+        if not isinstance(binding, MemoryCheckpointBinding):
+            raise TypeError("binding must be a MemoryCheckpointBinding")
+        return cls(binding=binding, max_delta_fraction=max_delta_fraction)
 
     @classmethod
     def from_ops(cls, ops: list[dict[str, Any]], representation: str, *, seq: int,
@@ -158,8 +193,16 @@ class MemoryCheckpoint:
                  max_delta_fraction: float = 0.5,
                  algorithm: str = "sha256") -> "MemoryCheckpoint":
         tree = memory_merkletree(ops, representation, algorithm=algorithm)
-        return cls(tree.root_hex(), len(ops), seq, approved_at, ttl_seconds,
-                   max_delta_fraction)
+        binding = MemoryCheckpointBinding(
+            memory_root=tree.root_hex(),
+            tree_size=len(ops),
+            seq=seq,
+            approved_at=approved_at,
+            ttl_seconds=ttl_seconds,
+        )
+        return cls.from_binding(
+            binding, max_delta_fraction=max_delta_fraction,
+        )
 
 
 @dataclass(frozen=True)
@@ -199,10 +242,12 @@ def verify_delta(
 ) -> DeltaVerdict:
     """Adjudicate a checkpoint advance prev -> new.
 
-    ``ops`` contains only the appended operations, in order, encoded using the
-    caller-selected representation. Existing roots and proof formats do not change.
-    Only fields included by the representation's leaf encoder are authenticated.
-    Unknown representations raise ValueError; malformed evidence returns drift.
+    ``prev`` and ``new`` must wrap the complete checkpoint bindings extracted
+    from authenticated manifests. ``ops`` contains only the appended operations,
+    in order, encoded using the caller-selected representation. Existing roots
+    and proof formats do not change. Only fields included by the representation's
+    leaf encoder are authenticated. Unknown representations raise ValueError;
+    malformed evidence returns drift.
 
     Order (fail-closed; LD-5): proof and operation binding -> seq monotonic -> ttl window
     -> delta budget. A failure at the consistency stage is ``drift`` — exactly
@@ -212,6 +257,9 @@ def verify_delta(
         raise ValueError(f"unknown memory representation: {representation!r}")
     encode = _ENCODERS[representation]
     if not isinstance(prev, MemoryCheckpoint) or not isinstance(new, MemoryCheckpoint):
+        return DeltaVerdict(False, "drift")
+    if (not isinstance(prev.binding, MemoryCheckpointBinding)
+            or not isinstance(new.binding, MemoryCheckpointBinding)):
         return DeltaVerdict(False, "drift")
     for checkpoint in (prev, new):
         if (any(type(v) is not int for v in

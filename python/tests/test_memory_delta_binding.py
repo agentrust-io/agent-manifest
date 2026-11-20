@@ -1,11 +1,11 @@
 """LD-5: an accepted memory delta authenticates the presented appended leaves."""
-from dataclasses import replace
 from datetime import datetime, timezone
 
 import pytest
 
 from agent_manifest._memory_delta import MemoryCheckpoint, memory_merkletree, verify_delta
 from agent_manifest._merkle import MerkleTree, _consistency_ranges, verify_consistency_append
+from agent_manifest.models import MemoryCheckpointBinding
 
 NOW = datetime(2026, 6, 15, 12, tzinfo=timezone.utc)
 
@@ -30,6 +30,31 @@ def advance(m=6, n=8, representation="kv", algorithm="sha256"):
     new = MemoryCheckpoint.from_ops(ops, representation, seq=2, **options)
     proof = memory_merkletree(ops, representation, algorithm=algorithm).consistency_proof(m)
     return prev, new, ops[m:], proof
+
+
+def unchecked_checkpoint(memory_root, tree_size, seq, approved_at, ttl_seconds,
+                         max_delta_fraction=0.5):
+    binding = MemoryCheckpointBinding.model_construct(
+        memory_root=memory_root,
+        tree_size=tree_size,
+        seq=seq,
+        approved_at=approved_at,
+        ttl_seconds=ttl_seconds,
+        approval_signature=None,
+    )
+    return MemoryCheckpoint.from_binding(
+        binding, max_delta_fraction=max_delta_fraction,
+    )
+
+
+def replace_checkpoint(checkpoint, **changes):
+    max_delta_fraction = changes.pop(
+        "max_delta_fraction", checkpoint.max_delta_fraction,
+    )
+    binding = checkpoint.binding.model_copy(update=changes)
+    return MemoryCheckpoint.from_binding(
+        binding, max_delta_fraction=max_delta_fraction,
+    )
 
 
 @pytest.mark.parametrize("bad", [[], None, ["a", 1, None],
@@ -92,10 +117,14 @@ def test_proof_intervals_match_builder_nodes_and_partition_the_append(algorithm)
 
 def test_literal_spec_vector_and_wrong_operation():
     """LD-5: fixed spec 3.2.6.2 roots/proof, independent of the tree builder."""
-    prev = MemoryCheckpoint("sha256:f2904e572018f088488c4fbd2e5fffaa3bc5f94488eec27ca73f4d1348595b91",
-                            1, 1, NOW, 3600, 1)
-    new = MemoryCheckpoint("sha256:9a41dee8ec223727525f8b26685e413664190d2b82cd62d4f7c15180a9e1f5af",
-                           2, 2, NOW, 3600, 1)
+    prev = unchecked_checkpoint(
+        "sha256:f2904e572018f088488c4fbd2e5fffaa3bc5f94488eec27ca73f4d1348595b91",
+        1, 1, NOW, 3600, 1,
+    )
+    new = unchecked_checkpoint(
+        "sha256:9a41dee8ec223727525f8b26685e413664190d2b82cd62d4f7c15180a9e1f5af",
+        2, 2, NOW, 3600, 1,
+    )
     proof = [bytes.fromhex("42effb8d6d6bf9904585248b30b039a5ede7a447a5f8fd21cc0a8b0b850c566f")]
     assert verify_delta(prev, new, [{"op": "PUT", "key": "b", "value": 2}], proof,
                         representation="kv", now=NOW).accepted
@@ -115,9 +144,9 @@ def test_malformed_checkpoint_fields_fail_closed(field, value, side):
     """LD-5: untrusted field types cannot escape as exceptions or truncate silently."""
     prev, new, delta, proof = advance()
     if side == "prev":
-        prev = replace(prev, **{field: value})
+        prev = replace_checkpoint(prev, **{field: value})
     else:
-        new = replace(new, **{field: value})
+        new = replace_checkpoint(new, **{field: value})
     assert verify_delta(prev, new, delta, proof, representation="kv", now=NOW).reason == "drift"
 
 
@@ -156,7 +185,7 @@ def test_verdict_order_nan_budget_and_ttl_overflow():
                             ({"max_delta_fraction": float("nan")}, "budget"),
                             ({"max_delta_fraction": 10**1000}, "budget"),
                             ({"max_delta_fraction": 0}, "budget")]:
-        altered = replace(new, **changes)
+        altered = replace_checkpoint(new, **changes)
         assert verify_delta(prev, altered, delta, proof, representation="kv", now=NOW).reason == reason
         assert verify_delta(prev, altered, [{"op": "DEL", "key": "x"}] * 2, proof,
                             representation="kv", now=NOW).reason == "drift"
@@ -166,8 +195,8 @@ def test_noop_is_bound_to_exact_roots_and_empty_operations():
     """LD-5: equal tree sizes permit only an empty delta with equal valid roots."""
     prev, new, delta, proof = advance(6, 6)
     assert verify_delta(prev, new, delta, proof, representation="kv", now=NOW).accepted
-    assert verify_delta(replace(prev, memory_root="sha256:ab"),
-                        replace(new, memory_root="sha256:ab"), [], [],
+    assert verify_delta(replace_checkpoint(prev, memory_root="sha256:ab"),
+                        replace_checkpoint(new, memory_root="sha256:ab"), [], [],
                         representation="kv", now=NOW).reason == "drift"
 
 

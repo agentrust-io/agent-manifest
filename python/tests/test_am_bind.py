@@ -487,13 +487,23 @@ def test_memory_checkpoint_binding_roundtrips_memory_root():
     from agent_manifest.models import MemoryCheckpointBinding
     b = MemoryCheckpointBinding(
         memory_root=HashValue("sha256:" + "c" * 64),
-        seq=3, approved_at=NOW, ttl_seconds=86400,
+        tree_size=17, seq=3, approved_at=NOW, ttl_seconds=86400,
     )
     parsed = MemoryCheckpointBinding.model_validate(b.model_dump())
     assert parsed.memory_root == "sha256:" + "c" * 64
+    assert parsed.tree_size == 17
     assert parsed.seq == 3
+    assert ArtifactBindings(memory_checkpoint=parsed).memory_checkpoint == parsed
+    with pytest.raises(ValidationError):
+        parsed.tree_size = 1
+    with pytest.raises(ValidationError):
+        MemoryCheckpointBinding(
+            memory_root=HashValue("sha256:" + "c" * 64),
+            seq=3, approved_at=NOW, ttl_seconds=86400,
+        )
     # malformed memory_root rejected by HashValue validation
     with pytest.raises(ValidationError):
         MemoryCheckpointBinding(
-            memory_root="not-a-hash", seq=1, approved_at=NOW, ttl_seconds=86400,
+            memory_root="not-a-hash", tree_size=1, seq=1,
+            approved_at=NOW, ttl_seconds=86400,
         )

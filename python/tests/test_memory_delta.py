@@ -15,6 +15,7 @@ from agent_manifest._memory_delta import (
     memory_merkletree,
     verify_delta,
 )
+from agent_manifest.models import MemoryCheckpointBinding
 
 UTC = timezone.utc
 
@@ -80,6 +81,19 @@ def test_consistency_proof_over_built_memory_tree():
 def _checkpoint(ops, seq, approved_at, ttl=3600):
     return MemoryCheckpoint.from_ops(ops, "kv", seq=seq, approved_at=approved_at,
                                      ttl_seconds=ttl, max_delta_fraction=0.5)
+
+
+def _unchecked_checkpoint(memory_root, tree_size, seq, approved_at, ttl_seconds):
+    """Build malformed runtime evidence without weakening the binding model."""
+    binding = MemoryCheckpointBinding.model_construct(
+        memory_root=memory_root,
+        tree_size=tree_size,
+        seq=seq,
+        approved_at=approved_at,
+        ttl_seconds=ttl_seconds,
+        approval_signature=None,
+    )
+    return MemoryCheckpoint.from_binding(binding)
 
 
 def test_verify_delta_accepts_proven_in_budget_advance():
@@ -172,7 +186,7 @@ def test_verify_delta_rejects_malformed_root_as_drift():
     # Bug: malformed memory_root raised KeyError instead of failing closed.
     now = datetime(2026, 6, 15, 12, 0, tzinfo=UTC)
     good = MemoryCheckpoint.from_ops(_kv(4), "kv", seq=1, approved_at=now, ttl_seconds=3600)
-    bad = MemoryCheckpoint("deadbeef", 5, 2, now, 3600)  # no 'algo:' prefix
+    bad = _unchecked_checkpoint("deadbeef", 5, 2, now, 3600)  # no 'algo:' prefix
     v = verify_delta(good, bad, [{"op": "PUT", "key": "k4", "value": 1}], [],
                      representation="kv", now=now)
     assert v.accepted is False and v.reason == "drift"
@@ -183,7 +197,7 @@ def test_verify_delta_rejects_short_hex_root_as_drift():
     # parser this was the reported bug's exact case.
     now = datetime(2026, 6, 15, 12, 0, tzinfo=UTC)
     good = MemoryCheckpoint.from_ops(_kv(4), "kv", seq=1, approved_at=now, ttl_seconds=3600)
-    bad = MemoryCheckpoint("sha256:ab", 5, 2, now, 3600)
+    bad = _unchecked_checkpoint("sha256:ab", 5, 2, now, 3600)
     v = verify_delta(good, bad, [{"op": "PUT", "key": "k4", "value": 1}], [],
                      representation="kv", now=now)
     assert v.accepted is False and v.reason == "drift"
@@ -202,8 +216,8 @@ def test_verify_delta_rejects_uppercase_hex_root_as_drift():
     new_tree = memory_merkletree(new_ops, "kv")
     good_prev_root = prev_tree.root_hex()
     upper_prev_root = good_prev_root.split(":")[0] + ":" + good_prev_root.split(":")[1].upper()
-    prev = MemoryCheckpoint(upper_prev_root, 4, 1, now, 3600)
-    new = MemoryCheckpoint(new_tree.root_hex(), 5, 2, now, 3600)
+    prev = _unchecked_checkpoint(upper_prev_root, 4, 1, now, 3600)
+    new = _unchecked_checkpoint(new_tree.root_hex(), 5, 2, now, 3600)
     proof = new_tree.consistency_proof(4)
     v = verify_delta(prev, new, [new_ops[-1]], proof, representation="kv", now=now)
     assert v.accepted is False and v.reason == "drift"
@@ -212,7 +226,7 @@ def test_verify_delta_rejects_uppercase_hex_root_as_drift():
 def test_verify_delta_rejects_long_hex_root_as_drift():
     now = datetime(2026, 6, 15, 12, 0, tzinfo=UTC)
     good = MemoryCheckpoint.from_ops(_kv(4), "kv", seq=1, approved_at=now, ttl_seconds=3600)
-    bad = MemoryCheckpoint("sha256:" + "a" * 66, 5, 2, now, 3600)
+    bad = _unchecked_checkpoint("sha256:" + "a" * 66, 5, 2, now, 3600)
     v = verify_delta(good, bad, [{"op": "PUT", "key": "k4", "value": 1}], [],
                      representation="kv", now=now)
     assert v.accepted is False and v.reason == "drift"
@@ -222,8 +236,9 @@ def test_verify_delta_rejects_algorithm_switch_as_drift():
     now = datetime(2026, 6, 15, 12, 0, tzinfo=UTC)
     prev = MemoryCheckpoint.from_ops(_kv(4), "kv", seq=1, approved_at=now, ttl_seconds=3600)
     # same hex but a different (valid) algorithm prefix is not an append
-    switched = MemoryCheckpoint("shake256:" + prev.memory_root.split(":")[1],
-                                5, 2, now, 3600)
+    switched = _unchecked_checkpoint(
+        "shake256:" + prev.memory_root.split(":")[1], 5, 2, now, 3600,
+    )
     v = verify_delta(prev, switched, [{"op": "PUT", "key": "k4", "value": 1}], [],
                      representation="kv", now=now)
     assert v.accepted is False and v.reason == "drift"
@@ -259,11 +274,11 @@ def test_memory_delta_rejects_negative_seq_and_unknown_op_kinds():
     new = MemoryCheckpoint.from_ops(new_ops, "kv", seq=2, approved_at=now, ttl_seconds=3600)
     proof = memory_merkletree(new_ops, "kv").consistency_proof(4)
 
-    bad_cp = MemoryCheckpoint(new.memory_root, 5, -1, now, 3600)
+    bad_cp = _unchecked_checkpoint(new.memory_root, 5, -1, now, 3600)
     v = verify_delta(prev, bad_cp, [new_ops[-1]], proof, representation="kv", now=now)
     assert v.accepted is False and v.reason == "drift"
 
-    bad_ttl_cp = MemoryCheckpoint(new.memory_root, 5, 2, now, -1)
+    bad_ttl_cp = _unchecked_checkpoint(new.memory_root, 5, 2, now, -1)
     v_ttl = verify_delta(prev, bad_ttl_cp, [new_ops[-1]], proof, representation="kv", now=now)
     assert v_ttl.accepted is False and v_ttl.reason == "drift"
 

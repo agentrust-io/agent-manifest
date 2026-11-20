@@ -864,26 +864,82 @@ def test_verification_still_flags_unproven_memory_change():
 
 
 def test_verification_accepts_bound_delta():
-    # Bind the new checkpoint's root in a manifest-shaped binding, then check the
-    # advance with verify_delta (model = bind, verify_delta = check).
-    from agent_manifest.models import MemoryCheckpointBinding
+    # Bind complete checkpoints in signed manifests, then check the advance
+    # using verifier inputs derived only from those authenticated objects.
+    import json
+    from hashlib import sha256
+
+    import cbor2
+
+    from agent_manifest._canonicalize import canonicalize
+    from agent_manifest._cose import decode_cose_manifest
     from agent_manifest._memory_delta import (
         MemoryCheckpoint, memory_merkletree, verify_delta,
     )
+    from agent_manifest.models import MemoryCheckpointBinding
     now = datetime(2026, 6, 15, 12, 0, tzinfo=timezone.utc)
     prev_ops = [{"op": "PUT", "key": f"k{i}", "value": i} for i in range(4)]
     new_ops = prev_ops + [{"op": "PUT", "key": "k4", "value": 1}]
-    prev = MemoryCheckpoint.from_ops(prev_ops, "kv", seq=1, approved_at=now, ttl_seconds=86400)
-    new = MemoryCheckpoint.from_ops(new_ops, "kv", seq=2, approved_at=now, ttl_seconds=86400)
-    binding = MemoryCheckpointBinding(
-        memory_root=new.memory_root, seq=new.seq, approved_at=now, ttl_seconds=86400,
+    prev_issued = MemoryCheckpoint.from_ops(
+        prev_ops, "kv", seq=1, approved_at=now, ttl_seconds=86400,
     )
+    new_issued = MemoryCheckpoint.from_ops(
+        new_ops, "kv", seq=2, approved_at=now, ttl_seconds=86400,
+    )
+
+    def signed_checkpoint(binding):
+        document = manifest()
+        document.pop("signature")
+        document["version"] = "0.2"
+        document["artifacts"]["memory_checkpoint"] = binding.model_dump(mode="json")
+        return sign_cose_sign1(document, KP)
+
+    prev_envelope = signed_checkpoint(prev_issued.binding)
+    new_envelope = signed_checkpoint(new_issued.binding)
+    assert verify_manifest(prev_envelope, ctx(), store()).signature_verified is True
+    assert verify_manifest(new_envelope, ctx(), store()).signature_verified is True
+    prev_manifest = decode_cose_manifest(prev_envelope).manifest
+    new_manifest = decode_cose_manifest(new_envelope).manifest
+
+    prev = MemoryCheckpoint.from_binding(MemoryCheckpointBinding.model_validate(
+        prev_manifest["artifacts"]["memory_checkpoint"],
+    ))
+    new = MemoryCheckpoint.from_binding(MemoryCheckpointBinding.model_validate(
+        new_manifest["artifacts"]["memory_checkpoint"],
+    ))
     proof = memory_merkletree(new_ops, "kv").consistency_proof(len(prev_ops))
     v = verify_delta(prev, new, new_ops[len(prev_ops):], proof, representation="kv", now=now)
     assert v.accepted is True
-    # the manifest binding round-trips and preserves the checkpoint anchor
-    parsed = MemoryCheckpointBinding.model_validate(binding.model_dump())
-    assert parsed.memory_root == new.memory_root and parsed.seq == new.seq
+
+    # Reinterpreting the signed four-leaf root as a one-leaf tree would make
+    # this synthetic two-leaf extension verify under the old disconnected size.
+    attacker_op = {"op": "PUT", "key": "attacker", "value": 1}
+    attacker_preimage = b'am-mem-kv\x00{"key":"attacker","op":"PUT","value":1}'
+    attacker_leaf = sha256(b"\x00" + attacker_preimage).digest()
+    prev_root = bytes.fromhex(prev.memory_root.split(":", 1)[1])
+    synthetic_root = sha256(b"\x01" + prev_root + attacker_leaf).hexdigest()
+    synthetic = MemoryCheckpoint.from_binding(MemoryCheckpointBinding(
+        memory_root="sha256:" + synthetic_root,
+        tree_size=2,
+        seq=2,
+        approved_at=now,
+        ttl_seconds=86400,
+    ))
+    rejected = verify_delta(
+        prev, synthetic, [attacker_op], [attacker_leaf],
+        representation="kv", now=now,
+    )
+    assert rejected.accepted is False and rejected.reason == "drift"
+
+    # The only size that reaches from_binding is inside the signed artifact;
+    # changing it after signing invalidates the manifest authentication.
+    tagged = cbor2.loads(prev_envelope)
+    body = list(tagged.value)
+    tampered_payload = json.loads(body[2].decode())
+    tampered_payload["artifacts"]["memory_checkpoint"]["tree_size"] = 1
+    body[2] = canonicalize(tampered_payload)
+    tampered = cbor2.dumps(cbor2.CBORTag(tagged.tag, body), canonical=True)
+    assert verify_manifest(tampered, ctx(), store()).signature_verified is False
 
 
 # ---------------------------------------------------------------------------

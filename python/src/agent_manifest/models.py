@@ -668,16 +668,20 @@ class MemoryCheckpointBinding(SpecModel):
     """Artifact #6 checkpoint anchor - spec Section 3.2.6.2 (v0.2).
 
     Additive companion to MemoryBaselineBinding. Binds the append-only
-    operation-log root (`memory_root`) for a governed checkpoint advance, so a
-    verifier can check an incremental memory delta via an RFC 9162 consistency
-    proof (see `_memory_delta.verify_delta`) instead of re-approving the whole
-    store. `snapshot_hash` semantics in MemoryBaselineBinding are unchanged; the
-    materialized set-snapshot is a fold over the log.
+    operation-log root (`memory_root`) and its exact `tree_size` for a governed
+    checkpoint advance, so a verifier can check an incremental memory delta via
+    an RFC 9162 consistency proof (see `_memory_delta.verify_delta`) instead of
+    re-approving the whole store. `snapshot_hash` semantics in
+    MemoryBaselineBinding are unchanged; the materialized set-snapshot is a fold
+    over the log.
 
     ttl_seconds: min 3600 (1 hour), max 7776000 (90 days).
     """
 
+    model_config = ConfigDict(frozen=True)
+
     memory_root: HashValue
+    tree_size: int = Field(ge=0)
     seq: int = Field(ge=0)
     approved_at: datetime
     ttl_seconds: int = Field(ge=3_600, le=7_776_000)
@@ -773,7 +777,7 @@ class HitlRecord(SpecModel):
 
 
 class ArtifactBindings(SpecModel):
-    """Container for the 8 artifact bindings that live under `artifacts`."""
+    """Container for artifact bindings and their signed checkpoint anchors."""
 
     system_prompt: Optional[SystemPromptBinding] = None
     policy_bundle: Optional[PolicyBundleBinding] = None
@@ -781,6 +785,7 @@ class ArtifactBindings(SpecModel):
     model_identity: Optional[ModelIdentityBinding] = None
     rag_corpus: Optional[RagCorpusBinding] = None
     memory_baseline: Optional[MemoryBaselineBinding] = None
+    memory_checkpoint: Optional[MemoryCheckpointBinding] = None
     decision_trace: Optional[DecisionTraceBinding] = None
     supply_chain: Optional[SupplyChainBinding] = None
 

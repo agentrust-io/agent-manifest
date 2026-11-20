@@ -128,7 +128,7 @@ Two update paths are defined:
 
 - Full re-issuance: A new UUID v7, a new TEE attestation run, and a new transparency registration - v0.1: a new `transparency_log_entry` (section 3.6); v0.2: a new COSE receipt from registration with a Transparency Service, carried in the COSE `receipts` header per `agent-manifest-cose-envelope-v0.2.md`. Required when any artifact binding changes, the signing key rotates, or the manifest expires.
 - Artifact-only refresh: **Withdrawn at Level 1 and above** <!-- CHANGED: #265 --> in favour of the memory checkpoint protocol. It permitted `memory_baseline.snapshot_hash` to be renewed and the manifest re-signed without re-running the TEE attestation, which cannot hold: `manifest_hash_in_report` (section 3.3) binds the exact COSE payload bytes for version 0.2 manifests. Changing the snapshot hash therefore requires a new manifest payload and a fresh attestation binding that payload. The retained attestation binds the previously issued document. A verifier had to either reject the refreshed manifest or stop enforcing the binding, and both cannot be conformant at once. At Level 1 and above, any change to a signed field MUST produce a new manifest and a fresh attestation binding its new `manifest_hash_in_report`. At Level 0 there is no attestation to invalidate, so a re-signed manifest with a new `manifest_id` is the only requirement and the refresh path adds nothing.
-- Governed memory evolution: Memory may advance without re-attesting the root manifest through the checkpoint and delta protocol in section 3.2.6.2, which binds the advance in a separate object with its own consistency proof and freshness rule. That protocol exists so a growing memory store does not have to mutate the document whose exact hash was attested. A checkpoint advance is not a refreshed manifest and MUST NOT be presented as one.
+- Governed memory evolution: Memory may advance without re-approving the whole store through the checkpoint and delta protocol in section 3.2.6.2. The complete checkpoint is a signed artifact binding with its own consistency proof and freshness rule. Under the manifest carrier defined there, advancing the checkpoint changes the signed payload, so Level 1+ deployments MUST issue a new manifest and fresh attestation under the full re-issuance rule above. An unsigned standalone checkpoint is not a governed advance.
 
 Version Negotiation
 
@@ -627,7 +627,22 @@ that rewrites or removes an existing log position. The materialized current memo
 (last-writer-wins for `PUT`/`DEL`).
 
 Checkpoint. A checkpoint binds `{memory_root, tree_size, seq, approved_at, ttl_seconds}`
-(see `MemoryCheckpointBinding`). `seq` is a strictly monotonic checkpoint counter.
+(see `MemoryCheckpointBinding`). The complete binding is carried as
+`artifacts.memory_checkpoint`, inside the manifest signature. A verifier MUST construct its
+prior and new checkpoint inputs from those authenticated bindings and MUST NOT combine an
+authenticated `memory_root` with a separately supplied `tree_size`. `seq` is a strictly
+monotonic checkpoint counter.
+
+```json
+"memory_checkpoint": {
+  "memory_root": "sha256:<64-hex-chars>  -- REQUIRED",
+  "tree_size": "<integer>  -- REQUIRED (operation leaves)",
+  "seq": "<integer>  -- REQUIRED (strictly monotonic)",
+  "approved_at": "<ISO 8601 UTC>  -- REQUIRED",
+  "ttl_seconds": "<integer 3600..7776000>  -- REQUIRED",
+  "approval_signature": "<checkpoint approval signature>  -- OPTIONAL"
+}
+```
 
 Delta acceptance. A verifier presented with a prior checkpoint, a new checkpoint, and an
 RFC 9162 §2.1.2 consistency proof MUST accept the advance as a governed checkpoint (NOT

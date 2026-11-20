@@ -4,6 +4,12 @@
 
 ### Security
 
+- **[Spec/SDK]** Memory checkpoint bindings now authenticate `tree_size`
+  alongside `memory_root` under the manifest's signed `artifacts` object.
+  Delta-verifier inputs retain that complete binding, preventing a trusted
+  multi-leaf root from being reinterpreted as a one-leaf checkpoint while
+  preserving valid append-only advances.
+
 - **[SDK]** Enforce the existing Level 2+ memory drift-policy restriction: log-only produces a mismatch, while Levels 0 and 1 retain their existing behavior. Fixes #569.
 
 - **[SDK]** Reject duplicate JSON members in `plugin.json` and `mcp.json`
