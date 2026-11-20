@@ -214,26 +214,26 @@ def test_merkle_single_leaf():
     assert t.root() == lh
 
 def test_catalog_root_vector():
-    """Verified test vector (computed via PowerShell SHA-256)."""
+    """Published versioned full-ToolEntry catalog vector."""
     from agent_manifest.models import ToolEntry
     tools = [
         ToolEntry(
-            tool_id="com.example.read_customer_record", tool_name="read",
-            endpoint_id="spiffe://x/s",
+            tool_id="com.example.read_customer_record", tool_name="read_customer_record",
+            endpoint_id="spiffe://trust.example/mcp/server",
             schema_hash=HashValue("sha256:" + "aa" * 32),
             description_hash=HashValue("sha256:" + "bb" * 32),
-            version="1.0",
+            version="1.0.0",
         ),
         ToolEntry(
-            tool_id="com.example.send_notification", tool_name="send",
-            endpoint_id="spiffe://x/s",
+            tool_id="com.example.send_notification", tool_name="send_notification",
+            endpoint_id="spiffe://trust.example/mcp/server",
             schema_hash=HashValue("sha256:" + "cc" * 32),
             description_hash=HashValue("sha256:" + "dd" * 32),
-            version="1.0",
+            version="1.0.0",
         ),
     ]
     root = build_catalog_tree(tools)
-    assert root == "sha256:afd1d90ec5aa07f31ae20ab040a04652c76f3078c4d0434de2a17b0cb61c40dd"
+    assert root == "sha256:37726d727e06abf575393dddbf4182d31f524356f6ed720884a1a2527afd3f31"
 
 def test_corpus_root_vector():
     """Verified test vector (computed via PowerShell SHA-256)."""

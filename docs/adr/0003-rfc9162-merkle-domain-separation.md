@@ -46,6 +46,17 @@ Leaf data for composite policy sub-bundles (Section 3.2.2): the **raw digest byt
 - Leaf ordering must be deterministic: tool entries sorted by `tool_id` (lexicographic, Unicode code point order, same as RFC 8785 key ordering). Corpus documents sorted by `document_id`. Composite policy sub-bundles sorted by policy language identifier (`cedar`, `rego`, `yaml-agt`), per Section 3.2.2.
 - Empty trees (no tools, no corpus documents) are represented by the SHA-256 of the empty string: `sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`.
 
+## Amendment: versioned complete tool leaves (2026-11-20)
+
+The original tool-leaf sentence above did not define a versioned byte encoding
+and named only schema and description content. Section 3.2.3 now supersedes
+that sentence for tool catalogs: each leaf starts with the
+`agent-manifest:tool-catalog-leaf:v1` domain and commits to the RFC 8785
+canonical `ToolEntry`, including endpoint identity, protocol-native name,
+version, permission scope and egress destinations as well as both content
+hashes. Tool ordering remains lexicographic by `tool_id`, and the RFC 9162
+`0x00`/`0x01` tree separation selected by this ADR is unchanged.
+
 ## References
 
 - [RFC 9162  -  Certificate Transparency Version 2.0, Section 2.1](https://www.rfc-editor.org/rfc/rfc9162#section-2.1)

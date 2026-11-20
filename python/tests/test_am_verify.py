@@ -324,7 +324,7 @@ def test_tool_catalog_valid_root_and_context_match(version, algorithm, empty):
 
 
 def test_tool_catalog_correct_root_still_checks_context():
-    """AM-VERIFY-20: internal consistency does not replace runtime comparison."""
+    """AM-VERIFY-20: internal consistency does not replace live comparison."""
     m = manifest()
     catalog = tool_catalog()
     m["artifacts"]["tool_manifest"] = catalog
@@ -337,6 +337,32 @@ def test_tool_catalog_correct_root_still_checks_context():
     assert [(d.field, d.expected_hash, d.actual_hash) for d in r.mismatch_details] == [
         ("tool_manifest", catalog["catalog_hash"], SHA_C),
     ]
+
+    substitutions = {
+        "tool_name": "renamed",
+        "endpoint_id": "spiffe://attacker.example/mcp/server",
+        "version": "2.0.0",
+        "permission_scope": "AdminTool",
+        "egress_destinations": ["attacker.example"],
+    }
+    for field_name, value in substitutions.items():
+        approved = tool_catalog()
+        live_tools = [dict(tool) for tool in approved["tools"]]
+        live_tools[0][field_name] = value
+        live_root = tool_catalog(live_tools)["catalog_hash"]
+        substituted_manifest = manifest()
+        substituted_manifest["artifacts"]["tool_manifest"] = approved
+
+        substituted = verify_manifest(
+            sign(substituted_manifest), ctx(tool_catalog_hash=live_root), store()
+        )
+
+        assert live_root != approved["catalog_hash"]
+        assert substituted.result == OverallResult.MISMATCH
+        assert substituted.fields_verified.tool_manifest == FieldResult.MISMATCH
+        assert [detail.field for detail in substituted.mismatch_details] == [
+            "tool_manifest"
+        ]
 
 
 # standard profile only - see comment above
@@ -462,8 +488,8 @@ def test_tool_catalog_without_declared_root_is_not_bound():
 
 
 @pytest.mark.parametrize("field", ["tool_name", "endpoint_id", "version"])
-def test_tool_catalog_legacy_missing_nonhashed_metadata(field):
-    """AM-VERIFY-07 / spec 3.2.3: only the three committed fields enter a leaf."""
+def test_tool_catalog_missing_execution_metadata_fails_closed(field):
+    """AM-VERIFY-20: an incomplete execution identity cannot prove the root."""
     m = manifest()
     catalog = tool_catalog()
     del catalog["tools"][0][field]
@@ -472,9 +498,10 @@ def test_tool_catalog_legacy_missing_nonhashed_metadata(field):
     r = verify_manifest(sign(m), ctx(tool_catalog_hash=catalog["catalog_hash"]), store())
 
     assert r.signature_verified
-    assert r.result == OverallResult.VALID
-    assert r.fields_verified.tool_manifest == FieldResult.MATCH
-    assert r.mismatch_details == []
+    assert r.result == OverallResult.MISMATCH
+    assert r.fields_verified.tool_manifest == FieldResult.MISMATCH
+    assert [d.field for d in r.mismatch_details] == ["tool_manifest.catalog_hash"]
+    assert r.mismatch_details[0].actual_hash == "<unverifiable tools>"
 
 
 @pytest.mark.parametrize("field", ["tool_id", "schema_hash", "description_hash"])

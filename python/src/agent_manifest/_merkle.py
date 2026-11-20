@@ -13,8 +13,8 @@ Two concrete trees are defined by the spec:
     Leaves sorted lexicographically by leaf hash before construction.
 
   Catalog tree (Section 3.2.3):
-    leaf_data = tool_id_utf8 + b'\\x00' + schema_hash_bytes + description_hash_bytes
-    Both schema and description are bound (closes CRYPTO-002 / SPEC-03).
+    leaf_data = versioned_domain + RFC_8785_canonical_tool_entry
+    Every execution-relevant ToolEntry field is bound.
     Leaves sorted lexicographically by tool_id before construction.
 
 Hash algorithms:
@@ -27,6 +27,7 @@ import hashlib
 from dataclasses import dataclass
 from typing import Callable, Iterable, NamedTuple
 
+from ._canonicalize import canonicalize
 from ._types import HashValue
 from .models import ToolEntry
 
@@ -53,6 +54,12 @@ EMPTY_TREE: dict[str, bytes] = {
     "sha256": _sha256(b""),
     "shake256": _shake256(b""),
 }
+
+# A leaf-format version belongs in the pre-image, not only in documentation:
+# otherwise a future field-layout change could be interpreted under two
+# encodings while retaining the same catalog_hash type. The trailing NUL
+# separates the ASCII domain from the RFC 8785 JSON object that follows.
+_CATALOG_LEAF_DOMAIN_V1 = b"agent-manifest:tool-catalog-leaf:v1\x00"
 
 
 # ---------------------------------------------------------------------------
@@ -564,21 +571,18 @@ def build_catalog_tree(
     """Build the tool manifest Merkle tree and return the catalog_hash.
 
     Leaf construction per spec Section 3.2.3:
-      leaf_data = tool_id_utf8 + 0x00 + schema_hash_bytes + description_hash_bytes
+      leaf_data = "agent-manifest:tool-catalog-leaf:v1" + 0x00
+                  + RFC8785(canonical_tool_entry)
 
-    Both schema_hash and description_hash are bound so that silent MCP tool
-    description mutation (rug-pull) changes the catalog root.
+    The canonical entry binds tool_id, protocol-native tool_name, endpoint_id,
+    schema_hash, description_hash, version, permission_scope, and sorted
+    egress_destinations. Silent endpoint, authorization, egress, schema, or
+    description substitution therefore changes the catalog root.
 
-    ``schema_hash_bytes`` / ``description_hash_bytes`` are the raw digest
-    bytes of each ``HashValue`` - the algorithm prefix (``"sha256:"`` or
-    ``"shake256:"``) is stripped before hashing, per the catalog-tree
-    construction in spec Section 3.2.3. A manifest uses one algorithm
-    throughout (spec Section 3.1; profile tables in 4.1/4.2), so each
-    tool's ``schema_hash``/``description_hash`` algorithm MUST match
-    *algorithm* before its raw bytes are trusted as leaf input. Otherwise
-    two hashes with the same digest but different algorithm labels
-    (``"sha256:aa..."`` vs. ``"shake256:aa..."``) would hash to the same
-    leaf, silently dropping the algorithm each was declared under.
+    HashValue fields retain their algorithm prefixes in the canonical object.
+    A manifest nevertheless uses one algorithm throughout (spec Section 3.1;
+    profile tables in 4.1/4.2), so each tool's schema_hash and
+    description_hash algorithm MUST match *algorithm*.
 
     Tools are sorted by tool_id (lexicographic) before tree construction.
 
@@ -618,13 +622,23 @@ def build_catalog_tree(
         _require_matching_algorithm(
             tool, "description_hash", tool.description_hash, algorithm
         )
-        schema_bytes = bytes.fromhex(tool.schema_hash.hex_digest)
-        desc_bytes = bytes.fromhex(tool.description_hash.hex_digest)
-        leaf_data = (
-            tool.tool_id.encode("utf-8")
-            + b"\x00"
-            + schema_bytes
-            + desc_bytes
+        canonical_tool = {
+            "tool_id": tool.tool_id,
+            "tool_name": tool.tool_name,
+            "endpoint_id": tool.endpoint_id,
+            "schema_hash": str(tool.schema_hash),
+            "description_hash": str(tool.description_hash),
+            "version": tool.version,
+            # Absence has one canonical representation. This prevents an
+            # omitted optional scope and an explicit null from splitting the
+            # catalog while still binding any concrete permission scope.
+            "permission_scope": tool.permission_scope,
+            # Destination order has no authorization meaning, so canonicalize
+            # the set-like field before RFC 8785 preserves the array order.
+            "egress_destinations": sorted(tool.egress_destinations),
+        }
+        leaf_data = _CATALOG_LEAF_DOMAIN_V1 + canonicalize(
+            canonical_tool, exclude_none=False
         )
         tree.add_leaf(leaf_data)
 
@@ -636,9 +650,8 @@ def _require_matching_algorithm(
 ) -> None:
     """Reject a tool hash whose algorithm doesn't match the tree's.
 
-    Without this, a tool's raw digest bytes get used as leaf input no
-    matter what algorithm they claim to be - see build_catalog_tree's
-    docstring for why that's unsafe.
+    This enforces the single-algorithm catalog rule independently of the
+    algorithm labels now committed inside each canonical leaf.
     """
     tool_algorithm = hash_value.algorithm
     if tool_algorithm != algorithm:

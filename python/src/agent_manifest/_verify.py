@@ -1171,8 +1171,9 @@ def verify_manifest(
         tm.get("catalog_hash"),
         context.tool_catalog_hash,
     )
-    # Spec 3.2.3: the declared root also commits to the adjacent tools. A
-    # matching runtime hash cannot establish that internal consistency.
+    # Spec 3.2.3: the declared root also commits to every execution-relevant
+    # field of the adjacent tools. A matching trusted runtime hash cannot
+    # establish that internal consistency by itself.
     # Preserve legacy omitted bindings, but hash an explicitly empty catalog.
     if tm.get("catalog_hash") is not None and "tools" in tm:
         from ._merkle import build_catalog_tree
@@ -1181,19 +1182,26 @@ def verify_manifest(
 
         try:
             # HashValue fields were validated by the schema gate, but its str
-            # coercions are not applied to this raw dict. Reject Python-only
-            # tool IDs before passing them to the builder.
+            # coercions are not applied to this raw dict. Validate complete
+            # ToolEntry objects so endpoint and execution-policy fields cannot
+            # be discarded before the catalog root is recomputed.
             catalog_tools = []
             for tool in tm["tools"]:
-                if not isinstance(tool, dict) or not isinstance(tool.get("tool_id"), str):
-                    raise ValueError("catalog tools require string tool IDs")
-                # Construct only the Merkle inputs so legacy omissions of
-                # nonhashed metadata do not become new validation failures.
-                catalog_tools.append(ToolEntry.model_construct(
-                    tool_id=tool["tool_id"],
-                    schema_hash=HashValue(tool["schema_hash"]),
-                    description_hash=HashValue(tool["description_hash"]),
-                ))
+                if not isinstance(tool, dict):
+                    raise ValueError("catalog tools require objects")
+                for field_name in (
+                    "tool_id",
+                    "tool_name",
+                    "endpoint_id",
+                    "schema_hash",
+                    "description_hash",
+                    "version",
+                ):
+                    if not isinstance(tool.get(field_name), str):
+                        raise ValueError(
+                            f"catalog tools require string {field_name} values"
+                        )
+                catalog_tools.append(ToolEntry.model_validate(tool))
             computed_catalog_hash = build_catalog_tree(
                 catalog_tools, algorithm=HashValue(tm["catalog_hash"]).algorithm,
             )

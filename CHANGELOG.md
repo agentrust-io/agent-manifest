@@ -4,6 +4,13 @@
 
 ### Security
 
+- **[Spec/SDK]** Tool catalog roots now use a versioned RFC 8785 leaf that
+  commits to each tool's endpoint identity, protocol-native name, version,
+  schema and description hashes, permission scope, and egress destinations.
+  The verifier reconstructs complete `ToolEntry` leaves instead of discarding
+  execution metadata, and incomplete declared tools fail closed. Catalog roots
+  produced by the earlier three-field leaf format must be regenerated.
+
 - **[SDK]** Enforce the existing Level 2+ memory drift-policy restriction: log-only produces a mismatch, while Levels 0 and 1 retain their existing behavior. Fixes #569.
 
 - **[SDK]** Reject duplicate JSON members in `plugin.json` and `mcp.json`

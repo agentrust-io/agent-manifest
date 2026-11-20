@@ -440,15 +440,50 @@ AGT policy scope identifiers use the form `<namespace>:<resource-type>:<action>`
 }
 ```
 
-`catalog_hash` construction <!-- CHANGED: CRYPTO-002/SPEC-03 - catalog_hash now commits to both schema_hash and description_hash -->
+`catalog_hash` construction <!-- CHANGED: CRYPTO-002/SPEC-03 - catalog_hash now commits to both schema_hash and description_hash; SECURITY - version and complete the execution-metadata commitment -->
 
-The `catalog_hash` is a Merkle root over per-tool leaf hashes. Each leaf is computed as:
+The `catalog_hash` is a Merkle root over per-tool leaf hashes. The catalog leaf
+format is `agent-manifest:tool-catalog-leaf:v1`. For each tool, construct this
+object with exactly the following members:
+
+```json
+{
+  "tool_id": "<tool_id>",
+  "tool_name": "<tool_name>",
+  "endpoint_id": "<endpoint_id>",
+  "schema_hash": "<complete algorithm-prefixed schema_hash>",
+  "description_hash": "<complete algorithm-prefixed description_hash>",
+  "version": "<version>",
+  "permission_scope": "<permission_scope or null when absent>",
+  "egress_destinations": ["<destinations sorted lexicographically>"]
+}
+```
+
+Encode that object with RFC 8785 JSON Canonicalization (section 4.3), including
+the `permission_scope` member as JSON `null` when no scope is declared. The
+hash algorithm labels remain part of the two hash strings. Compute each leaf as:
 
 ```
-leaf_hash(tool) = SHA-256(0x00 || tool_id_utf8_bytes || 0x00 || schema_hash_bytes || description_hash_bytes)
+leaf_data = UTF8("agent-manifest:tool-catalog-leaf:v1") || 0x00 || JCS(tool_object)
+leaf_hash(tool) = H(0x00 || leaf_data)
 ```
 
-Tools are sorted lexicographically by `tool_id` before tree construction. Interior nodes use `SHA-256(0x01 || left_child_hash || right_child_hash)` per the RFC 9162 domain-separated construction (see section 4.1). This construction ensures that any mutation of either a tool's schema or its description - the primary MCP tool poisoning attack vector - breaks the `catalog_hash` Merkle root.
+`H` is the profile hash (SHA-256 for the standard profile and SHAKE-256 with a
+256-bit output for the post-quantum profile). Tools are sorted lexicographically
+by `tool_id` before tree construction. Interior nodes use
+`H(0x01 || left_child_hash || right_child_hash)` per the RFC 9162
+domain-separated construction (see section 4.1). A change to endpoint identity,
+protocol-native name, version, permission scope, egress destinations, schema,
+or description therefore changes the `catalog_hash`. Reordering the input tools
+or an individual tool's `egress_destinations` does not.
+
+The trusted component that reports the running `tool_catalog_hash` MUST derive
+each leaf from its live registration and effective authorization state at the
+time of verification, and again after a capability or policy change. It MUST
+NOT copy the signed root, accept a root supplied by the tool endpoint, or hash
+only a projection of the fields above. A verifier MUST reject a declared tool
+that lacks any required leaf field because a partial object cannot establish
+endpoint or execution-policy identity.
 
 A test vector for a two-tool catalog MUST be published in Appendix D of the reference implementation.
 
@@ -1340,7 +1375,7 @@ Content-Type: application/json
 
 Two conformant hosting models are defined:
 
-SDK-hosted mode: The agent SDK exposes the verification endpoint locally within the agent process. The endpoint returns hashes of running artifacts (not the artifacts themselves) computed by a trusted component inside the agent process. Access is restricted by mTLS using the agent's SPIFFE SVID. The "without prior operator-controlled authentication" requirement means that a regulator or third-party auditor must be able to reach the endpoint using their own SPIFFE SVID - the operator MUST NOT be able to gate this access.
+SDK-hosted mode: The agent SDK exposes the verification endpoint locally within the agent process. The endpoint returns hashes of running artifacts (not the artifacts themselves) computed by a trusted component inside the agent process. For a tool catalog, that component observes the complete live `ToolEntry` values and computes the versioned section 3.2.3 leaves; a hash supplied by a tool endpoint is not a trusted observation. Access is restricted by mTLS using the agent's SPIFFE SVID. The "without prior operator-controlled authentication" requirement means that a regulator or third-party auditor must be able to reach the endpoint using their own SPIFFE SVID - the operator MUST NOT be able to gate this access.
 
 Service-hosted mode: The agent SDK pushes signed hash attestations of running artifacts to an attestation service outside the agent process at startup and on change. The verification endpoint serves verification results using these pushed hashes. The push protocol uses the agent's SPIFFE SVID for authentication to the attestation service. Third-party verifiers access the verification endpoint without prior operator involvement.
 
@@ -1535,7 +1570,9 @@ before treating the manifest identity as bound to the session:
    manifest itself MUST surface that weaker subject source to relying parties.
 4. The runtime-loaded policy bundle hash equals
    `artifacts.policy_bundle.hash`.
-5. The runtime-loaded tool catalog hash equals
+5. The trusted runtime component recomputes the versioned section 3.2.3 tool
+   leaves from the complete live registrations and effective execution policy;
+   that runtime-loaded tool catalog hash equals
    `artifacts.tool_manifest.catalog_hash`.
 6. Any additional artifacts required by local policy, such as
    `artifacts.system_prompt.hash`, match the runtime values supplied in the
@@ -1619,7 +1656,7 @@ The Agent Manifest is the attestation layer above AGT's policy enforcement layer
 | AGT Component | Agent Manifest Integration Point |
 |---|---|
 | Cedar policy engine | `policy_bundle.hash` binds the policy bundle that AGT loads at startup. Policy bundle hash in the manifest MUST match `policy_bundle_hash` in the cMCP attestation report. |
-| Tool-definition scanner | `tool_manifest.catalog_hash` is the Merkle root over all per-tool (schema, description) leaf hashes that AGT's scanner approved. Any scanner-detected drift produces a mismatch. |
+| Tool-definition scanner | `tool_manifest.catalog_hash` is the Merkle root over the complete versioned per-tool identity, schema, description, permission and egress leaves that AGT's scanner approved. Any scanner-detected drift produces a mismatch. |
 | Audit chain (Decision BOM) | `decision_trace` binding points to AGT's hash-chained audit. The audit signing key is the same key that is TEE-sealed and whose root hash appears in `audit_chain_root`. |
 | Agent identity (SPIFFE/DID) | `agent_id` in the manifest MUST match the SPIFFE SVID presented by the agent at every tool call. Identity continuity is the chain that links the manifest to the running agent. |
 | Compliance export | The verification result (section 5.2) is the AGT compliance export for external regulators - it replaces the current SOC 2 / NIST AI RMF export with a hardware-signed equivalent. |
@@ -1867,7 +1904,7 @@ provenance field can supersede it later without changing the signed `source_bund
 |---|---|---|---|
 | T1 - Prompt Substitution | System prompt replaced in memory between approval and runtime | Undetectable. No binding exists. | `system_prompt.hash` mismatch immediately detectable at verification. |
 | T2 - Policy Swap | Cedar policy bundle replaced with permissive policy | Detectable by AGT hash check (software). Bypassable by root. | `policy_bundle.hash` bound to TEE measurement. Hardware-impossible to swap silently. |
-| T3 - Tool Rug Pull | MCP server mutates tool definition after approval | Detectable by AGT scanner (software). Re-hash bypassable. | Per-tool leaf commits to both `schema_hash` and `description_hash`. Any mutation breaks `catalog_hash` Merkle root. |
+| T3 - Tool Rug Pull | MCP server mutates tool definition after approval | Detectable by AGT scanner (software). Re-hash bypassable. | A versioned per-tool leaf commits to endpoint identity, native name, version, schema, description, permission scope and egress destinations. Any substitution breaks the `catalog_hash` Merkle root. |
 | T4 - Model Substitution | Different model version runs than was approved | Undetectable. No standard binding. | `model_identity.version` bound. API models: version check at call time. Local models: binary hash. |
 | T5 - RAG Corpus Poisoning | Malicious documents injected into knowledge base | Undetectable without corpus audit. | `rag_corpus.merkle_root` changes. Manifest invalidated. Verifier detects before agent runs. |
 | T6 - Scope Laundering | Sub-agent claims broader permissions than delegating agent granted | Undetectable. No delegation chain standard. | `delegation_chain.scope_grant` is signed at each hop. Broader scope fails signature verification. |
@@ -2166,7 +2203,7 @@ The consequence for implementers is that an Agent Manifest deployment inherits t
 | Attestation | A hardware-produced measurement that proves what code is running inside a TEE without trusting the operator. |
 | A2A | Agent-to-Agent protocol. A wire protocol for inter-agent communication, currently governed by the Linux Foundation. As of the date of this specification, no A2A standard defines a delegation chain or inter-agent trust primitive. |
 | AGT | Agent Governance Toolkit. The open-source agent governance framework created by Imran Siddique; reference implementation of this specification's software layer. |
-| Catalog Hash | Merkle root over per-tool leaf hashes, where each leaf commits to both the tool's schema hash and description hash. |
+| Catalog Hash | Merkle root over versioned per-tool leaves that commit to the complete tool identity, content hashes and execution policy. |
 | cMCP | Confidential MCP. A hardware-attested MCP runtime; the reference implementation of this specification's attestation layer. |
 | Decision BOM | Decision Bill of Materials. AGT's per-audit-record structure capturing the inputs, policy decision, and outcome for each governance decision. |
 | Delegation Chain | The ordered sequence of principals and scope grants from root human principal to the current agent. An original design of this specification; no published A2A standard defines an equivalent primitive. |
@@ -2229,27 +2266,33 @@ assert hashlib.sha256(canonical).hexdigest() == "b83293348255f4427dc030478f354b8
 
 #### D.2 Two-tool `catalog_hash` (section 3.2.3)
 
-The vector section 3.2.3 requires. Algorithm: SHA-256 with the RFC 9162 domain separation of section 4.1 (`0x00` leaf prefix, `0x01` interior prefix). Committed fields per leaf: `tool_id`, `schema_hash`, `description_hash`, in that order. Hash values below are the raw 32 digest bytes, not the `sha256:` string.
+The vector section 3.2.3 requires. Algorithm: SHA-256 with the RFC 9162 domain separation of section 4.1 (`0x00` leaf prefix, `0x01` interior prefix). The leaf format is `agent-manifest:tool-catalog-leaf:v1`; its trailing `0x00` separator precedes the RFC 8785 canonical JSON object. Hash fields in that object include their `sha256:` labels.
 
-| | `tool_id` | `schema_hash` bytes | `description_hash` bytes |
-|---|---|---|---|
-| Tool 1 | `com.example.read_customer_record` | `aa` repeated 32 times | `bb` repeated 32 times |
-| Tool 2 | `com.example.send_notification` | `cc` repeated 32 times | `dd` repeated 32 times |
+| | Tool 1 | Tool 2 |
+|---|---|---|
+| `tool_id` | `com.example.read_customer_record` | `com.example.send_notification` |
+| `tool_name` | `read_customer_record` | `send_notification` |
+| `endpoint_id` | `spiffe://trust.example/mcp/server` | `spiffe://trust.example/mcp/server` |
+| `schema_hash` digest | `aa` repeated 32 times | `cc` repeated 32 times |
+| `description_hash` digest | `bb` repeated 32 times | `dd` repeated 32 times |
+| `version` | `1.0.0` | `1.0.0` |
+| `permission_scope` | `null` | `null` |
+| `egress_destinations` | `[]` | `[]` |
 
 Leaf pre-images, sorted by `tool_id`:
 
 ```
-leaf1 = SHA-256(0x00 || "com.example.read_customer_record" || 0x00 || aa*32 || bb*32)
-      = f7af288cd917b5258bfd6322d215fb6648d0bff244c6c8893287339cfb7039e0
-leaf2 = SHA-256(0x00 || "com.example.send_notification"   || 0x00 || cc*32 || dd*32)
-      = b6b7227c3a7f64b152baf401952d55e6e844a4b9bccc963098acae963c62607a
+leaf1 = SHA-256(0x00 || UTF8("agent-manifest:tool-catalog-leaf:v1") || 0x00 || JCS(tool1))
+      = 16631f7e4ccb7b872dddce27b23957bcb79e878dafb933a6daf847352e7cff45
+leaf2 = SHA-256(0x00 || UTF8("agent-manifest:tool-catalog-leaf:v1") || 0x00 || JCS(tool2))
+      = 58d2ebd7d95924a4f6d52393864da13b00f473685685d293ef7d1ba272acf92e
 ```
 
 Root:
 
 ```
 catalog_hash = SHA-256(0x01 || leaf1 || leaf2)
-             = afd1d90ec5aa07f31ae20ab040a04652c76f3078c4d0434de2a17b0cb61c40dd
+             = 37726d727e06abf575393dddbf4182d31f524356f6ed720884a1a2527afd3f31
 ```
 
 Reordered-input control: supplying Tool 2 before Tool 1 produces the same `catalog_hash`, because leaves are sorted by `tool_id` before tree construction. An implementation that hashes in input order produces a different root and fails this vector.
@@ -2258,12 +2301,17 @@ Empty catalog: the root of a tree with no leaves is SHA-256 of the empty string,
 
 Verification:
 ```python
-import hashlib
-def leaf(tool_id, schema, description):
-    return hashlib.sha256(b"\x00" + tool_id.encode() + b"\x00" + schema + description).digest()
-l1 = leaf("com.example.read_customer_record", b"\xaa" * 32, b"\xbb" * 32)
-l2 = leaf("com.example.send_notification", b"\xcc" * 32, b"\xdd" * 32)
-assert hashlib.sha256(b"\x01" + l1 + l2).hexdigest() == "afd1d90ec5aa07f31ae20ab040a04652c76f3078c4d0434de2a17b0cb61c40dd"
+import hashlib, json
+
+domain = b"agent-manifest:tool-catalog-leaf:v1\x00"
+def leaf(tool):
+    canonical = json.dumps(tool, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode()
+    return hashlib.sha256(b"\x00" + domain + canonical).digest()
+
+tool1 = {"tool_id": "com.example.read_customer_record", "tool_name": "read_customer_record", "endpoint_id": "spiffe://trust.example/mcp/server", "schema_hash": "sha256:" + "aa" * 32, "description_hash": "sha256:" + "bb" * 32, "version": "1.0.0", "permission_scope": None, "egress_destinations": []}
+tool2 = {"tool_id": "com.example.send_notification", "tool_name": "send_notification", "endpoint_id": "spiffe://trust.example/mcp/server", "schema_hash": "sha256:" + "cc" * 32, "description_hash": "sha256:" + "dd" * 32, "version": "1.0.0", "permission_scope": None, "egress_destinations": []}
+l1, l2 = leaf(tool1), leaf(tool2)
+assert hashlib.sha256(b"\x01" + l1 + l2).hexdigest() == "37726d727e06abf575393dddbf4182d31f524356f6ed720884a1a2527afd3f31"
 ```
 
 The reference implementation carries the same values in `python/tests/test_merkle.py`.

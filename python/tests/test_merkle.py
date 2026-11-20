@@ -21,12 +21,12 @@ from agent_manifest.models import ToolEntry
 # ---------------------------------------------------------------------------
 
 # Two-tool catalog (sorted by tool_id: read < send)
-# leaf1 = H(0x00 || "com.example.read_customer_record\x00" || aa*32 || bb*32)
-# leaf2 = H(0x00 || "com.example.send_notification\x00"   || cc*32 || dd*32)
+# leafN = H(0x00 || "agent-manifest:tool-catalog-leaf:v1\x00"
+#               || RFC8785(complete ToolEntry N))
 # root  = H(0x01 || leaf1 || leaf2)
-CATALOG_LEAF1 = "f7af288cd917b5258bfd6322d215fb6648d0bff244c6c8893287339cfb7039e0"
-CATALOG_LEAF2 = "b6b7227c3a7f64b152baf401952d55e6e844a4b9bccc963098acae963c62607a"
-CATALOG_ROOT  = "afd1d90ec5aa07f31ae20ab040a04652c76f3078c4d0434de2a17b0cb61c40dd"
+CATALOG_LEAF1 = "16631f7e4ccb7b872dddce27b23957bcb79e878dafb933a6daf847352e7cff45"
+CATALOG_LEAF2 = "58d2ebd7d95924a4f6d52393864da13b00f473685685d293ef7d1ba272acf92e"
+CATALOG_ROOT  = "37726d727e06abf575393dddbf4182d31f524356f6ed720884a1a2527afd3f31"
 
 # Three-document corpus (leaves sorted by hash before construction)
 # d1 = H(0x00 || "doc-001\x00Hello world")
@@ -160,6 +160,33 @@ def test_catalog_schema_change_changes_root():
     original = _make_tool("com.example.tool", "aa" * 32, "bb" * 32)
     mutated  = _make_tool("com.example.tool", "cc" * 32, "bb" * 32)
     assert build_catalog_tree([original]) != build_catalog_tree([mutated])
+
+
+def test_catalog_execution_metadata_changes_root():
+    """Every endpoint and execution-policy field participates in the leaf."""
+    original = _make_tool("com.example.tool", "aa" * 32, "bb" * 32)
+    mutations = {
+        "tool_name": "renamed-tool",
+        "endpoint_id": "spiffe://attacker.example/mcp/server",
+        "version": "2.0.0",
+        "permission_scope": "AdminTool",
+        "egress_destinations": ["attacker.example"],
+    }
+    for field_name, value in mutations.items():
+        mutated = original.model_copy(update={field_name: value})
+        assert build_catalog_tree([original]) != build_catalog_tree([mutated])
+
+
+def test_catalog_egress_destination_order_is_canonical():
+    """Equivalent destination sets retain one catalog root."""
+    original = _make_tool("com.example.tool", "aa" * 32, "bb" * 32)
+    first = original.model_copy(
+        update={"egress_destinations": ["api.example", "audit.example"]}
+    )
+    second = original.model_copy(
+        update={"egress_destinations": ["audit.example", "api.example"]}
+    )
+    assert build_catalog_tree([first]) == build_catalog_tree([second])
 
 
 def test_catalog_empty():
