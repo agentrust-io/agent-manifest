@@ -910,21 +910,52 @@ Runtime Attestation Report fields
 | Field | Type | Description |
 |-------|------|-------------|
 | `platform` | string | Same values as `attestation.platform` |
-| `report_data_hash` | string | `sha256:` + SHA-256 of `caller_data` above |
-| `context_hash` | string | The `sha256:<hex>` context hash supplied by the caller |
-| `nonce_hex` | string | Hex encoding of the verifier-supplied nonce |
-| `quote` | bytes (optional) | Raw platform quote blob for hardware signature verification |
+| `report_data_hash` | string | Convenience copy of `sha256:` + SHA-256 of `caller_data` above; not attestation evidence |
+| `context_hash` | string | Convenience copy of the `sha256:<hex>` context hash supplied by the caller; not attestation evidence |
+| `nonce_hex` | string | Convenience copy of the verifier-supplied nonce in hexadecimal; not attestation evidence |
+| `quote` | bytes | Raw platform quote blob carrying the signed caller data and boot measurement; REQUIRED |
 
 Verification
 
-A verifier MUST:
-1. Confirm `report_data_hash == sha256(sha256(nonce || context_hash_bytes))` using `verify_runtime_report()` or equivalent. A report that fails this check MUST be rejected.
-2. Confirm that the boot measurement in the raw `quote` blob matches the `measurement` field in the manifest's `attestation` block. A mismatch indicates the runtime report was produced in a different TEE than the one that was originally attested.
-3. Optionally verify the hardware signature in `quote` using the platform vendor SDK (`amd sev-snp-verify`, Intel TDX Attest SDK, `tpm2_checkquote`).
+A verifier MUST apply the verification procedure for `platform` and MUST reject an
+unsupported platform or a report for which any step below cannot be completed:
+
+1. Require a non-empty, well-formed raw `quote` and every certificate, trust anchor,
+   endorsement, revocation record, and TCB or platform collateral required by the
+   applicable platform verification procedure. Trust anchors MUST be configured by
+   the verifier independently of the report producer. Missing, unavailable, stale,
+   or invalid required material MUST cause rejection.
+2. Verify the platform signature over `quote` and validate the complete certification
+   chain to a trusted root using the platform vendor's verification procedure (for
+   example, AMD VCEK/ASK/ARK validation, Intel TDX DCAP quote and PCK-chain
+   validation, or TPM AK-signature and AK-chain validation). Any signature, chain,
+   revocation, or platform-collateral failure MUST cause rejection.
+3. Only after step 2 succeeds, parse the caller-controlled field and boot measurement
+   from the exact bytes covered by the verified signature. The verifier MUST NOT use
+   `report_data_hash`, `context_hash`, `nonce_hex`, or any provider-supplied parsed
+   copy to establish freshness, context binding, or TEE identity.
+4. Compute `caller_data = sha256(nonce || context_hash_bytes)` from the verifier's
+   outstanding nonce and its independently computed expected runtime-context hash.
+   Compare that value with the caller-controlled field extracted in step 3 according
+   to the platform profile. A mismatch MUST cause rejection.
+5. Compare the boot measurement extracted in step 3 with the `measurement` field in
+   the manifest's `attestation` block. A mismatch MUST cause rejection because the
+   runtime report was produced in a different TEE than the one originally attested.
+
+The verifier MUST return an accepted hardware-attestation appraisal only when every
+step succeeds. The convenience fields MAY be checked for consistency or displayed
+for diagnostics, but matching values in those unsigned fields MUST NOT substitute for
+any check above.
 
 What runtime attestation does not prove
 
-A Runtime Attestation Report does not prove that the values in `context_hash` are correct; it proves only that the agent claimed this context hash in a TEE with the specified boot measurement at the moment the nonce was signed. The verifier is responsible for independently computing the expected `context_hash` from the live artifacts and comparing it against `report.context_hash`.
+A Runtime Attestation Report does not prove that the runtime artifacts summarized by
+the context hash are correct. The verifier is responsible for independently computing
+the expected `context_hash` from the live artifacts and using that value in verification
+step 4. Only a match against the caller-controlled field extracted from the verified
+signed quote proves that the TEE bound that expected context hash to the outstanding
+nonce. Comparing the expected value only with the unsigned `report.context_hash`
+convenience field proves nothing.
 
 Scheduling
 
