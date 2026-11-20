@@ -330,9 +330,10 @@ class AuditChainContinuity(BaseModel):
     JSON-serializable over the Section 5.1 endpoint.
     """
 
-    # Chain state at manifest signing time, as served by the runtime. Both
-    # MUST agree with decision_trace.audit_chain_root / entry_count when the
-    # manifest carries them; a disagreement is discontinuity, not a hint.
+    # Chain state at manifest signing time, as served by the runtime. The root
+    # MUST agree with decision_trace.audit_chain_root. Continuity requires the
+    # manifest to carry entry_count, which MUST agree with signed_tree_size; a
+    # disagreement is discontinuity, not a hint.
     signed_tree_size: int = Field(ge=0)
     current_tree_size: int = Field(ge=0)
     signed_seq: int = Field(default=0, ge=0)
@@ -645,10 +646,11 @@ def _check_decision_trace(
       MATCH      roots identical - the chain has not moved.
       EXTENDED   roots differ, and continuity evidence proves the signed root
                  is an append-only prefix of the running root.
-      MISMATCH   roots differ with no proof, a failed proof, a rollback, or a
-                 stale checkpoint. Unchanged fail-closed behaviour: an
-                 unproven divergence is exactly the rebuilt-chain case
-                 Section 3.2.7 already requires a verifier to reject.
+      MISMATCH   roots differ with no signed count, no proof, a failed proof,
+                 a rollback, or a stale checkpoint. Unchanged fail-closed
+                 behaviour: an unproven divergence is exactly the
+                 rebuilt-chain case Section 3.2.7 requires a verifier to
+                 reject.
     """
     signed_root = dt.get("audit_chain_root")
     running_root = context.audit_chain_root
@@ -669,10 +671,10 @@ def _check_decision_trace(
         return FieldResult.MISMATCH
 
     signed_count = dt.get("entry_count")
-    if signed_count is not None and signed_count != continuity.signed_tree_size:
-        # entry_count is the only size the issuer signed. If the runtime
-        # reports a different signed size, the proof is being anchored at a
-        # position the manifest never committed to.
+    if signed_count is None or signed_count != continuity.signed_tree_size:
+        # entry_count is the only size the issuer signed. Without it, or when
+        # the runtime reports a different signed size, the proof is being
+        # anchored at a position the manifest never committed to.
         mismatches.append(MismatchDetail(
             field="decision_trace",
             expected_hash=signed_root,

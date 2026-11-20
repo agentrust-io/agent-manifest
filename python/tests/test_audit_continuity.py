@@ -585,6 +585,40 @@ def test_verify_manifest_matches_an_unmoved_chain():
     assert result.fields_verified.decision_trace == FieldResult.MATCH
 
 
+def test_unmoved_chain_does_not_require_an_entry_count():
+    from agent_manifest._verify import FieldResult
+    manifest = _manifest_with_trace(CHAIN_2, 2)
+    manifest["artifacts"]["decision_trace"].pop("entry_count")
+    result = _verify(manifest, {"audit_chain_root": CHAIN_2})
+    assert result.fields_verified.decision_trace == FieldResult.MATCH
+
+
+def test_runtime_size_cannot_extend_a_root_without_a_signed_entry_count():
+    """An unsigned size must not reinterpret an authenticated root as a
+    one-entry chain that the runtime can extend synthetically."""
+    from agent_manifest._verify import FieldResult
+    appended_leaf = _leaves(3)[2]
+    signed_root = bytes.fromhex(CHAIN_2.removeprefix("sha256:"))
+    synthetic_root = "sha256:" + extend_hash_chain(
+        signed_root, [appended_leaf]
+    ).hex()
+    manifest = _manifest_with_trace(CHAIN_2, 2)
+    manifest["artifacts"]["decision_trace"].pop("entry_count")
+    result = _verify(
+        manifest,
+        {
+            "audit_chain_root": synthetic_root,
+            "audit_chain_continuity": {
+                "signed_tree_size": 1, "current_tree_size": 2,
+                "signed_seq": 1, "current_seq": 2,
+                "appended_entry_leaves": [appended_leaf.hex()],
+            },
+        },
+    )
+    assert result.fields_verified.decision_trace == FieldResult.MISMATCH
+    assert [m for m in result.mismatch_details if m.field == "decision_trace"]
+
+
 def test_continuity_anchored_at_a_size_the_issuer_never_signed_is_rejected():
     """entry_count is the only size the issuer signed. A runtime that anchors
     its proof at a different signed size is choosing its own baseline."""
