@@ -194,7 +194,7 @@ class MemoryCheckpoint:
                  algorithm: str = "sha256") -> "MemoryCheckpoint":
         tree = memory_merkletree(ops, representation, algorithm=algorithm)
         binding = MemoryCheckpointBinding(
-            memory_root=tree.root_hex(),
+            memory_root=HashValue(tree.root_hex()),
             tree_size=len(ops),
             seq=seq,
             approved_at=approved_at,
