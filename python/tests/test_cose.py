@@ -90,6 +90,29 @@ def pq_backend():
         pytest.skip("no ML-DSA-65 backend available")
     return "sdk"
 
+
+@pytest.fixture
+def inject_cbor_decode(monkeypatch):
+    """Transform real decoded values without mutating cbor2's decoder type."""
+    from agent_manifest import _cose
+
+    real_new_decoder = _cose._new_decoder
+
+    def inject(transform):
+        class Decoder:
+            def __init__(self, stream):
+                self._decoder = real_new_decoder(stream)
+
+            def decode(self):
+                return transform(self._decoder.decode())
+
+        # The real decoder still consumes the stream, including protected
+        # headers. Only its returned object graph is changed by the test.
+        monkeypatch.setattr(_cose, "_new_decoder", Decoder)
+
+    return inject
+
+
 NOW = datetime.now(timezone.utc)
 FUTURE = (NOW + timedelta(days=90)).isoformat().replace("+00:00", "Z")
 SHA = "sha256:" + "a" * 64
@@ -2148,7 +2171,9 @@ def test_reject_cbor_sentinels_recurses_into_cbortag_and_set():
     _reject_cbor_sentinels(legitimate, what="unprotected header")  # must not raise
 
 
-def test_unprotected_header_sentinel_nested_in_tag_or_set_is_checked_at_decode():
+def test_unprotected_header_sentinel_nested_in_tag_or_set_is_checked_at_decode(
+    inject_cbor_decode,
+):
     """The sentinel check must catch a sentinel nested inside a tag or set
     on a *real* envelope, not just when the recursive helper is called
     directly - and, critically, before ``decode_cose_manifest`` /
@@ -2159,7 +2184,7 @@ def test_unprotected_header_sentinel_nested_in_tag_or_set_is_checked_at_decode()
     header value, which is what the fuzzer's reproducer above already
     covers) is not practical without re-running the fuzzer. What can be
     reproduced deterministically is the resulting Python object graph: this
-    patches ``cbor2.CBORDecoder.decode`` to return that exact graph - a
+    wraps the SDK decoder factory to return that exact graph - a
     signed, otherwise fully valid envelope whose unprotected header carries
     a sentinel inside ``CBORTag(258, [sentinel])`` - while still consuming
     the real byte stream first, so every other check downstream of decoding
@@ -2172,8 +2197,6 @@ def test_unprotected_header_sentinel_nested_in_tag_or_set_is_checked_at_decode()
     unserializable ``cbor2.CBORTag``/``object()`` a caller had no reason to
     expect.
     """
-    from unittest.mock import patch
-
     signed = sign_cose_sign1(base_manifest(), KP)
     signed = attach_attestation(signed, {"platform": "sim"})
 
@@ -2185,25 +2208,19 @@ def test_unprotected_header_sentinel_nested_in_tag_or_set_is_checked_at_decode()
     body[1] = malicious_unprotected
     fake_decoded = cbor2.CBORTag(tag, tuple(body))
 
-    real_decode = cbor2.CBORDecoder.decode
-
-    def smuggle_sentinel(self):
-        real_decode(self)  # fully consume the real stream first
-        return fake_decoded
-
-    with patch.object(cbor2.CBORDecoder, "decode", smuggle_sentinel):
+    inject_cbor_decode(lambda decoded: fake_decoded)
+    with pytest.raises(CoseStructureError, match="undecodable CBOR value"):
+        decode_cose_manifest(signed)
+    with pytest.raises(CoseStructureError, match="undecodable CBOR value"):
+        verify_cose_manifest(signed, trusted_keys=TRUSTED_KEYS)
+    for call in (
+        lambda: attach_unprotected(signed, 1, b"x"),
+        lambda: attach_receipt(signed, b"\xa0"),
+        lambda: attach_attestation(signed, {"platform": "x"}),
+        lambda: attach_approvals(signed, [{"approver_id": "a"}]),
+    ):
         with pytest.raises(CoseStructureError, match="undecodable CBOR value"):
-            decode_cose_manifest(signed)
-        with pytest.raises(CoseStructureError, match="undecodable CBOR value"):
-            verify_cose_manifest(signed, trusted_keys=TRUSTED_KEYS)
-        for call in (
-            lambda: attach_unprotected(signed, 1, b"x"),
-            lambda: attach_receipt(signed, b"\xa0"),
-            lambda: attach_attestation(signed, {"platform": "x"}),
-            lambda: attach_approvals(signed, [{"approver_id": "a"}]),
-        ):
-            with pytest.raises(CoseStructureError, match="undecodable CBOR value"):
-                call()
+            call()
 
 
 # ---------------------------------------------------------------------------
@@ -2338,21 +2355,21 @@ def test_new_decoder_falls_back_when_read_size_unsupported(monkeypatch):
     [object(), [{"nested": object()}], cbor2.CBORTag(258, [object()])],
     ids=["direct", "nested-list-dict", "nested-tag"],
 )
-def test_protected_header_sentinel_direct_and_nested_is_rejected(monkeypatch, bad_val):
+def test_protected_header_sentinel_direct_and_nested_is_rejected(
+    inject_cbor_decode, bad_val
+):
     """A CBOR break-marker sentinel (direct or nested) inside a protected
     header map must be rejected with CoseStructureError."""
     signed = sign_cose_sign1(base_manifest(), KP)
-    real_decode = cbor2.CBORDecoder.decode
 
-    def smuggle_into_protected(self):
-        res = real_decode(self)
+    def smuggle_into_protected(res):
         if isinstance(res, dict) and HDR_ALG in res:
             poisoned = dict(res)
             poisoned[999] = bad_val
             return poisoned
         return res
 
-    monkeypatch.setattr(cbor2.CBORDecoder, "decode", smuggle_into_protected)
+    inject_cbor_decode(smuggle_into_protected)
     with pytest.raises(
         CoseStructureError,
         match="body protected header contains an undecodable CBOR value",
@@ -2394,7 +2411,7 @@ def test_protected_header_sentinel_direct_and_nested_is_rejected(monkeypatch, ba
     ids=["direct", "nested-list-dict", "nested-tag"],
 )
 def test_cose_sign_signer_unprotected_header_sentinel_is_rejected(
-    monkeypatch, bad_val
+    inject_cbor_decode, bad_val
 ):
     """A CBOR break-marker sentinel (direct or nested) inside a COSE_Sign
     signer's unprotected header must be rejected with CoseStructureError."""
@@ -2419,17 +2436,12 @@ def test_cose_sign_signer_unprotected_header_sentinel_is_rejected(
     env_body[3] = [[entry_protected, {999: bad_val}, body[3]]]
     fake_decoded = cbor2.CBORTag(tag, tuple(env_body))
 
-    real_decode = cbor2.CBORDecoder.decode
-
-    def smuggle_into_signer_unprotected(self):
-        res = real_decode(self)
+    def smuggle_into_signer_unprotected(res):
         if isinstance(res, cbor2.CBORTag) and res.tag == COSE_SIGN_TAG:
             return fake_decoded
         return res
 
-    monkeypatch.setattr(
-        cbor2.CBORDecoder, "decode", smuggle_into_signer_unprotected
-    )
+    inject_cbor_decode(smuggle_into_signer_unprotected)
     with pytest.raises(
         CoseStructureError,
         match="COSE_Signature 0 unprotected header contains an undecodable CBOR value",
