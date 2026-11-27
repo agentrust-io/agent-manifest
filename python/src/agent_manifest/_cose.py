@@ -601,6 +601,10 @@ def _plain(value: Any) -> Any:
     return value
 
 
+# cbor2 5.x exposes a dedicated singleton; 6.x may use a plain object.
+_CBOR_BREAK_MARKER = getattr(cbor2, "break_marker", object())
+
+
 def _reject_cbor_sentinels(
     value: Any, *, what: str, _active: Optional[set[int]] = None
 ) -> None:
@@ -608,8 +612,8 @@ def _reject_cbor_sentinels(
 
     A stray break byte (``0xff``) in the wrong position does not always make
     cbor2 raise during decode: depending on where it lands, cbor2 hands back
-    its own internal marker object instead - a bare ``object()``, never a
-    subclass, never something a normal decode produces otherwise. That
+    its own internal marker instead: a dedicated ``break_marker`` singleton
+    on 5.x, or a bare ``object()`` on newer decoders. That
     marker cannot be re-encoded, so anything holding one dies later with
     ``cbor2.CBOREncodeError`` when a caller (``attach_unprotected`` and
     everything built on it) tries to write the structure back out.
@@ -617,7 +621,7 @@ def _reject_cbor_sentinels(
     ``body[3]`` (the signature slot) is checked per-tag in ``_decode_tagged``
     itself; this function closes the same hole for the unprotected header,
     whose *values* were never inspected past "is it a Mapping". It matches on
-    the exact marker type - ``type(value) is object`` - rather than
+    the exported marker singleton or the exact plain ``object`` type, rather than
     allow-listing legitimate types, so it can never reject a manifest that
     decodes normally, no matter which types cbor2's tag support adds in a
     future version (``UUID``, ``Decimal``, ``datetime`` and friends already
@@ -637,7 +641,7 @@ def _reject_cbor_sentinels(
     Active container identities are tracked so CBOR value-sharing cycles
     (tags 28/29) fail closed with ``CoseStructureError``.
     """
-    if type(value) is object:
+    if type(value) is object or value is _CBOR_BREAK_MARKER:
         raise CoseStructureError(
             f"{what} contains an undecodable CBOR value "
             "(a malformed indefinite-length break byte)"
