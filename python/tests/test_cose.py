@@ -2104,7 +2104,8 @@ def test_unprotected_header_sentinel_is_checked_at_decode():
 
     # cbor2 5.6.x can carry its own break-marker type past the sentinel
     # check. Attachment rejects it while re-encoding; decode-only instead
-    # reaches this reproducer's malformed protected-header bytes.
+    # reaches this reproducer's malformed protected-header bytes. The clean
+    # fixture below independently tests rejection of the unprotected marker.
     header_rejections = (
         "unprotected header contains an undecodable CBOR value",
         "unprotected header is not re-encodable:",
@@ -2124,6 +2125,33 @@ def test_unprotected_header_sentinel_is_checked_at_decode():
         _assert_cose_rejection(rejected.value, expected_prefix)
         if str(rejected.value).startswith("unprotected header is not re-encodable:"):
             assert isinstance(rejected.value.__cause__, cbor2.CBOREncodeError)
+
+
+@pytest.mark.parametrize("unprotected", [
+    bytes.fromhex("a11864ff"),
+    bytes.fromhex("a1186481ff"),
+    bytes.fromhex("a11864d9270f81ff"),
+], ids=["direct", "nested-array", "nested-tag"])
+def test_break_marker_in_unprotected_header_of_valid_envelope_is_rejected(unprotected):
+    signed = sign_cose_sign1(base_manifest(), KP)
+    assert verify_cose_manifest(signed, TRUSTED_KEYS).verified
+    _, body = parts(signed)
+    # Preserve the signed protected header, payload, and signature exactly.
+    # Only the unprotected map contains malformed CBOR; an unrelated header
+    # or signature failure must not make this regression pass.
+    envelope = (
+        bytes.fromhex("d284") + cbor2.dumps(body[0]) + unprotected
+        + cbor2.dumps(body[2]) + cbor2.dumps(body[3])
+    )
+    for call in (
+        lambda: decode_cose_manifest(envelope),
+        lambda: verify_cose_manifest(envelope, TRUSTED_KEYS),
+    ):
+        with pytest.raises(CoseStructureError) as rejected:
+            call()
+        _assert_cose_rejection(
+            rejected.value, "unprotected header contains an undecodable CBOR value"
+        )
 
 
 def test_attach_unprotected_rejects_a_caller_supplied_unencodable_value():

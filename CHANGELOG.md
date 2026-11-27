@@ -4,6 +4,10 @@
 
 ### Security
 
+- **[SDK]** Reject the cbor2 5.x break-marker singleton in COSE headers,
+  including the decode-only and signature-verification paths. Valid envelopes
+  retain their existing signature and digest semantics.
+
 - **[SDK]** Enforce the existing Level 2+ memory drift-policy restriction: log-only produces a mismatch, while Levels 0 and 1 retain their existing behavior. Fixes #569.
 - **[SDK]** Return a structured mismatch when an attestation manifest pre-image cannot be canonicalized under RFC 8785, while preserving independent transparency appraisal. Fixes #568.
 
