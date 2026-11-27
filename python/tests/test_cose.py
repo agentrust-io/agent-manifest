@@ -1591,7 +1591,9 @@ def test_truncated_cbor_is_rejected():
         verify_cose_manifest(b"\x82\x01", TRUSTED_KEYS)
 
 
-def _assert_cose_rejection(error: CoseStructureError, expected_prefix: str) -> None:
+def _assert_cose_rejection(
+    error: CoseStructureError, expected_prefix: str | tuple[str, ...]
+) -> None:
     message = str(error)
     if message.startswith("COSE object is not valid CBOR:"):
         assert isinstance(error.__cause__, cbor2.CBORDecodeError), (
@@ -2100,18 +2102,28 @@ def test_unprotected_header_sentinel_is_checked_at_decode():
         "0000000041a0a04040"
     )
 
-    for call in (
-        lambda: attach_receipt(envelope, b"\xa0"),
-        lambda: attach_unprotected(envelope, 1, b"x"),
-        lambda: attach_attestation(envelope, {"platform": "x"}),
-        lambda: attach_approvals(envelope, [{"approver_id": "a"}]),
-        lambda: decode_cose_manifest(envelope),
+    # cbor2 5.6.x can carry its own break-marker type past the sentinel
+    # check. Attachment rejects it while re-encoding; decode-only instead
+    # reaches this reproducer's malformed protected-header bytes.
+    header_rejections = (
+        "unprotected header contains an undecodable CBOR value",
+        "unprotected header is not re-encodable:",
+    )
+    for call, expected_prefix in (
+        (lambda: attach_receipt(envelope, b"\xa0"), header_rejections),
+        (lambda: attach_unprotected(envelope, 1, b"x"), header_rejections),
+        (lambda: attach_attestation(envelope, {"platform": "x"}), header_rejections),
+        (lambda: attach_approvals(envelope, [{"approver_id": "a"}]), header_rejections),
+        (lambda: decode_cose_manifest(envelope), (
+            "unprotected header contains an undecodable CBOR value",
+            "body protected header has trailing bytes",
+        )),
     ):
         with pytest.raises(CoseStructureError) as rejected:
             call()
-        _assert_cose_rejection(
-            rejected.value, "unprotected header contains an undecodable CBOR value"
-        )
+        _assert_cose_rejection(rejected.value, expected_prefix)
+        if str(rejected.value).startswith("unprotected header is not re-encodable:"):
+            assert isinstance(rejected.value.__cause__, cbor2.CBOREncodeError)
 
 
 def test_attach_unprotected_rejects_a_caller_supplied_unencodable_value():
